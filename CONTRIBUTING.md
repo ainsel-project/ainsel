@@ -139,7 +139,7 @@ repository on Forgejo, not here.
 | `dev-image-<component>.yml` (8) | push to `main` or `develop`, path-filtered | build and push images (see tags below) |
 | `dev-image-<component>.yml` (8) | PR, or a dispatch without `publish`, path-filtered | **build only** - no login, no push, image discarded |
 | `maintenance-untag.yml` | weekly schedule, or dispatch | report (and, on an explicit dispatch, delete) stale Docker Hub tags - see [`docs/maintenance.md`](docs/maintenance.md) |
-| `gitleaks.yml` | push and PR on `main`/`develop` | secret scanning |
+| `betterleaks.yml` | push and PR on `main`/`develop` | secret scanning |
 | `deploy-docs-pages.yml` | push to `main` on docs paths | publish the docs site |
 | `release.yml` | push to `main`, or dispatch | release-please maintains the release PR; when one merges, publish images + chart and verify |
 

@@ -1,0 +1,39 @@
+name: Secret Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  betterleaks:
+    name: betterleaks
+    # betterleaks is a plain CLI scanning the fetched git history; unlike
+    # gitleaks-action it makes no API calls, so contents: read is the only
+    # permission this job needs.
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: the scan covers every commit, catching secrets
+          # introduced and removed within a PR branch.
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install betterleaks
+        # Exact pin for supply-chain stability; betterleaks.toml in the repo
+        # root is vendored from this same tag. Upstream has no stable v2
+        # release yet (v2 exists only as release candidates; the main branch
+        # is v2 development) - move to the first stable v2.x.y when it lands
+        # and re-sync betterleaks.toml.
+        run: go install github.com/betterleaks/betterleaks/v2@v2.0.0-rc.2
+      # Findings print to the log (path/line/snippet) and the step exits 1 on
+      # any finding (--exit-code defaults to 1). No credential validation:
+      # never send detected secrets out over the network from CI.
+      - name: Scan
+        run: betterleaks git . --config betterleaks.toml --no-banner
