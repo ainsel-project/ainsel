@@ -5,7 +5,7 @@ import {
   metricsSourceLabel,
   unavailableDetail,
   useTokensBySubject,
-  useTokensSummary,
+  useTokensLedger,
 } from '../../../api/observability'
 import type { TokensSubjectRow, Range } from '../../../api/observability'
 import { Titleblock } from '../../../layout/Titleblock'
@@ -28,7 +28,7 @@ export function TokensDetail() {
   const setRange = (next: Range) =>
     setParams((prev) => { const p = new URLSearchParams(prev); p.set('range', next); return p }, { replace: true })
 
-  const summary = useTokensSummary()
+  const allTime = useTokensLedger()
   const bySubject = useTokensBySubject(range)
 
   const rows: TokensSubjectRow[] = useMemo(
@@ -156,7 +156,7 @@ export function TokensDetail() {
               <span className="label">Total Tokens (all time)</span>
             </div>
             <div className="figure num">
-              {summary.data ? abbreviateNumber(summary.data.totalTokens) : '—'}
+              {allTime.data?.total ? abbreviateNumber(allTime.data.total.totalTokens) : '—'}
             </div>
           </div>
           <div className="kpi">

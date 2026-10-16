@@ -210,6 +210,41 @@ export function useTokensSummary(range?: Range) {
   })
 }
 
+// The hub's cumulative token ledger — GET /api/v1/tokens with no since/until.
+// This is the same endpoint the MCP get_token_usage tool reads, and the only
+// one that answers "how much has been consumed in total" on both backends:
+// the records path sums every retained conversation row, the PromQL path
+// reads the cumulative counters.
+export type TokensTotals = {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  totalTokens: number
+  costUsd?: number
+}
+
+type TokensLedgerEnvelope = {
+  tokens: unknown[]
+  total: TokensTotals
+  source?: MetricsSource
+}
+
+// getTokensLedger is the all-time source for the Tokens page's
+// "Total Tokens (all time)" tile. /tokens/summary is range-bound — without a
+// range it answers the server default of 24h — which is exactly the figure
+// that tile used to show under its all-time label.
+export function getTokensLedger() {
+  return request<TokensLedgerEnvelope>('/tokens')
+}
+
+export function useTokensLedger() {
+  return useQuery({
+    queryKey: ['observability', 'tokens', 'ledger'],
+    queryFn: getTokensLedger,
+  })
+}
+
 export function getTokensBySubject(range: Range) {
   return request<TokensBySubject>('/observability/metrics/tokens/by-subject', {
     query: { range },
