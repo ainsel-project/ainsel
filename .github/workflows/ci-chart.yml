@@ -2,7 +2,7 @@ name: CI - chart
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'chart/**'
       - 'operators/agent/config/crd/bases/**'
@@ -10,7 +10,7 @@ on:
       - 'scripts/check-crd-sync.py'
       - '.github/workflows/ci-chart.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'chart/**'

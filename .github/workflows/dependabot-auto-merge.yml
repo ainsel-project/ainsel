@@ -5,7 +5,7 @@ name: Dependabot auto-merge
 # gate fails with it and the PR waits for a human - exactly like any red PR.
 #
 # Why not GitHub's auto-merge flag (the pattern in GitHub's docs)? Because
-# develop's ruleset has no required status checks, so arming auto-merge means
+# main's ruleset has no required status checks, so arming auto-merge means
 # "merge immediately": the flag would merge on PR open before the ci-* runs
 # even start, it would merge PRs whose checks are failing right now, and it
 # stays armed across Dependabot force-pushes, merging every rebased head
@@ -37,7 +37,7 @@ name: Dependabot auto-merge
 # is seconds behind. A cancelled run says nothing about the head - the gate
 # skips CANCELLED and waits for the replacement instead.
 #
-# Merge-race caveat: when parallel gates squash-merge into develop one after
+# Merge-race caveat: when parallel gates squash-merge into main one after
 # another, the base moves between a poll and the merge attempt and GitHub
 # rejects with "Base branch was modified". The merge is retried: each failed
 # attempt loops back to the poll, which re-reads the PR state/head and

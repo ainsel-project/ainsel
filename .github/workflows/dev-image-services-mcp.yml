@@ -2,14 +2,14 @@ name: Dev Image - services/mcp
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'services/mcp/**'
       - 'shared/auth/**'
       - 'go.work'
       - '.github/workflows/dev-image-services-mcp.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'services/mcp/**'
@@ -53,7 +53,7 @@ jobs:
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
             echo "dpinsel/ainsel-mcp:${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               echo "dpinsel/ainsel-mcp:dev"
             fi
             echo "EOF"

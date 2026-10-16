@@ -31,15 +31,22 @@ WORKFLOWS = Path(".github/workflows")
 
 # event name, GITHUB_REF, the `publish` dispatch input, expected decision
 CASES = [
-    ("push", "refs/heads/develop", "", "true"),
+    # The trunk is the integration branch: it owns :dev and the variant floats.
     ("push", "refs/heads/main", "", "true"),
+    # A push from a branch the trigger cannot even match: the shell must still
+    # refuse to name :dev or the variant floats, whatever it decides to publish.
+    ("push", "refs/heads/feat-x", "", "true"),
     ("pull_request", "refs/pull/99/merge", "", "false"),
+    # Defensive: a pull_request never carries a trunk ref in practice, but if
+    # one ever did, the event gate must still refuse to publish - and with it
+    # the variant floats, which additionally require the trunk ref.
+    ("pull_request", "refs/heads/main", "", "false"),
     # A dispatch with no answer means "do not publish".
     ("workflow_dispatch", "refs/heads/feat-x", "", "false"),
     ("workflow_dispatch", "refs/heads/feat-x", "false", "false"),
     # An explicit opt-in publishes the base image, and nothing else.
     ("workflow_dispatch", "refs/heads/feat-x", "true", "true"),
-    ("workflow_dispatch", "refs/heads/develop", "true", "true"),
+    ("workflow_dispatch", "refs/heads/main", "true", "true"),
 ]
 
 
@@ -115,9 +122,9 @@ def check_workflow(path: Path) -> list[str]:
                 f"{event} on {ref} (publish input {publish_input or '(unset)'}) "
                 f"decided publish={got.get('publish')!r}, want {want!r}"
             )
-        # :dev is what the dev cluster runs; only develop may name it.
+        # :dev is what the dev cluster runs; only the trunk may name it.
         has_dev = ":dev" in got.get("tags", "")
-        if has_dev != (ref == "refs/heads/develop"):
+        if has_dev != (ref == "refs/heads/main"):
             problems.append(f"{event} on {ref}: :dev in tags = {has_dev}")
         if path.name == "dev-image-pi.yml":
             problems += check_pi_variants(got, ref, problems)
@@ -161,7 +168,7 @@ def check_pi_variants(got: dict[str, str], ref: str, seen: list[str]) -> list[st
         problems.append(f"{ref}: publish_variants=true but tags are {variants!r}")
     if not published and "local-check" not in variants:
         problems.append(f"{ref}: variants are not being published but tags are {variants!r}")
-    if published != (ref == "refs/heads/develop" and got.get("publish") == "true"):
+    if published != (ref == "refs/heads/main" and got.get("publish") == "true"):
         problems.append(f"{ref}: publish_variants={got.get('publish_variants')!r}")
     return problems
 
@@ -178,8 +185,11 @@ def check_pi_workflow() -> list[str]:
         if step is None:
             problems.append(f"{name} step is gone")
             continue
-        if step.get("if") != "github.ref != 'refs/heads/main'":
-            problems.append(f"{name}: if={step.get('if')!r} - main must not build variants")
+        if step.get("if") is not None:
+            problems.append(
+                f"{name}: if={step.get('if')!r} - the trunk is what must build and "
+                "publish the variants; whether to push is decided by publish_variants"
+            )
         args = str((step.get("with") or {}).get("build-args"))
         if "BASE_TAG=${{ steps.meta.outputs.base_tag }}" not in args:
             problems.append(

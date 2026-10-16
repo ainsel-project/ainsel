@@ -2,7 +2,7 @@ name: Dev Image - services/hub
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'services/hub/**'
       - 'shared/api/**'
@@ -10,7 +10,7 @@ on:
       - 'go.work'
       - '.github/workflows/dev-image-services-hub.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'services/hub/**'
@@ -55,7 +55,7 @@ jobs:
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
             echo "dpinsel/ainsel-hub-backend:${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               echo "dpinsel/ainsel-hub-backend:dev"
             fi
             echo "EOF"

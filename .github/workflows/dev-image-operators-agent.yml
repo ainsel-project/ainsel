@@ -2,14 +2,14 @@ name: Dev Image - operators/agent
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'operators/agent/**'
       - 'shared/api/**'
       - 'go.work'
       - '.github/workflows/dev-image-operators-agent.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'operators/agent/**'
@@ -53,7 +53,7 @@ jobs:
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
             echo "dpinsel/ainsel-k8s-ai-agent-operator:${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               echo "dpinsel/ainsel-k8s-ai-agent-operator:dev"
             fi
             echo "EOF"

@@ -1,10 +1,10 @@
 name: PR title
 
-# Squash-merge makes the PR title the commit subject on develop, and a
-# promotion carries that subject onto main, where release-please reads it to
-# compute the version and write CHANGELOG.md. A title release-please cannot
-# parse is dropped from the changelog entirely and cannot bump a version - the
-# change still ships, it just becomes invisible in the release.
+# Squash-merge makes the PR title the commit subject on main, where
+# release-please reads it to compute the version and write CHANGELOG.md. A
+# title release-please cannot parse is dropped from the changelog entirely
+# and cannot bump a version - the change still ships, it just becomes
+# invisible in the release.
 #
 # That is not hypothetical: M1-M6 of the agent-centric rework were merged as
 # "M1: skills move onto the agent (#158)" and friends, and none of them appear
