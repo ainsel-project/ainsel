@@ -427,7 +427,7 @@ List all triggers, sorted by id. Supports `page`/`pageSize` plus optional filter
       "name": "Review issues",
       "agentRef": "a-3f9a2b",
       "connectorRef": "c-1a2b3c",
-      "filters": [{"field": "repo", "op": "eq", "value": "AInsel/ainsel"}],
+      "filters": [{"field": "repo", "op": "eq", "value": "ainsel-project/ainsel"}],
       "status": {"agentValid": true, "connectorValid": true}
     }
   ],
@@ -449,7 +449,7 @@ required when access control is enabled.
   "agentRef": "a-3f9a2b",
   "connectorRef": "c-1a2b3c",
   "groupId": "my-group",
-  "filters": [{"field": "repo", "op": "eq", "value": "AInsel/ainsel"}]
+  "filters": [{"field": "repo", "op": "eq", "value": "ainsel-project/ainsel"}]
 }
 ```
 
@@ -1368,7 +1368,7 @@ empty string.
 {
   "range": "24h",
   "rows": [
-    {"agent": "a-3f9a2b", "repo": "AInsel/ainsel", "eventType": "issue.opened", "model": "gpt-4", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
+    {"agent": "a-3f9a2b", "repo": "ainsel-project/ainsel", "eventType": "issue.opened", "model": "gpt-4", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
   ],
   "updatedAt": "2026-05-20T10:00:00Z",
   "source": "postgres"
@@ -1477,7 +1477,7 @@ Per-`(agent, repository, issueNumber, model)` token consumption. The hub's own c
 ```json
 {
   "tokens": [
-    {"agent": "a-3f9a2b", "repository": "AInsel/ainsel", "issueNumber": "42", "model": "unsloth/gpt-oss-120b-GGUF:F16", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
+    {"agent": "a-3f9a2b", "repository": "ainsel-project/ainsel", "issueNumber": "42", "model": "unsloth/gpt-oss-120b-GGUF:F16", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
   ],
   "total": {"inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31},
   "source": "postgres"

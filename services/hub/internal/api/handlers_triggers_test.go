@@ -13,9 +13,9 @@ import (
 
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 func triggerTestServer(t *testing.T) *Server {

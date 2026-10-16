@@ -9,9 +9,9 @@ import (
 
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/mcpservers"
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

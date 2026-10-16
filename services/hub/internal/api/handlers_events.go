@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 )
 
 // Activity status values. These mirror the ActivityStatus union in the

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/chat"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

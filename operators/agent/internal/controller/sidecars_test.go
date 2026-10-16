@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 var _ = Describe("Agent Controller", func() {

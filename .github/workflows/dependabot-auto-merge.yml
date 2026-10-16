@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: >-
-      github.repository == 'DominikPinsel/ainsel' &&
+      github.repository == 'ainsel-project/ainsel' &&
       (github.event_name == 'workflow_dispatch' ||
        contains(github.event.pull_request.user.login, 'dependabot'))
     env:

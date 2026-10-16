@@ -838,7 +838,7 @@ it, so the totals can differ by exactly those rows. See
     {
       "agent": "dev",
       "agentName": "Developer",
-      "repo": "DominikPinsel/ainsel",
+      "repo": "ainsel-project/ainsel",
       "eventType": "issue",
       "model": "claude-sonnet",
       "inputTokens": 1500,

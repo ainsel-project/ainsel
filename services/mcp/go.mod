@@ -1,9 +1,9 @@
-module github.com/DominikPinsel/ainsel/services/mcp
+module github.com/ainsel-project/ainsel/services/mcp
 
 go 1.26.1
 
 require (
-	github.com/DominikPinsel/ainsel/shared/auth/oidc v0.0.0
+	github.com/ainsel-project/ainsel/shared/auth/oidc v0.0.0
 	github.com/mark3labs/mcp-go v1.2.1
 )
 
@@ -22,4 +22,4 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 )
 
-replace github.com/DominikPinsel/ainsel/shared/auth/oidc => ../../shared/auth/oidc
+replace github.com/ainsel-project/ainsel/shared/auth/oidc => ../../shared/auth/oidc

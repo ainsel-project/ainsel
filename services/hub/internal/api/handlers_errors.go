@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
 func (s *Server) handleErrors(w http.ResponseWriter, r *http.Request) {

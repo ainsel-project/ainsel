@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // The hub and the operator both write Agent status, and the operator's pod count

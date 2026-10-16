@@ -7,7 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/DominikPinsel/ainsel/services/chat-mcp/internal/tools"
+	"github.com/ainsel-project/ainsel/services/chat-mcp/internal/tools"
 )
 
 // New creates a configured MCP server with all chat tools registered.

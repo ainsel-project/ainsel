@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/telemetry"
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

@@ -22,7 +22,7 @@ on code and design rather than people.
 ## Reporting issues
 
 Open an issue in the Forgejo issue tracker for the
-[AInsel/ainsel](https://github.com/DominikPinsel/ainsel/issues)
+[ainsel-project/ainsel](https://github.com/ainsel-project/ainsel/issues)
 repo. Useful issues include:
 
 - What you expected to happen.
@@ -49,7 +49,7 @@ You'll need:
 Clone and install:
 
 ```bash
-git clone https://github.com/DominikPinsel/ainsel.git
+git clone https://github.com/ainsel-project/ainsel.git
 cd ainsel
 
 pnpm install                  # frontend workspace deps
@@ -101,7 +101,7 @@ Adding a new Go module:
 ```bash
 mkdir services/new-thing
 cd services/new-thing
-go mod init github.com/DominikPinsel/ainsel/services/new-thing
+go mod init github.com/ainsel-project/ainsel/services/new-thing
 cd ../..
 # Add the new path under `use ( … )` in go.work.
 go work sync
@@ -255,7 +255,7 @@ Three files define it:
 | artifact | where | tags |
 | --- | --- | --- |
 | 8 images + 2 pi variants | Docker Hub, `dpinsel/ainsel-*` | `:vX.Y.Z`, `:X.Y.Z`, and `:latest` for stable releases |
-| Helm chart | GHCR, `oci://ghcr.io/dominikpinsel/charts/ainsel` | `X.Y.Z` |
+| Helm chart | GHCR, `oci://ghcr.io/ainsel-project/charts/ainsel` | `X.Y.Z` |
 | chart `.tgz` | attached to the GitHub Release | — |
 
 The two pi variants build with `BASE_TAG=<release>` against the pi base built in
@@ -404,7 +404,7 @@ full tutorial covering the CRD, service, operator, and chart integration.
 
 ## Where to ask for help
 
-- [Issues](https://github.com/DominikPinsel/ainsel/issues)
+- [Issues](https://github.com/ainsel-project/ainsel/issues)
   for bugs and feature requests.
 - For architectural questions, start by skimming
   [`docs/architecture.md`](docs/architecture.md).

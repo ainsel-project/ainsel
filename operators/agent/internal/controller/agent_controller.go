@@ -28,11 +28,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
-	sharedpersonas "github.com/DominikPinsel/ainsel/shared/api/personas"
-	sharedskills "github.com/DominikPinsel/ainsel/shared/api/skills"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	sharedpersonas "github.com/ainsel-project/ainsel/shared/api/personas"
+	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 
-	"github.com/DominikPinsel/ainsel/operators/agent/internal/controller/mcpservers"
+	"github.com/ainsel-project/ainsel/operators/agent/internal/controller/mcpservers"
 )
 
 const (

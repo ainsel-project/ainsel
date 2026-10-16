@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/authz"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/skills"
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // SkillService is the surface the handlers depend on.

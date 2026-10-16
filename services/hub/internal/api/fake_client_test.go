@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	connectorv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

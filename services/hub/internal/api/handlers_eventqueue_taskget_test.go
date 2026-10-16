@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 )
 
 // The jobPerTask fetch guard. The Job's own backoffLimit schedules the next pod

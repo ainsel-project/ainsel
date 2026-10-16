@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 type tokenCacheEntry struct {

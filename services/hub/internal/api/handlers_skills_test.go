@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/skills"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 )
 
 // mockSkillService implements SkillService for handler tests.

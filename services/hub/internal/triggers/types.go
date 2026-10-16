@@ -6,7 +6,7 @@ package triggers
 import (
 	"time"
 
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // Trigger is the canonical trigger record from the database.

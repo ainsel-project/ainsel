@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 )
 
 // M3: agent-owned personas. A persona is either a shared template (visible in

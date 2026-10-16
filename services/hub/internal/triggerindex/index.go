@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // MatchResult holds information about a trigger that matched an event.

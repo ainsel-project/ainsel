@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	commonv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	commonv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // sha256Hex returns the hex-encoded SHA-256 hash of s.

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 func makeTrigger(id, agentRef, connectorRef string, filters []ainselapishared.Filter) *triggers.Trigger {

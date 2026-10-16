@@ -1,4 +1,4 @@
-module github.com/DominikPinsel/ainsel/shared/auth/oidc
+module github.com/ainsel-project/ainsel/shared/auth/oidc
 
 go 1.26.1
 

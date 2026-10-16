@@ -27,7 +27,7 @@ Inside the monorepo, `go.work` joins this module automatically — no
 `replace` directive needed. Just import:
 
 ```go
-import api "github.com/DominikPinsel/ainsel/shared/api"
+import api "github.com/ainsel-project/ainsel/shared/api"
 ```
 
 Outside the monorepo, vendor the source or pin a version tag.

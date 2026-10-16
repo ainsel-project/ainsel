@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 func TestHubPostAcceptsCreated(t *testing.T) {

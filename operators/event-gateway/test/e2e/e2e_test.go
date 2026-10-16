@@ -14,7 +14,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/DominikPinsel/ainsel/operators/event-gateway/test/utils"
+	"github.com/ainsel-project/ainsel/operators/event-gateway/test/utils"
 )
 
 // namespace where the project is deployed in

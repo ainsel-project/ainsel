@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/mcp/internal/auth"
+	"github.com/ainsel-project/ainsel/services/mcp/internal/auth"
 )
 
 func TestProtectedResourceMetadataHandler(t *testing.T) {

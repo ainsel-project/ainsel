@@ -9,7 +9,7 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/shared/api"
 )
 
 type TriggerSpec struct {

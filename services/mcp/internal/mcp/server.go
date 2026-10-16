@@ -6,7 +6,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/DominikPinsel/ainsel/services/mcp/internal/tools"
+	"github.com/ainsel-project/ainsel/services/mcp/internal/tools"
 )
 
 // Backends holds connection details for all backend services.

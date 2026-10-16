@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/types"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/types"
 )
 
 // SetEventQueue wires the event queue store for the ingest and agent task endpoints.

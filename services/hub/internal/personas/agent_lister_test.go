@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 )
 
 // agentGVK is the GVK of the Agent CR the hub already manages.

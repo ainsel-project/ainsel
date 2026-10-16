@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // Pausing an agent withholds task delivery: the hub's claim endpoint hands a

@@ -3,8 +3,8 @@ package mcpservers_test
 import (
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/operators/agent/internal/controller/mcpservers"
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/operators/agent/internal/controller/mcpservers"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 func TestEnvValueJoinsWithCommas(t *testing.T) {

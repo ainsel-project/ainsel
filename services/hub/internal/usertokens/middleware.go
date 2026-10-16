@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // UsernameResolver resolves a user ID to a display username.

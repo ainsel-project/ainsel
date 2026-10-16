@@ -35,8 +35,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	v1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	v1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // Defaults for New. Tick is the wake-latency budget: an enqueued task waits at

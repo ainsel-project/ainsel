@@ -14,7 +14,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // These tests drive reconcileDeployment so the assertion is about the object

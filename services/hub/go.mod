@@ -1,9 +1,9 @@
-module github.com/DominikPinsel/ainsel/services/hub
+module github.com/ainsel-project/ainsel/services/hub
 
 go 1.26.1
 
 require (
-	github.com/DominikPinsel/ainsel/shared/api v0.0.0-00010101000000-000000000000
+	github.com/ainsel-project/ainsel/shared/api v0.0.0-00010101000000-000000000000
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
@@ -40,7 +40,7 @@ require (
 require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
-	github.com/DominikPinsel/ainsel/shared/auth/oidc v0.0.0-00010101000000-000000000000
+	github.com/ainsel-project/ainsel/shared/auth/oidc v0.0.0-00010101000000-000000000000
 	github.com/MicahParks/jwkset v0.11.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -136,6 +136,6 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/DominikPinsel/ainsel/shared/api => ../../shared/api
+replace github.com/ainsel-project/ainsel/shared/api => ../../shared/api
 
-replace github.com/DominikPinsel/ainsel/shared/auth/oidc => ../../shared/auth/oidc
+replace github.com/ainsel-project/ainsel/shared/auth/oidc => ../../shared/auth/oidc

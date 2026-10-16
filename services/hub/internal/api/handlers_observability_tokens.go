@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
 // Agents publish token usage as agent_tokens_used_total{agent,repo,org,event_type,token_type,model}.

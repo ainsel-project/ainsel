@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 func TestMergeMCPTools_PreservesEnabledState(t *testing.T) {

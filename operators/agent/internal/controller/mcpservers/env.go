@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // MissingEnvEntry pairs an MCP server name with the env-var name it

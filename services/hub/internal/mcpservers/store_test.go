@@ -7,8 +7,8 @@ import (
 
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/mcpservers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 )
 
 func setup(t *testing.T) *mcpservers.Store {

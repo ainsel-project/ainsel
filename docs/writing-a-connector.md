@@ -168,7 +168,7 @@ import (
 	"os"
 	"time"
 
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 func main() {

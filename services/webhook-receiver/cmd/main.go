@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/webhook-receiver/internal/publisher"
-	"github.com/DominikPinsel/ainsel/services/webhook-receiver/internal/webhook"
+	"github.com/ainsel-project/ainsel/services/webhook-receiver/internal/publisher"
+	"github.com/ainsel-project/ainsel/services/webhook-receiver/internal/webhook"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 

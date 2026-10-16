@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	sharedskills "github.com/DominikPinsel/ainsel/shared/api/skills"
+	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
-	cronparse "github.com/DominikPinsel/ainsel/shared/api/cron"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	cronparse "github.com/ainsel-project/ainsel/shared/api/cron"
 )
 
 // CronTriggerResponse is the simplified API representation of a CronTrigger.

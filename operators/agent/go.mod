@@ -1,9 +1,9 @@
-module github.com/DominikPinsel/ainsel/operators/agent
+module github.com/ainsel-project/ainsel/operators/agent
 
 go 1.26.1
 
 require (
-	github.com/DominikPinsel/ainsel/shared/api v1.0.1-0.20260519214203-99611deeaaa9
+	github.com/ainsel-project/ainsel/shared/api v1.0.1-0.20260519214203-99611deeaaa9
 	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -108,4 +108,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/DominikPinsel/ainsel/shared/api => ../../shared/api
+replace github.com/ainsel-project/ainsel/shared/api => ../../shared/api

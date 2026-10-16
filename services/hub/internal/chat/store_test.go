@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/chat"
+	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
 )
 
 // mustCreate creates a session and fails the test on error.

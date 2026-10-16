@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/skills"
-	sharedskills "github.com/DominikPinsel/ainsel/shared/api/skills"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
+	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 )
 
 const testNamespace = "ainsel-test"

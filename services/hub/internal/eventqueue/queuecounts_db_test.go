@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 )
 
 // Queue depth decides how many containers an agent runs, so these queries are

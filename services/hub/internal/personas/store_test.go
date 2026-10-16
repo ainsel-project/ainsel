@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 )
 
 func TestStoreCreate(t *testing.T) {

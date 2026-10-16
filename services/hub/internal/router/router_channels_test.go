@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/channels"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggerindex"
+	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggerindex"
 )
 
 // fakeTransfer records what the router asked the channel graph to deliver, and

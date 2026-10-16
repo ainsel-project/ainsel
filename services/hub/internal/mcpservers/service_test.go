@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/mcpservers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 )
 
 func TestServiceCreateAndGet(t *testing.T) {

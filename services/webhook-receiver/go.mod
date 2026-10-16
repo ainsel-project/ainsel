@@ -1,9 +1,9 @@
-module github.com/DominikPinsel/ainsel/services/webhook-receiver
+module github.com/ainsel-project/ainsel/services/webhook-receiver
 
 go 1.26.1
 
 require (
-	github.com/DominikPinsel/ainsel/shared/api v0.1.0
+	github.com/ainsel-project/ainsel/shared/api v0.1.0
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
@@ -20,4 +20,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/DominikPinsel/ainsel/shared/api => ../../shared/api
+replace github.com/ainsel-project/ainsel/shared/api => ../../shared/api

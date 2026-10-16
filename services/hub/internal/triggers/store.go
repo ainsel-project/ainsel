@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"

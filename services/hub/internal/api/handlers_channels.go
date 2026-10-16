@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/channels"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 )
 
 // channelDefaultWindow is how far the per-channel rates on a list cover when the

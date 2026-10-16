@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/channels"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/metrics"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
-	cronparse "github.com/DominikPinsel/ainsel/shared/api/cron"
+	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/metrics"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
+	cronparse "github.com/ainsel-project/ainsel/shared/api/cron"
 )
 
 // ConnectorName is the canonical connector value stamped on cron-emitted

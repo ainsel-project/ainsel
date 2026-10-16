@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/authz"
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // fakeAuthzStore is a minimal in-memory store for user-sync tests.

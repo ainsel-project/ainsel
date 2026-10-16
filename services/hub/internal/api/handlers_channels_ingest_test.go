@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/channels"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 )
 
 // ingestEvent posts one event body through the internal ingest endpoint the

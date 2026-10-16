@@ -13,8 +13,8 @@ WORKDIR /workspace/services/hub
 
 ARG VERSION=dev VCS_REF=unknown
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags "-X github.com/DominikPinsel/ainsel/services/hub/pkg/version.Version=${VERSION} \
-              -X github.com/DominikPinsel/ainsel/services/hub/pkg/version.Commit=${VCS_REF}" \
+    -ldflags "-X github.com/ainsel-project/ainsel/services/hub/pkg/version.Version=${VERSION} \
+              -X github.com/ainsel-project/ainsel/services/hub/pkg/version.Commit=${VCS_REF}" \
     -o /hub ./cmd/hub
 
 FROM gcr.io/distroless/static-debian12:nonroot

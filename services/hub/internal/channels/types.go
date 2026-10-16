@@ -25,7 +25,7 @@ package channels
 import (
 	"time"
 
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // Kind is the provisioning class of a channel.

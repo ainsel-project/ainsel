@@ -11,9 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/telemetry"
+	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
 )
 
 // These tests pin *which* backend answers the event metric panels. The panel

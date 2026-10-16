@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/api"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	_ "github.com/DominikPinsel/ainsel/services/hub/internal/metrics"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
-	"github.com/DominikPinsel/ainsel/services/hub/pkg/version"
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/services/hub/internal/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	_ "github.com/ainsel-project/ainsel/services/hub/internal/metrics"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/pkg/version"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/runtime"

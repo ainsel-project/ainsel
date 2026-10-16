@@ -14,11 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/telemetry"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
 )
 
 // obsDBServer boots a Postgres testcontainer, migrates it, and returns a server

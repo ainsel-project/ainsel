@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 )
 
 // newServerWithTokensRoute wires /api/v1/tokens (the endpoint the MCP
@@ -36,10 +36,10 @@ type tokensResponse struct {
 func TestListTokens_IncludesCacheComponentsInTotals(t *testing.T) {
 	srv := fakePromServer(t, func(_ string, params url.Values) interface{} {
 		return vectorResponse([]vectorSample{
-			{Labels: map[string]string{"agent": "dev", "repo": "AInsel/ainsel", "issue_id": "42", "model": "glm", "token_type": "input"}, Value: "2400"},
-			{Labels: map[string]string{"agent": "dev", "repo": "AInsel/ainsel", "issue_id": "42", "model": "glm", "token_type": "output"}, Value: "900"},
-			{Labels: map[string]string{"agent": "dev", "repo": "AInsel/ainsel", "issue_id": "42", "model": "glm", "token_type": "cache_read"}, Value: "30000"},
-			{Labels: map[string]string{"agent": "dev", "repo": "AInsel/ainsel", "issue_id": "42", "model": "glm", "token_type": "cache_write"}, Value: "1200"},
+			{Labels: map[string]string{"agent": "dev", "repo": "ainsel-project/ainsel", "issue_id": "42", "model": "glm", "token_type": "input"}, Value: "2400"},
+			{Labels: map[string]string{"agent": "dev", "repo": "ainsel-project/ainsel", "issue_id": "42", "model": "glm", "token_type": "output"}, Value: "900"},
+			{Labels: map[string]string{"agent": "dev", "repo": "ainsel-project/ainsel", "issue_id": "42", "model": "glm", "token_type": "cache_read"}, Value: "30000"},
+			{Labels: map[string]string{"agent": "dev", "repo": "ainsel-project/ainsel", "issue_id": "42", "model": "glm", "token_type": "cache_write"}, Value: "1200"},
 		})
 	})
 	defer srv.Close()
@@ -62,7 +62,7 @@ func TestListTokens_IncludesCacheComponentsInTotals(t *testing.T) {
 	}
 
 	entry := body.Tokens[0]
-	if entry.Agent != "dev" || entry.Repository != "AInsel/ainsel" || entry.IssueNumber != "42" || entry.Model != "glm" {
+	if entry.Agent != "dev" || entry.Repository != "ainsel-project/ainsel" || entry.IssueNumber != "42" || entry.Model != "glm" {
 		t.Errorf("entry mislabeled: %+v", entry)
 	}
 	if entry.InputTokens != 2400 || entry.OutputTokens != 900 {
@@ -139,14 +139,14 @@ func TestListTokens_PassesFiltersToPromQL(t *testing.T) {
 
 	s := newServerWithTokensRoute(t, prometheus.NewClient(srv.URL, nil))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens?agent=dev&repository=AInsel/ainsel&issueNumber=42", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens?agent=dev&repository=ainsel-project/ainsel&issueNumber=42", nil)
 	rec := httptest.NewRecorder()
 	s.mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`agent="dev"`, `repo="AInsel/ainsel"`, `issue_id="42"`} {
+	for _, want := range []string{`agent="dev"`, `repo="ainsel-project/ainsel"`, `issue_id="42"`} {
 		if !strings.Contains(gotQuery, want) {
 			t.Errorf("query missing %s: %s", want, gotQuery)
 		}
@@ -308,8 +308,8 @@ func TestListTokens_RecordsPathWithoutPrometheus(t *testing.T) {
 	s, pool := tokensRecordsServer(t)
 	now := time.Now().UTC()
 
-	tokensSeedConversation(t, pool, "dev", "AInsel/ainsel", 42, "glm", 100, 10, 500, 50, 0.5, now.Add(-10*time.Minute))
-	tokensSeedConversation(t, pool, "dev", "AInsel/ainsel", 42, "glm", 20, 5, 0, 0, 0.25, now.Add(-9*time.Minute))
+	tokensSeedConversation(t, pool, "dev", "ainsel-project/ainsel", 42, "glm", 100, 10, 500, 50, 0.5, now.Add(-10*time.Minute))
+	tokensSeedConversation(t, pool, "dev", "ainsel-project/ainsel", 42, "glm", 20, 5, 0, 0, 0.25, now.Add(-9*time.Minute))
 	tokensSeedConversation(t, pool, "rev", "other/repo", 7, "m", 5, 1, 0, 0, 0, now.Add(-8*time.Minute))
 	// Pre-0024 row: subject unknown. It is still consumption — it must appear
 	// (rendered with an empty issueNumber), never be dropped.
@@ -324,7 +324,7 @@ func TestListTokens_RecordsPathWithoutPrometheus(t *testing.T) {
 		t.Fatalf("expected 3 grouped entries, got %d (%+v)", len(body.Tokens), body.Tokens)
 	}
 
-	dev := tokenRowByKey(body.Tokens, "dev", "AInsel/ainsel", "42", "glm")
+	dev := tokenRowByKey(body.Tokens, "dev", "ainsel-project/ainsel", "42", "glm")
 	if dev == nil {
 		t.Fatalf("dev row missing: %+v", body.Tokens)
 	}
@@ -362,7 +362,7 @@ func TestListTokens_RecordsTotalEqualsSummaryTile(t *testing.T) {
 	s, pool := tokensRecordsServer(t, "/api/v1/observability/metrics/tokens/summary")
 	now := time.Now().UTC()
 
-	tokensSeedConversation(t, pool, "dev", "AInsel/ainsel", 42, "glm", 100, 10, 500, 50, 0.5, now.Add(-30*time.Minute))
+	tokensSeedConversation(t, pool, "dev", "ainsel-project/ainsel", 42, "glm", 100, 10, 500, 50, 0.5, now.Add(-30*time.Minute))
 	tokensSeedConversation(t, pool, "rev", "other/repo", 7, "m", 5, 1, 0, 0, 0.25, now.Add(-20*time.Minute))
 
 	body := getTokens(t, s, "")
@@ -393,7 +393,7 @@ func TestListTokens_RecordsFiltersAreServerSide(t *testing.T) {
 	s, pool := tokensRecordsServer(t)
 	now := time.Now().UTC()
 
-	tokensSeedConversation(t, pool, "dev", "AInsel/ainsel", 42, "glm", 100, 10, 0, 0, 0, now.Add(-10*time.Minute))
+	tokensSeedConversation(t, pool, "dev", "ainsel-project/ainsel", 42, "glm", 100, 10, 0, 0, 0, now.Add(-10*time.Minute))
 	tokensSeedConversation(t, pool, "rev", "other/repo", 7, "m", 5, 1, 0, 0, 0, now.Add(-9*time.Minute))
 	// Unlabelled row: an issue filter must not sweep it in, and an
 	// issueNumber=0 filter must find exactly it.

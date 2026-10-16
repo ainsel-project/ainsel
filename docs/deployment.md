@@ -288,7 +288,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://your-forgejo/AInsel/ainsel.git
+    repoURL: https://your-forgejo/ainsel-project/ainsel.git
     targetRevision: main
     path: chart
     helm:

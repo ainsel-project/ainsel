@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 )
 
 func TestInvocations_ListReturnsAll(t *testing.T) {

@@ -14,7 +14,7 @@ FROM node:26-bookworm-slim
 # OCI metadata
 LABEL org.opencontainers.image.title="ainsel-pi" \
       org.opencontainers.image.description="Pi-native ainsel agent runtime — Node.js wrapper around the pi coding agent" \
-      org.opencontainers.image.source="https://github.com/DominikPinsel/ainsel"
+      org.opencontainers.image.source="https://github.com/ainsel-project/ainsel"
 
 # System packages.
 # - git: needed because the LLM clones repos via the ainsel git tool.

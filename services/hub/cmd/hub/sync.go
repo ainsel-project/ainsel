@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/cron"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggerindex"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/cron"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggerindex"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 )
 
 // runSyncLoop periodically syncs triggers and cron triggers from the database

@@ -1,4 +1,4 @@
-module github.com/DominikPinsel/ainsel/services/chat-mcp
+module github.com/ainsel-project/ainsel/services/chat-mcp
 
 go 1.26.1
 

@@ -6,7 +6,7 @@ import { renderWithProviders } from '../../../test/renderWithProviders'
 const TOKEN_ROWS = [
   {
     agent: 'doc-writer',
-    repo: 'AInsel/ainsel',
+    repo: 'ainsel-project/ainsel',
     eventType: 'pull_request.opened',
     model: 'kimi-k2.6',
     inputTokens: 500_000,
@@ -15,7 +15,7 @@ const TOKEN_ROWS = [
   },
   {
     agent: 'triage-bot',
-    repo: 'AInsel/ainsel',
+    repo: 'ainsel-project/ainsel',
     model: 'kimi-k2.6',
     inputTokens: 200_000,
     outputTokens: 40_000,

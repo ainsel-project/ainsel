@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 )
 
 // DefaultWindow is the traffic window reported alongside a channel when the

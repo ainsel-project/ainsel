@@ -9,12 +9,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/channels"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/chat"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

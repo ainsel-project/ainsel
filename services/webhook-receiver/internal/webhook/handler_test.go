@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/webhook-receiver/internal/webhook"
+	"github.com/ainsel-project/ainsel/services/webhook-receiver/internal/webhook"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"

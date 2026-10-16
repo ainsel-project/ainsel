@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/api"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/services/hub/internal/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 )
 
 // stubPersonaService is a hand-rolled mock of the persona Service. The

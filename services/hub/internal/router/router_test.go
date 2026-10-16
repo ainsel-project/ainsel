@@ -6,11 +6,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggerindex"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/types"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggerindex"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/types"
 )
 
 // mockQueue implements the Queue interface for testing.

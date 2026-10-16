@@ -3,7 +3,7 @@ package controller
 import (
 	"time"
 
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // ScaleReasonJobPerTask is the reason reported while work runs as per-task

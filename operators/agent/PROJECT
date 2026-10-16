@@ -7,7 +7,7 @@ domain: dev
 layout:
 - go.kubebuilder.io/v4
 projectName: repo
-repo: github.com/DominikPinsel/ainsel/operators/agent
+repo: github.com/ainsel-project/ainsel/operators/agent
 resources:
 - api:
     crdVersion: v1
@@ -16,7 +16,7 @@ resources:
   domain: dev
   group: ainsel
   kind: Agent
-  path: github.com/DominikPinsel/ainsel/operators/agent/api/v1alpha1
+  path: github.com/ainsel-project/ainsel/operators/agent/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -25,6 +25,6 @@ resources:
   domain: dev
   group: ainsel
   kind: Trigger
-  path: github.com/DominikPinsel/ainsel/operators/agent/api/v1alpha1
+  path: github.com/ainsel-project/ainsel/operators/agent/api/v1alpha1
   version: v1alpha1
 version: "3"
