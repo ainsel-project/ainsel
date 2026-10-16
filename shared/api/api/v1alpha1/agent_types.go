@@ -222,7 +222,7 @@ func (a *Agent) IsPaused(now time.Time) bool {
 	if p.PausedUntil == nil {
 		return true
 	}
-	return p.PausedUntil.Time.After(now)
+	return p.PausedUntil.After(now)
 }
 
 // AgentScaling holds the concurrency policy for the agent's task runs. Every

@@ -191,7 +191,8 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 	if v := q.Get("outcome"); v != "" {
 		switch v {
-		case invocations.StatusRunning,
+		case invocations.StatusQueued,
+			invocations.StatusRunning,
 			invocations.StatusSuccess,
 			invocations.StatusFailure,
 			invocations.StatusTimeout:

@@ -524,7 +524,7 @@ func (s *Store) TokenUsageByIssue(ctx context.Context, f TokenUsageByIssueFilter
 		// (subject unknown), reachable only when the caller asked for it.
 		query += fmt.Sprintf(" AND issue_number = $%d", argN)
 		args = append(args, *f.IssueNumber)
-		argN++
+		// No further placeholders follow, so argN is not incremented again.
 	}
 
 	// Deterministic order: the JSON API has no sort param, and a map-iteration
