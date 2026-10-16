@@ -197,7 +197,7 @@ supported. Example: `"0 9 * * 1-5"` fires at 09:00 on weekdays.
 | `create_channel` | write | Create a custom grouping channel. |
 | `update_channel` | write | Rename or re-describe a custom channel. |
 | `delete_channel` | write | Delete a custom channel (refused while subscriptions are attached). |
-| `attach_channel_bridge` | write | Transfer one channel's events into another. |
+| `attach_channel_bridge` | write | Transfer one channel's events into another, optionally gated by filter groups. |
 | `detach_channel_bridge` | write | Remove a bridge between two channels. |
 
 A channel is the stream events are born in: one per connector, one per

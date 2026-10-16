@@ -615,9 +615,11 @@ The channel's timeline — events born in it plus events transferred into it. Qu
 
 ### POST /api/v1/channels/{id}/bridges
 
-Transfer the channel's events into another. Body: `{ "to", "name?" }`.
+Transfer the channel's events into another. Body: `{ "to", "name?", "filters?" }`.
 
-**Response:** `201 Created` with the bridge; `400` on a self-edge, when neither end is custom, on a cycle, or when joining two provisioned channels (that pairing is a trigger); `409` when the edge already exists.
+`filters` optionally gates the transfer as a disjunction of groups: the bridge delivers an event when **any** group matches, and a group matches when **all** of its filters match — the same filter shape as [trigger filters](./event-schema.md#trigger-matching) (`field`, `op`, `value`/`values`). Example: `[[{"field":"type","op":"in","values":["push"]}],[{"field":"type","op":"eq","value":"issue_comment"},{"field":"comment.body","op":"contains","value":"@dev-agent"}]]`. Absent or empty means unconditional transfer. Filters are validated at attach time: an empty group, a missing `field`/`op`, an op the matcher does not implement, or a list op (`in`, `not-in`) without `values` is refused rather than becoming a bridge that silently never delivers.
+
+**Response:** `201 Created` with the bridge; `400` on a self-edge, when neither end is custom, on a cycle, when joining two provisioned channels (that pairing is a trigger), or on an invalid `filters` gate; `409` when the edge already exists.
 
 ### DELETE /api/v1/channels/{id}/bridges/{bridgeId}
 
