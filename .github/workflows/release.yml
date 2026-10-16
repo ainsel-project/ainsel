@@ -58,15 +58,21 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
 
       - name: Report what release-please did
+        # release-please's outputs are data, not shell: on run 38975287997 its
+        # `pr` output carried parentheses and the inline substitution broke the
+        # script with a syntax error. Keep every one of them in the
+        # environment, out of the command text.
+        env:
+          RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
           set -euo pipefail
-          created="${{ steps.release.outputs.release_created }}"
-          pr="${{ steps.release.outputs.pr }}"
-          if [ "${created}" = "true" ]; then
-            echo "Release ${{ steps.release.outputs.tag_name }} created - publishing artifacts." \
+          if [ "${RELEASE_CREATED}" = "true" ]; then
+            echo "Release ${RELEASE_TAG} created - publishing artifacts." \
               >> "${GITHUB_STEP_SUMMARY}"
-          elif [ -n "${pr}" ]; then
-            echo "Release PR open/updated: ${pr}" >> "${GITHUB_STEP_SUMMARY}"
+          elif [ -n "${RELEASE_PR}" ]; then
+            echo "Release PR open/updated: ${RELEASE_PR}" >> "${GITHUB_STEP_SUMMARY}"
             echo "Nothing to publish until it is merged." >> "${GITHUB_STEP_SUMMARY}"
           else
             echo "No release-worthy commits since the last release." >> "${GITHUB_STEP_SUMMARY}"
@@ -120,10 +126,13 @@ jobs:
     steps:
       - name: Derive from the tag release-please created
         id: meta
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           set -euo pipefail
-          tag="${{ needs.release-please.outputs.tag_name }}"
-          version="${{ needs.release-please.outputs.version }}"
+          tag="${RELEASE_TAG}"
+          version="${RELEASE_VERSION}"
 
           # include-component-in-tag is false, so the tag is plain vX.Y.Z. A
           # component-prefixed tag would silently produce images nobody can
@@ -386,9 +395,10 @@ jobs:
       - name: Attach the chart to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          gh release upload "${{ needs.release-please.outputs.tag_name }}" \
+          gh release upload "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" --clobber dist/*.tgz
           echo "Attached ainsel-${{ needs.prepare.outputs.semver }}.tgz to the release"
 
@@ -466,9 +476,10 @@ jobs:
       - name: GitHub Release has the changelog and the chart attached
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          tag="${{ needs.release-please.outputs.tag_name }}"
+          tag="${RELEASE_TAG}"
           out=$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" \
             --json name,isPrerelease,isDraft,assets \
             --jq '"\(.name)|\(.isPrerelease)|\(.isDraft)|\([.assets[].name] | join(","))"')
