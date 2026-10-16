@@ -203,6 +203,53 @@ func TestChannelsAPI_CreateUpdateDeleteCustomChannel(t *testing.T) {
 	}
 }
 
+// The attach-time gate validation must reject every shape that Filter.Match
+// would silently never match: an empty group, a blank field/op, an op the
+// matcher does not implement, and a list op with no values. Each is a bridge
+// that would deliver nothing behind a 201.
+func TestChannelsAPI_AttachBridgeFilterValidation(t *testing.T) {
+	s, cs, _, _ := channelTestServer(t)
+
+	connector := seedChannel(t, cs, channels.KindConnector, "api-bridge-filter-src")
+	group := mustCreateChannel(t, s, "filter-bundle")
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty group", `{"to":"GROUP","filters":[[]]}`},
+		{"missing field", `{"to":"GROUP","filters":[[{"op":"eq","value":"push"}]]}`},
+		{"missing op", `{"to":"GROUP","filters":[[{"field":"type","value":"push"}]]}`},
+		{"unknown op", `{"to":"GROUP","filters":[[{"field":"type","op":"equals","value":"push"}]]}`},
+		{"typo op", `{"to":"GROUP","filters":[[{"field":"type","op":"match","value":"push"}]]}`},
+		{"in without values", `{"to":"GROUP","filters":[[{"field":"type","op":"in"}]]}`},
+		{"not-in with empty values", `{"to":"GROUP","filters":[[{"field":"type","op":"not-in","values":[]}]]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRawJSON(t, s, http.MethodPost,
+				"/api/v1/channels/"+connector+"/bridges", strings.Replace(tc.body, "GROUP", group, 1))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s: got %d %s, want 400", tc.name, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// A valid gate is accepted and stored.
+	rec := doRawJSON(t, s, http.MethodPost, "/api/v1/channels/"+connector+"/bridges",
+		`{"to":"`+group+`","filters":[[{"field":"type","op":"in","values":["push"]}],[{"field":"comment.body","op":"contains","value":"@dev-agent"}]]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("valid gate: got %d %s, want 201", rec.Code, rec.Body.String())
+	}
+	var bridge channels.Bridge
+	if err := json.Unmarshal(rec.Body.Bytes(), &bridge); err != nil {
+		t.Fatalf("decode bridge: %v", err)
+	}
+	if len(bridge.Filters) != 2 || bridge.Filters[0][0].Op != "in" || bridge.Filters[1][0].Value != "@dev-agent" {
+		t.Fatalf("gate not stored: %+v", bridge.Filters)
+	}
+}
+
 func TestChannelsAPI_BridgeLifecycle(t *testing.T) {
 	s, cs, _, _ := channelTestServer(t)
 	ctx := context.Background()
@@ -229,7 +276,7 @@ func TestChannelsAPI_BridgeLifecycle(t *testing.T) {
 		t.Fatalf("bridge: %+v", bridge)
 	}
 
-	if _, err := s.channelSvc.Attach(ctx, group, inbox, ""); err != nil {
+	if _, err := s.channelSvc.Attach(ctx, group, inbox, "", nil); err != nil {
 		t.Fatalf("attach inbox leg: %v", err)
 	}
 
@@ -315,7 +362,7 @@ func TestChannelsAPI_SubscriptionsMergeBothRegistries(t *testing.T) {
 	if err := ts.CreateTrigger(ctx, trigger); err != nil {
 		t.Fatalf("seed trigger: %v", err)
 	}
-	if _, err := s.channelSvc.Attach(ctx, connector, group, ""); err != nil {
+	if _, err := s.channelSvc.Attach(ctx, connector, group, "", nil); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
 
@@ -381,7 +428,7 @@ func TestChannelsAPI_TimelineReflectsBirthAndDelivery(t *testing.T) {
 	if events = timelineIDs(t, s, group); len(events) != 0 {
 		t.Fatalf("empty group timeline = %v", events)
 	}
-	if _, err := s.channelSvc.Attach(ctx, connector, group, ""); err != nil {
+	if _, err := s.channelSvc.Attach(ctx, connector, group, "", nil); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
 	if events = timelineIDs(t, s, group); len(events) != 1 || events[0] != "api-tl-1" {

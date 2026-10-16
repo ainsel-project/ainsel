@@ -10,6 +10,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // DefaultWindow is the traffic window reported alongside a channel when the
@@ -341,8 +342,11 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 }
 
 // Attach records a bridge from one channel into another and returns it.
-func (s *Service) Attach(ctx context.Context, fromID, toID, name string) (*Bridge, error) {
-	return s.store.CreateBridge(ctx, fromID, toID, name)
+// Attach records a bridge from one channel to another. Filters, when given,
+// gate the transfer: an event moves only when at least one group of filters
+// matches it (groups OR, filters within a group AND).
+func (s *Service) Attach(ctx context.Context, fromID, toID, name string, filters [][]ainselapishared.Filter) (*Bridge, error) {
+	return s.store.CreateBridge(ctx, fromID, toID, name, filters)
 }
 
 // Detach removes a bridge.
@@ -383,8 +387,10 @@ func (s *Service) EntityChannel(ctx context.Context, kind Kind, entityRef string
 }
 
 // Deliveries returns the transfers to perform for an event born in the given
-// channel, skipping agents the trigger registry already matched so an event is
-// delivered once per inbox whatever the number of paths into it.
+// channel — one per bridge edge reaching an inbox, each carrying its own gate.
+// Agents the trigger registry already matched are skipped here; deduplicating
+// multiple edges into one delivery per inbox happens in the transfer, after
+// each edge's own gate has been evaluated.
 func (s *Service) Deliveries(ctx context.Context, birthChannel string, alreadyDelivered []string) ([]Delivery, error) {
 	if birthChannel == "" {
 		return nil, nil

@@ -107,10 +107,11 @@ func (c *ChannelTools) DeleteChannelTool() mcp.Tool {
 
 func (c *ChannelTools) AttachChannelBridgeTool() mcp.Tool {
 	return mcp.NewTool("attach_channel_bridge",
-		mcp.WithDescription("Transfer a channel's events into another channel: attach a connector's or agent's stream to a custom grouping channel, or attach a grouping channel to an agent inbox so that agent receives everything the group collects. At least one end must be a custom channel — a plain connector → agent pairing is a trigger, not a bridge."),
+		mcp.WithDescription("Transfer a channel's events into another channel: attach a connector's or agent's stream to a custom grouping channel, or attach a grouping channel to an agent inbox so that agent receives everything the group collects. At least one end must be a custom channel — a plain connector → agent pairing is a trigger, not a bridge. Supports an optional filter gate so, e.g., a grouping channel can feed three agent inboxes without giving each agent events meant for the others."),
 		mcp.WithString("from", mcp.Required(), mcp.Description("Source channel id or name")),
 		mcp.WithString("to", mcp.Required(), mcp.Description("Target channel id or name")),
 		mcp.WithString("bridgeName", mcp.Description("Optional label for the subscription")),
+		mcp.WithString("filters", mcp.Description("Optional JSON array of filter groups as a disjunction: the bridge delivers when ANY group matches, a group matches when ALL its filters match, same filters as triggers. Example: [[{\"field\":\"type\",\"op\":\"in\",\"values\":[\"push\"]}],[{\"field\":\"type\",\"op\":\"eq\",\"value\":\"issue_comment\"},{\"field\":\"comment.body\",\"op\":\"contains\",\"value\":\"@dev-agent\"}]]")),
 	)
 }
 
@@ -283,6 +284,27 @@ func (c *ChannelTools) AttachChannelBridge(ctx context.Context, req mcp.CallTool
 	payload := map[string]any{"to": toID}
 	if v, _ := args["bridgeName"].(string); v != "" {
 		payload["name"] = v
+	}
+	if filtersStr, _ := args["filters"].(string); filtersStr != "" {
+		// Decode strictly: the hub decodes filters into a fixed struct and
+		// silently drops unknown keys, so a typo like "feild" would otherwise
+		// pass through as a filter that never matches. Reject it here, where
+		// the caller sees the offending JSON.
+		var groups [][]struct {
+			Field  string   `json:"field"`
+			Op     string   `json:"op"`
+			Value  string   `json:"value,omitempty"`
+			Values []string `json:"values,omitempty"`
+		}
+		dec := json.NewDecoder(strings.NewReader(filtersStr))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&groups); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid filters JSON (expected an array of filter-group arrays with field/op/value/values keys): %v", err)), nil
+		}
+		if dec.More() {
+			return mcp.NewToolResultError("invalid filters JSON: expected a single array of filter-group arrays"), nil
+		}
+		payload["filters"] = groups
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

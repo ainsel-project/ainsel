@@ -10,6 +10,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggerindex"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // Header names propagated to agents by a transfer, mirroring the router so the
@@ -88,8 +89,36 @@ func (t *Transfer) Apply(ctx context.Context, in TransferInput) ([]TransferResul
 		return nil, fmt.Errorf("channels: resolve transfers from %s: %w", in.BirthChannel, err)
 	}
 
+	// Every bridge is evaluated against one shared payload view of the event,
+	// built by the same builder trigger matching uses, so a bridge filter
+	// means exactly what the same shape on a trigger means.
+	payload := triggerindex.BuildFilterPayload(&ainselapishared.Event{
+		Data:    in.Payload,
+		Headers: in.Headers,
+	})
+
 	results := make([]TransferResult, 0, len(deliveries))
+	// Deliveries are one per edge reaching an inbox, each with its own gate.
+	// An agent still receives an event at most once: the first edge whose own
+	// gate accepts the event carries it, so no arbitrary edge can drop an
+	// event another edge would have delivered.
+	transferred := make(map[string]bool, len(deliveries))
 	for _, d := range deliveries {
+		// A filtered bridge that does not match delivers nothing: no task, no
+		// invocation. The run is the thing that costs, so the gate has to stop
+		// before the queue, not after it.
+		if len(d.BridgeFilters) > 0 && !matchesFilterGroups(d.BridgeFilters, payload) {
+			slog.Debug("bridge transfer filtered out",
+				"event_id", in.EventID,
+				"agent", d.AgentName,
+				"bridge", d.BridgeID,
+			)
+			continue
+		}
+		if transferred[d.AgentName] {
+			continue
+		}
+		transferred[d.AgentName] = true
 		res := TransferResult{AgentName: d.AgentName, BridgeID: d.BridgeID, BridgeName: d.BridgeName}
 
 		var invID string
@@ -131,6 +160,21 @@ func (t *Transfer) Apply(ctx context.Context, in TransferInput) ([]TransferResul
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+// matchesFilterGroups reports whether any group of filters matches. Groups
+// are OR-ed, filters inside a group are AND-ed. An empty group never matches:
+// use nil Filters when a bridge should be unconditional.
+func matchesFilterGroups(groups [][]ainselapishared.Filter, payload map[string]any) bool {
+	for _, group := range groups {
+		if len(group) == 0 {
+			continue
+		}
+		if ainselapishared.MatchFilters(group, payload) {
+			return true
+		}
+	}
+	return false
 }
 
 // transferHeaders builds the header set of one transferred task. The original
