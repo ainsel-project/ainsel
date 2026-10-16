@@ -458,22 +458,31 @@ func (s *Store) Walk(ctx context.Context, fromChannelID string) ([]walkRow, erro
 }
 
 // Deliveries returns the agent inboxes an event born in fromChannelID is
-// transferred into by bridges, one per destination inbox, attributed to the
-// bridge that ends the shortest path to it.
+// transferred into by bridges, one per bridge edge reaching an inbox. When
+// several edges reach the same inbox, each is returned with its own gate: the
+// caller decides delivery per edge and must still deliver an agent at most
+// once, because an arbitrary edge must not own the gate that decides an event
+// the other edge would have accepted.
 func (s *Store) Deliveries(ctx context.Context, fromChannelID string) ([]Delivery, error) {
 	walked, err := s.Walk(ctx, fromChannelID)
 	if err != nil {
 		return nil, err
 	}
-	// Walk is ordered shallowest-first, so the first hit per inbox wins and
-	// an event is delivered to a given agent at most once.
-	seen := make(map[string]bool, len(walked))
+	// Walk is ordered shallowest-first, so per (inbox, edge) the shortest
+	// path wins the attribution. Dedupe is per edge, not per inbox: collapsing
+	// here would let whichever edge sorts first decide delivery for every
+	// other edge reaching the same inbox.
+	seen := make(map[[2]string]bool, len(walked))
 	var out []Delivery
 	for _, w := range walked {
-		if w.kind != KindAgent || w.entityRef == "" || seen[w.channelID] {
+		if w.kind != KindAgent || w.entityRef == "" {
 			continue
 		}
-		seen[w.channelID] = true
+		key := [2]string{w.channelID, w.bridgeID}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		d := Delivery{
 			AgentChannel: w.channelID,
 			AgentName:    w.entityRef,

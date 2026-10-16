@@ -387,8 +387,10 @@ func (s *Service) EntityChannel(ctx context.Context, kind Kind, entityRef string
 }
 
 // Deliveries returns the transfers to perform for an event born in the given
-// channel, skipping agents the trigger registry already matched so an event is
-// delivered once per inbox whatever the number of paths into it.
+// channel — one per bridge edge reaching an inbox, each carrying its own gate.
+// Agents the trigger registry already matched are skipped here; deduplicating
+// multiple edges into one delivery per inbox happens in the transfer, after
+// each edge's own gate has been evaluated.
 func (s *Service) Deliveries(ctx context.Context, birthChannel string, alreadyDelivered []string) ([]Delivery, error) {
 	if birthChannel == "" {
 		return nil, nil

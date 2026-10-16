@@ -155,7 +155,9 @@ type Delivery struct {
 	// BridgeFilters are the transfer gate of the bridge this delivery rides
 	// on; the Transfer evaluates them against the event before enqueueing a
 	// task or recording an invocation, so a filtered-out delivery costs a
-	// walk, not a run.
+	// walk, not a run. When several edges reach the same inbox each arrives
+	// with its own gate, and the transfer delivers the event at most once —
+	// on the first edge whose own gate accepts it.
 	BridgeFilters [][]ainselapishared.Filter
 }
 
