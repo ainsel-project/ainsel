@@ -6,7 +6,7 @@
 > [administrator guide](administrator-guide.md). This document is the
 > technical architecture reference.
 
-AInsel is a Kubernetes-native platform that runs AI agents in response to events from code forges. A connector wraps webhook deliveries (raw body + headers) into an `Event` struct and POSTs it to the hub; the hub matches events against triggers and routes them to agents via the event queue; agents act on the forge (commenting, opening PRs, pushing code). This document captures the full data flow and the components involved.
+AInsel is a Kubernetes-native agent orchestrator that runs AI agents in response to events from connected sources — forge webhooks (Forgejo, GitHub) today, plus cron schedules and chat; any HMAC-signed webhook source works through the generic connector. A connector wraps webhook deliveries (raw body + headers) into an `Event` struct and POSTs it to the hub; the hub matches events against triggers and routes them to agents via the event queue; agents act back on the source system through their tools (for forges: commenting, opening PRs, pushing code). This document captures the full data flow and the components involved.
 
 The platform is a single Helm chart deployed into a single namespace. Every component listed below lives in this monorepo — paths in the diagrams point at the folder that owns each component.
 
