@@ -159,8 +159,8 @@ jobs:
 
   # --------------------------------------------------------------------------
   # Every image, tagged immutably. Mutable tags (:dev, pi-go:1.24) belong to
-  # develop alone - see #182, where main builds overwriting :dev took the dev
-  # cluster down. A release never writes one.
+  # the trunk (main) alone - see #182, where builds on the wrong branch
+  # overwriting :dev took the dev cluster down. A release never writes one.
   # --------------------------------------------------------------------------
   images:
     name: Image ${{ matrix.component }}

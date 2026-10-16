@@ -2,14 +2,14 @@ name: CI - services/chat-mcp
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'services/chat-mcp/**'
       - 'shared/api/**'
       - 'go.work'
       - '.github/workflows/ci-services-chat-mcp.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'services/chat-mcp/**'

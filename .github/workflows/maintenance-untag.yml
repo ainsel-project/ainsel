@@ -1,6 +1,6 @@
 name: Maintenance - Docker Hub tag retention
 
-# Every push to main/develop publishes a :<short-sha> image, and the pi variants
+# Every push to main publishes a :<short-sha> image, and the pi variants
 # publish a <float>-<sha> tag per build. Nothing consumes those tags; they exist
 # for provenance. Docker Hub offers no server-side retention for a personal
 # namespace, so this workflow is the collection pass described in
@@ -55,7 +55,7 @@ on:
   # The decision logic is the risky part of this workflow, so its tests run on
   # every change to it - not just when a retention pass happens to be scheduled.
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'scripts/hub-retention.py'

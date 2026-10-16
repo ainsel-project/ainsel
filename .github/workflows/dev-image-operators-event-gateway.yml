@@ -2,14 +2,14 @@ name: Dev Image - operators/event-gateway
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'operators/event-gateway/**'
       - 'shared/api/**'
       - 'go.work'
       - '.github/workflows/dev-image-operators-event-gateway.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'operators/event-gateway/**'
@@ -53,7 +53,7 @@ jobs:
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
             echo "dpinsel/ainsel-k8s-event-source-gateway-operator:${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               echo "dpinsel/ainsel-k8s-event-source-gateway-operator:dev"
             fi
             echo "EOF"

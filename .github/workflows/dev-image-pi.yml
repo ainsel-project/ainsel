@@ -2,12 +2,12 @@ name: Dev Image - pi
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'pi/**'
       - '.github/workflows/dev-image-pi.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'pi/**'
@@ -54,11 +54,11 @@ jobs:
           esac
           if [ "$publish" != "true" ]; then publish=false; fi
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
-          # The variants are only ever published on develop, mirroring the :dev
-          # rule from PR #182: their floating tags are what running agents pull,
-          # and a main build used to move them to code develop had not applied.
+          # The variants are published on the trunk (main) only, mirroring the
+          # :dev rule from PR #182: their floating tags are what running agents
+          # pull, so only trunk-integrated code may move them.
           publish_variants=false
-          if [ "$publish" = "true" ] && [ "$GITHUB_REF" = "refs/heads/develop" ]; then
+          if [ "$publish" = "true" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
             publish_variants=true
           fi
           echo "publish_variants=$publish_variants" >> "$GITHUB_OUTPUT"
@@ -88,7 +88,7 @@ jobs:
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
             echo "dpinsel/ainsel-pi:${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               echo "dpinsel/ainsel-pi:dev"
             fi
             echo "EOF"
@@ -115,10 +115,10 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       # ---------- Go variant (ainsel-pi-go:1.24) ---------------------------
-      # Skipped on main: the release pipeline builds tagged variants from the
-      # release base, and nothing pulls a main-built dev variant.
+      # Always built: PRs and opt-in dispatches verify it as a load-only
+      # build; only a trunk push publishes the floating tag (decided by
+      # publish_variants, never by the branch of a feature build).
       - name: Build and push Go variant
-        if: github.ref != 'refs/heads/main'
         uses: docker/build-push-action@v7
         with:
           context: pi
@@ -133,7 +133,6 @@ jobs:
 
       # ---------- .NET MAUI variant (ainsel-pi-maui:8.0) -------------------
       - name: Build and push .NET MAUI variant
-        if: github.ref != 'refs/heads/main'
         uses: docker/build-push-action@v7
         with:
           context: pi

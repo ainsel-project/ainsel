@@ -2,13 +2,13 @@ name: CI - shared/api
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'shared/api/**'
       - 'go.work'
       - '.github/workflows/ci-shared-api.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'shared/api/**'

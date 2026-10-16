@@ -2,14 +2,14 @@ name: Dev Image - services/chat-mcp
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'services/chat-mcp/**'
       - 'shared/api/**'
       - 'go.work'
       - '.github/workflows/dev-image-services-chat-mcp.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'services/chat-mcp/**'
@@ -53,7 +53,7 @@ jobs:
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
             echo "dpinsel/ainsel-chat-mcp:${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               echo "dpinsel/ainsel-chat-mcp:dev"
             fi
             echo "EOF"

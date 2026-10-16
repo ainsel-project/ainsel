@@ -2,14 +2,14 @@ name: Dev Image - services/webhook-receiver
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'services/webhook-receiver/**'
       - 'shared/api/**'
       - 'go.work'
       - '.github/workflows/dev-image-services-webhook-receiver.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'services/webhook-receiver/**'
@@ -53,7 +53,7 @@ jobs:
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
             echo "dpinsel/ainsel-webhook-receiver:${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               echo "dpinsel/ainsel-webhook-receiver:dev"
             fi
             echo "EOF"

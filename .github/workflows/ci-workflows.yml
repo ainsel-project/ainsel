@@ -11,13 +11,13 @@ name: CI - workflows
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - '.github/workflows/dev-image-*.yml'
       - '.github/workflows/ci-workflows.yml'
       - 'scripts/test-dev-image-workflows.py'
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - '.github/workflows/dev-image-*.yml'
