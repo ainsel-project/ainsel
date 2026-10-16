@@ -5,9 +5,10 @@ Short rule sheet for AI agents working in this repo. If you're a human, read
 
 ## What this repo is
 
-AInsel: a Kubernetes-native platform for AI agents that react to events from
-code forges. Monorepo — every component lives here, deploys as a single Helm
-chart into a single namespace.
+AInsel: a Kubernetes-native agent orchestrator — AI agents that react to
+events (forge webhooks, cron schedules, chat, any signed webhook source).
+Monorepo — every component lives here, deploys as a single Helm chart into a
+single namespace.
 
 Folder map (role -> path):
 
@@ -15,7 +16,7 @@ Folder map (role -> path):
 |---|---|
 | `frontend/` | React operations console |
 | `services/hub/` | Control plane (event routing, REST API) |
-| `services/webhook-receiver/` | Forgejo webhook receiver / event normalizer |
+| `services/webhook-receiver/` | Generic webhook receiver (pass-through event envelopes) |
 | `services/mcp/` | MCP server registry |
 | `services/chat-mcp/` | Chat MCP sidecar (chat tools for the agent runtime) |
 | `operators/agent/` | K8s operator for the `Agent` CRD (task Jobs, 0-replica template Deployments, Services, persona ConfigMaps) |

@@ -1,17 +1,23 @@
 # Quick Start
 
-AInsel adds AI agents to the systems your team already uses. Administrators configure agents (model, persona, tools, triggers) once; end users keep using their existing tools and benefit from the AI through normal artifacts — a review comment, an issue label, a draft reply.
+AInsel is a Kubernetes-native agent orchestrator: events go in, your AI agents
+react — with whatever persona, skills, tools, and MCP servers you give them.
+Administrators configure agents (model, persona, tools, triggers) once; end
+users keep using their existing tools and benefit from the AI through normal
+artifacts — a review comment, an issue label, a draft reply.
 
 This page is a 5-minute orientation. For the full technical reference, see the [Architecture](architecture) doc; for the admin journey with cookbook examples, see the [Administrator Guide](administrator-guide).
 
 ## What AInsel does
 
-A connector turns webhook deliveries (from Forgejo or GitHub) into a canonical
-event stream. The hub matches events against triggers and routes them to agents
-via the event queue. Agents act on the forge — commenting, opening PRs,
-pushing code. Agents, connector gateways, and runtime images are Kubernetes
-CRDs managed by a single Helm chart; triggers, cron triggers, personas, skills,
-MCP servers, and the channel registry live in the hub's PostgreSQL database.
+A connector wraps webhook deliveries (from Forgejo or GitHub, or any
+HMAC-signed source) into a pass-through event envelope — no normalization.
+The hub matches events against triggers and routes them to agents via the
+event queue. In the bundled forge setup, agents act on the forge —
+commenting, opening PRs, pushing code. Agents, connector gateways, and
+runtime images are Kubernetes CRDs managed by a single Helm chart; triggers,
+cron triggers, personas, skills, MCP servers, and the channel registry live
+in the hub's PostgreSQL database.
 
 ## The core building blocks
 
@@ -20,7 +26,7 @@ MCP servers, and the channel registry live in the hub's PostgreSQL database.
 | **Agent** | One AI worker: its own persona, model, and runtime, plus per-agent overrides for tools, skills, MCP servers and environment. | **Fleet → Agents** (`/agents`) |
 | **Persona** | The versioned prompt that defines an agent's behaviour. Shared templates live in the library; an agent can fork its own private copy. | **Library → Personas** (`/personas`) |
 | **Agent Image** | The runtime profile: container image with tools, env vars, skills and MCP servers that agents inherit from. | **Library → Images** (`/agent-images`) |
-| **Connector** | Bridge between AInsel and an external system (Forgejo today). | **Admin → Connectors** (`/connectors`) |
+| **Connector** | Bridge between AInsel and an external system (Forgejo/GitHub webhooks today; any signed webhook source via config). | **Admin → Connectors** (`/connectors`) |
 | **Trigger** | Rule that decides when an agent fires (event type + filter). | Agent detail page |
 | **Skill** | A reusable capability an agent can invoke (e.g. forgejo, git, shell). | **Library → Skills** (`/skills`) |
 | **MCP server** | A registry entry for a remote MCP server agents can connect to. | **Library → MCPs** (`/settings`) |
@@ -33,7 +39,7 @@ Under **Agents**, the sidebar also lists up to five shortcuts: the agents you la
 
 1. **Deploy** — Install the Helm chart into a Kubernetes namespace. See the [Deployment Guide](deployment).
 
-2. **Connect a source** — Register a connector (Forgejo webhook today) so events start flowing. See `/connectors` in the UI.
+2. **Connect a source** — Register a connector (e.g. a Forgejo webhook) so events start flowing. See `/connectors` in the UI.
 
 3. **Create a persona** — Write the prompt that defines your agent's behaviour. Personas are versioned — you can roll back. See `/personas`.
 

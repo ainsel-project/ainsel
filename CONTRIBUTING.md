@@ -74,7 +74,7 @@ This is a monorepo organized by *role*, not by language:
 - `frontend/` — operations console (React + Vite + TypeScript).
 - `services/` — long-running HTTP services.
   - `services/hub/` — control plane: event routing and REST API.
-  - `services/webhook-receiver/` — Forgejo webhook receiver and event normalizer.
+  - `services/webhook-receiver/` — Generic webhook receiver (pass-through event envelopes).
   - `services/mcp/` — MCP server registry.
   - `services/chat-mcp/` — chat MCP sidecar: exposes chat tools to the agent
     runtime (see [`docs/chat.md`](docs/chat.md)).
