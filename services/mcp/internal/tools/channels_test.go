@@ -297,6 +297,43 @@ func TestAttachAndDetachBridge(t *testing.T) {
 		t.Fatalf("bridge not posted to the resolved source channel: %v", hub.requests)
 	}
 
+	// A typo'd filter key must fail here: the hub decodes filters into a fixed
+	// struct and would silently drop the key, leaving a gate that never matches.
+	countPosts := func() int {
+		n := 0
+		for _, r := range hub.requests {
+			if strings.HasPrefix(r, "POST ") {
+				n++
+			}
+		}
+		return n
+	}
+	before := countPosts()
+	res = callTool(t, ct.AttachChannelBridge, map[string]any{
+		"from": "connector:forgejo", "to": "custom:Nightly bundle",
+		"filters": `[[{"feild":"type","op":"eq","value":"push"}]]`,
+	})
+	if !res.IsError || countPosts() != before {
+		t.Fatalf("unknown filter key should fail without a bridge POST: error=%v requests=%v", res.IsError, hub.requests)
+	}
+	// Malformed shapes fail the same way.
+	res = callTool(t, ct.AttachChannelBridge, map[string]any{
+		"from": "connector:forgejo", "to": "custom:Nightly bundle",
+		"filters": `{"field":"type"}`,
+	})
+	if !res.IsError {
+		t.Fatal("an object where a group array belongs should be refused")
+	}
+
+	// A valid gate is forwarded as structured groups, not as an opaque string.
+	res = callTool(t, ct.AttachChannelBridge, map[string]any{
+		"from": "connector:forgejo", "to": "custom:Nightly bundle",
+		"filters": `[[{"field":"type","op":"eq","value":"push"}]]`,
+	})
+	if res.IsError {
+		t.Fatalf("attach with gate: %s", resultText(res))
+	}
+
 	// Detach finds the bridge id from the source channel's own edges.
 	res = callTool(t, ct.DetachChannelBridge, map[string]any{"from": "ch-forgejo", "to": "ch-group"})
 	if res.IsError {

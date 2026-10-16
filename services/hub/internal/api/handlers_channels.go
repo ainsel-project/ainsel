@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -653,18 +652,12 @@ func (s *Server) attachBridge(w http.ResponseWriter, r *http.Request, id string)
 	}
 
 	// Validate the gate up front so an operator typo fails at attach time and
-	// not as a silently-skipped delivery at transfer time.
-	for gi, group := range req.Filters {
-		if len(group) == 0 {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("filters group %d is empty", gi))
-			return
-		}
-		for fi, f := range group {
-			if strings.TrimSpace(f.Field) == "" || strings.TrimSpace(f.Op) == "" {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("filters group %d, filter %d needs field and op", gi, fi))
-				return
-			}
-		}
+	// not as a silently-skipped delivery at transfer time: an op Filter.Match
+	// does not implement never matches, which would leave the whole bridge
+	// dark behind a 201.
+	if err := channels.ValidateFilterGroups(req.Filters); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	bridge, err := s.channelSvc.Attach(r.Context(), from.ID, to.ID, req.Name, req.Filters)
