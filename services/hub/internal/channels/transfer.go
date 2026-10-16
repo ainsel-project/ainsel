@@ -90,18 +90,35 @@ func (t *Transfer) Apply(ctx context.Context, in TransferInput) ([]TransferResul
 	}
 
 	// Every bridge is evaluated against one shared payload view of the event,
-	// built the same way the trigger registry builds its match payload, so a
-	// bridge filter means exactly what the same shape on a trigger means.
-	payload := filterPayload(in)
+	// built by the same builder trigger matching uses, so a bridge filter
+	// means exactly what the same shape on a trigger means.
+	payload := triggerindex.BuildFilterPayload(&ainselapishared.Event{
+		Data:    in.Payload,
+		Headers: in.Headers,
+	})
 
 	results := make([]TransferResult, 0, len(deliveries))
+	// Deliveries are one per edge reaching an inbox, each with its own gate.
+	// An agent still receives an event at most once: the first edge whose own
+	// gate accepts the event carries it, so no arbitrary edge can drop an
+	// event another edge would have delivered.
+	transferred := make(map[string]bool, len(deliveries))
 	for _, d := range deliveries {
 		// A filtered bridge that does not match delivers nothing: no task, no
 		// invocation. The run is the thing that costs, so the gate has to stop
 		// before the queue, not after it.
 		if len(d.BridgeFilters) > 0 && !matchesFilterGroups(d.BridgeFilters, payload) {
+			slog.Debug("bridge transfer filtered out",
+				"event_id", in.EventID,
+				"agent", d.AgentName,
+				"bridge", d.BridgeID,
+			)
 			continue
 		}
+		if transferred[d.AgentName] {
+			continue
+		}
+		transferred[d.AgentName] = true
 		res := TransferResult{AgentName: d.AgentName, BridgeID: d.BridgeID, BridgeName: d.BridgeName}
 
 		var invID string
@@ -143,30 +160,6 @@ func (t *Transfer) Apply(ctx context.Context, in TransferInput) ([]TransferResul
 		results = append(results, res)
 	}
 	return results, nil
-}
-
-// filterPayload merges the event into the map filters are evaluated against.
-// Data fields sit at the top level, headers are nested under "headers", and
-// the canonical webhook type (any header ending in "-Event") is exposed as
-// "type" — the identical view trigger matching uses, so one filter syntax
-// means one thing everywhere.
-func filterPayload(in TransferInput) map[string]any {
-	payload := map[string]any{}
-	if len(in.Payload) > 0 {
-		_ = json.Unmarshal(in.Payload, &payload)
-	}
-	if len(in.Headers) > 0 {
-		hmap := make(map[string]any, len(in.Headers))
-		for k, v := range in.Headers {
-			hmap[k] = v
-		}
-		payload["headers"] = hmap
-
-		if typ := triggerindex.CanonicalEventType(in.Headers); typ != "" {
-			payload["type"] = typ
-		}
-	}
-	return payload
 }
 
 // matchesFilterGroups reports whether any group of filters matches. Groups

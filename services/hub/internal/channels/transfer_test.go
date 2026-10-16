@@ -422,3 +422,142 @@ func TestBridgeFiltersRideTheDelivery(t *testing.T) {
 		}
 	}
 }
+
+// Two filtered edges reaching one inbox are two deliveries, each with its own
+// gate, and the transfer delivers on the edge whose gate accepts. Collapsing
+// the walk to one row per inbox would let whichever edge sorts first decide
+// every event — a pipeline event dropped by a push gate on an unrelated path
+// is exactly the silent drop this must not do.
+func TestTransferTwoFilteredPathsToOneInbox(t *testing.T) {
+	tr, _, s, queue, inv := newTestTransfer(t)
+	ctx := context.Background()
+
+	src := seed(t, s, KindConnector, uniqueName("twopath-src"))
+	ci := seedCustom(t, s)
+	all := seedCustom(t, s)
+	agentRef := uniqueName("twopath-agent")
+	dst := seed(t, s, KindAgent, agentRef)
+
+	pushGate := [][]ainselapishared.Filter{
+		{{Field: "type", Op: "eq", Value: "push"}},
+	}
+	pipelineGate := [][]ainselapishared.Filter{
+		{{Field: "type", Op: "eq", Value: "pipeline"}},
+	}
+	if _, err := s.CreateBridge(ctx, src, all, "gather", nil); err != nil {
+		t.Fatalf("attach gather: %v", err)
+	}
+	if _, err := s.CreateBridge(ctx, src, ci, "ci", nil); err != nil {
+		t.Fatalf("attach ci: %v", err)
+	}
+	if _, err := s.CreateBridge(ctx, all, dst, "push only", pushGate); err != nil {
+		t.Fatalf("attach push edge: %v", err)
+	}
+	if _, err := s.CreateBridge(ctx, ci, dst, "pipeline only", pipelineGate); err != nil {
+		t.Fatalf("attach pipeline edge: %v", err)
+	}
+
+	// Both edges reach the same inbox, each keeping its own gate.
+	deliveries, err := s.Deliveries(ctx, src)
+	if err != nil {
+		t.Fatalf("deliveries: %v", err)
+	}
+	if len(deliveries) != 2 {
+		t.Fatalf("each edge reaching the inbox must be its own delivery, got %+v", deliveries)
+	}
+	gates := map[string]bool{}
+	for _, d := range deliveries {
+		if d.AgentChannel != dst || d.AgentName != agentRef {
+			t.Fatalf("unexpected delivery: %+v", d)
+		}
+		if len(d.BridgeFilters) != 1 || len(d.BridgeFilters[0]) != 1 {
+			t.Fatalf("delivery lost its own gate: %+v", d.BridgeFilters)
+		}
+		gates[d.BridgeFilters[0][0].Value] = true
+	}
+	if !gates["push"] || !gates["pipeline"] {
+		t.Fatalf("expected a push-gated and a pipeline-gated delivery, got %+v", deliveries)
+	}
+
+	// A pipeline event is judged by each edge: the push gate skips it, the
+	// pipeline gate accepts, and the inbox gets exactly one task.
+	res, err := tr.Apply(ctx, TransferInput{
+		EventID:      "ch-test-twopath-pipeline",
+		BirthChannel: src,
+		Headers:      map[string]string{"X-Forgejo-Event": "pipeline"},
+		Payload:      json.RawMessage(`{"status":"success"}`),
+	})
+	if err != nil {
+		t.Fatalf("apply pipeline: %v", err)
+	}
+	if len(res) != 1 || len(queue.tasks) != 1 || inv.Len() != 1 {
+		t.Fatalf("pipeline event must ride the pipeline edge: results=%+v tasks=%d invocations=%d",
+			res, len(queue.tasks), inv.Len())
+	}
+	if got := taskHeaders(t, queue.tasks[0])[HeaderChannelBridge]; got != deliveries[0].BridgeID && got != deliveries[1].BridgeID {
+		t.Fatalf("task attributed to an unknown bridge %q", got)
+	}
+
+	// A push event is the mirror image: delivered once, on the push edge.
+	res, err = tr.Apply(ctx, TransferInput{
+		EventID:      "ch-test-twopath-push",
+		BirthChannel: src,
+		Headers:      map[string]string{"X-Forgejo-Event": "push"},
+		Payload:      json.RawMessage(`{"ref":"refs/heads/main"}`),
+	})
+	if err != nil {
+		t.Fatalf("apply push: %v", err)
+	}
+	if len(res) != 1 || len(queue.tasks) != 2 || inv.Len() != 2 {
+		t.Fatalf("push event must ride the push edge: results=%+v tasks=%d invocations=%d",
+			res, len(queue.tasks), inv.Len())
+	}
+
+	// An event both gates reject still costs nothing.
+	res, err = tr.Apply(ctx, TransferInput{
+		EventID:      "ch-test-twopath-issue",
+		BirthChannel: src,
+		Headers:      map[string]string{"X-Forgejo-Event": "issues"},
+		Payload:      json.RawMessage(`{"action":"opened"}`),
+	})
+	if err != nil {
+		t.Fatalf("apply issues: %v", err)
+	}
+	if len(res) != 0 || len(queue.tasks) != 2 || inv.Len() != 2 {
+		t.Fatalf("ungated event must be filtered by both edges: results=%+v tasks=%d invocations=%d",
+			res, len(queue.tasks), inv.Len())
+	}
+}
+
+// Two unconditional edges to one inbox (no gates anywhere) must still produce
+// exactly one task — the per-edge deliveries are deduplicated per agent after
+// the gate check, not instead of it.
+func TestTransferTwoUnconditionalPathsDeliverOnce(t *testing.T) {
+	tr, _, s, queue, inv := newTestTransfer(t)
+	ctx := context.Background()
+
+	src := seed(t, s, KindConnector, uniqueName("twice-src"))
+	g1 := seedCustom(t, s)
+	g2 := seedCustom(t, s)
+	dst := seed(t, s, KindAgent, uniqueName("twice-agent"))
+
+	for _, edge := range [][2]string{{src, g1}, {src, g2}, {g1, dst}, {g2, dst}} {
+		if _, err := s.CreateBridge(ctx, edge[0], edge[1], "", nil); err != nil {
+			t.Fatalf("attach %s→%s: %v", edge[0], edge[1], err)
+		}
+	}
+
+	res, err := tr.Apply(ctx, TransferInput{
+		EventID:      "ch-test-twice",
+		BirthChannel: src,
+		Headers:      map[string]string{"X-Forgejo-Event": "push"},
+		Payload:      json.RawMessage(`{"ref":"refs/heads/main"}`),
+	})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(res) != 1 || len(queue.tasks) != 1 || inv.Len() != 1 {
+		t.Fatalf("two unconditional paths must still deliver once: results=%+v tasks=%d invocations=%d",
+			res, len(queue.tasks), inv.Len())
+	}
+}
