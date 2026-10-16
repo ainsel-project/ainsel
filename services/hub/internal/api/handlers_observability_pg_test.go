@@ -627,10 +627,13 @@ func TestObservability_TokensBySubjectServedFromRecordsWithoutProm(t *testing.T)
 	if body.Rows[0].Repo != "" || body.Rows[0].TotalTokens != 48 {
 		t.Errorf("pre-migration row wrong (must group under \"\"): %+v", body.Rows[0])
 	}
-	if body.Rows[2].Repo != "org/repo" || body.Rows[2].EventType != "pull_request.opened" || body.Rows[2].Model != "kimi" {
-		t.Errorf("main group mislabeled: %+v", body.Rows[2])
+	if body.Rows[2].Repo != "other/repo" || body.Rows[2].EventType != "issue.assigned" || body.Rows[2].Model != "gpt" {
+		t.Errorf("second group mislabeled: %+v", body.Rows[2])
 	}
-	main := body.Rows[2]
+	if body.Rows[1].Repo != "org/repo" || body.Rows[1].EventType != "pull_request.opened" || body.Rows[1].Model != "kimi" {
+		t.Errorf("main group mislabeled: %+v", body.Rows[1])
+	}
+	main := body.Rows[1]
 	if main.InputTokens != 101 || main.OutputTokens != 22 || main.CacheReadTokens != 8000 || main.CacheWriteTokens != 500 {
 		t.Errorf("main group components = %+v, want 101/22/8000/500", main)
 	}
