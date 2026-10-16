@@ -31,7 +31,7 @@ name: Dependabot auto-merge
 # re-dispatched by hand) must not gate it. Two live gates for one PR cannot
 # race: the concurrency group cancels the in-progress one.
 #
-# Cancelled caveat: sibling workflows (pr-title, gitleaks) run with their own
+# Cancelled caveat: sibling workflows (pr-title, betterleaks) run with their own
 # cancel-in-progress concurrency. Rapid rebase force-pushes cancel their
 # runs and leave a CANCELLED check run on the head while the replacement run
 # is seconds behind. A cancelled run says nothing about the head - the gate
@@ -100,7 +100,7 @@ jobs:
           fi
 
           echo "Gating PR #$PR_NUMBER; rolls over every check except the Auto-merge gate itself."
-          # Grace period: the sibling workflows (gitleaks, pr-title, the
+          # Grace period: the sibling workflows (betterleaks, pr-title, the
           # path-filtered ci-* / dev-image-* set) are triggered by the same
           # event but register their check runs moments later. Without this,
           # an early poll could see an empty rollup and merge ungated.
