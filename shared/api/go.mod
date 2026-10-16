@@ -1,4 +1,4 @@
-module github.com/DominikPinsel/ainsel/shared/api
+module github.com/ainsel-project/ainsel/shared/api
 
 go 1.26.1
 

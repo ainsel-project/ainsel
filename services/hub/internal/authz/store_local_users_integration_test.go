@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 )
 
 // TestStoreLocalUserLifecycle covers the local-account methods added for

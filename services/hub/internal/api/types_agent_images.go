@@ -1,7 +1,7 @@
 package api
 
 import (
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // SimpleAgentImageResponse is the simplified API representation of an AgentImage.

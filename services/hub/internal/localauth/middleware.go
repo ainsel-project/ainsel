@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // NewMiddleware returns an HTTP middleware that accepts Bearer tokens which

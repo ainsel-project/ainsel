@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
 // handleConversations serves GET /api/v1/observability/conversations.

@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
 // TokenEntry represents token consumption for one agent + repo + issue + model combination.

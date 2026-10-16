@@ -11,7 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/skills"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 )
 
 // skillMCPPath serves a read-only MCP view of the whole skill catalogue.

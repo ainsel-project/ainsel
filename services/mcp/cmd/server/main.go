@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/mcp/internal/auth"
-	"github.com/DominikPinsel/ainsel/services/mcp/internal/config"
-	mcpserver "github.com/DominikPinsel/ainsel/services/mcp/internal/mcp"
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/services/mcp/internal/auth"
+	"github.com/ainsel-project/ainsel/services/mcp/internal/config"
+	mcpserver "github.com/ainsel-project/ainsel/services/mcp/internal/mcp"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 func main() {

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 type capturedFire struct {

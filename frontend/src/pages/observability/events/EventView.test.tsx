@@ -13,7 +13,7 @@ const sampleEvent = {
     { trigger: 't1', agent: 'doc-writer' },
     { trigger: 't2', agent: 'review-bot' },
   ],
-  payload: { action: 'opened', repository: { full_name: 'AInsel/ainsel' } },
+  payload: { action: 'opened', repository: { full_name: 'ainsel-project/ainsel' } },
 }
 
 const sampleInvocations = {

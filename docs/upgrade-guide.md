@@ -7,19 +7,19 @@ This guide covers how to upgrade an existing Ainsel installation to a newer char
 Before upgrading, complete these pre-upgrade steps:
 
 1. **Back up the Postgres database.** All persistent state (agents, personas, triggers, connectors, invocation history) lives in Postgres. Create a backup before proceeding.
-2. **Read the changelog.** Review [`CHANGELOG.md`](https://github.com/DominikPinsel/ainsel/blob/main/CHANGELOG.md) or the notes for the target version on the [releases page](https://github.com/DominikPinsel/ainsel/releases). Breaking changes are listed first.
+2. **Read the changelog.** Review [`CHANGELOG.md`](https://github.com/ainsel-project/ainsel/blob/main/CHANGELOG.md) or the notes for the target version on the [releases page](https://github.com/ainsel-project/ainsel/releases). Breaking changes are listed first.
 3. **Check for breaking changes.** See [Checking for breaking changes](#checking-for-breaking-changes) below.
 4. **Fetch the released chart.** Charts are published to GHCR as OCI artifacts,
    one per release, tagged with the chart version:
 
    ```bash
-   helm pull oci://ghcr.io/dominikpinsel/charts/ainsel --version <X.Y.Z>
+   helm pull oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z>
    ```
 
 5. **Upgrade:**
 
    ```bash
-   helm upgrade ainsel oci://ghcr.io/dominikpinsel/charts/ainsel \
+   helm upgrade ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
      --version <X.Y.Z> -n <namespace> -f values.yaml
    ```
 
@@ -92,7 +92,7 @@ go run ./services/hub/cmd/migrate-triggers
   are skipped, so a partial run can simply be re-executed.
 
 The package doc comment in
-[`services/hub/cmd/migrate-triggers/main.go`](https://github.com/DominikPinsel/ainsel/blob/develop/services/hub/cmd/migrate-triggers/main.go)
+[`services/hub/cmd/migrate-triggers/main.go`](https://github.com/ainsel-project/ainsel/blob/develop/services/hub/cmd/migrate-triggers/main.go)
 is the source of truth for usage.
 
 ## Rolling back

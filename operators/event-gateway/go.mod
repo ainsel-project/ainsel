@@ -1,9 +1,9 @@
-module github.com/DominikPinsel/ainsel/operators/event-gateway
+module github.com/ainsel-project/ainsel/operators/event-gateway
 
 go 1.26.1
 
 require (
-	github.com/DominikPinsel/ainsel/shared/api v1.0.1-0.20260516215820-0fc3acf325cd
+	github.com/ainsel-project/ainsel/shared/api v1.0.1-0.20260516215820-0fc3acf325cd
 	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
 	k8s.io/api v0.37.1
@@ -107,4 +107,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/DominikPinsel/ainsel/shared/api => ../../shared/api
+replace github.com/ainsel-project/ainsel/shared/api => ../../shared/api

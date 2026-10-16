@@ -14,7 +14,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 func newRSAKey(t *testing.T) *rsa.PrivateKey {

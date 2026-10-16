@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/authz"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/personas"
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // The version-history and rollback endpoints expose persona content, so they

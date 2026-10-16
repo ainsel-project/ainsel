@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // HTTPPublisher publishes webhook events to the hub's ingest API.

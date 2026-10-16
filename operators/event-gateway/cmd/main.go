@@ -22,8 +22,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/DominikPinsel/ainsel/operators/event-gateway/internal/controller"
-	commonv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/operators/event-gateway/internal/controller"
+	commonv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 

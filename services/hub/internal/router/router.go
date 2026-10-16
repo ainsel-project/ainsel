@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/channels"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/metrics"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/triggerindex"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/types"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/metrics"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggerindex"
+	"github.com/ainsel-project/ainsel/services/hub/internal/types"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // Header names used to propagate routing metadata to agents.

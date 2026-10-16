@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 )
 
 func TestMigrateUpCreatesMcpServersTable(t *testing.T) {

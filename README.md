@@ -1,12 +1,12 @@
 # AInsel
 
-[![CI - services/hub](https://github.com/DominikPinsel/ainsel/actions/workflows/ci-services-hub.yml/badge.svg)](https://github.com/DominikPinsel/ainsel/actions/workflows/ci-services-hub.yml)
-[![CI - frontend](https://github.com/DominikPinsel/ainsel/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/DominikPinsel/ainsel/actions/workflows/ci-frontend.yml)
-[![CI - chart](https://github.com/DominikPinsel/ainsel/actions/workflows/ci-chart.yml/badge.svg)](https://github.com/DominikPinsel/ainsel/actions/workflows/ci-chart.yml)
-[![License](https://img.shields.io/github/license/DominikPinsel/ainsel)](LICENSE)
+[![CI - services/hub](https://github.com/ainsel-project/ainsel/actions/workflows/ci-services-hub.yml/badge.svg)](https://github.com/ainsel-project/ainsel/actions/workflows/ci-services-hub.yml)
+[![CI - frontend](https://github.com/ainsel-project/ainsel/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/ainsel-project/ainsel/actions/workflows/ci-frontend.yml)
+[![CI - chart](https://github.com/ainsel-project/ainsel/actions/workflows/ci-chart.yml/badge.svg)](https://github.com/ainsel-project/ainsel/actions/workflows/ci-chart.yml)
+[![License](https://img.shields.io/github/license/ainsel-project/ainsel)](LICENSE)
 ![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)
 [![Kubernetes-native](https://img.shields.io/badge/Kubernetes-native-326CE5?logo=kubernetes&logoColor=white)](docs/deployment.md)
-[![Docs](https://img.shields.io/badge/docs-online-success)](https://dominikpinsel.github.io/ainsel/)
+[![Docs](https://img.shields.io/badge/docs-online-success)](https://ainsel-project.github.io/ainsel/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
 **AInsel is a Kubernetes-native agent orchestrator: events go in, your AI
@@ -180,7 +180,7 @@ implementation. Writing one is a contributor task — see
 
 Matrix, WhatsApp, Office365, and Jira are illustrative possibilities,
 not commitments; the
-[issue tracker](https://github.com/DominikPinsel/ainsel/issues) shows
+[issue tracker](https://github.com/ainsel-project/ainsel/issues) shows
 what's in flight.
 
 ## Architecture
@@ -265,7 +265,7 @@ automatically at build time.
 ## Where to go next
 
 All documentation is also published at
-**[dominikpinsel.github.io/ainsel](https://dominikpinsel.github.io/ainsel/)**,
+**[ainsel-project.github.io/ainsel](https://ainsel-project.github.io/ainsel/)**,
 in the same style as the in-app Docs page.
 
 **For evaluators:**

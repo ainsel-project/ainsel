@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // Registry is the source of entities channels are provisioned from: the agent

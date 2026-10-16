@@ -169,7 +169,7 @@ class GoParsing(unittest.TestCase):
             "\n"
             "github.com/a/b v1.0.0\n"
             "std \n"
-            "github.com/DominikPinsel/ainsel/shared/api \n"
+            "github.com/ainsel-project/ainsel/shared/api \n"
             "github.com/a/b v1.0.0\n"
             "github.com/c/d v0.1.0\n"
         )

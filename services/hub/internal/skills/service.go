@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	sharedskills "github.com/DominikPinsel/ainsel/shared/api/skills"
+	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 )
 
 // AgentImageLister returns the AgentImage CRs that reference a skill by ID.

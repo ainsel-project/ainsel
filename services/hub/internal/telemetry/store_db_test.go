@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 )
 
 // testStore boots a Postgres testcontainer, runs the hub migrations over it and

@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 )
 
 // TestGetStats_TokenTotalsIncludeCache covers the dashboard tile's token

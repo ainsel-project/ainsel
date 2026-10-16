@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/api"
 )
 
 func TestWireMetricsSource(t *testing.T) {

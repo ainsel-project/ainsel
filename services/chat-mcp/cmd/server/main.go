@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/chat-mcp/internal/config"
-	"github.com/DominikPinsel/ainsel/services/chat-mcp/internal/lifecycle"
-	mcpserver "github.com/DominikPinsel/ainsel/services/chat-mcp/internal/mcp"
+	"github.com/ainsel-project/ainsel/services/chat-mcp/internal/config"
+	"github.com/ainsel-project/ainsel/services/chat-mcp/internal/lifecycle"
+	mcpserver "github.com/ainsel-project/ainsel/services/chat-mcp/internal/mcp"
 )
 
 // main starts the chat MCP sidecar. The server exposes MCP tools that let

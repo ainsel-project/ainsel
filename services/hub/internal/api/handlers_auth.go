@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/authz"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/localauth"
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // SetLocalAuthSecret enables local username/password authentication with the

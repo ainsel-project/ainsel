@@ -10,8 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 )
 
 // The channel registry is thin SQL over tables the migrations own, so these

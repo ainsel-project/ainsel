@@ -99,7 +99,7 @@ errors, control-plane health, Docker Hub tag retention). The index with
 | Hub REST API endpoints | [`docs/api-reference.md`](docs/api-reference.md) |
 | Deploying the platform | [`docs/deployment.md`](docs/deployment.md) |
 | Docker Hub tag retention, registry cleanup | [`docs/maintenance.md`](docs/maintenance.md) |
-| Current and planned work | [open issues](https://github.com/DominikPinsel/ainsel/issues) — there is no roadmap doc; planned work is tracked as issues |
+| Current and planned work | [open issues](https://github.com/ainsel-project/ainsel/issues) — there is no roadmap doc; planned work is tracked as issues |
 | Repo conventions (commits, branching, style) | [`docs/conventions.md`](docs/conventions.md), [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Step-by-step playbooks (deps, CRDs, PRs; agent / control-plane health) | [`.agent/README.md`](.agent/README.md) |
 | Operating a live install: symptoms → commands | [`docs/troubleshooting.md`](docs/troubleshooting.md), [`.agent/skills/maintenance/`](.agent/skills/maintenance/) |

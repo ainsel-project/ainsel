@@ -11,8 +11,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
-	ainselv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
-	sharedskills "github.com/DominikPinsel/ainsel/shared/api/skills"
+	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 )
 
 type piProviderConfig struct {

@@ -7,8 +7,8 @@ import (
 
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/authz"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 )
 
 // testEnv bundles a live store, checker, and cache backed by a Postgres

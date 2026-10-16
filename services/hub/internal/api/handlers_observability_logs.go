@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
 // Limits for the logs endpoint. Default mirrors the example in the issue;

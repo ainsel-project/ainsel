@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // newInternalAuthServer builds a minimal Server wired like production for the

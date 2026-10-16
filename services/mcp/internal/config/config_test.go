@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/mcp/internal/config"
+	"github.com/ainsel-project/ainsel/services/mcp/internal/config"
 )
 
 func TestLoadFromEnv(t *testing.T) {

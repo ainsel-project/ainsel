@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 func hubGet(ctx context.Context, client *http.Client, baseURL, path string) ([]byte, error) {

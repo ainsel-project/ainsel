@@ -39,7 +39,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Own module prefix - excluded from the Go listing (our code, covered by NOTICE).
-OWN_GO_PREFIX = "github.com/DominikPinsel/ainsel"
+OWN_GO_PREFIX = "github.com/ainsel-project/ainsel"
 
 # License-family key reported by `pnpm licenses list` for dual-licensed packages,
 # mapped to the license this project elects (recorded in NOTICE).

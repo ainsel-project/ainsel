@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/usertokens"
+	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
 )
 
 func TestCreate(t *testing.T) {

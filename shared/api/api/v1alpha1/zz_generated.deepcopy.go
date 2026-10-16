@@ -5,7 +5,7 @@
 package v1alpha1
 
 import (
-	api "github.com/DominikPinsel/ainsel/shared/api"
+	api "github.com/ainsel-project/ainsel/shared/api"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

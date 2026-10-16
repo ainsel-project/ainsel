@@ -12,7 +12,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/DominikPinsel/ainsel/operators/agent/test/utils"
+	"github.com/ainsel-project/ainsel/operators/agent/test/utils"
 )
 
 var (

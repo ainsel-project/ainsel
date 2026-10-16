@@ -11,7 +11,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
 // i32 avoids a ptr import: another test file in this package declares a local

@@ -301,8 +301,8 @@ describe("toConversationPayloads", () => {
 		agentName: "olli",
 		invocationId: "inv-1",
 		correlationId: "corr-1",
-		repo: "DominikPinsel/ainsel",
-		org: "DominikPinsel",
+		repo: "ainsel-project/ainsel",
+		org: "ainsel-project",
 		eventType: "issue_comment.created",
 		issueNumber: 410,
 	};
@@ -326,8 +326,8 @@ describe("toConversationPayloads", () => {
 		assert.equal(out[0].correlationId, "corr-1");
 		// Subject labels travel on every payload, not just assistant rows:
 		// a row with no subject is still consumption (issue #410).
-		assert.equal(out[0].repo, "DominikPinsel/ainsel");
-		assert.equal(out[0].org, "DominikPinsel");
+		assert.equal(out[0].repo, "ainsel-project/ainsel");
+		assert.equal(out[0].org, "ainsel-project");
 		assert.equal(out[0].eventType, "issue_comment.created");
 		assert.equal(out[0].issueNumber, 410);
 		assert.equal(out[0].role, "user");
@@ -498,10 +498,10 @@ describe("toConversationPayloads", () => {
 
 describe("eventSubject", () => {
 	it("uses the full repo name, org, type and issue number for a repo event", () => {
-		const s = eventSubject({ type: "issue_comment.created", owner: "DominikPinsel", repo: "ainsel", number: 410 });
+		const s = eventSubject({ type: "issue_comment.created", owner: "ainsel-project", repo: "ainsel", number: 410 });
 		assert.deepEqual(s, {
-			repo: "DominikPinsel/ainsel",
-			org: "DominikPinsel",
+			repo: "ainsel-project/ainsel",
+			org: "ainsel-project",
 			eventType: "issue_comment.created",
 			issueNumber: 410,
 		});
@@ -523,7 +523,7 @@ describe("eventSubject", () => {
 		// setAinselEventEnv deliberately reports no repo/org for chat events;
 		// the conversation rows must report the same subject so the two
 		// destinations of the same fact cannot disagree.
-		const s = eventSubject({ type: "chat.message", owner: "DominikPinsel", repo: "ainsel", number: 7, chatSessionId: "s-1" });
+		const s = eventSubject({ type: "chat.message", owner: "ainsel-project", repo: "ainsel", number: 7, chatSessionId: "s-1" });
 		assert.deepEqual(s, { repo: "", org: "", eventType: "chat.message", issueNumber: 0 });
 	});
 

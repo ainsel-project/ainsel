@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
-	ainselapishared "github.com/DominikPinsel/ainsel/shared/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // fakeRegistry stands in for the Kubernetes connector and agent registries.

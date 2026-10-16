@@ -1,7 +1,7 @@
 # docs-site
 
 Static publication of the repository documentation at
-<https://dominikpinsel.github.io/ainsel/>, built from the same `docs/`
+<https://ainsel-project.github.io/ainsel/>, built from the same `docs/`
 directory the in-app Docs page serves.
 
 ## How it works

@@ -15,8 +15,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/skills"
-	"github.com/DominikPinsel/ainsel/shared/auth/oidc"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // stubDiscovery is the read-only catalogue the MCP is given. Deliberately

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DominikPinsel/ainsel/services/hub/internal/mcpservers"
-	"github.com/DominikPinsel/ainsel/services/hub/internal/skills"
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"

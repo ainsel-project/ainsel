@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
