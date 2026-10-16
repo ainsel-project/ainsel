@@ -1,0 +1,40 @@
+{{- if and .Values.connectorOperator.enabled .Values.connectorOperator.clusterWideRbac }}
+{{- /*
+Cluster-wide RBAC for the event gateway operator. The released operator
+images watch Deployments, Services, Ingresses etc. across ALL namespaces
+even though POD_NAMESPACE is set (namespace-scoped caching landed later).
+Without this ClusterRole the operator crash-loops with
+"cannot list deployments at the cluster scope".
+Named after the target namespace so multiple releases (in different
+clusters/namespaces) do not collide.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.namespace }}-event-gateway-operator
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-event-source-gateway-operator
+rules:
+  - apiGroups: ["ainsel.dev"]
+    resources: ["webhookconnectors", "webhookconnectors/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+{{- end }}

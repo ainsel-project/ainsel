@@ -1,0 +1,153 @@
+// API base URL. Defaults to `${BASE_URL}api/v1` so the app calls relative to
+// its mount point — `/api/v1` at root, `/ainsel-dev/api/v1` when mounted at
+// /ainsel-dev/. The ingress strips the prefix and forwards to hub-backend.
+// import.meta.env.BASE_URL always ends in `/`, so plain concatenation
+// produces the right shape.
+// Override with VITE_API_URL=<absolute-url> at build time when needed.
+const BASE_URL =
+  (import.meta.env.VITE_API_URL as string | undefined) ??
+  `${import.meta.env.BASE_URL}api/v1`
+
+let authToken: string | null = null
+
+export function setAuthToken(token: string | null) {
+  authToken = token
+}
+
+export class ApiError extends Error {
+  status: number
+  body: unknown
+  constructor(status: number, message: string, body: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
+export class UnauthorizedError extends ApiError {
+  constructor(body: unknown) {
+    super(401, 'Unauthorized', body)
+    this.name = 'UnauthorizedError'
+  }
+}
+
+export class ServiceUnavailableError extends ApiError {
+  constructor(body: unknown, message = 'Service Unavailable') {
+    super(503, message, body)
+    this.name = 'ServiceUnavailableError'
+  }
+}
+
+// --- 401 recovery -----------------------------------------------------------
+//
+// Historically a 401 triggered window.location.reload(). That reload was
+// meant to make RequireAuth notice the missing session and redirect to the
+// IdP, but it could never recover from an *expired* stored OIDC user: the
+// reload restored the same stale user (react-oidc-context keeps the user
+// object even after silent-renew failures), every retried request 401'd
+// again, and the page ended up in an infinite refresh loop.
+//
+// Instead, the active AuthProvider registers a recovery handler that can
+// actually fix the session: silent token renewal (refresh-token grant) or a
+// redirect to the IdP / login page. Burst-deduping lives here: pages like
+// /observability fire ~10 requests on mount, and a single recovery attempt
+// per cooldown window must cover the whole wave.
+
+type UnauthorizedHandler = () => void
+
+let unauthorizedHandler: UnauthorizedHandler | null = null
+let unauthorizedHandledAt = 0
+const UNAUTHORIZED_COOLDOWN_MS = 10_000
+
+/**
+ * Register (or replace/clear) the recovery action for 401 API responses.
+ * Registered by the active AuthProvider during render. Passing `null`
+ * clears the handler and resets the burst cooldown.
+ */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler
+  if (handler === null) unauthorizedHandledAt = 0
+}
+
+function recoverFromUnauthorized() {
+  if (!unauthorizedHandler) return
+  const now = Date.now()
+  if (now - unauthorizedHandledAt < UNAUTHORIZED_COOLDOWN_MS) return
+  unauthorizedHandledAt = now
+  try {
+    unauthorizedHandler()
+  } catch {
+    // Recovery must never mask the UnauthorizedError the caller throws.
+  }
+}
+
+type Query = Record<string, string | number | boolean | undefined | null>
+
+type RequestOptions = {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
+  body?: unknown
+  query?: Query
+  signal?: AbortSignal
+}
+
+function buildUrl(path: string, query?: Query): string {
+  if (!query) return `${BASE_URL}${path}`
+  const params = new URLSearchParams()
+  for (const [k, v] of Object.entries(query)) {
+    if (v === undefined || v === null) continue
+    params.set(k, String(v))
+  }
+  const qs = params.toString()
+  return qs ? `${BASE_URL}${path}?${qs}` : `${BASE_URL}${path}`
+}
+
+function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+export async function request<T = unknown>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const { method = 'GET', body, query, signal } = options
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (authToken) headers.Authorization = `Bearer ${authToken}`
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+
+  const res = await fetch(buildUrl(path, query), {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
+  })
+
+  if (res.status === 204) return undefined as T
+
+  const text = await res.text()
+  const parsed: unknown = text ? safeJsonParse(text) : undefined
+
+  if (res.ok) return parsed as T
+
+  const message = (() => {
+    if (typeof parsed === 'object' && parsed !== null) {
+      if ('message' in parsed) return String((parsed as { message: unknown }).message)
+      if ('error' in parsed) return String((parsed as { error: unknown }).error)
+    }
+    return res.statusText || `HTTP ${res.status}`
+  })()
+
+  if (res.status === 401) {
+    // Delegated to the auth layer (see setUnauthorizedHandler) — never a
+    // blind window.location.reload(), which cannot terminate when the
+    // stored OIDC user holds an expired token.
+    recoverFromUnauthorized()
+    throw new UnauthorizedError(parsed)
+  }
+  if (res.status === 503) throw new ServiceUnavailableError(parsed, message)
+  throw new ApiError(res.status, message, parsed)
+}

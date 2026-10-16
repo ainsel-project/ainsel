@@ -1,0 +1,232 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ServiceUnavailableError } from './client'
+import {
+  getObservabilityLogs,
+  getObservabilitySummary,
+  getObservabilityTimeseries,
+  getTokensByEvent,
+  getTokensBySubject,
+  getTokensSummary,
+  unavailableDetail,
+  formatStep,
+  chartUnit,
+} from './observability'
+
+const mockFetch = () => globalThis.fetch as ReturnType<typeof vi.fn>
+
+describe('api/observability', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('summary GETs /observability/metrics/summary', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          eventsConsumed: 100,
+          triggersMatched: 90,
+          eventsRouted: 88,
+          routingErrors: 3,
+          updatedAt: '2026-05-21T00:00:00Z',
+        }),
+        { status: 200 },
+      ),
+    )
+    const out = await getObservabilitySummary()
+    const [url] = mockFetch().mock.calls[0]
+    expect(url).toContain('/observability/metrics/summary')
+    expect(out.routingErrors).toBe(3)
+  })
+
+  it('timeseries GETs with range + metric params', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          metric: 'events_routed',
+          range: '24h',
+          step: '1h',
+          points: [],
+        }),
+        { status: 200 },
+      ),
+    )
+    await getObservabilityTimeseries({ range: '24h', metric: 'events_routed' })
+    const [url] = mockFetch().mock.calls[0]
+    expect(url).toContain('/observability/metrics/timeseries')
+    expect(url).toContain('range=24h')
+    expect(url).toContain('metric=events_routed')
+  })
+
+  it('tokens summary GETs /tokens/summary', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          totalTokens: 1200000,
+          inputTokens: 800000,
+          outputTokens: 400000,
+        }),
+        { status: 200 },
+      ),
+    )
+    const out = await getTokensSummary()
+    expect(mockFetch().mock.calls[0][0]).toContain('/observability/metrics/tokens/summary')
+    expect(out.totalTokens).toBe(1200000)
+  })
+
+  it('summary passes range param when provided', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          eventsConsumed: 10,
+          triggersMatched: 8,
+          eventsRouted: 7,
+          routingErrors: 0,
+          updatedAt: '2026-05-21T00:00:00Z',
+        }),
+        { status: 200 },
+      ),
+    )
+    await getObservabilitySummary('6h')
+    const [url] = mockFetch().mock.calls[0]
+    expect(url).toContain('/observability/metrics/summary')
+    expect(url).toContain('range=6h')
+  })
+
+  it('tokens summary passes range param when provided', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          totalTokens: 500,
+          inputTokens: 300,
+          outputTokens: 200,
+        }),
+        { status: 200 },
+      ),
+    )
+    await getTokensSummary('1h')
+    const [url] = mockFetch().mock.calls[0]
+    expect(url).toContain('/observability/metrics/tokens/summary')
+    expect(url).toContain('range=1h')
+  })
+
+  it('tokens by-subject GETs with range param', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(JSON.stringify({ range: '24h', rows: [] }), { status: 200 }),
+    )
+    await getTokensBySubject('24h')
+    const [url] = mockFetch().mock.calls[0]
+    expect(url).toContain('/observability/metrics/tokens/by-subject')
+    expect(url).toContain('range=24h')
+  })
+
+  it('tokens by-event GETs with range param', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(JSON.stringify({ range: '24h', rows: [] }), { status: 200 }),
+    )
+    await getTokensByEvent('24h')
+    const [url] = mockFetch().mock.calls[0]
+    expect(url).toContain('/observability/metrics/tokens/by-event')
+    expect(url).toContain('range=24h')
+  })
+
+  it('logs GETs /observability/logs with filter params', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(JSON.stringify({ logs: [], total: 0, query: '' }), { status: 200 }),
+    )
+    await getObservabilityLogs({ app: 'hub', range: '6h', limit: 200 })
+    const [url] = mockFetch().mock.calls[0]
+    expect(url).toContain('/observability/logs')
+    expect(url).toContain('app=hub')
+    expect(url).toContain('range=6h')
+    expect(url).toContain('limit=200')
+  })
+
+  it('normalizes labels into top-level fields on log entries', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          logs: [
+            {
+              timestamp: '2026-07-09T07:00:00Z',
+              message: 'agent started',
+              agentName: 'Doc Writer',
+              labels: { agent: 'doc-writer', app: 'doc-writer', level: 'info' },
+            },
+            {
+              timestamp: '2026-07-09T07:01:00Z',
+              message: 'no labels here',
+            },
+          ],
+          total: 2,
+          query: '',
+        }),
+        { status: 200 },
+      ),
+    )
+    const logs = await getObservabilityLogs({ range: '1h' })
+    expect(logs).toHaveLength(2)
+
+    // First entry: labels should be promoted to top-level fields
+    expect(logs[0].agent).toBe('doc-writer')
+    expect(logs[0].app).toBe('doc-writer')
+    expect(logs[0].level).toBe('info')
+    expect(logs[0].agentName).toBe('Doc Writer')
+
+    // Second entry: no labels, fields stay undefined
+    expect(logs[1].agent).toBeUndefined()
+    expect(logs[1].app).toBeUndefined()
+    expect(logs[1].level).toBeUndefined()
+  })
+})
+describe('metrics helpers', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('formatStep shortens the hub step to what a bar holds', () => {
+    expect(formatStep('10m0s')).toBe('10m')
+    expect(formatStep('1h0m0s')).toBe('1h')
+    expect(formatStep('30s')).toBe('30s')
+    expect(formatStep('3m0s')).toBe('3m')
+    expect(formatStep(undefined)).toBeUndefined()
+    expect(formatStep('nonsense')).toBeUndefined()
+  })
+
+  it('chartUnit labels each backend in the unit it actually answers in', () => {
+    // The hub's records count events per bucket, so the bucket width is the label.
+    expect(chartUnit('postgres', '10m0s')).toBe('events / 10m')
+    // A Prometheus sample is a per-second rate, not a count. Labelling it
+    // "events / hour" would overstate the bar by 3600x, so the rate branch
+    // stays unitless-but-honest no matter what step came back.
+    expect(chartUnit('prometheus', '1h0m0s')).toBe('events / period')
+    expect(chartUnit(undefined, undefined)).toBe('events / period')
+    // A missing or unparseable step still yields a label, never "undefined".
+    expect(chartUnit('postgres', undefined)).toBe('events / bucket')
+    expect(chartUnit('postgres', 'nonsense')).toBe('events / bucket')
+  })
+
+  it('unavailableDetail carries the reason the hub gave for a 503', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(JSON.stringify({ error: 'prometheus not configured' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    // One request only: a Response body can be read once, and the point is the
+    // message the client attaches to the error it throws.
+    const error = await getTokensSummary().catch((e) => e)
+    expect(error).toBeInstanceOf(ServiceUnavailableError)
+    expect(unavailableDetail(error)).toBe('prometheus not configured')
+  })
+
+  it('unavailableDetail stays silent for anything that is not a 503', () => {
+    expect(unavailableDetail(new Error('boom'))).toBeUndefined()
+    expect(unavailableDetail(undefined)).toBeUndefined()
+  })
+})

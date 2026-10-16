@@ -1,0 +1,924 @@
+package queuesignal
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
+)
+
+// fakeCounter answers queue measurements from a map and records what was asked
+// for, so tests can assert both the decision and the read.
+type fakeCounter struct {
+	mu       sync.Mutex
+	depths   map[string]eventqueue.QueueDepth
+	byAgent  map[string]error
+	dueFail  map[string]error
+	due      map[string][]int64
+	allCalls int
+	seen     []string
+}
+
+func newCounter() *fakeCounter {
+	return &fakeCounter{depths: map[string]eventqueue.QueueDepth{}, byAgent: map[string]error{}, dueFail: map[string]error{}, due: map[string][]int64{}}
+}
+
+// setDue pins an agent's runnable task ids, independent of the counts, so a test
+// can move the due set while the queue itself stands still.
+func (f *fakeCounter) setDue(agent string, ids ...int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.due[agent] = ids
+}
+
+func (f *fakeCounter) set(agent string, pending, active int32) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.depths[agent] = eventqueue.QueueDepth{Pending: pending, Active: active}
+}
+
+func (f *fakeCounter) failOn(agent string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byAgent[agent] = err
+}
+
+// failDue breaks only the due-id query for an agent, so a test can exercise a
+// transient DueTaskIDs failure while the counts keep answering.
+func (f *fakeCounter) failDue(agent string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dueFail[agent] = err
+}
+
+func (f *fakeCounter) QueueCounts(_ context.Context, agentName string) (eventqueue.QueueDepth, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seen = append(f.seen, agentName)
+	if err, ok := f.byAgent[agentName]; ok {
+		return eventqueue.QueueDepth{}, err
+	}
+	return f.depths[agentName], nil
+}
+
+func (f *fakeCounter) AllQueueCounts(context.Context) (map[string]eventqueue.QueueDepth, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.allCalls++
+	out := map[string]eventqueue.QueueDepth{}
+	for name, d := range f.depths {
+		if d.Pending != 0 || d.Active != 0 {
+			out[name] = d
+		}
+	}
+	return out, nil
+}
+
+// DueTaskIDs mirrors production due-ness deterministically: a pending queue is
+// due, represented by the single id 1, so count-change assertions in the tests
+// below keep their meaning (a due-set change rides along with the pending count
+// rather than appearing on its own).
+func (f *fakeCounter) DueTaskIDs(_ context.Context, agentName string, limit int) ([]int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err, ok := f.dueFail[agentName]; ok {
+		return nil, err
+	}
+	if err, ok := f.byAgent[agentName]; ok {
+		return nil, err
+	}
+	if ids, ok := f.due[agentName]; ok {
+		if limit > 0 && len(ids) > limit {
+			ids = ids[:limit]
+		}
+		return ids, nil
+	}
+	// Mirrors production due-ness for agents with no pinned set: a pending queue
+	// is due, represented by the single id 1.
+	if d, ok := f.depths[agentName]; ok && d.Pending > 0 && (limit <= 0 || limit >= 1) {
+		return []int64{1}, nil
+	}
+	return nil, nil
+}
+
+// fakePatcher records published signals and can be told to fail.
+type fakePatcher struct {
+	mu       sync.Mutex
+	patches  []published
+	failWith error
+}
+
+type published struct {
+	agent string
+	sig   Signal
+}
+
+func (f *fakePatcher) Patch(_ context.Context, agentName string, sig Signal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return f.failWith
+	}
+	f.patches = append(f.patches, published{agent: agentName, sig: sig})
+	return nil
+}
+
+func (f *fakePatcher) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.patches)
+}
+
+func (f *fakePatcher) last(t *testing.T) published {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.patches) == 0 {
+		t.Fatal("no signal was published")
+	}
+	return f.patches[len(f.patches)-1]
+}
+
+func (f *fakePatcher) reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patches = nil
+}
+
+func TestPublishOne_FirstMeasurementIsPublishedImmediately(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	counter.set("busy", 2, 1)
+	done, err := p.publishOne(context.Background(), "busy", false)
+	if err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+	if !done {
+		t.Error("publishOne() = not done; a first observation must be published, not deferred")
+	}
+	got := patcher.last(t).sig
+	if got.Pending != 2 || got.Active != 1 {
+		t.Errorf("published %+v, want pending 2 active 1", got)
+	}
+	if got.ObservedAt.IsZero() {
+		t.Error("published signal has no observation timestamp; the operator cannot tell empty from stale")
+	}
+	if got.LastInvocation.IsZero() {
+		t.Error("first observation of queued work must advance the idle clock")
+	}
+}
+
+// Growth inside an already-busy queue changes only how many pods the operator
+// wants, not whether the agent should be awake at all, so it is the case the
+// debounce exists for: a burst of fifty arrivals must not become fifty status
+// writes. What matters is that the newest count still goes out afterwards
+// instead of being dropped -- see the second half of this test.
+func TestPublishOne_WorkArrivingBeatsTheDebounce(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher,
+		WithDebounce(time.Hour), // would swallow the update if treated as ordinary churn
+		WithLogger(discardLogger()))
+
+	counter.set("a", 1, 0)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	patcher.reset()
+
+	counter.set("a", 2, 0)
+	done, err := p.publishOne(context.Background(), "a", false)
+	if err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+	if done {
+		t.Error("queue growth published straight through the debounce; a burst of arrivals becomes a write per arrival")
+	}
+	if patcher.count() != 0 {
+		t.Errorf("published %d times, want the growth debounced", patcher.count())
+	}
+
+	// Deferred, never discarded: once the window passes the newest count is written.
+	p.mu.Lock()
+	p.nextPub["a"] = time.Time{}
+	p.mu.Unlock()
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("publishOne after debounce: %v", err)
+	}
+	if got := patcher.last(t).sig; got.Pending != 2 {
+		t.Errorf("pending = %d, want the deferred value 2", got.Pending)
+	}
+}
+
+// The mirror image: a queue draining to empty is the only permission the
+// operator gets to scale pods away, so it must not be debounced either.
+func TestPublishOne_DrainingToEmptyBeatsTheDebounce(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+
+	counter.set("a", 0, 3)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	patcher.reset()
+
+	counter.set("a", 0, 0)
+	done, err := p.publishOne(context.Background(), "a", false)
+	if err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+	if !done {
+		t.Error("an emptying queue must publish now; the agent cannot go dormant on a delayed signal")
+	}
+	if got := patcher.last(t).sig; !got.Empty() {
+		t.Errorf("published %+v, want an empty queue", got)
+	}
+}
+
+// Churn inside the same state is the debounced case, and a suppressed update
+// must stay queued rather than being silently dropped.
+func TestPublishOne_DebouncedUpdateStaysPending(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+
+	counter.set("a", 5, 0)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	patcher.reset()
+
+	// Active unchanged, queue still non-empty, pending shrank: ordinary churn.
+	counter.set("a", 4, 0)
+	done, err := p.publishOne(context.Background(), "a", false)
+	if err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+	if done {
+		t.Error("publishOne() reported done while the update was debounced; the new count would never be published")
+	}
+	if patcher.count() != 0 {
+		t.Errorf("published %d times during debounce, want 0", patcher.count())
+	}
+
+	// Once the window passes, the suppressed value must go out.
+	p.mu.Lock()
+	p.nextPub["a"] = time.Time{}
+	p.mu.Unlock()
+	done, err = p.publishOne(context.Background(), "a", false)
+	if err != nil {
+		t.Fatalf("publishOne after debounce: %v", err)
+	}
+	if !done {
+		t.Error("publishOne() still not done after the debounce window elapsed")
+	}
+	if got := patcher.last(t).sig; got.Pending != 4 {
+		t.Errorf("pending = %d, want the debounced value 4", got.Pending)
+	}
+}
+
+// A claim starting or finishing is the drain signal: the operator will not scale
+// a pod away while tasks are claimed, so a stale active count would keep an idle
+// agent warm (or, going the other way, delay the scale-down decision by a full
+// debounce window). Immediate even though the queue never became empty.
+func TestPublishOne_ClaimTransitionsAreImmediate(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+
+	counter.set("a", 5, 0)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	patcher.reset()
+
+	// A pod took a task: still non-empty both before and after.
+	counter.set("a", 4, 1)
+	done, err := p.publishOne(context.Background(), "a", false)
+	if err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+	if !done {
+		t.Error("a claim transition was debounced; the operator's drain rule is working off a stale active count")
+	}
+	if got := patcher.last(t).sig; got.Active != 1 || got.Pending != 4 {
+		t.Errorf("published %+v, want pending 4 active 1", got)
+	}
+}
+
+// New work must push the idle clock forward, or quiet is measured from the first
+// task ever enqueued: an agent that drains would be judged idle immediately after
+// finishing and go straight back to sleep, and the next event would pay a cold
+// boot again.
+func TestPublishOne_NewWorkResetsTheIdleClock(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+
+	counter.set("a", 1, 0)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	first := patcher.last(t).sig.LastInvocation
+	if first.IsZero() {
+		t.Fatal("first observation left the idle clock unset")
+	}
+	patcher.reset()
+
+	// The agent works through the queue, then something new arrives.
+	counter.set("a", 0, 1)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("drain publish: %v", err)
+	}
+	patcher.reset()
+
+	counter.set("a", 2, 0)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("reburst publish: %v", err)
+	}
+	sig := patcher.last(t).sig
+	if sig.LastInvocation.IsZero() {
+		t.Fatal("work arriving did not advance the idle clock; a drained agent would be judged quiet from its first-ever task")
+	}
+	if !sig.LastInvocation.After(first) {
+		t.Errorf("idle clock %v did not move past %v", sig.LastInvocation, first)
+	}
+
+	// Draining without new work must leave the clock where it is.
+	patcher.reset()
+	counter.set("a", 0, 0)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("empty publish: %v", err)
+	}
+	if got := patcher.last(t).sig; !got.LastInvocation.IsZero() {
+		t.Errorf("an emptying queue advanced the idle clock to %v", got.LastInvocation)
+	}
+}
+
+func TestPublishOne_IdenticalCountsNeedNoWrite(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	counter.set("a", 7, 2)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	patcher.reset()
+
+	done, err := p.publishOne(context.Background(), "a", false)
+	if err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+	if !done {
+		t.Error("nothing changed, so the agent should be considered settled")
+	}
+	if patcher.count() != 0 {
+		t.Errorf("published %d times with no change, want 0", patcher.count())
+	}
+}
+
+// The sweep republishes whether or not anything changed, which is what keeps the
+// observation timestamp from going stale when the hub is alive but idle.
+func TestPublishOne_ForceRepublishesUnchangedCounts(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	counter.set("a", 7, 2)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	first := patcher.last(t).sig.ObservedAt
+	patcher.reset()
+
+	time.Sleep(time.Millisecond)
+	done, err := p.publishOne(context.Background(), "a", true)
+	if err != nil {
+		t.Fatalf("publishOne forced: %v", err)
+	}
+	if !done {
+		t.Error("forced publish reported not done")
+	}
+	if patcher.count() != 1 {
+		t.Fatalf("published %d times, want 1 from the sweep", patcher.count())
+	}
+	got := patcher.last(t).sig
+	if !got.ObservedAt.After(first) {
+		t.Errorf("observation timestamp %v did not advance past %v", got.ObservedAt, first)
+	}
+	if !got.LastInvocation.IsZero() {
+		t.Errorf("a heartbeat republish advanced the idle clock to %v: nothing new arrived, so the agent must still be judged quiet from its last real task", got.LastInvocation)
+	}
+}
+
+func TestPublishOne_MissingAgentIsForgotten(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	patcher.failWith = apierrors.NewNotFound(schema.GroupResource{
+		Group:    "ainsel.dev",
+		Resource: "agents",
+	}, "gone")
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	counter.set("gone", 3, 0)
+	done, err := p.publishOne(context.Background(), "gone", false)
+	if err != nil {
+		t.Fatalf("publishOne for a deleted agent: %v", err)
+	}
+	if !done {
+		t.Error("a deleted agent must be dropped, not retried forever")
+	}
+	if _, ok := p.Published("gone"); ok {
+		t.Error("publisher still remembers a deleted agent; the sweep would resurrect it")
+	}
+}
+
+func TestPublishOne_PatchFailureIsRetried(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	patcher.failWith = errors.New("apiserver unavailable")
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	counter.set("a", 1, 0)
+	if _, err := p.publishOne(context.Background(), "a", false); err == nil {
+		t.Fatal("publishOne() = nil, want the patch error surfaced for retry")
+	}
+	if _, ok := p.Published("a"); ok {
+		t.Error("publisher recorded a signal it never wrote; debounce would now skip it")
+	}
+}
+
+func TestPublishOne_CountFailurePropagates(t *testing.T) {
+	counter := newCounter()
+	counter.failOn("a", errors.New("db down"))
+	p := New(counter, &fakePatcher{}, WithLogger(discardLogger()))
+
+	done, err := p.publishOne(context.Background(), "a", false)
+	if err == nil {
+		t.Fatal("publishOne() = nil, want the measurement error")
+	}
+	if done {
+		t.Error("publishOne() = done after a failed measurement; the agent would stop being watched")
+	}
+}
+
+func TestObserveDoesNoIOLikePublishing(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	p.Observe("a")
+	if patcher.count() != 0 {
+		t.Error("Observe published synchronously; it runs on the request path and must only mark")
+	}
+	p.mu.Lock()
+	dirty := p.dirty["a"]
+	p.mu.Unlock()
+	if !dirty {
+		t.Error("Observe did not mark the agent for the publish loop")
+	}
+}
+
+// After a hub restart, in-memory history is gone while tasks may have piled up
+// meanwhile. The first round must find them, or those agents stay asleep with
+// work waiting.
+func TestRunRepublishesQueuedWorkWithNoObservations(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher,
+		WithTick(5*time.Millisecond),
+		WithSweep(5*time.Millisecond),
+		WithLogger(discardLogger()))
+
+	counter.set("orphan", 2, 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = p.Run(ctx) }()
+
+	deadline := time.After(2 * time.Second)
+	for patcher.count() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("Run published nothing for an agent with queued work and no observations")
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+	if sig, ok := p.Published("orphan"); !ok || sig.Pending != 2 {
+		t.Errorf("published state = %+v (found %v), want pending 2 for orphan", sig, ok)
+	}
+}
+
+// An agent that drained while the hub was down must also be corrected, or it
+// stays marked busy.
+func TestMarkAllCatchesDrainedAgents(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	// Pretend we previously said "a" was busy, and it has since finished.
+	p.mu.Lock()
+	p.last["a"] = Signal{Pending: 0, Active: 2}
+	p.mu.Unlock()
+
+	p.markAll(context.Background())
+
+	p.mu.Lock()
+	dirty := p.dirty["a"]
+	p.mu.Unlock()
+	if !dirty {
+		t.Error("markAll missed an agent published busy that now has no rows; it would never go dormant")
+	}
+}
+
+func TestMergePatchBodyWritesZerosExplicitly(t *testing.T) {
+	body, err := mergePatchBody(Signal{
+		Pending:        0,
+		Active:         0,
+		ObservedAt:     time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC),
+		LastInvocation: time.Date(2026, 3, 4, 5, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("mergePatchBody: %v", err)
+	}
+	var doc struct {
+		Status map[string]json.RawMessage `json:"status"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("patch body is not valid JSON: %v", err)
+	}
+	// The counts are omitempty in Go, so a zero written through a marshalled
+	// struct would vanish and an agent that drained would never be told so.
+	for _, key := range []string{"pendingTasks", "activeTasks", "queueObservedAt"} {
+		if _, ok := doc.Status[key]; !ok {
+			t.Errorf("patch has no %q key; a drain to zero must be expressible: %s", key, body)
+		}
+	}
+	if string(doc.Status["pendingTasks"]) != "0" {
+		t.Errorf("pendingTasks = %s, want a literal 0", doc.Status["pendingTasks"])
+	}
+}
+
+func TestMergePatchBodyLeavesIdleClockAloneWhenUnset(t *testing.T) {
+	body, err := mergePatchBody(Signal{ObservedAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("mergePatchBody: %v", err)
+	}
+	if strings.Contains(string(body), "lastInvocation") {
+		t.Errorf("patch sets lastInvocation with no new work; the agent could never be judged quiet: %s", body)
+	}
+}
+
+// mergePatchBody must be the exact bytes K8sPatcher sends, so the two cannot
+// drift apart.
+func TestK8sPatcherUsesMergePatchBody(t *testing.T) {
+	want, err := mergePatchBody(Signal{Pending: 1, Active: 1, ObservedAt: time.Unix(0, 0).UTC()})
+	if err != nil {
+		t.Fatalf("mergePatchBody: %v", err)
+	}
+	if !json.Valid(want) {
+		t.Fatal("mergePatchBody produced invalid JSON")
+	}
+	if !strings.Contains(string(want), `"pendingTasks":1`) {
+		t.Errorf("patch missing pendingTasks: %s", want)
+	}
+}
+
+// discardLogger keeps the publisher's retry warnings out of test output.
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// A drained agent must keep beating. markAll re-marks only agents it last said
+// were BUSY, so once the empty signal is published the agent drops out of every
+// later sweep: queueObservedAt freezes, the operator's TTL expires, and it holds
+// the pods it has instead of scaling them to zero.
+func TestMarkAllKeepsHeartbeatForIdleAgents(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	// Pretend the agent got work, drained, and we published the empty signal.
+	p.mu.Lock()
+	p.last["a"] = Signal{Pending: 0, Active: 0, ObservedAt: time.Now().Add(-6 * time.Minute)}
+	p.mu.Unlock()
+
+	p.markAll(context.Background())
+
+	p.mu.Lock()
+	dirty := p.dirty["a"]
+	p.mu.Unlock()
+	if !dirty {
+		t.Error("markAll skipped an idle agent; its queue signal goes stale and the operator never scales it to zero")
+	}
+}
+
+// The same defect seen from the publish loop: once the drained queue has been
+// published as empty, the heartbeat must keep repeating rather than fall silent.
+// This is the production symptom: queueObservedAt freezes for hours while the
+// sweep runs every 60s.
+func TestRunKeepsBeatingForAnIdleAgent(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher,
+		WithTick(5*time.Millisecond),
+		WithSweep(5*time.Millisecond),
+		WithDebounce(1*time.Millisecond),
+		WithLogger(discardLogger()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = p.Run(ctx) }()
+
+	// Work arrives, then drains.
+	counter.set("idle", 1, 0)
+	waitFor(t, time.After(2*time.Second), func() bool {
+		sig, ok := p.Published("idle")
+		return ok && sig.Pending == 1
+	}, "the agent with queued work was never published")
+
+	counter.set("idle", 0, 0)
+	waitFor(t, time.After(2*time.Second), func() bool {
+		sig, ok := p.Published("idle")
+		return ok && sig.Empty()
+	}, "the drained agent was never published as empty")
+
+	// From that settled state, several sweep intervals must each republish. An
+	// idle agent's observation timestamp is what keeps the operator trusting the
+	// signal, and a frozen one reads as "the hub stopped looking".
+	before := patcher.count()
+	time.Sleep(80 * time.Millisecond)
+	beat := patcher.count() - before
+	if beat == 0 {
+		t.Error("publisher fell silent once the drained queue had been published: 0 republishes over ~16 sweeps of idle. queueObservedAt freezes, the operator's TTL expires, and the agent can never scale to zero")
+	}
+}
+
+// waitFor spins until ok reports true or the deadline fires.
+func waitFor(t *testing.T, deadline <-chan time.Time, ok func() bool, msg string) {
+	t.Helper()
+	for !ok() {
+		select {
+		case <-deadline:
+			t.Fatal(msg)
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+}
+
+// The hub's memory of what it published is not a source of truth: it is empty
+// after every restart, including the restart that ships the heartbeat. An agent
+// that opted into queue scaling must be covered by the sweep on the strength of
+// its spec alone, with no rows waiting and no published history.
+func TestMarkAllCoversOptedInAgentsWithNoHistory(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithAgentLister(fakeLister{"a"}), WithLogger(discardLogger()))
+
+	p.markAll(context.Background())
+
+	p.mu.Lock()
+	dirty := p.dirty["a"]
+	p.mu.Unlock()
+	if !dirty {
+		t.Error("markAll skipped an opted-in agent with no history; after a hub restart no agent has history, so nothing scales to zero")
+	}
+}
+
+// End to end through the loop: a brand new publisher, which is what a restarting
+// hub builds, must publish an idle opted-in agent rather than wait for it to be
+// handed work.
+func TestRunBeatsForOptedInAgentWithNoRows(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher,
+		WithAgentLister(fakeLister{"sleepy"}),
+		WithTick(5*time.Millisecond),
+		WithSweep(5*time.Millisecond),
+		WithLogger(discardLogger()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = p.Run(ctx) }()
+
+	deadline := time.After(2 * time.Second)
+	for patcher.count() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("an opted-in agent with an empty queue was never published by a fresh publisher; it stays stale and cannot park")
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+	sig, ok := p.Published("sleepy")
+	if !ok || !sig.Empty() {
+		t.Errorf("published %+v (found %v), want an empty signal for sleepy", sig, ok)
+	}
+}
+
+// A opted-in agent whose counts are unchanged still needs its timestamp moved,
+// or the operator ages the signal out and holds the pods.
+func TestRunKeepsBeatingForOptedInAgent(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher,
+		WithAgentLister(fakeLister{"steady"}),
+		WithTick(5*time.Millisecond),
+		WithSweep(5*time.Millisecond),
+		WithLogger(discardLogger()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = p.Run(ctx) }()
+
+	deadline := time.After(2 * time.Second)
+	for patcher.count() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("nothing published for an opted-in agent")
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+	if beat := patcher.count(); func() bool {
+		before := beat
+		time.Sleep(80 * time.Millisecond)
+		return patcher.count() == before
+	}() {
+		t.Error("publisher beat once then stopped; an idle opted-in agent's signal ages out and it holds its pods")
+	}
+}
+
+// fakeLister is a stand-in for the Agent CRD read.
+type fakeLister []string
+
+func (f fakeLister) QueueWatchedAgents(context.Context) ([]string, error) { return f, nil }
+
+// A hub whose API read fails must not go silent on the agents it already knows.
+// The lister widens coverage; it must not subtract it.
+func TestMarkAllSurvivesListFailure(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithAgentLister(errLister{}), WithLogger(discardLogger()))
+
+	p.mu.Lock()
+	p.last["known"] = Signal{Pending: 0, Active: 0, ObservedAt: time.Now().Add(-6 * time.Minute)}
+	p.mu.Unlock()
+
+	p.markAll(context.Background())
+
+	p.mu.Lock()
+	dirty := p.dirty["known"]
+	p.mu.Unlock()
+	if !dirty {
+		t.Error("a failed Agent list stopped the heartbeat for already-known agents; the lister must only add coverage")
+	}
+}
+
+// Static agents are not the sweep's business: they hold a pinned count whatever
+// the queue says, so beating for them would be one status write per agent per
+// minute that nobody reads.
+func TestMarkAllDoesNotBeatForStaticAgents(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithAgentLister(fakeLister{"opted-in"}), WithLogger(discardLogger()))
+
+	p.markAll(context.Background())
+
+	p.mu.Lock()
+	_, dirty := p.dirty["static-agent"]
+	p.mu.Unlock()
+	if dirty {
+		t.Error("markAll queued a static agent; the sweep must stay bounded to agents that opted into queue scaling")
+	}
+}
+
+// errLister stands in for a hub that cannot read the Agent CRDs.
+type errLister struct{}
+
+func (errLister) QueueWatchedAgents(context.Context) ([]string, error) {
+	return nil, errors.New("agents forbidden")
+}
+
+// A hub restart must not hand idle agents a fresh idle clock. The sweep publishes
+// every opted-in agent, including ones that have no queue rows at all, and a first
+// observation of such an agent used to read as "work arrived". That reset every
+// agent's quiet clock on every deploy — delaying parking by one scale-down window
+// per restart — and made status.lastInvocation claim activity that never happened.
+func TestFirstObservationOfAnIdleAgentDoesNotStampLastInvocation(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	counter.set("idle", 0, 0)
+	if _, err := p.publishOne(context.Background(), "idle", false); err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+
+	sig, ok := p.Published("idle")
+	if !ok {
+		t.Fatal("an opted-in idle agent was never published")
+	}
+	if !sig.LastInvocation.IsZero() {
+		t.Errorf("an agent with nothing queued was given lastInvocation %s; the idle clock must stay untouched, otherwise every deploy restarts the countdown before it can park", sig.LastInvocation)
+	}
+}
+
+// The companion case: work really has arrived, and this is the publisher's first
+// sight of the agent. The clock must advance, or the operator would park an agent
+// that has tasks waiting.
+func TestFirstObservationWithQueuedWorkStampsLastInvocation(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher, WithLogger(discardLogger()))
+
+	counter.set("busy", 3, 0)
+	if _, err := p.publishOne(context.Background(), "busy", false); err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+
+	sig, ok := p.Published("busy")
+	if !ok {
+		t.Fatal("the agent with queued work was never published")
+	}
+	if sig.LastInvocation.IsZero() {
+		t.Error("queued work was observed but the idle clock did not advance; the agent could be parked with tasks waiting")
+	}
+}
+
+// A drained agent's stale due list must not survive on the object: a
+// jobPerTask operator creates a Job per published id, so an empty set has to be
+// written as an explicit [] rather than omitted from the merge patch.
+func TestMergePatchBodyClearsDueIdsWhenEmpty(t *testing.T) {
+	body, err := mergePatchBody(Signal{Pending: 0, Active: 0, ObservedAt: time.Unix(0, 0).UTC()})
+	if err != nil {
+		t.Fatalf("mergePatchBody: %v", err)
+	}
+	if !strings.Contains(string(body), `"pendingTaskIds":[]`) {
+		t.Errorf("empty due set omitted or not written as []; a drained agent keeps dispatching Jobs for gone tasks: %s", body)
+	}
+
+	body, err = mergePatchBody(Signal{Pending: 2, Active: 0, DueIDs: []int64{7, 8}, ObservedAt: time.Unix(0, 0).UTC()})
+	if err != nil {
+		t.Fatalf("mergePatchBody: %v", err)
+	}
+	if !strings.Contains(string(body), `"pendingTaskIds":[7,8]`) {
+		t.Errorf("due ids not published verbatim, oldest first: %s", body)
+	}
+}
+
+// A retried task whose backoff has just elapsed is dispatchable now. The counts
+// say nothing new — pending did not move — so without treating the due set as an
+// edge, the write would sit behind the debounce and its Job would start late.
+func TestPublishOne_DueSetChangeBeatsTheDebounce(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher,
+		WithDebounce(time.Hour),
+		WithLogger(discardLogger()))
+
+	counter.set("a", 2, 1)
+	counter.setDue("a", 7)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	patcher.reset()
+
+	// Same counts, one newly-due task: an edge for jobPerTask, invisible in the counts.
+	counter.setDue("a", 7, 8)
+	done, err := p.publishOne(context.Background(), "a", false)
+	if err != nil {
+		t.Fatalf("publishOne: %v", err)
+	}
+	if !done {
+		t.Error("a task becoming runnable was debounced; its Job waits out the window for no reason")
+	}
+	got := patcher.last(t).sig
+	if len(got.DueIDs) != 2 || got.DueIDs[1] != 8 {
+		t.Errorf("published due set %v, want [7 8]", got.DueIDs)
+	}
+}
+
+// A transient DueTaskIDs failure must not empty the operator's work list:
+// mergePatchBody writes an explicit [], which tells the operator to stop
+// dispatching every due task until a later sweep repairs the list. The last
+// published ids are strictly safer to hand out — the runner exits quietly on
+// stale ones — so the publish keeps them while still refreshing the counts.
+func TestPublishOne_DueIDsFailureKeepsTheLastPublishedList(t *testing.T) {
+	counter, patcher := newCounter(), &fakePatcher{}
+	p := New(counter, patcher,
+		WithDebounce(time.Hour),
+		WithLogger(discardLogger()))
+
+	counter.set("a", 2, 1)
+	counter.setDue("a", 7, 8)
+	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
+		t.Fatalf("first publish: %v", err)
+	}
+	patcher.reset()
+
+	counter.failDue("a", errors.New("db hiccup"))
+	counter.set("a", 3, 1)
+	if _, err := p.publishOne(context.Background(), "a", true); err != nil {
+		t.Fatalf("publishOne with failing due query: %v", err)
+	}
+	got := patcher.last(t).sig
+	if got.Pending != 3 || got.Active != 1 {
+		t.Errorf("published %+v, want the counts refreshed despite the due failure", got)
+	}
+	if len(got.DueIDs) != 2 || got.DueIDs[0] != 7 || got.DueIDs[1] != 8 {
+		t.Errorf("published due set %v, want the last known [7 8] kept", got.DueIDs)
+	}
+}

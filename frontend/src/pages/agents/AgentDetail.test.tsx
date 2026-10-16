@@ -1,0 +1,961 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { Route, Routes } from 'react-router-dom'
+import { AgentDetail } from './AgentDetail'
+import { renderWithProviders } from '../../test/renderWithProviders'
+
+// AgentDetail records the visit for the nav's recent-agents list, which needs
+// the signed-in user's `sub` as the storage bucket.
+vi.mock('../../auth/AuthProvider', () => ({
+  useAuth: () => ({
+    token: 'test-token',
+    user: { sub: 'sub-kim', username: 'kim', email: 'kim@example.com' },
+    mode: 'password',
+    ready: true,
+    signinRedirect: vi.fn(),
+    signoutRedirect: vi.fn(),
+  }),
+}))
+
+function defaultFetch(url: string, init?: RequestInit): Response {
+  if (init?.method === 'DELETE') {
+    return new Response(null, { status: 204 })
+  }
+  if (url.includes('/api/v1/channels')) {
+    return new Response(
+      JSON.stringify({
+        items: [
+          {
+            id: 'ch-inbox-a1',
+            kind: 'agent',
+            name: 'doc-writer',
+            description: 'The inbox agent doc-writer drains',
+            entityRef: 'a1',
+            counts: { events: 7, unmatched: 0, failed: 1 },
+            bridges: 0,
+            subscriptions: 1,
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 500,
+        totalPages: 1,
+        window: '24h0m0s',
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/channel-subscriptions')) {
+    return new Response(
+      JSON.stringify({
+        items: [
+          {
+            source: 'trigger',
+            refId: 't1',
+            name: 'on-doc-issue',
+            fromChannel: 'ch-conn-c',
+            toChannel: 'ch-inbox-a1',
+          },
+        ],
+        total: 1,
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/triggers')) {
+    return new Response(
+      JSON.stringify({
+        items: [
+          {
+            id: 't1',
+            name: 'on-doc-issue',
+            agentRef: 'a1',
+            connectorRef: 'c-a8bf5238',
+            filters: [],
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 200,
+        totalPages: 1,
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/connectors')) {
+    return new Response(
+      JSON.stringify({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 200,
+        totalPages: 0,
+      }),
+      { status: 200 },
+    )
+  }
+  const personaMatch = url.match(/\/api\/v1\/personas\/([^/?]+)$/)
+  if (personaMatch) {
+    const id = personaMatch[1]
+    const alt = id.endsWith('1')
+    return new Response(
+      JSON.stringify({
+        id,
+        name: alt ? 'ops-triager' : 'docs-writer',
+        description: 'docs persona',
+        currentVersion: 1,
+        text: alt ? '# Persona\n\nYou triage issues.' : '# Persona\n\nYou are a docs writer.',
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/personas')) {
+    return new Response(
+      JSON.stringify({
+        items: [
+          {
+            id: '01HXTEST00000000000000000',
+            name: 'docs-writer',
+            description: 'docs persona',
+            currentVersion: 1,
+            createdAt: '2026-05-01T00:00:00Z',
+            updatedAt: '2026-05-01T00:00:00Z',
+          },
+          {
+            id: '01HXTEST00000000000000001',
+            name: 'ops-triager',
+            description: 'triage persona',
+            currentVersion: 1,
+            createdAt: '2026-05-01T00:00:00Z',
+            updatedAt: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 200,
+        totalPages: 1,
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/agent-images/claude-tooling-base')) {
+    return new Response(
+      JSON.stringify({
+        id: 'claude-tooling-base:1.4',
+        displayName: 'Claude Tooling Base',
+        description: 'Base tooling image',
+        imageURL: 'ghcr.io/ainsel/claude-tooling:1.4',
+        tools: [
+          { name: 'read_file', kind: 'shell' },
+          { name: 'run_shell', kind: 'shell' },
+        ],
+        env: [],
+        mcpServers: [],
+        enabledSkills: [],
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/skills')) {
+    return new Response(
+      JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/mcp-servers')) {
+    return new Response(JSON.stringify([]), { status: 200 })
+  }
+  if (url.includes('/agent-images')) {
+    return new Response(
+      JSON.stringify({
+        items: [
+          {
+            id: 'claude-tooling-base:1.4',
+            displayName: 'Claude Tooling Base',
+            imageURL: 'ghcr.io/ainsel/claude-tooling:1.4',
+            toolCount: 2,
+            enabledSkills: [],
+          },
+          {
+            id: 'minimal:1.0',
+            displayName: 'Minimal',
+            imageURL: 'ghcr.io/ainsel/minimal:1.0',
+            toolCount: 0,
+            enabledSkills: [],
+          },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 200,
+        totalPages: 1,
+      }),
+      { status: 200 },
+    )
+  }
+  // Agent-scoped persona (M3): the agent detail Persona tab reads and saves
+  // through here, not through /personas/{id}.
+  const agentPersonaMatch = url.match(/\/api\/v1\/agents\/([^/?]+)\/persona$/)
+  if (agentPersonaMatch) {
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body ?? '{}')) as {
+        name?: string
+        description?: string
+        text?: string
+      }
+      return new Response(
+        JSON.stringify({
+          owned: true,
+          ref: 'p-own',
+          persona: {
+            id: 'p-own',
+            name: body.name || 'doc-writer (own)',
+            description: body.description ?? '',
+            currentVersion: 1,
+            text: body.text ?? '',
+            ownerAgent: agentPersonaMatch[1],
+            createdAt: '2026-05-01T00:00:00Z',
+            updatedAt: '2026-05-01T00:00:00Z',
+          },
+        }),
+        { status: 200 },
+      )
+    }
+    return new Response(
+      JSON.stringify({
+        owned: false,
+        ref: '01HXTEST00000000000000000',
+        persona: {
+          id: '01HXTEST00000000000000000',
+          name: 'docs-writer',
+          description: 'docs persona',
+          currentVersion: 1,
+          text: '# Persona\n\nYou are a docs writer.',
+          createdAt: '2026-05-01T00:00:00Z',
+          updatedAt: '2026-05-01T00:00:00Z',
+        },
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/agents/a1')) {
+    return new Response(
+      JSON.stringify({
+        id: 'a1',
+        name: 'doc-writer',
+        description: 'Writes documentation.',
+        llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
+        imageRef: { name: 'claude-tooling-base:1.4' },
+        enabledTools: ['read_file', 'run_shell'],
+        persona: { id: '01HXTEST00000000000000000' },
+        replicas: 3,
+        status: { ready: true, replicas: 3 },
+      }),
+      { status: 200 },
+    )
+  }
+  return new Response('{}', { status: 200 })
+}
+
+describe('AgentDetail', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => Promise.resolve(defaultFetch(url, init))),
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('renders agent name and metadata', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(screen.getAllByText('doc-writer')[0]).toBeInTheDocument())
+    expect(screen.getByText('claude-opus-4-7')).toBeInTheDocument()
+    expect(screen.getByText('Ollama Cloud')).toBeInTheDocument()
+    expect(screen.getByText('claude-tooling-base:1.4')).toBeInTheDocument()
+  })
+
+  it('shows image input as off when the agent does not accept images', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(screen.getByText('Image input')).toBeInTheDocument())
+    expect(screen.getByText('Text only')).toBeInTheDocument()
+  })
+
+  it('shows image input as on when the agent accepts images', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/agents/a1')) {
+          return new Response(
+            JSON.stringify({
+              id: 'a1',
+              name: 'doc-writer',
+              llm: { model: 'qwen3.8-flash-next', provider: 'custom', vision: true },
+            }),
+            { status: 200 },
+          )
+        }
+        return defaultFetch(url)
+      }),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(screen.getByText('Image input')).toBeInTheDocument())
+    expect(screen.getByText('Images on')).toBeInTheDocument()
+  })
+
+  it('records the viewed agent under the signed-in user', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() =>
+      expect(
+        JSON.parse(localStorage.getItem('ainsel-agent-recents:sub-kim') ?? '[]'),
+      ).toEqual(['a1']),
+    )
+  })
+
+  it('renders enabled tools as chips', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(screen.getByText('read_file')).toBeInTheDocument())
+    expect(screen.getByText('run_shell')).toBeInTheDocument()
+  })
+
+  it('renders persona panel with name, markdown, and configure button', async () => {
+    const { container } = renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(container.querySelector('.md-body h1')).not.toBeNull())
+    expect(container.querySelector('.md-body h1')?.textContent).toBe('Persona')
+    expect(screen.getByText(/persona · docs-writer/i)).toBeInTheDocument()
+    expect(screen.getByText(/docs persona/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /configure persona/i })).toBeInTheDocument()
+  })
+
+  it('marks an agent-owned persona on the overview panel', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (/\/api\/v1\/agents\/a1\/persona$/.test(url)) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                owned: true,
+                ref: 'p-own',
+                persona: {
+                  id: 'p-own',
+                  name: 'doc-writer (own)',
+                  description: 'private persona',
+                  currentVersion: 2,
+                  text: '# Own\n\nPrivate to this agent.',
+                  ownerAgent: 'a1',
+                  createdAt: '2026-05-01T00:00:00Z',
+                  updatedAt: '2026-05-01T00:00:00Z',
+                },
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+
+    const { container } = renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(container.querySelector('.md-body h1')).not.toBeNull())
+    expect(screen.getByText(/persona · doc-writer \(own\) · own/i)).toBeInTheDocument()
+    expect(screen.queryByText(/shared template/i)).not.toBeInTheDocument()
+  })
+
+  it('offers to configure a persona when the agent has none', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (/\/api\/v1\/agents\/a1\/persona$/.test(url)) {
+          return Promise.resolve(new Response(JSON.stringify({ owned: false }), { status: 200 }))
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    expect(await screen.findByText(/no persona yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /configure persona/i })).toBeInTheDocument()
+  })
+
+  it('opens the Persona tab from the overview button, loads the editor, and switches personas', async () => {
+    const putCalls: Array<{ url: string; body?: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') {
+          putCalls.push({ url, body: init.body ? String(init.body) : undefined })
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findAllByText('doc-writer')
+    await userEvent.click(await screen.findByRole('button', { name: /configure persona/i }))
+
+    // The editor loads the linked persona's content.
+    const text = await screen.findByLabelText('Persona Text')
+    expect((text as HTMLTextAreaElement).value).toContain('You are a docs writer.')
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('docs-writer')
+
+    // Switching the linked persona patches the agent with the new reference.
+    await userEvent.selectOptions(
+      screen.getByLabelText('Linked persona'),
+      '01HXTEST00000000000000001',
+    )
+    await waitFor(() => {
+      const call = putCalls.find((c) => c.url.includes('/api/v1/agents/a1'))
+      expect(call).toBeDefined()
+      expect(JSON.parse(call!.body!)).toEqual({
+        name: 'doc-writer',
+        persona: { id: '01HXTEST00000000000000001' },
+      })
+    })
+  })
+
+  it('opens the Runtime tab with image identity and env, and switches images', async () => {
+    const putCalls: Array<{ url: string; body?: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') {
+          putCalls.push({ url, body: init.body ? String(init.body) : undefined })
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findAllByText('doc-writer')
+    await userEvent.click(screen.getByRole('tab', { name: /^runtime$/i }))
+
+    // The embedded editor loads the referenced image's identity and env.
+    const urlInput = await screen.findByLabelText('Image URL')
+    await waitFor(() => expect(urlInput).toHaveValue('ghcr.io/ainsel/claude-tooling:1.4'))
+    expect(screen.getByRole('heading', { name: 'Environment Variables' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument()
+
+    // No tools-side or skills sections leak onto this tab.
+    expect(screen.queryByRole('heading', { name: 'MCP Servers' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Skills' })).not.toBeInTheDocument()
+
+    // Switching the image patches the agent with the new reference.
+    await userEvent.selectOptions(screen.getByLabelText('Agent image'), 'minimal:1.0')
+    await waitFor(() => {
+      const call = putCalls.find((c) => c.url.includes('/api/v1/agents/a1'))
+      expect(call).toBeDefined()
+      expect(JSON.parse(call!.body!)).toEqual({
+        name: 'doc-writer',
+        imageRef: { name: 'minimal:1.0' },
+      })
+    })
+  })
+
+  it('offers agent-scoped env overrides next to the shared image profile', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findAllByText('doc-writer')
+    await userEvent.click(screen.getByRole('tab', { name: /^runtime$/i }))
+
+    // The shared image profile keeps its own editor and heading ...
+    expect(await screen.findByLabelText('Image URL')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Environment Variables' })).toBeInTheDocument()
+
+    // ... and the agent's own override list sits beside it, framed as
+    // inherited until the first change pins it.
+    expect(screen.getByRole('heading', { name: /^environment$/i })).toBeInTheDocument()
+    expect(screen.getByText(/Currently inherited from the runtime image/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /save overrides/i })).toBeDisabled()
+  })
+
+  it('opens the Tools tab with the image catalog and an agent-scoped MCP selection', async () => {
+    const putCalls: Array<{ url: string; body?: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') {
+          putCalls.push({ url, body: init.body ? String(init.body) : undefined })
+        }
+        if (url.includes('/mcp-servers')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  name: 'github',
+                  displayName: 'GitHub',
+                  url: 'https://mcp.github.com/sse',
+                  tokenFromEnv: 'GITHUB_TOKEN',
+                  createdAt: '2026-06-01T00:00:00Z',
+                  updatedAt: '2026-06-01T00:00:00Z',
+                },
+                {
+                  name: 'linear',
+                  displayName: 'Linear',
+                  url: 'https://mcp.linear.app/sse',
+                  createdAt: '2026-06-01T00:00:00Z',
+                  updatedAt: '2026-06-01T00:00:00Z',
+                },
+              ]),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findAllByText('doc-writer')
+    await userEvent.click(screen.getByRole('tab', { name: /^tools$/i }))
+
+    // The image tool catalog still renders (with its own save button),
+    // and the MCP section is now the agent's own selection.
+    expect((await screen.findAllByText('read_file')).length).toBeGreaterThan(0)
+    expect(
+      await screen.findByRole('button', {
+        name: /add selected to enabled on this agent/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /github/i })).toBeInTheDocument()
+    expect(screen.getByText(/inherited from the runtime image/i)).toBeInTheDocument()
+
+    // No image-side, skills, or picker sections on this tab.
+    expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Environment Variables' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Skills' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Agent image')).not.toBeInTheDocument()
+
+    // Enabling an MCP server pins the selection to the agent.
+    await userEvent.click(screen.getByRole('option', { name: /github/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: /add selected to enabled on this agent/i }),
+    )
+    await waitFor(() => {
+      const call = putCalls.find((c) => c.url.includes('/api/v1/agents/a1'))
+      expect(call).toBeDefined()
+      expect(JSON.parse(call!.body!)).toEqual({
+        name: 'doc-writer',
+        mcp: { servers: ['github'] },
+      })
+    })
+  })
+
+  it('opens the Skills tab as an agent-scoped selection and pins it on change', async () => {
+    const putCalls: Array<{ url: string; body?: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') {
+          putCalls.push({ url, body: init.body ? String(init.body) : undefined })
+        }
+        if (url.includes('/skills?') || url.includes('/skills')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    id: 'skill-pr',
+                    name: 'PR Review',
+                    description: 'Review pull requests',
+                  },
+                  {
+                    id: 'skill-triage',
+                    name: 'Issue Triage',
+                    description: 'Triage issues',
+                  },
+                ],
+                total: 2,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findAllByText('doc-writer')
+    await userEvent.click(screen.getByRole('tab', { name: /^skills$/i }))
+
+    // The agent-scoped picker renders with agent wording, and the
+    // inherit-from-image hint shows while spec.skills is unset.
+    expect(
+      await screen.findByRole('button', {
+        name: /add selected to enabled on this agent/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /pr review/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /issue triage/i })).toBeInTheDocument()
+    expect(screen.getByText(/inherited from the runtime image/i)).toBeInTheDocument()
+
+    // No image-side sections leak onto this tab, and no embedded form save:
+    // the picker PUTs the agent directly.
+    expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'MCP Servers' })).not.toBeInTheDocument()
+
+    // Enabling a skill pins the selection to the agent.
+    await userEvent.click(screen.getByRole('option', { name: /pr review/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: /add selected to enabled on this agent/i }),
+    )
+    await waitFor(() => {
+      const call = putCalls.find((c) => c.url.includes('/api/v1/agents/a1'))
+      expect(call).toBeDefined()
+      expect(JSON.parse(call!.body!)).toEqual({
+        name: 'doc-writer',
+        skills: { items: ['skill-pr'] },
+      })
+    })
+  })
+
+  it('shows the Channel tab with the agent inbox summary', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findByText('claude-opus-4-7')
+    expect(screen.getByRole('tab', { name: /channel/i })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: /channel/i }))
+    expect(await screen.findByText('agent inbox')).toBeInTheDocument()
+    expect(screen.getByText('The inbox agent doc-writer drains')).toBeInTheDocument()
+    // addressed by the hub's channel id, not a synthesized kind:name key
+    expect(
+      screen.getByText((_, el) => el?.textContent === '7 events reached this inbox in 24h'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open channel/i })).toHaveAttribute(
+      'href',
+      '/channels/ch-inbox-a1',
+    )
+  })
+
+  it('does not show the Access card on the overview tab', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findByText('claude-opus-4-7')
+    expect(screen.queryByRole('button', { name: /access/i })).not.toBeInTheDocument()
+  })
+
+  it('shows runtime stats on the overview tab and no separate Status tab', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findByText('claude-opus-4-7')
+    expect(screen.getByRole('heading', { name: 'Runtime Status' })).toBeInTheDocument()
+    expect(screen.getByText('Tasks running')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /^status$/i })).not.toBeInTheDocument()
+  })
+
+  it('opens the Channel tab directly via the ?tab=channel deep link', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1?tab=channel' },
+    )
+    // Channel panel content loads without clicking the tab.
+    await waitFor(() => expect(screen.getByText('agent inbox')).toBeInTheDocument())
+  })
+
+  it('falls back to the Overview tab for an invalid ?tab value', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1?tab=bogus' },
+    )
+    // Overview-only content (the model) is shown; triggers are not loaded.
+    await waitFor(() => expect(screen.getByText('claude-opus-4-7')).toBeInTheDocument())
+    expect(screen.queryByText('on-doc-issue')).not.toBeInTheDocument()
+  })
+
+  it('confirms and deletes the agent then navigates', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents" element={<div>LIST</div>} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findAllByText('doc-writer')
+    // Open the modal from the titleblock Delete button (the only one before modal opens).
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const dialog = await screen.findByRole('dialog')
+    // Click Delete inside the modal.
+    await userEvent.click(within(dialog).getByRole('button', { name: /^delete/i }))
+    await waitFor(() => expect(screen.queryByText('LIST')).toBeInTheDocument())
+  })
+
+  it('surfaces an error when delete fails and keeps the modal open', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE') {
+          return Promise.resolve(
+            new Response(JSON.stringify({ message: 'forbidden' }), { status: 403 }),
+          )
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents" element={<div>LIST</div>} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await screen.findAllByText('doc-writer')
+    // Open the delete modal.
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const dialog = await screen.findByRole('dialog')
+    // Click Delete inside the modal — should fail with 403.
+    await userEvent.click(within(dialog).getByRole('button', { name: /^delete/i }))
+    // Modal stays open and shows the error message.
+    await waitFor(() => expect(screen.getByText('forbidden')).toBeInTheDocument())
+    // Should NOT have navigated to the list.
+    expect(screen.queryByText('LIST')).not.toBeInTheDocument()
+    // Dialog is still present.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  describe('container count', () => {
+    /** Serve the agent with an operator status block and zero running pods. */
+    function stubQueueStatus(status: Record<string, unknown>) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string, init?: RequestInit) => {
+          if ((init?.method ?? 'GET') === 'GET' && url.includes('/agents/a1')) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  id: 'a1',
+                  name: 'doc-writer',
+                  imageRef: { name: 'claude-tooling-base:1.4' },
+                  persona: { id: '01HXTEST00000000000000000' },
+                  replicas: 3,
+                  status: { ready: false, ...status },
+                }),
+                { status: 200 },
+              ),
+            )
+          }
+          return Promise.resolve(defaultFetch(url, init))
+        }),
+      )
+    }
+
+    function renderAgent() {
+      return renderWithProviders(
+        <Routes>
+          <Route path="/agents/:id" element={<AgentDetail />} />
+        </Routes>,
+        { route: '/agents/a1' },
+      )
+    }
+
+    it('calls an agent with nothing in flight idle rather than broken', async () => {
+      stubQueueStatus({ desired: 0, reason: 'JobPerTask', message: '0 task job(s) active' })
+      renderAgent()
+
+      await waitFor(() => expect(screen.getByText('Idle')).toBeInTheDocument())
+      expect(screen.getByText(/0 of up to 3/)).toBeInTheDocument()
+    })
+
+    // An agent with a task Job in flight is not idle: until it reports ready,
+    // the honest label is Pending.
+    it('still reports an agent with a task in flight as pending', async () => {
+      stubQueueStatus({ desired: 1, ready: false })
+      renderAgent()
+
+      await waitFor(() => expect(screen.getByText('Pending')).toBeInTheDocument())
+      expect(screen.queryByText('Idle')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('pause / resume', () => {
+    function stubPaused(paused: boolean, pausedUntil?: string) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string, init?: RequestInit) => {
+          if (url.includes('/agents/a1') && !url.includes('/pause')) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  id: 'a1',
+                  name: 'doc-writer',
+                  llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
+                  imageRef: { name: 'claude-tooling-base:1.4' },
+                  replicas: 1,
+                  paused,
+                  ...(pausedUntil ? { pausedUntil } : {}),
+                  status: { ready: true, replicas: 1 },
+                }),
+                { status: 200 },
+              ),
+            )
+          }
+          return Promise.resolve(defaultFetch(url, init))
+        }),
+      )
+    }
+
+    it('offers Pause on a running agent and posts the chosen duration', async () => {
+      stubPaused(false)
+      const pauseCalls: { url: string; body: string }[] = []
+      const inner = vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'POST' && url.includes('/pause')) {
+          pauseCalls.push({ url, body: String(init.body ?? '') })
+          return Promise.resolve(new Response('{}', { status: 200 }))
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      })
+      vi.stubGlobal('fetch', inner)
+
+      renderWithProviders(
+        <Routes>
+          <Route path="/agents/:id" element={<AgentDetail />} />
+        </Routes>,
+        { route: '/agents/a1' },
+      )
+
+      const pauseBtn = await screen.findByRole('button', { name: 'Pause' })
+      await userEvent.click(pauseBtn)
+      // The modal's confirm button shares the trigger's name; scope to the dialog.
+      const dialog = await screen.findByRole('dialog')
+      const confirm = await within(dialog).findByRole('button', { name: 'Pause' })
+      await userEvent.click(confirm)
+
+      await waitFor(() => expect(pauseCalls).toHaveLength(1))
+      expect(pauseCalls[0].url).toContain('/api/v1/agents/a1/pause')
+      expect(JSON.parse(pauseCalls[0].body)).toEqual({ duration: '8h' })
+    })
+
+    it('shows the paused badge with resume hint and resumes via DELETE', async () => {
+      const until = new Date(Date.now() + 3600_000).toISOString()
+      const delCalls: string[] = []
+      vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE' && url.includes('/pause')) {
+          delCalls.push(url)
+          return Promise.resolve(new Response('{}', { status: 200 }))
+        }
+        if (url.includes('/agents/a1') && !url.includes('/pause')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: 'a1',
+                name: 'doc-writer',
+                llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
+                imageRef: { name: 'claude-tooling-base:1.4' },
+                replicas: 1,
+                paused: true,
+                pausedUntil: until,
+                status: { ready: true, replicas: 1 },
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }))
+
+      renderWithProviders(
+        <Routes>
+          <Route path="/agents/:id" element={<AgentDetail />} />
+        </Routes>,
+        { route: '/agents/a1' },
+      )
+
+      expect(await screen.findByText(/Paused/)).toBeInTheDocument()
+      const resumeBtn = await screen.findByRole('button', { name: 'Resume' })
+      await userEvent.click(resumeBtn)
+      await waitFor(() => expect(delCalls).toHaveLength(1))
+      expect(delCalls[0]).toContain('/api/v1/agents/a1/pause')
+    })
+  })
+
+})

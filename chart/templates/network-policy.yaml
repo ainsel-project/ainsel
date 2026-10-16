@@ -1,0 +1,251 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default deny all ingress to the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Allow hub-backend ingress from frontend, mcp, agents, webhook connectors,
+# and the ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hub-backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub-backend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: hub-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # From frontend
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub-frontend
+      ports:
+        - port: {{ .Values.hub.port }}
+    # From MCP server
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: mcp
+      ports:
+        - port: {{ .Values.hub.port }}
+    # From agent pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agents
+      ports:
+        - port: {{ .Values.hub.port }}
+    # From webhook connector pods (created by the event-source-gateway
+    # operator; they publish accepted webhooks to /api/internal/events)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: connector-operator
+      ports:
+        - port: {{ .Values.hub.port }}
+    # From the ingress controller (browser API traffic: UI -> ingress -> hub-backend)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+      ports:
+        - port: {{ .Values.hub.port }}
+    # Allow metrics scraping
+    - ports:
+        - port: {{ .Values.hub.metricsPort }}
+---
+# Allow Postgres ingress from hub only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub-backend
+      ports:
+        - port: 5432
+---
+# Allow frontend ingress (from ingress controller / external)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hub-frontend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: hub-frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 80
+---
+# Allow MCP ingress (from ingress controller / external)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: mcp
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+---
+# Agent egress: allow traffic to known cluster services, DNS, and HTTPS (443/TCP).
+# TODO(#652): Replace broad 443/TCP egress with FQDN-scoped filtering via the
+# sidecar proxy approach tracked in the parent Epic. Standard NetworkPolicy
+# cannot express FQDN-based rules; CIDR-pinning is unstable for SaaS LLM APIs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-egress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agents
+  policyTypes:
+    - Egress
+  egress:
+    # Hub backend
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub-backend
+      ports:
+        - port: 8080
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # HTTPS egress for LLM APIs (ollama.com, opencode.ai, aliyuncs.com, custom providers).
+    # TODO(#652): Replace with FQDN-scoped egress via sidecar proxy.
+    - ports:
+        - port: 443
+          protocol: TCP
+---
+# Agent metrics ingress: the runner extension serves Prometheus metrics on the
+# pod's named "metrics" port (see chart/templates/k8s-ai-agent-operator/
+# podmonitor-agents.yaml). Without an ingress allow, the default-deny policy
+# silently refuses Prometheus scrapes and every agent metric (notably
+# agent_tokens_used_total) disappears from the observability dashboard.
+# Selector matches the PodMonitor (managed-by, not component) so pods created
+# before the component label existed are covered too.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-metrics
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: agent-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow metrics scraping (same open posture as the hub-backend metrics rule).
+    - ports:
+        - port: metrics
+---
+# Webhook ingress for connector receiver pods. Connectors are created
+# dynamically by the event-source-gateway operator; external webhooks reach
+# them through the ingress controller, and in-cluster producers (e.g. a
+# Forgejo running in the same cluster) may deliver to them directly. Both
+# paths must be allowed under default-deny.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: connectors-webhook-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: connector-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # External webhooks via the ingress controller.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+        {{- range .Values.networkPolicy.connectorWebhookSources }}
+        # Additional webhook producer (see values: connectorWebhookSources).
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+      ports:
+        - port: http
+---
+{{- if .Values.networkPolicy.allowAcmeSolver }}
+# Allow the ingress controller to reach cert-manager HTTP-01 solver pods.
+# Without this, ACME http01 challenges fail under the default-deny policy
+# (solver responds 502 to Let's Encrypt: 'wrong status code 502').
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: acme-http01-solver
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+{{- end }}
+{{- end }}

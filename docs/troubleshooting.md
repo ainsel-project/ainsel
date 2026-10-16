@@ -1,0 +1,362 @@
+# Troubleshooting
+
+This guide covers the most common failure modes when operating AInsel. Use `<namespace>` as a placeholder for the Kubernetes namespace where your platform is installed.
+
+---
+
+## Hub pod not starting
+
+Check the hub logs first:
+
+```bash
+kubectl logs -n <namespace> deploy/ainsel-hub
+```
+
+Common causes and fixes:
+
+- **Missing Postgres secret** — The hub exits early if the database secret is absent or has the wrong key names. Verify the secret exists and contains the expected keys (`host`, `port`, `user`, `password`, `dbname` or a single `dsn`). Re-create the secret and restart the hub deployment.
+- **Hub not reachable** — If you see `hub: connection refused` or a connection-refused error, confirm the hub URL in `values.yaml` is correct and that the hub pod is running in the release namespace: `kubectl get pods -n <namespace>`.
+- **Bad OIDC config** — An `oidc: failed to fetch provider metadata` error means the issuer URL is unreachable from inside the cluster. Check that the URL is correct, that DNS resolves, and that the cluster can reach the OIDC provider. Verify the client ID matches what is registered.
+- **CRD not installed** — A `no kind "Agent" is registered` error means CRDs were not applied. Run `kubectl apply -f chart/templates/crds/` and restart the hub.
+
+After fixing the root cause, rollout-restart the deployment:
+
+```bash
+kubectl rollout restart -n <namespace> deploy/ainsel-hub
+kubectl rollout status -n <namespace> deploy/ainsel-hub
+```
+
+---
+
+## Webhook not being received
+
+Start by confirming the connector resource is healthy:
+
+```bash
+kubectl get webhookconnector -n <namespace>
+kubectl describe webhookconnector <name> -n <namespace>
+```
+
+The `Ready` condition must be `True`. If it is not, the operator has not yet provisioned the receiver Deployment and Ingress — check operator logs:
+
+```bash
+kubectl logs -n <namespace> deploy/k8s-event-source-gateway-operator
+```
+
+Check the webhook-receiver pod logs for incoming requests (the receiver Deployment is named `connector-<id>`, e.g. `connector-c-0c4b01e3`):
+
+```bash
+kubectl logs -n <namespace> deploy/connector-<connector-id>
+```
+
+A `403 Forbidden` or `HMAC mismatch` error means the secret on the Forgejo webhook does not match the secret stored in the Kubernetes secret referenced by the connector (`connector-<id>-webhook-hmac`). Update the Forgejo webhook secret or rotate the connector's secret (`POST /api/v1/connectors/{id}/rotate-secret`), then restart the webhook-receiver pod.
+
+Verify the Ingress is present and routing correctly:
+
+```bash
+kubectl get ingress -n <namespace>
+curl -v <webhook-url>/healthz
+```
+
+If the Ingress exists but requests are not arriving, check that the Ingress controller is running and that the external DNS or IP resolves to the cluster. With `networkPolicy.enabled: true`, also confirm a NetworkPolicy allows ingress from the ingress controller's namespace to the connector's webhook-receiver pods — connector pods are created by the operator, not the chart, so the chart's default-deny posture requires an additive policy for them. See [Network Policies](network-policies.md).
+
+---
+
+## Agent not triggering
+
+Check that trigger resources exist and are healthy:
+
+```bash
+kubectl get trigger -n <namespace>
+kubectl describe trigger <name> -n <namespace>
+```
+
+Inspect hub logs for routing decisions. The hub logs each event it receives and whether it matched a trigger:
+
+```bash
+kubectl logs -n <namespace> deploy/ainsel-hub | grep -i trigger
+```
+
+Look for lines indicating an event was received but no trigger matched — this usually means the event type or filter does not align with what is being sent. Adjust the trigger's `filters` via the UI or API (match on the derived `type`/`action` fields and payload paths — there is no separate `eventType` field).
+
+Verify the connector is publishing events to the event queue by checking the `hub_events_consumed_total` metric:
+
+```bash
+kubectl exec -n <namespace> deploy/ainsel-hub -- curl -s http://localhost:8080/metrics | grep hub_events_consumed_total
+```
+
+A counter that never increments means events are not reaching the hub. Re-check the connector and hub connectivity.
+
+---
+
+## Agent pod stuck in Pending or CrashLoopBackOff
+
+Describe the pod to get the full picture:
+
+```bash
+kubectl describe pod -n <namespace> <pod-name>
+```
+
+Common causes:
+
+- **Insufficient cluster resources** — A `Pending` pod with `Insufficient cpu` or `Insufficient memory` in the events means the cluster does not have capacity. Scale the cluster or reduce the agent's resource requests in `values.yaml`.
+- **Missing image pull secret** — `ImagePullBackOff` means the cluster cannot pull the agent image. Verify the registry is accessible and the image pull secret is configured on the ServiceAccount.
+- **API key not set** — A `CrashLoopBackOff` with an error like `api-key secret not found` means the LLM API key secret is missing. The operator looks for a secret named `<agent-name>-<provider>-key` with key `api-key`. Create it: `kubectl create secret generic <agent-name>-<provider>-key -n <namespace> --from-literal=api-key=<key>`.
+- **Persona or tool misconfiguration** — Check the agent pod logs for startup errors: `kubectl logs -n <namespace> <pod-name> --previous`.
+
+---
+
+## A task never finishes and nothing after it starts
+
+A task whose work is done but which stays in the active set — with no later task for
+that agent starting — is usually a task pod that cannot finish. The operator
+runs each queued task as its own Kubernetes Job, and a Job completes only when
+every container in its pod exits.
+
+```bash
+kubectl get job -n <namespace> -l ainsel.dev/agent=<agent-name>
+kubectl get job -n <namespace> <task-job> -o jsonpath='{.status}{"\n"}'
+kubectl logs -n <namespace> job/<task-job> -c chat --tail=20
+```
+
+- **Job still `active` while the `agent` container shows `Completed`** — a sidecar
+  is holding the pod open. The chat sidecar ends itself when the runtime process
+  it serves disappears, which requires the operator to give the task pod a shared
+  PID namespace and the runtime image to write its pid file; see
+  [`services/chat-mcp/README.md`](../services/chat-mcp/README.md). An old operator
+  with a newer runtime image (or the reverse) breaks that handoff, so check that
+  the control plane and the agent images are from the same release.
+- **Deleting the stuck Job is a safe immediate fix** — the operator sees the task
+  still claimed and dispatches it again as a fresh Job.
+
+---
+
+## OIDC / authentication errors
+
+If the hub fails to start with `authMW is nil` / `api auth middleware is not
+configured`, no authentication is wired and the operator has not opted into
+running without auth. Configure `auth.mode` (`oidc`, `local`, or `none`) in
+your values — see `docs/deployment.md`. The chart auto-enables no-auth only
+when nothing is exposed via ingress ("local mode").
+
+If the hub or MCP server crash-loops at startup with `oidc discovery:` in the
+log, the issuer's `/.well-known/openid-configuration` is unreachable or
+malformed. There is no endpoint fallback anymore: fix the issuer URL (or the
+provider) — the service refuses to start with unresolved OIDC endpoints so
+misconfiguration is visible at boot instead of surfacing as 401s on every
+request.
+
+If authentication is configured and you are seeing `401 Unauthorized` responses:
+
+- Verify the OIDC issuer URL in the hub configuration is reachable from inside the cluster.
+- Confirm the client ID matches the one registered with the OIDC provider.
+- Validate a token manually against the OIDC userinfo endpoint:
+
+```bash
+curl -H "Authorization: Bearer <token>" <issuer-url>/protocol/openid-connect/userinfo
+```
+
+A `token is expired` error means the client needs to refresh its token before calling the API. A `audience mismatch` error means the token was issued for a different client ID.
+
+For `auth.mode: local`: the bootstrap admin password lives in the
+`ainsel-local-admin` Secret and is never rotated on restarts. If it is lost,
+reset the account by updating the Secret and deleting the `local:admin` row
+from the `users` table so the bootstrap recreates it on next start.
+
+---
+
+## MCP server not connecting
+
+Check the MCPServer resource status:
+
+```bash
+kubectl get mcpserver -n <namespace>
+kubectl describe mcpserver <name> -n <namespace>
+```
+
+Look for connection errors in the hub logs:
+
+```bash
+kubectl logs -n <namespace> deploy/ainsel-hub | grep -i mcp
+```
+
+Verify the MCP server URL is reachable from inside the cluster by exec-ing into the hub pod:
+
+```bash
+kubectl exec -n <namespace> deploy/ainsel-hub -- curl -sv <mcp-server-url>/health
+```
+
+If the URL is not reachable, confirm the MCP server Deployment is running and that the Service name and port are correct. If the MCP server is external to the cluster, verify network policies and egress rules allow the connection.
+
+Remember that MCP servers are reached from **two** clients: hub-backend (tool discovery for AgentImages — the "Refresh MCP Tools" action — and the hub MCP registry) and agent pods at runtime. Both need ingress to the server, and agents additionally need egress if the server is in-cluster and not on 443/TCP. With `networkPolicy.enabled: true`, an in-cluster MCP server without an allow rule is silently unreachable — connections are rejected rather than timing out. See [Network Policies](network-policies.md) for the policy inventory and a verification recipe.
+
+---
+
+## Dashboard panels say "No metrics source configured"
+
+A metrics panel answers `503 Service Unavailable` when nothing can serve it, and the
+UI replaces that panel's body with the reason. Nothing is broken: the hub's own
+records — agents, events, invocations, activity, chat — still render.
+
+Read the panel heading: **No metrics source configured** means neither Prometheus
+nor the hub's database can answer. Since the hub will not start without
+`HUB_DB_URL`, this is a broken install, not a missing optional add-on — see
+[Hub pod not starting](#hub-pod-not-starting). No console panel requires
+Prometheus any more: the tokens-by-subject table joined the records-backed
+panels with #411.
+
+The event KPI cards and every throughput chart — dashboard **Throughput · 24h**,
+and the **Observability**, **Routing**, **Errors** and **Events** charts — are served
+from the rows the hub wrote while routing (`events`, `agent_tasks`, `task_logs`).
+They need no external backend. If those are empty, the hub is not reaching its
+database.
+
+**Want the remaining Prometheus-only endpoint?** Set `observability.prometheus.url` in
+`values.yaml` and point the hub at a Prometheus that scrapes it. When the value is
+empty the chart never sets `HUB_PROMETHEUS_URL`, the hub starts without a Prometheus
+client, and only raw PromQL (`/api/v1/observability/metrics/query`, used by MCP tools
+and operators) goes dark — every console panel, the tokens-by-subject table included,
+reads the hub's records. Setting it does **not** move the event KPI cards, throughput charts,
+or token tiles onto counters — those keep reading the hub's records unless you also
+pin them (see *Which backend is answering* below).
+
+Check it from outside the pod — the hub image is distroless and has no shell, so
+`kubectl exec … printenv` cannot work:
+
+```bash
+# Is the variable on the hub deployment at all? No output = not configured.
+kubectl -n <namespace> get deploy hub-backend -o json \
+  | jq -r '.spec.template.spec.containers[].env[]?
+      | select(.name=="HUB_PROMETHEUS_URL") | .value'
+
+# What did the hub record about it at startup?
+kubectl -n <namespace> logs deploy/hub-backend | grep -i prometheus
+```
+
+Logs are JSON, so the unconfigured state reads:
+
+```json
+{"time":"2026-09-23T10:04:12Z","level":"WARN","msg":"HUB_PROMETHEUS_URL not set: raw PromQL is unavailable; token tiles, the by-subject table and event metrics come from the hub's own records"}
+```
+
+A configured hub logs `{"time":"…","level":"INFO","msg":"prometheus client configured","url":"http://prometheus…"}`
+instead. That warning is about the remaining Prometheus-only endpoint, raw PromQL;
+the token tiles, the by-subject table and the event charts are unaffected either way.
+
+**Fix.** Point the hub at a Prometheus it can reach:
+
+```yaml
+observability:
+  prometheus:
+    url: "http://prometheus.monitoring.svc.cluster.local:9090"
+```
+
+```bash
+helm upgrade ainsel ./chart -n <namespace> -f values.yaml
+kubectl rollout status -n <namespace> deploy/hub-backend
+```
+
+The hub reads `HUB_PROMETHEUS_URL` once, while wiring itself up, so a pod that started
+before the change keeps logging the warning. Changing this value rewrites the pod
+template, so `helm upgrade` rolls the pods for you — `rollout status` is there to prove
+it finished. If the panels are still empty after that, force fresh pods and re-read the
+log:
+
+```bash
+kubectl rollout restart -n <namespace> deploy/hub-backend
+kubectl -n <namespace> logs deploy/hub-backend | grep -i prometheus
+```
+
+The last command is the ground truth: `prometheus client configured` means the hub has
+a client, `HUB_PROMETHEUS_URL not set` means the pod you are reading did not get the
+value.
+
+**Which backend is answering?** Every hub logs its choice at startup, and every
+metrics response repeats it in `source`:
+
+```json
+{"time":"…","level":"INFO","msg":"event metric source configured","source":"postgres","prometheus":true}
+```
+
+```bash
+kubectl -n <namespace> get deploy hub-backend -o json \
+  | jq -r '.spec.template.spec.containers[].env[]?
+      | select(.name=="HUB_METRICS_SOURCE") | .value'
+```
+
+`"prometheus": true` with `"source": "postgres"` is the normal state of an install that
+has both: the hub exports its counters for Prometheus to scrape and reads its own rows
+for the console. To go back to counter figures — a window wider than the 7 days
+`task_logs` retains is the case that argues for it — pin the source and roll the pods:
+
+```yaml
+observability:
+  metricsSource: "prometheus"
+```
+
+Anything other than `postgres` or `prometheus` is ignored with a
+`unknown HUB_METRICS_SOURCE, ignoring it` warning, and the hub stays on its records.
+
+**Variable present, message still there?** Two things to separate:
+
+- The pods you are looking at predate the value. A Deployment can carry it while an old
+  ReplicaSet's pods do not, and a mixed fleet is exactly what makes this message
+  intermittent across reloads. Ask each running pod what it actually has:
+
+  ```bash
+  kubectl -n <namespace> get pods -l app.kubernetes.io/component=hub-backend -o json \
+    | jq -r '.items[] | .metadata.name + "  " + ( [.spec.containers[].env[]?
+        | select(.name=="HUB_PROMETHEUS_URL") | .value]
+        | if length == 0 then "(unset)" else join(",") end )'
+  ```
+
+  Any line ending in `(unset)` is a pod started before the change — restart the
+  deployment to replace it.
+- The panel is a **logs** panel, not a metrics one. Those report
+  `hub database not configured`, which means the hub has no database — start from
+  [Hub pod not starting](#hub-pod-not-starting) instead. A wrong or unreachable URL
+  does *not* produce a 503; it produces an empty panel or a load error, because the
+  hub 503s only when it has no client at all.
+
+To scrape the hub's own metrics once Prometheus is configured, enable the
+ServiceMonitor or PodMonitor — see [Observability](observability).
+
+---
+
+## Checking platform health
+
+The hub exposes a health endpoint that checks all internal subsystems (database, operator connectivity):
+
+```bash
+kubectl exec -n <namespace> deploy/ainsel-hub -- curl -s http://localhost:8080/api/v1/platform/health
+```
+
+A healthy response returns `200 OK` with a JSON body listing each subsystem and its status. Any subsystem showing `"status": "unhealthy"` indicates where to investigate next.
+
+---
+
+## Collecting diagnostics
+
+Use these commands to gather a full picture before escalating or filing a bug:
+
+```bash
+# Overview of all resources in the namespace
+kubectl get all -n <namespace>
+
+# CRD resource status
+kubectl get agents,triggers,webhookconnectors,mcpservers -n <namespace>
+
+# Describe a specific resource for events and conditions
+kubectl describe agent <name> -n <namespace>
+kubectl describe trigger <name> -n <namespace>
+
+# Recent logs from all platform components
+kubectl logs -n <namespace> deploy/ainsel-hub --tail=100
+kubectl logs -n <namespace> deploy/ainsel-agent-operator --tail=100
+kubectl logs -n <namespace> deploy/k8s-event-source-gateway-operator --tail=100
+
+# Events in the namespace (often the fastest way to find the root cause)
+kubectl get events -n <namespace> --sort-by='.lastTimestamp'
+```
+
+To read the same history in bulk rather than one task at a time, query the hub's tables directly: `task_logs` holds per-invocation agent output (filter by `agent_name`, `level`, `created_at`), `events` holds every envelope the hub received with its routing outcome, and `activity_log` holds routing decisions as they were made.

@@ -1,0 +1,1577 @@
+# Hub REST API Reference
+
+The hub service (see [`services/hub/`](../services/hub/)) exposes a REST API for managing Ainsel resources. Most endpoints operate on CRDs in the configured Kubernetes namespace; others surface observability data, invocation history, and operator state.
+
+**Base URL:** `/api/v1`
+**Ingress:** `https://ainsel.example.com/ainsel/api/v1`
+
+All list endpoints accept the standard pagination query parameters:
+
+| Query | Default | Max | Notes |
+|-------|---------|-----|-------|
+| `page` | `1` | — | 1-indexed page number; non-numeric values return `400`. |
+| `pageSize` | `50` | `200` | Values above the max are clamped down. |
+
+List responses include `total`, `page`, `pageSize`, and `totalPages` alongside the per-collection `items`.
+
+## Health Check
+
+### GET /health
+
+Liveness/readiness endpoint for Kubernetes probes. It is served **in-cluster
+only** — the hub ingress publishes `/api/v1/*` and deliberately does not expose
+`/api/internal/*` or `/health`.
+
+```bash
+# From inside the cluster
+kubectl run curl-test -n ainsel --rm -it --image=curlimages/curl --restart=Never -- \
+  curl -s http://hub-backend:8080/health
+
+# Or via port-forward
+kubectl port-forward -n ainsel svc/hub-backend 8080:8080 &
+curl http://localhost:8080/health
+```
+
+**Response:** `200 OK`
+```json
+{"status": "ok"}
+```
+
+For an externally reachable status check, use `GET /api/v1/platform/health`
+instead (requires a bearer token).
+
+---
+
+## Agents
+
+The Agents endpoints expose a simplified projection of the `Agent` CRD. The full CRD shape is described in [`crd-reference.md`](crd-reference.md).
+
+### GET /api/v1/agents
+
+List all Agents in the configured namespace, sorted by resource name.
+
+**Query parameters:** `page`, `pageSize` (see top of file).
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "a-3f9a2b",
+      "name": "Code Reviewer",
+      "description": "...",
+      "imageRef": {"name": "img-claude-coder"},
+      "runtime": {"provider": "ollama-cloud"},
+      "llm": {"model": "unsloth/gpt-oss-120b-GGUF:F16", "maxTurns": 25, "vision": false},
+      "persona": {"inline": "..."},
+      "enabledTools": ["read", "edit"],
+      "replicas": 2,
+      "memory": {"enabled": true, "provider": "example"},
+      "status": {"ready": true, "desired": 1, "reason": "JobPerTask"},
+      "paused": false,
+      "skills": {"items": ["git-review"]},
+      "mcp": {"servers": [{"name": "github", "url": "https://mcp.github.com/sse", "tokenFromEnv": "GITHUB_TOKEN"}]},
+      "env": [{"name": "LOG_LEVEL", "value": "debug"}, {"name": "API_TOKEN", "value": "", "secret": true}],
+      "updatedAt": "2026-06-22T00:05:00Z"
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+Agents carry an `updatedAt` timestamp (RFC3339) in both list and detail responses. The hub stamps it on every create/update via the `ainsel.dev/updated-at` annotation; for agents that predate the annotation it falls back to the resource creation time.
+
+Agents also carry an agent-scoped skill selection in `skills`: **present = explicit override** (`{"items": []}` means no skills at all), **absent = inherit** the referenced image's `enabledSkills` (legacy behavior). Every id must exist in the skill library (`/skills`); unknown ids are rejected with `400`. Once set, the selection is explicit — the API does not currently offer a reset-to-inherit.
+
+The same wrapper semantics apply to the agent-scoped MCP selection in `mcp`, with one asymmetry: **requests carry registry names** (`{"servers": ["github"]}`), and the hub resolves each name to its full definition from the MCP registry (`/mcp-servers`, unknown names → `400`) when writing — **responses return the resolved definitions** (`name`, `url`, `tokenFromEnv`). The agent CR holds a snapshot: later registry edits do not rewrite existing agents. Absent `mcp` inherits the referenced image's `mcpServers` (legacy); `{"servers": []}` explicitly connects to none.
+
+Agents scale on `replicas`, the **concurrency cap**: the hub queues work for each agent
+and the operator runs it as one Kubernetes Job per task, keeping at most `replicas` task
+Jobs in flight (default 1). There is no standing container: an idle agent runs nothing,
+and the first queued task of a cap-1 agent starts a fresh pod — one cold start per task
+is the price of never stranding a claim. `replicas: 0` pauses dispatch: work keeps
+queueing but no Job is created. The detail `status` object reports what the operator is
+running (`desired` — active task Jobs — with `reason` and `message`); `desired: 0` on a
+ready agent is an idle agent, not a failed one.
+
+Agents may also carry their own environment variables in `env`: a list of `{"name", "value", "secret"}` layered **on top of** the referenced image's `env`. Entries whose name matches an image variable override its value (and its `secret` flag); new names are added. Absent `env` means the agent runs on the image's variables alone. Names must be valid environment variable names and unique within the list (`400` otherwise). Values of entries with `secret: true` are never returned — they read back as `""`, matching the image `env` contract — and submitting a secret entry with an empty value on update keeps the stored value.
+
+Agents can be **paused**: `paused: true` means the hub withholds task delivery, so
+routed tasks accumulate as a backlog (visible via the queue-depth fields) and drain in
+id order when the pause ends. Nothing is lost — ingestion and routing keep running,
+in-flight tasks finish normally, and interactive chat still works. `pausedUntil` (RFC3339)
+marks a pause that expires on its own; absent on a running agent and on an indefinite
+pause, which must be lifted explicitly. Caveat: an indefinite pause keeps the backlog
+growing — `agent_tasks` and invocation rows are not pruned while the agent stays paused.
+See [`POST /api/v1/agents/{name}/pause`](#post-apiv1agentsnamepause).
+
+### POST /api/v1/agents
+
+Create a new Agent. The hub generates the resource name (`a-<short id>`); the request supplies the human display name.
+
+**Request body:**
+```json
+{
+  "name": "Code Reviewer",
+  "description": "...",
+  "imageRef": {"name": "img-claude-coder"},
+  "runtime": {"provider": "ollama-cloud"},
+  "llm": {"model": "unsloth/gpt-oss-120b-GGUF:F16", "maxTurns": 25, "temperature": 0.2, "vision": true},
+  "persona": {"inline": "..."},
+  "enabledTools": ["read", "edit"],
+  "scaling": {"replicas": 3},
+  "memory": {"enabled": true, "provider": "example"},
+  "env": [{"name": "LOG_LEVEL", "value": "debug"}],
+  "ollamaCloud": {"apiKey": "<consumed-once>"}
+}
+```
+
+`imageRef.name` is required and must reference an existing `AgentImage`. Any names in `enabledTools` not declared by that image are rejected. The `ollamaCloud.apiKey`, when present, is stored in a Secret named `<agent>-ollama-key` and never echoed back.
+
+**Response:** `201 Created` with the same shape as `GET /api/v1/agents/{name}`. `400` on validation errors, `500` on Kubernetes failures.
+
+### GET /api/v1/agents/{name}
+
+Fetch one Agent by resource name.
+
+**Response:** `200 OK` (same shape as the list item) or `404 Not Found`.
+
+### PUT /api/v1/agents/{name}
+
+Update an Agent. Body fields are all optional; only fields that are present are applied. When `imageRef` or `enabledTools` changes, the new combination is re-validated against the referenced `AgentImage`.
+
+`env` **replaces** this agent's override list when present: `{"env": []}` clears the overrides so the agent runs on the image's variables again. A secret entry submitted with an empty `value` keeps its stored value, so a client that never received the secret can round-trip the list safely.
+
+`llm.vision` is tri-state on update: **omitted means leave unchanged**, so turning image input off requires sending `false` explicitly. When true, the operator advertises `"input": ["text", "image"]` to pi, and screenshots and image attachments reach the model; while false pi sends none, even to a model that can see them. The endpoint is never probed: images sent to a model that cannot see them fail the request. The change lands when the agent's pod next starts (the init container copies `models.json` in at start).
+
+Re-pointing `persona` away from a persona this agent owns deletes that owned persona afterwards: owned personas are invisible to the persona library, so nothing else would reclaim them. The cleanup is best-effort and never fails the request.
+
+**Response:** `200 OK` with the updated agent, `400` on invalid body, `404` if missing, `500` on K8s failures.
+
+### DELETE /api/v1/agents/{name}
+
+Delete an Agent, and reclaim the persona it owned if any (best-effort).
+
+**Response:** `204 No Content` or `404 Not Found`.
+
+### POST /api/v1/agents/{name}/pause
+
+Pause the agent: the hub's task-claim endpoint (`next-task`) withholds work until the
+pause ends. Pending tasks stay queued and drain in id order on resume; events keep
+routing to the agent meanwhile. Already-claimed tasks are not interrupted, and
+interactive chat (`/api/v1/chat`) keeps working — a human talking to the agent
+directly is deliberate intent, not channel noise. Pause state lives on the Agent CRD
+(`spec.pause`), so `kubectl patch` works too, and expiry is evaluated at read time.
+
+**Request body** (all fields optional; an absent body means an indefinite pause):
+```json
+{ "duration": "8h" }
+```
+or
+```json
+{ "until": "2026-10-20T09:00:00Z" }
+```
+
+- `duration` — Go duration string (`30m`, `8h`, `168h`) measured from now.
+- `until` — RFC3339 timestamp when the pause ends; must be in the future.
+- Both fields together → `400`. Non-positive/unparsable `duration`, unparsable or
+  past `until` → `400`.
+
+**Response:** `200 OK` with the updated agent (`paused: true`, `pausedUntil` when the
+pause expires on its own), `404` if the agent does not exist. Gated by `write` on the agent.
+
+### DELETE /api/v1/agents/{name}/pause
+
+Resume the agent — lifts any pause, expired or not — and nudges the queue so a
+waiting runtime picks the backlog up immediately.
+
+**Response:** `200 OK` with the updated agent (`paused: false`), `404` if the agent does
+not exist. Gated by `write` on the agent.
+
+### GET /api/v1/agents/{name}/persona
+
+The agent's persona as the agent sees it: the content plus whether the agent owns it.
+
+**Response:** `200 OK`
+```json
+{
+  "owned": false,
+  "ref": "01HX8YTNRD9Q3K5R6Z3SD9TXC7",
+  "persona": {
+    "id": "01HX8YTNRD9Q3K5R6Z3SD9TXC7",
+    "name": "code-reviewer",
+    "description": "Reviews pull requests",
+    "currentVersion": 3,
+    "text": "# Persona\n\nYou review pull requests.",
+    "createdAt": "2026-05-20T09:00:00Z",
+    "updatedAt": "2026-05-20T10:00:00Z"
+  }
+}
+```
+
+- `owned` — `true` when the referenced persona belongs to this agent, so edits
+  here stay private to it. `false` means a shared template: the next
+  `PUT` forks a private copy.
+- `ref` — the persona id the Agent CR references. Present even when the persona
+  no longer exists, which distinguishes a dangling reference (`ref` set,
+  `persona` omitted) from an agent with no persona at all (both empty).
+- `404 Not Found` if the agent does not exist, `503 Service Unavailable` if the
+  hub runs without persona storage.
+
+### PUT /api/v1/agents/{name}/persona
+
+Save the agent's persona content. The hub **never writes through to a shared
+template**: if the agent currently references a template (or nothing), the
+first call creates a new persona owned by this agent (copy-on-write) and
+re-points the Agent CR at it — stamping `ainsel.dev/updated-at` like any other
+spec change. Subsequent calls update that owned persona and bump its version.
+
+```json
+{ "name": "code-reviewer", "description": "Reviews pull requests", "text": "# Persona\n\n…" }
+```
+
+- `text` is required; `name` is optional and defaults to `<agent display name> (own)`;
+  an empty `description` clears it.
+- The response is the same shape as `GET`, with `owned: true`.
+- Access is gated by the agent (`read`/`write` on `agent`), so an owned persona
+  needs no separate permission record.
+
+**Response:** `200 OK`, `400` on validation failure (e.g. empty `text`), `404` if
+the agent does not exist, `500` on K8s failures, `503` without persona storage.
+Name collisions cannot occur here: uniqueness is enforced among templates only,
+and an owned persona may share a name with the template it was forked from.
+
+---
+
+## Agent Images
+
+`AgentImage` resources catalog container images and the tools they advertise. The hub also runs a sync Job that boots the image with `agent --list-tools` to discover its current tool set.
+
+Each `AgentImage` may define environment variables (`env`) to inject into every agent pod that uses the image. Env vars have an optional `secret` flag:
+
+- When `secret` is `true`, the API **never** returns the value — it is always returned as `""` in GET/list responses to prevent leaking sensitive data.
+- On update, sending `value: ""` for a secret env var means "keep the existing value" (the value is not overwritten with an empty string). To replace a secret, send a non-empty value.
+
+### GET /api/v1/agent-images
+
+List all `AgentImage` resources, sorted by name. Supports `page`/`pageSize`.
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "img-7a2c1f",
+      "displayName": "Claude Coder",
+      "description": "...",
+      "imageURL": "registry.example.com/ainsel/claude-coder:1.2.3",
+      "tools": [
+        {"name": "read", "kind": "file", "description": "...", "examples": [{"title": "...", "snippet": "..."}]}
+      ],
+      "status": {"phase": "Ready", "lastSync": "2026-05-20T10:00:00Z", "syncError": "", "orphanTools": []}
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+### POST /api/v1/agent-images
+
+Create an `AgentImage`. `displayName` and `imageURL` are required. The new image starts in phase `Pending`; tools are populated after the first successful sync.
+
+**Request body:**
+```json
+{"displayName": "Claude Coder", "description": "...", "imageURL": "registry.example.com/ainsel/claude-coder:1.2.3"}
+```
+
+**Response:** `201 Created` with the created image, `400` if required fields are missing, `500` on K8s failures.
+
+### GET /api/v1/agent-images/{name}
+
+Fetch one `AgentImage` by name.
+
+**Response:** `200 OK` or `404 Not Found`.
+
+### PUT /api/v1/agent-images/{name}
+
+Update an `AgentImage`. All body fields are optional. Setting `tools` to a non-nil array replaces the tool list; an empty array clears it.
+
+For secret env vars, sending `value: ""` preserves the existing stored value (no overwrite). Send a non-empty `value` to replace the secret.
+
+If any tool is removed and an existing Agent has it in `enabledTools`, the request fails with `409 Conflict` and the response body lists the affected agents and the removed tools.
+
+**Response:** `200 OK`, `400`, `404`, `409`, or `500`.
+
+### DELETE /api/v1/agent-images/{name}
+
+Delete an `AgentImage`. Returns `409 Conflict` (with `affectedAgents`) if any Agent still references it via `imageRef.name`.
+
+**Response:** `204 No Content`, `404 Not Found`, `409 Conflict`, or `500`.
+
+### POST /api/v1/agent-images/{name}/sync
+
+Trigger a tool sync for an `AgentImage`. The hub schedules a one-off Job that runs `agent --list-tools` against the image; the controller updates the image's `tools` and `status.phase` when the Job completes. Returns `409 Conflict` if a sync Job for this image is still active.
+
+**Response:** `202 Accepted` (no body), `404 Not Found`, `409 Conflict`, or `500`.
+
+---
+
+## Connectors
+
+A connector is a `WebhookConnector` CR declaring a webhook source (see
+[writing-a-connector.md](writing-a-connector.md) for the full lifecycle). The
+hub generates its **id** (`c-…`), which is also the CR name and the value that
+routes events (`Event.connector`, trigger `connectorRef`); the `name` in
+requests and responses is a display-only label.
+
+### GET /api/v1/connectors
+
+List all connectors, sorted by ID. Supports `page`/`pageSize`.
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "c-1a2b3c",
+      "name": "connector-forgejo-ainsel",
+      "signatureHeader": "X-Forgejo-Signature",
+      "webhookEndpoint": "https://ainsel.example.com/webhooks/c-1a2b3c",
+      "disabled": false,
+      "status": {"ready": true}
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+### POST /api/v1/connectors
+
+Create a connector.
+
+**Request body:**
+```json
+{
+  "name": "connector-sentry",
+  "signatureHeader": "X-Sentry-Auth-Signature",
+  "groupId": "my-group"
+}
+```
+
+`name` (display label) is required; `signatureHeader` defaults to
+`X-Hub-Signature-256`; `groupId` is required when access control is enabled.
+
+The hub generates an HMAC webhook secret, stores it in a Kubernetes Secret,
+and returns it **once** in this response as `webhookSecretValue` — put it into
+the source's webhook signing config now. The gateway operator then rolls out
+the per-connector receiver Deployment, Service and ingress path.
+
+**Response:** `201 Created`
+```json
+{
+  "id": "c-1a2b3c",
+  "name": "connector-sentry",
+  "signatureHeader": "X-Sentry-Auth-Signature",
+  "webhookEndpoint": "https://ainsel.example.com/webhooks/c-1a2b3c",
+  "webhookSecretValue": "<hex secret, shown once>",
+  "disabled": false
+}
+```
+`400` on validation errors, `500` on K8s failures.
+
+### GET /api/v1/connectors/{id}
+
+Fetch one connector. The path parameter is the connector's **id** (`c-…`, the
+CR name) — not the display name.
+
+**Response:** `200 OK` or `404 Not Found`.
+
+### PUT /api/v1/connectors/{id}
+
+Update a connector. Body fields are optional; only present fields are
+applied: `name` (new display label) and `disabled` (the enable/disable
+switch).
+
+**Response:** `200 OK`, `400`, `404`, or `500`.
+
+### POST /api/v1/connectors/{id}/rotate-secret
+
+Rotate the connector's webhook HMAC secret. The new secret is returned once
+as `webhookSecretValue`; update the source's signing config afterwards.
+
+**Response:** `200 OK` with the connector (including `webhookSecretValue`),
+`404 Not Found`, or `500`.
+
+### DELETE /api/v1/connectors/{id}
+
+Delete a connector. The associated webhook secret is deleted as well.
+
+**Response:** `204 No Content` or `404 Not Found`.
+
+---
+
+## Triggers
+
+### GET /api/v1/triggers
+
+List all triggers, sorted by id. Supports `page`/`pageSize` plus optional filters.
+
+**Query parameters:** `agent`, `connector` (each is an exact match against the trigger's `agentRef`/`connectorRef`; unset filters match everything).
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "t-9c1d2e",
+      "name": "Review issues",
+      "agentRef": "a-3f9a2b",
+      "connectorRef": "c-1a2b3c",
+      "filters": [{"field": "repo", "op": "eq", "value": "AInsel/ainsel"}],
+      "status": {"agentValid": true, "connectorValid": true}
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+### POST /api/v1/triggers
+
+Create a trigger. `agentRef` and `connectorRef` are the agent's and connector's
+**ids** (`a-…` / `c-…`, their CR names) — display names are not valid refs.
+References are validated at write time and reported in `status`; `groupId` is
+required when access control is enabled.
+
+**Request body:**
+```json
+{
+  "name": "Review issues",
+  "agentRef": "a-3f9a2b",
+  "connectorRef": "c-1a2b3c",
+  "groupId": "my-group",
+  "filters": [{"field": "repo", "op": "eq", "value": "AInsel/ainsel"}]
+}
+```
+
+**Response:** `201 Created` with the trigger, `400` on invalid JSON, `500` on storage failures.
+
+### GET /api/v1/triggers/{id}
+
+**Response:** `200 OK` or `404 Not Found`.
+
+### PUT /api/v1/triggers/{id}
+
+Update a trigger. All body fields (`name`, `agentRef`, `connectorRef`, `filters`) are optional; references are re-validated after the update.
+
+**Response:** `200 OK`, `400`, `404`, or `500`.
+
+### DELETE /api/v1/triggers/{id}
+
+**Response:** `204 No Content` or `404 Not Found`.
+
+#### Filter operators
+
+Each filter in the `filters` array specifies a `field`, an `op`, and either a `value` (string) or `values` (string array). Filters are combined with AND logic.
+
+| Operator | `value` / `values` | Description |
+|----------|--------------------|-------------|
+| `eq` | `value` | Exact string match |
+| `neq` | `value` | Not equal |
+| `contains` | `value` | Field contains the value as a substring |
+| `not-contains` | `value` | Field does not contain the value |
+| `prefix` | `value` | Field starts with the value |
+| `suffix` | `value` | Field ends with the value |
+| `in` | `values` | Field value is one of the entries in `values` |
+| `not-in` | `values` | Field value is not in `values` |
+| `regex` | `value` | Field matches the value as a regular expression |
+
+Example with `in`:
+
+```json
+{"field": "labels", "op": "in", "values": ["bug", "urgent"]}
+```
+
+---
+
+## Cron Triggers
+
+Manage cron triggers — scheduled prompts delivered to an agent on a cron
+schedule. See the [schema reference](crd-reference.md#crontrigger) for the
+schedule syntax.
+
+### GET /api/v1/cron-triggers
+
+List all cron triggers, sorted by id. Supports `page`/`pageSize`
+plus an optional `agent` filter (exact match against `agentRef`).
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "c-9c1d2e",
+      "name": "Daily standup summary",
+      "agentRef": "a-3f9a2b",
+      "schedule": "0 9 * * 1-5",
+      "prompt": "Summarize open PRs and stale issues.",
+      "enabled": true,
+      "status": {"agentValid": true, "scheduleValid": true, "nextRun": "2026-01-05T09:00:00Z"}
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+### POST /api/v1/cron-triggers
+
+Create a cron trigger.
+
+**Request body:**
+```json
+{
+  "name": "Daily standup summary",
+  "agentRef": "a-3f9a2b",
+  "schedule": "0 9 * * 1-5",
+  "prompt": "Summarize open PRs and stale issues.",
+  "enabled": true
+}
+```
+
+`agentRef` (the agent's **id**, `a-…`), `schedule`, and `prompt` are required;
+`enabled` defaults to `true`; `groupId` is required when access control is
+enabled.
+
+**Response:** `201 Created`, `400` on invalid JSON or missing fields, `500` on storage failures.
+
+### GET /api/v1/cron-triggers/{id}
+
+**Response:** `200 OK` or `404 Not Found`.
+
+### PUT /api/v1/cron-triggers/{id}
+
+Update a cron trigger. All body fields are optional; omitted fields are unchanged.
+
+**Response:** `200 OK`, `400`, `404`, or `500`.
+
+### DELETE /api/v1/cron-triggers/{id}
+
+**Response:** `204 No Content` or `404 Not Found`.
+
+---
+
+## Channels
+
+A channel is a named stream events live in. Channels live in the hub's Postgres (`channel_id` on every stored event), not in CRDs: one **connector** channel per `WebhookConnector` (where its events are born), one **agent** channel per `Agent` (its inbox), plus **custom** grouping channels. Identity is the channel id, never the name — a connector and an agent can both be labelled `forgejo`.
+
+Subscriptions are read from two registries and reported together: `trigger` edges (connector → agent inbox, still owned by the trigger registry) and `bridge` edges (channel → channel, owned by the channel graph; at least one end must be custom and the graph must stay acyclic).
+
+### GET /api/v1/channels
+
+List channels with their traffic counts, sorted by activity then id. Supports `page`/`pageSize`. Query parameters: `kind` (`connector`|`agent`|`custom`), `since` (RFC 3339 start of the count window, default 24h ago).
+
+**Response:** `{ items, total, page, pageSize, totalPages, window }`, each item:
+
+```json
+{
+  "id": "ch-9f3c1a02",
+  "kind": "connector",
+  "name": "connector-forgejo-ainsel",
+  "description": "Where connector-forgejo-ainsel events arrive",
+  "entityRef": "c-1a2b3c",
+  "orphaned": false,
+  "createdAt": "2026-07-08T09:00:00Z",
+  "updatedAt": "2026-07-08T09:00:00Z",
+  "counts": { "events": 12, "unmatched": 3, "failed": 1 },
+  "bridges": 1,
+  "subscriptions": 2
+}
+```
+
+`counts.events` counts births in the window (for an inbox, everything that reached it, born there or transferred in); `unmatched` those that no subscription transferred onward; `failed` those whose run ended in failure.
+
+### POST /api/v1/channels
+
+Create a custom grouping channel. Body: `{ "name", "description?", "groupId?" }` — `groupId` is required when access control is enabled. Provisioned kinds are not creatable here.
+
+**Response:** `201 Created` with the channel.
+
+### GET /api/v1/channels/{id}
+
+One channel plus its `incoming` / `outgoing` subscription arrays.
+
+### PUT /api/v1/channels/{id}
+
+Rename a custom channel or change its description. Body: `{ "name?", "description?" }`. Provisioned channels carry their entity's name.
+
+### DELETE /api/v1/channels/{id}
+
+Delete a custom channel.
+
+**Response:** `204 No Content`; `409 Conflict` while any subscription is attached.
+
+### GET /api/v1/channels/{id}/events
+
+The channel's timeline — events born in it plus events transferred into it. Query parameters: `limit` (default 100, max 500), `offset`, `since`, `agent`, `subject`, `status`. Same envelope as [`GET /api/v1/events`](#get-apiv1events).
+
+### POST /api/v1/channels/{id}/bridges
+
+Transfer the channel's events into another. Body: `{ "to", "name?" }`.
+
+**Response:** `201 Created` with the bridge; `400` on a self-edge, when neither end is custom, on a cycle, or when joining two provisioned channels (that pairing is a trigger); `409` when the edge already exists.
+
+### DELETE /api/v1/channels/{id}/bridges/{bridgeId}
+
+Remove a bridge. `{id}` must be the bridge's source channel.
+
+**Response:** `204 No Content`; `404` when the bridge is not attached to that channel.
+
+### GET /api/v1/channel-subscriptions
+
+Every edge in the graph in one call, both registries merged. **Response:** `{ items, total }`. An edge is reported only when the caller may see both endpoints.
+
+**Authorization:** a connector channel is authorized as its **connector**, an agent channel as its **agent**, a custom channel as a **channel** resource — existing grants cover provisioned streams without a new permission step.
+
+---
+
+## Invocations
+
+Invocations record one dispatch of an event to an agent. They are persisted in the `invocations` Postgres table (48h retention) so they survive hub restarts; the endpoint returns `503 Service Unavailable` when invocation history is not configured.
+
+### GET /api/v1/invocations
+
+List recent invocations, newest first. Supports `page`/`pageSize`.
+
+**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger` and `status` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
+
+**Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `since` / `until` (RFC3339 timestamp), `limit`.
+
+Every row on the event-scoped list (`event=`) and on the plain list carries a `task` object when an `agent_tasks` row exists for it — including rows recorded before the invocation was enqueued, which are attached from the queue by ID. The queue-state synthesis for `event=` additionally produces a row for tasks that never got an invocation record; those rows carry `status: "queued"` (or `"failure"` for a failed task) and never `"running"`.
+
+The `task` object is the authoritative run state: `status` is the raw queue state (`pending` / `claimed` / `completed` / `failed`) and is ambiguous in per-task Job mode, where the row stays `pending` while the pod works. `runState` is the hub-derived display state — `queued` (no worker yet), `running` (being worked on), `success`, `failure` — and `startedAt` is the first evidence of work (claim or first conversation row). `stuck: true` marks a task queued past the hub's start deadline (`TASK_START_TIMEOUT_SECONDS`, default 900). Clients should render `runState`, not `status`.
+
+**Response:** `200 OK`
+```json
+{
+  "invocations": [
+    {
+      "id": "inv-1a2b3c4d",
+      "agentName": "a-3f9a2b",
+      "triggerName": "t-9c1d2e",
+      "eventId": "evt-abc123",
+      "connector": "c-1a2b3c",
+      "startTime": "2026-05-20T10:00:00Z",
+      "endTime": "2026-05-20T10:00:14Z",
+      "durationMs": 14000,
+      "status": "success",
+      "task": {"status": "completed", "attempts": 1, "runState": "success", "startedAt": "2026-05-20T10:00:01Z"}
+    }
+  ],
+  "total": 1, "capacity": 1000,
+  "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+**Status codes:** `200`, `400` (invalid `page`/`pageSize`), `503` (invocation store not configured).
+
+### GET /api/v1/invocations/{id}
+
+Fetch one invocation by ID.
+
+**Access:** requires read access to the invocation's agent; `403` otherwise. An invocation carrying no agent cannot be attributed to a resource and is admin-only.
+
+**Response:** `200 OK`, `400` if the ID is missing, `404 Not Found`, or `503`.
+
+---
+
+## Chat Sessions
+
+Chat sessions let operators converse with an agent directly from the hub UI — no webhook or trigger required. Sessions are stored in the hub's database (table `chat_sessions` and `chat_messages`) and are per-user.
+
+### GET /api/v1/chat/sessions
+
+List chat sessions for the authenticated user. Supports `?page=` and `?pageSize=` (defaults: `1` / `20`). Optional `?agent=<name>` filters by agent.
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "sess-abc123",
+      "agentName": "code-reviewer",
+      "userId": "user-1",
+      "createdAt": "2026-06-22T00:00:00Z",
+      "updatedAt": "2026-06-22T00:05:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+### POST /api/v1/chat/sessions
+
+Create a new chat session.
+
+**Request body:**
+```json
+{ "agentName": "code-reviewer" }
+```
+
+**Response:** `201 Created` with the session object (including an empty `messages` array). `400` if `agentName` is missing. `503` if chat is not configured.
+
+### GET /api/v1/chat/sessions/{id}
+
+Fetch a chat session with its full message history.
+
+**Response:** `200 OK`
+```json
+{
+  "id": "sess-abc123",
+  "agentName": "code-reviewer",
+  "userId": "user-1",
+  "createdAt": "2026-06-22T00:00:00Z",
+  "updatedAt": "2026-06-22T00:05:00Z",
+  "messages": [
+    {
+      "id": 1,
+      "sessionId": "sess-abc123",
+      "role": "user",
+      "content": "Hello",
+      "tokens": 5,
+      "createdAt": "2026-06-22T00:00:00Z"
+    },
+    {
+      "id": 2,
+      "sessionId": "sess-abc123",
+      "role": "assistant",
+      "content": "Hi there!",
+      "tokens": 10,
+      "createdAt": "2026-06-22T00:00:01Z"
+    }
+  ]
+}
+```
+
+`400` if the ID is missing, `404 Not Found`.
+
+### DELETE /api/v1/chat/sessions/{id}
+
+Delete a chat session and all its messages.
+
+**Response:** `204 No Content`, `400` if the ID is missing, `404 Not Found`.
+
+### POST /api/v1/chat/sessions/{id}/messages
+
+Send a message to the agent in an existing session. The hub forwards the message to the agent runtime via the event queue and returns immediately.
+
+**Request body:**
+```json
+{ "content": "Review this PR for me" }
+```
+
+**Response:** `201 Created` with the created user message. `400` if `content` is missing/empty. `404` if the session doesn't exist.
+
+---
+
+## MCP Servers
+
+Internal MCP-server registry. Endpoints return `503` when the MCP service is not wired (typical for dev clusters without the registry enabled).
+
+### GET /api/v1/mcp-servers
+
+List all registered MCP servers.
+
+**Response:** `200 OK` returns a JSON array (not a paginated envelope) of:
+```json
+[
+  {
+    "name": "fs",
+    "displayName": "Filesystem MCP",
+    "description": "...",
+    "image": {"repository": "ghcr.io/example/fs-mcp", "tag": "1.0.0"},
+    "transport": "sse",
+    "port": 8080,
+    "path": "/sse",
+    "env": [{"name": "FOO", "value": "bar"}],
+    "envFrom": [{"secretRef": {"name": "fs-secrets"}}],
+    "resources": {"requests": {"cpu": "50m", "memory": "64Mi"}, "limits": {"cpu": "200m", "memory": "128Mi"}},
+    "managedBy": "user",
+    "endpoint": "http://fs.ainsel.svc:8080/sse",
+    "status": {"phase": "Ready", "message": ""},
+    "createdAt": "2026-05-20T09:00:00Z",
+    "updatedAt": "2026-05-20T10:00:00Z"
+  }
+]
+```
+
+### POST /api/v1/mcp-servers
+
+Register a new MCP server. `managedBy` must be empty or `"user"` (the hub forces it to `"user"` server-side); hub-managed entries cannot be created through this API.
+
+**Request body:** same as the list item shape minus `endpoint`, `status`, `createdAt`, `updatedAt`.
+
+**Response:** `201 Created`, `400` on invalid body or bad `managedBy`, `409 Conflict` if the name exists, `500` on internal failures, or `503` if the MCP service is not configured.
+
+### GET /api/v1/mcp-servers/{name}
+
+**Response:** `200 OK`, `400` if the name is missing or contains a slash, `404 Not Found`, `500`, or `503`.
+
+### PUT /api/v1/mcp-servers/{name}
+
+Update an MCP server. `managedBy` on the stored record is preserved; the hub does not allow promoting a user-managed entry to hub-managed (or vice versa) through this endpoint.
+
+**Response:** `200 OK`, `400`, `404`, `500`, or `503`.
+
+### DELETE /api/v1/mcp-servers/{name}
+
+Delete an MCP server. Returns `409 Conflict` for hub-managed entries.
+
+**Response:** `204 No Content`, `404 Not Found`, `409 Conflict`, `500`, or `503`.
+
+---
+
+## Personas
+
+Personas live in the hub's database (tables `personas` and `persona_versions`). Each persona has an opaque ULID identifier, a current version, and a full edit history. When a persona is created or updated, the hub renders a ConfigMap named `persona-<id>` into the hub's own namespace with a single `persona.md` data key holding the current text. The ConfigMap also carries:
+
+- `labels.ainsel.dev/managed-by: hub`
+- `labels.ainsel.dev/resource: persona`
+- `annotations.ainsel.dev/persona-name: <name>`
+- `annotations.ainsel.dev/persona-version: "<version-number>"`
+
+The runtime mounts `persona.md` at `/etc/agent/persona.md` (consumer added in a follow-up project).
+
+A persona is either a **shared template** — curated in the library and
+referenced by any number of agents — or **owned by one agent** (`ownerAgent`
+holds the Agent CR name). Owned personas are created by the hub when an agent's
+persona is edited inline (see
+[`PUT /api/v1/agents/{name}/persona`](#put-apiv1agentsnamepersona)) and are
+hidden from the library, so editing an agent's persona never rewrites a
+template other agents share.
+
+Validation: `name` is non-empty and ≤ 200 chars, and unique **among templates**
+(an owned persona may keep the name of the template it was forked from).
+`description` ≤ 2000 chars. `text` is non-empty and ≤ 100 000 chars.
+
+### GET /api/v1/personas
+
+List shared template personas (metadata only — no `text` body). Agent-owned
+personas are excluded; read them through their agent.
+
+Supports the standard `?page=` and `?pageSize=` query params. `page` defaults
+to `1`, `pageSize` defaults to `50` and is clamped to `200`. Invalid values
+respond `400`.
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "01HX8YTNRD9Q3K5R6Z3SD9TXC7",
+      "name": "code-reviewer",
+      "description": "Reviews pull requests",
+      "currentVersion": 3,
+      "createdAt": "2026-05-20T09:00:00Z",
+      "updatedAt": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 1
+}
+```
+
+### POST /api/v1/personas
+
+Create a new persona. The hub generates the ULID and inserts the initial version (1).
+
+**Request body:**
+```json
+{
+  "name": "code-reviewer",
+  "description": "Reviews pull requests",
+  "text": "You are a code reviewer..."
+}
+```
+
+**Response:** `201 Created` with the full persona including `text` and `currentVersion: 1`. `400` on validation failures, `409` if the `name` is already in use, `500` on backend failures.
+
+### GET /api/v1/personas/{id}
+
+Fetch one persona, including the current `text`. Owned personas are reachable
+by id (the agent detail page reads them through
+[`GET /api/v1/agents/{name}/persona`](#get-apiv1agentsnamepersona) instead), but
+they never appear in the list.
+
+**Response:** `200 OK` (full Persona, plus `ownerAgent` when the persona is
+owned by an agent) or `404 Not Found`.
+
+### PUT /api/v1/personas/{id}
+
+Apply a partial update. Any subset of `{name, description, text}` is accepted. If `text` differs from the current text, a new `persona_versions` row is inserted and `currentVersion` is bumped. If `text` is omitted or unchanged, only metadata is updated and `currentVersion` stays the same.
+
+**Request body:**
+```json
+{"text": "You are a thorough code reviewer..."}
+```
+
+**Response:** `200 OK` with the updated persona, `400` on validation failure, `404` if missing, `409` on name collision, `500` on backend failure.
+
+### DELETE /api/v1/personas/{id}
+
+Delete a persona. Cascades to its version history and removes the rendered ConfigMap.
+
+The hub refuses the delete with `409 Conflict` if any Agent CR references the persona by ID (`spec.persona.id`). The response body lists the referrers so the caller can act on them:
+
+```json
+{
+  "error": "persona in use",
+  "referrers": [{"agentName": "code-reviewer-agent"}]
+}
+```
+
+**Response:** `204 No Content`, `404 Not Found`, `409 Conflict` (with `referrers`), or `500`.
+
+### GET /api/v1/personas/{id}/versions
+
+List every stored version, newest first. Metadata only — no `text`.
+
+Supports the standard `?page=` / `?pageSize=` query params, same defaults and
+bounds as `GET /api/v1/personas`.
+
+Requires read access to the persona, same as `GET /api/v1/personas/{id}`: `401`
+when the caller has no identity, `403` when the persona is neither public nor
+readable by one of the caller's groups.
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {"personaId": "01HX...", "versionNumber": 3, "createdAt": "..."},
+    {"personaId": "01HX...", "versionNumber": 2, "createdAt": "..."},
+    {"personaId": "01HX...", "versionNumber": 1, "createdAt": "..."}
+  ],
+  "total": 3,
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 1
+}
+```
+
+### GET /api/v1/personas/{id}/versions/{n}
+
+Fetch one specific historical version with its `text`.
+
+Requires read access to the persona (`401` / `403` as above) — a version body is
+persona content and is not exposed to callers who cannot read the persona.
+
+**Response:** `200 OK` (full Version) or `404 Not Found`.
+
+### POST /api/v1/personas/{id}/rollback
+
+Copy the text of an older version into a new current version (incrementing `currentVersion`). The historical row is left untouched; rollback creates a new row pointing at the old text.
+
+**Request body:**
+```json
+{"toVersion": 2}
+```
+
+**Response:** `200 OK` with the updated persona, `400` if `toVersion` is missing / non-positive, `404` if the persona or target version doesn't exist, `500` on backend failure.
+
+Requires write access to the persona, same as `PUT /api/v1/personas/{id}`: `401`
+when the caller has no identity, `403` when the caller is not a writer or owner
+of the persona's group (and not an admin). A public persona is readable by
+everyone but still only rollback-able by its writers.
+
+---
+
+## Skills
+
+Skills are reusable prompt fragments stored in the hub's database (table `skills`). A skill has a name, a description, and a body (free-form text, typically markdown instructions). Personas reference skills by name; the runtime injects the body at invocation time.
+
+**Delivery.** The database is the registry; a skill reaches an agent by being mounted into its pod from the shared `skills` ConfigMap, which the hub keeps sized to the skills that at least one `AgentImage` (`spec.enabledSkills`) or `Agent` (`spec.skills.items`) selects. Creating a skill therefore registers it without mounting it anywhere — it is delivered when something enables it, or on the hub's next delivery pass (≤10 minutes) for an enable made by editing a CR directly. Because that ConfigMap is a single Kubernetes object, it carries the apiserver's 1 MiB ceiling: a large enable can be accepted and reported but not yet mounted, and the hub retries — every 30 s while anything is undelivered, every 10 minutes once everything has landed. Catalogue size is bounded by the database, not by that ceiling.
+
+Validation: `name` is non-empty, unique, and ≤ 200 chars. `description` ≤ 2000 chars. `body` ≤ 100 000 chars.
+
+### GET /api/v1/skills
+
+List all skills (metadata only — no `body`). Supports `?page=` and `?pageSize=` (defaults: `1` / `50`, max `200`).
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "01HX8YTNRD9Q3K5R6Z3SD9TXC7",
+      "name": "pr-review",
+      "description": "Reviews pull requests",
+      "createdAt": "2026-06-01T00:00:00Z",
+      "updatedAt": "2026-06-15T00:00:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 50
+}
+```
+
+### POST /api/v1/skills
+
+Create a new skill.
+
+**Request body:**
+```json
+{
+  "name": "pr-review",
+  "description": "Reviews pull requests",
+  "body": "## Instructions\n\nFocus on..."
+}
+```
+
+**Response:** `201 Created` with the full skill (including `body`). `400` on validation failure. `409` if a skill with that name already exists.
+
+### GET /api/v1/skills/{id}
+
+Fetch one skill by ID, including the full `body`.
+
+**Response:** `200 OK`, `400` if the ID is missing, `404 Not Found`.
+
+### PUT /api/v1/skills/{id}
+
+Update a skill. All fields are optional; only provided fields are updated.
+
+**Request body:**
+```json
+{ "description": "Updated description", "body": "## Updated..." }
+```
+
+**Response:** `200 OK` with the updated skill, `400` on validation failure, `404 Not Found`.
+
+### DELETE /api/v1/skills/{id}
+
+Delete a skill.
+
+**Response:** `204 No Content`, `400` if the ID is missing, `404 Not Found`.
+
+### Skill catalogue MCP (internal)
+
+`POST /api/internal/skills/mcp` — a read-only MCP server over the whole skill catalogue, for agents that need a skill they were not given.
+
+Tier 1 delivers enabled skills as files (`/var/agent-skills`, from the shared ConfigMap) and they appear in the agent's skill list. Tier 2 is this endpoint: the catalogue stays in Postgres, and a skill costs context only when an agent actually asks for it.
+
+| Tool | Returns |
+|---|---|
+| `search_skills` (`query`, `tags`, `limit`) | `id`, `name`, `description`, `tags` for up to 50 hits — **never bodies** — plus `matched` and `truncated`, so a partial page is not misread as the whole answer |
+| `get_skill` (`id`) | the complete `SKILL.md`, rendered by the same function that writes the mounted file, so a fetched skill is byte-identical to an enabled one |
+
+No write tools. `create_skill` / `update_skill` / `delete_skill` stay on the admin gateway, and the interface this endpoint is built against exposes no methods for them.
+
+**Search.** Substring matching, case-insensitive, over `id`, `name` and `description`. There is no ranking and no semantic match, so a query phrased in words the catalogue does not use finds nothing; tags are the reliable filter. A call with no query and no tags is ordered over the whole catalogue, newest first, but still returns only `limit` of it — a bare browse shows the 20 newest, with `matched` reporting the true total and `truncated` set.
+
+**Limits.** `limit` defaults to 20 and is clamped to 50. `matched` counts the whole result set before the clamp, so it stays a true statement about how many skills match even when the page is smaller. The endpoint is behind the hub's global per-IP limiter (default 30 rps, burst 60; `HUB_RATE_LIMIT_RPS` / `HUB_RATE_LIMIT_BURST`); there is no per-token or per-tool limit.
+
+**Auth.** A dedicated bearer token, `HUB_SKILLS_MCP_TOKEN` — deliberately not `HUB_INTERNAL_VALIDATE_SECRET`. Unset leaves the endpoint answering `503`: configured-off, never open. The token is checked in the handler, because `/api/internal/*` bypasses the user-session middleware by design, so the handler is the only gate.
+
+**Reachability.** In-cluster only. The hub's ingress publishes `/api/v1/*` and nothing else — which is why this sits under `/api/internal/` rather than beside the admin MCP.
+
+**Enabling it for an agent** is configuration, not a code change: an `AgentImage` entry plus a secret env var holding the same token.
+
+```yaml
+spec:
+  env:
+    - name: SKILLS_MCP_TOKEN
+      value: <HUB_SKILLS_MCP_TOKEN>
+      secret: true
+  mcpServers:
+    - name: ainsel-skills
+      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/skills/mcp
+      tokenFromEnv: SKILLS_MCP_TOKEN
+```
+
+The env entry has to be declared on the image. The operator treats a short list of names as platform-owned and injects its own copies — `HUB_INTERNAL_VALIDATE_SECRET` among them — and an MCP server referencing one of those names is skipped with a `Degraded` condition, so `tokenFromEnv` cannot point at the internal secret. Any other name works.
+
+---
+
+## Stats
+
+### GET /api/v1/stats
+
+Aggregate dashboard tile. Returns resource counts (total + healthy) for agents, connectors, and triggers, plus the last-hour error count from the hub's `task_logs` table and the lifetime token total from Prometheus.
+
+**Response:** `200 OK`
+```json
+{
+  "agents":     {"total": 5, "healthy": 4},
+  "connectors": {"total": 2, "healthy": 2},
+  "triggers":   {"total": 12, "healthy": 11},
+  "errors":     {"lastHour": 3},
+  "tokens":     {"inputTokens": 120000, "outputTokens": 45000, "cacheReadTokens": 1800000, "cacheWriteTokens": 60000, "totalTokens": 2025000, "costUsd": 1.87}
+}
+```
+
+`costUsd` is priced consumption — pi's `usage.cost`, priced from each model's
+`spec.llm.cost` block (see the administrator guide). Agents running unpriced
+models report zero cost. See [token components](#token-components).
+
+The tile degrades rather than fails: with no Prometheus the token fields stay at zero, and with no log store the error count stays at zero. Neither makes the request fail.
+
+---
+
+## Activity & Errors
+
+The activity list is served from the hub's Postgres event queue; errors come
+from the hub's own `task_logs` table. Both return `503 Service Unavailable`
+when their backend is not configured.
+
+### GET /api/v1/events
+
+List recent events (the console's Activity page), newest first.
+
+**Access:** scoped to the caller. An event is visible when the caller can read the connector that ingested it *or* any agent it was routed to. `connector` and `agent` filters naming a resource the caller cannot read return an empty page rather than `403`, so the parameters cannot be used to probe which resources exist. Because the scope is applied in SQL, `total` counts only rows the caller may see, so pagination stays truthful. Admins see everything.
+
+**Query parameters:** `limit` (default `100`, max `500`), `offset`, `connector`, `agent`, `status` (`matched` | `unmatched` | `error`), `outcome` (`queued` | `running` | `success` | `failure` | `timeout`), `since` (RFC3339).
+
+**Response:** `200 OK`
+```json
+{
+  "events": [
+    {
+      "id": "evt_c-1a2b3c_1716198000000000000",
+      "timestamp": "2026-05-20T10:00:00Z",
+      "connector": "c-1a2b3c",
+      "channelId": "ch-9f3c1a02",
+      "status": "matched",
+      "matches": [{"trigger": "t-9c1d2e", "agent": "a-3f9a2b", "runStatus": "success", "runState": "success", "taskStatus": "completed", "startedAt": "2026-05-20T10:00:01Z", "durationMs": 14000}],
+      "payload": {"action": "opened", "issue": {"number": 42}}
+    }
+  ],
+  "total": 1
+}
+```
+
+`status` is derived from the event's tasks: no tasks → `unmatched`, any failed
+task → `error`, otherwise `matched`. `matches` entries carry the raw invocation
+status (`runStatus`, within retention) plus the hub-derived `runState` —
+`queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
+from the task row, the start evidence (claim or first conversation row) and the
+invocation record, so every view agrees on one value; `stuck: true` marks a task
+queued past the hub's start deadline. `timeout` only occurs when no task backs
+the match and the invocation record itself is terminal; rows with nothing behind
+them at all are `unknown`. `outcome` filters on that derived state in SQL, so
+the console's Outcome filter walks the whole history, not just the loaded page.
+A task with no invocation record still matches `queued`/`running` (the task is
+the evidence). Note that terminal filter values stay invocation-derived in SQL
+while the rendered state makes the task authoritative: a retried task that
+completed while an older invocation record says `failure` renders `success` yet
+still matches `outcome=failure`.
+
+**Status codes:** `200`, `400` (invalid parameters), `500`, `503` (event queue not configured).
+
+### GET /api/v1/events/{id}
+
+One event with the same shape as a list entry.
+
+**Access:** as [`GET /api/v1/events`](#get-apiv1events). An event the caller may not read returns `404` rather than `403`, so an event ID cannot be used to confirm that another tenant's event exists.
+
+**Response:** `200 OK`, `404 Not Found`, or `503`.
+
+### GET /api/v1/errors
+
+List recent error-level agent log entries (from the hub's `task_logs` table).
+
+**Access:** scoped to the caller, exactly like [`GET /api/v1/observability/logs`](#get-apiv1observabilitylogs) — error messages routinely quote the payload that failed. `agent` naming an agent the caller cannot read returns `403`. Admins see everything.
+
+**Query parameters:** `limit` (default `50`), `agent`, `since` (RFC3339, default 24h ago).
+
+**Response:** `200 OK`
+```json
+{
+  "errors": [
+    {
+      "id": "err-123",
+      "timestamp": "2026-05-20T10:00:00Z",
+      "severity": "error",
+      "source": "agent",
+      "agent": "a-3f9a2b",
+      "message": "...",
+      "details": {"...": "..."}
+    }
+  ],
+  "total": 1
+}
+```
+
+**Status codes:** `200`, `502` (query failed), `503` (the hub has no database to read task logs from).
+
+---
+
+## Observability — Metrics
+
+Hub event metrics and per-agent token usage. Responses are cached server-side for ~30 s, keyed by backend so a hub cannot answer from the source it no longer uses.
+
+Two backends can answer, and every response says which one did in its `source` field:
+
+| `source` | Reads | Endpoints | Point value |
+|----------|-------|-----------|-------------|
+| `postgres` | The rows the hub wrote while routing (`events`, `agent_tasks`, `task_logs`) and the conversation rows agents report (`task_conversations`) | `metrics/summary`, `metrics/timeseries`, `metrics/tokens/summary`, `metrics/tokens/timeseries` and `metrics/tokens/by-subject` | a count inside that bucket |
+| `prometheus` | The hub's counters, scraped from `/metrics`, plus the agent runtime's token counters | those five when pinned or when there is no database, plus raw PromQL | a per-second rate for the rate-backed counters, otherwise the counter total |
+
+The hub's own records answer the summary and timeseries by default, on every install, whether or not a Prometheus exists. The counters describe the same routing decisions those rows record, and the rows are the better witness: a counter restarts at zero with its pod, while `events` and `agent_tasks` are not pruned at all. Set `observability.metricsSource` (`HUB_METRICS_SOURCE`) to `prometheus` to pin the counters — the one case where they remember more is a window wider than the 7 days `task_logs` keeps. A pinned backend that is not configured returns `503` naming it, rather than falling back silently.
+
+Raw PromQL (`metrics/query`) returns `503` naming Prometheus as the missing backend
+on any install without one — since #411 it is the only endpoint that still requires
+Prometheus. The token tiles and the tokens-by-subject table answer from the hub's
+own `task_conversations` rows by default — every token component pi reports, cache
+traffic included, and (since migration 0024) the subject each turn ran under, is
+persisted there. `502` means the backend was reachable and the query failed.
+
+### GET /api/v1/observability/metrics/summary
+
+Counts for the four hub metrics: events received, trigger matches (one per agent an event matched to), events delivered to at least one agent, and errors. `routingErrors` counts error-level task logs in the window — the same entries the Errors page lists.
+
+Pass `?range=1h|6h|24h|7d` for the counts inside that window; omit it for everything so far, which means the lifetime counter total under Prometheus and everything still retained under Postgres.
+
+**Response:** `200 OK`
+```json
+{
+  "eventsConsumed": 12345,
+  "triggersMatched": 4567,
+  "eventsRouted": 4500,
+  "routingErrors": 12,
+  "updatedAt": "2026-05-20T10:00:00Z",
+  "source": "postgres"
+}
+```
+
+### GET /api/v1/observability/metrics/timeseries
+
+One metric across a window in `step`-wide points. The unit depends on `source`. A Prometheus point is the per-second rate of the metric's rate query (every metric currently queryable has one; one without would report its raw counter total). A Postgres point is a count inside that bucket. Both return a **dense** series — every bucket across the window, gaps zero-filled — so a chart can place points by index without inventing its own bucketing.
+
+**Query parameters:**
+- `metric` — one of `events_consumed`, `triggers_matched`, `events_routed`, `routing_errors` (default `events_consumed`).
+- `range` — one of `1h`, `6h`, `24h`, `7d` (default `1h`).
+
+**Response:** `200 OK`
+```json
+{
+  "metric": "events_consumed",
+  "range": "1h",
+  "step": "30s",
+  "points": [{"timestamp": "2026-05-20T09:00:00Z", "value": 0.42}],
+  "source": "prometheus"
+}
+```
+
+**Status codes:** `200`, `400` on an unknown metric or range — including a metric the active backend cannot answer, which is refused rather than drawn as an empty chart — `502`, `503`.
+
+### GET /api/v1/observability/metrics/agents
+
+Per-agent token consumption and invocation counts. Served from the hub's own
+`task_conversations` and `invocations` rows by default; the agent-side counters
+answer only when `observability.metricsSource` pins `prometheus` or the hub has
+no database.
+
+**Query parameters:**
+
+| Param | Description |
+|-------|-------------|
+| `range` | Optional. `1h`, `6h`, `24h` or `7d`; windows the records read. Omitted means everything still retained (conversations and invocations are pruned after 48h — retained, not lifetime). The Prometheus path reads all-time counters and ignores `range`. Invalid values return `400`. |
+
+**Response:** `200 OK`
+```json
+{
+  "agents": [
+    {"agent": "a-3f9a2b", "agentName": "Reviewer", "inputTokens": 12000, "outputTokens": 4500, "cacheReadTokens": 180000, "cacheWriteTokens": 9000, "totalTokens": 205500, "invocations": 42, "failures": 2, "avgDurationMs": 31400}
+  ],
+  "updatedAt": "2026-05-20T10:00:00Z",
+  "source": "postgres"
+}
+```
+
+`invocations` counts every status (including `running`) started inside the
+window, matching `GET /api/v1/invocations?agent=<name>` for the same window.
+`failures` counts `failure`/`timeout` statuses and `avgDurationMs` averages the
+completed invocations; both are populated on the records path only and read as
+zero under `source: "prometheus"`.
+
+### GET /api/v1/observability/metrics/tokens/summary
+
+24-hour token totals (fixed window, regardless of any dashboard range selector) with previous-period comparison.
+
+**Response:** `200 OK`
+```json
+{
+  "source": "postgres",
+  "inputTokens": 8400,
+  "outputTokens": 3200,
+  "cacheReadTokens": 142000,
+  "cacheWriteTokens": 6100,
+  "totalTokens": 159700,
+  "costUsd": 0.42,
+  "previousTotalTokens": 9100,
+  "updatedAt": "2026-05-20T10:00:00Z"
+}
+```
+
+#### Token components
+
+`totalTokens` is the sum of all four components. Agents publish them as separate
+`token_type` series on `agent_tokens_used_total` because the upstream provider reports
+prompt-cache traffic apart from billable input: `inputTokens` **excludes**
+`cacheReadTokens` and `cacheWriteTokens`. A total built from input and output alone
+under-reports real consumption by the whole cached volume, which in an agent loop is
+usually the large majority of the prompt.
+
+`cacheReadTokens / (inputTokens + cacheReadTokens + cacheWriteTokens)` is the cache hit
+rate. Providers without prompt caching publish no cache series, so those fields read as
+zero.
+
+`costUsd` is the priced counterpart: pi computes it per message from the model's cost
+block (`spec.llm.cost`, USD per million tokens for each of the four components), the
+runtime reports it on each conversation row and as `agent_cost_usd_total`, and the hub
+sums whichever source answers the query. Cache traffic is priced separately from input
+— at very different rates — so a cost derived from an input+output total alone would be
+wrong in both directions at once. Models without a cost block price everything at 0.
+
+### GET /api/v1/observability/metrics/tokens/timeseries
+
+24-hour token-usage sparkline stepped at 30-minute intervals. Points sum every
+token component, cache traffic included.
+
+**Query parameters:** `range` — `24h` only (other values return `400`).
+
+**Response:** `200 OK`
+```json
+{
+  "source": "postgres",
+  "range": "24h",
+  "step": "30m0s",
+  "points": [{"timestamp": "2026-05-19T10:00:00Z", "value": 510}]
+}
+```
+
+### GET /api/v1/observability/metrics/tokens/by-subject
+
+One row per `(agent, repo, eventType, model)` tuple over the requested range, with
+the priced cost. The hub's conversation rows answer by default, grouped by the
+subject columns migration 0024 added; the counters answer when the source is
+pinned or the hub has no database, and the response reports which one answered in
+`source`. Rows written before migration 0024 carry no subject and group under the
+empty string.
+
+**Query parameters:** `range` — one of `1h`, `6h`, `24h`, `7d` (default `24h`).
+
+**Response:** `200 OK`
+```json
+{
+  "range": "24h",
+  "rows": [
+    {"agent": "a-3f9a2b", "repo": "AInsel/ainsel", "eventType": "issue.opened", "model": "gpt-4", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
+  ],
+  "updatedAt": "2026-05-20T10:00:00Z",
+  "source": "postgres"
+}
+```
+
+### GET /api/v1/observability/metrics/query
+
+Thin raw proxy to Prometheus for freeform PromQL, intended for MCP tools and operators. Returns the upstream JSON response unmodified.
+
+**Query parameters:** `query` — a PromQL expression (required); `time` — optional evaluation timestamp (RFC3339 or unix).
+
+**Access:** admin only (`403` otherwise, `401` without an identity). This is an escape hatch rather than a dashboard input — the UI reads the structured `summary`/`timeseries`/`agents`/`tokens/*` endpoints above, which build their own namespace-scoped PromQL. Leaving a raw proxy open to every authenticated user let them read series from outside the AInsel namespace and submit arbitrarily expensive expressions.
+
+The handler also rejects a query that does not mention `namespace="<ns>"` or `namespace=~"<ns>"`. That check is a substring heuristic and not a PromQL parse: an expression such as `up{namespace="<ns>"} or up` satisfies it while still selecting unscoped series. It is a backstop against an operator typo, not an access control — the admin requirement is.
+
+With no authorization backend configured (local development) there is no notion of admin, so the endpoint is open, matching the rest of the API in that mode.
+
+---
+
+## Observability — Logs
+
+### GET /api/v1/observability/logs
+
+Tail recent agent log lines from the hub's own `task_logs` table, populated by agents over `POST /api/internal/task-logs` — no external log backend is involved. Also accessible (with the same handler) at `GET /api/observability/logs`.
+
+**Query parameters:**
+- `app` — agent name to filter by.
+- `range` — one of `1h`, `6h`, `24h` (default `1h`).
+- `since` — Go duration string (e.g. `90m`); overrides `range`.
+- `limit` — positive integer, default `500`, capped at `1000`.
+
+**Access:** scoped to the caller — results are limited to agents the caller can read, so omitting `app` returns only those agents' logs rather than every agent's. `app` naming an agent the caller cannot read returns `403`. Admins see every agent's logs.
+
+**Response:** `200 OK`
+```json
+{
+  "logs": [
+    {"timestamp": "2026-05-20T10:00:00.123Z", "message": "...", "labels": {"app": "ainsel-agent-foo"}}
+  ],
+  "total": 1,
+  "query": "{namespace=\"ainsel\",app=~\".+\",app!=\"ainsel-hub\"}"
+}
+```
+
+**Status codes:** `200`, `400` on invalid `limit`/`range`, `502` when the task-log query fails, `503` when the hub has no database to read it from.
+
+---
+
+## Observability — Conversations
+
+### GET /api/v1/observability/conversations
+
+Return agent conversation messages captured from agent turns and stored in the `task_conversations` table. These are the messages the hub's event detail view uses to render the communication for an event/invocation (user prompt, assistant thinking/text, tool calls, and tool results).
+
+**Access:** scoped to the caller — results are limited to agents the caller can read, and `agent` naming any other agent returns `403`. `invocation` and `correlation` narrow within that scope but cannot widen it. Admins see everything.
+
+**Query parameters:**
+- `agent` — filter by agent name.
+- `invocation` — filter by invocation ID.
+- `correlation` — filter by correlation ID.
+- `limit` — max messages, default `100`, capped at `500`.
+
+**Response:** `200 OK`
+```json
+{
+  "messages": [
+    {
+      "id": 12,
+      "invocationId": "inv-1a2b3c4d",
+      "correlationId": "corr-9f8e7d",
+      "agentName": "a-3f9a2b",
+      "role": "assistant",
+      "content": "[{\"type\":\"text\",\"text\":\"Looking into this issue...\"}]",
+      "model": "unsloth/gpt-oss-120b-GGUF:F16",
+      "inputTokens": 2400,
+      "outputTokens": 900,
+      "cacheReadTokens": 38000,
+      "cacheWriteTokens": 1500,
+      "costUsd": 0.31,
+      "stopReason": "end_turn",
+      "createdAt": "2026-05-20T10:00:05Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+Each message has the fields `id` (number), `invocationId`, `correlationId`, `agentName`, `role` (`user` | `assistant` | `toolResult`), `content` (a JSON **string** — see encoding note below), `model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `costUsd`, `stopReason`, and `createdAt` (RFC3339). The token and cost fields are per-message pi usage figures (see [token components](#token-components)); rows written by runtimes that predate cache/cost reporting carry zeros.
+
+**`content` encoding:** `content` is always a JSON-encoded string. For `user` and `assistant` messages it decodes to an array of blocks: `{"type":"text","text"}`, `{"type":"thinking","text"}`, and `{"type":"toolCall","id","name","arguments"}`. For `toolResult` messages it decodes to a single object: `{"toolCallId","isError","content"}`.
+
+**Status codes:** `200`, `405` (wrong method), `502` (query failure), `503` (log backend not configured).
+
+---
+
+## Tokens
+
+### GET /api/v1/tokens
+
+Per-`(agent, repository, issueNumber, model)` token consumption. The hub's own conversation rows (`task_conversations`, kept for 48 h) answer by default, on every install, whether or not a Prometheus exists; set `observability.metricsSource` to `prometheus` to pin the agent runtime's counters instead. A pinned backend that is not configured returns `503` naming it, rather than falling back silently. The response names the backend that answered in `source`.
+
+**Query parameters:** `agent`, `repository`, `issueNumber` (exact-match filters, applied server-side on both backends), `since`, `until` (RFC 3339; bound the window on the records path — absent means everything the hub still retains; the Prometheus path reads cumulative counters and has no window).
+
+**Response:** `200 OK`
+```json
+{
+  "tokens": [
+    {"agent": "a-3f9a2b", "repository": "AInsel/ainsel", "issueNumber": "42", "model": "unsloth/gpt-oss-120b-GGUF:F16", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
+  ],
+  "total": {"inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31},
+  "source": "postgres"
+}
+```
+
+`costUsd` is priced consumption — the conversation rows' `cost_usd` on the
+records path, the `agent_cost_usd_total` counter on the Prometheus path — and
+is 0 for agents whose models carry no `spec.llm.cost` block. Rows written
+before the subject columns existed carry an empty `issueNumber` (subject
+unknown); they are included, never dropped. Component semantics are described
+under [token components](#token-components).
+
+**Status codes:** `200`, `400` on a non-integer `issueNumber` or a malformed `since`/`until`, `502` on a backend query failure, `503` when no metrics backend is configured (or when Prometheus is pinned but its URL is unset).
+
+---
+
+## WebSocket
+
+### GET /api/v1/ws
+
+Upgrade to a WebSocket. The hub pushes a stream of JSON envelopes:
+
+```json
+{"type": "stats", "data": { ... same shape as /api/v1/stats ... }}
+{"type": "event", "data": { ... ActivityEntry ... }}
+{"type": "error", "data": { ... ErrorEntry ... }}
+```
+
+Immediately after the upgrade the server writes one `stats` snapshot. Subsequent messages are broadcast by hub-internal publishers (stats poller, event consumer, error consumer). Incoming client messages are read solely to detect disconnects; they are not interpreted.
+
+**Status codes:** `101 Switching Protocols` on success, `400` if the upgrade handshake fails.
+
+---
+
+## Me
+
+### GET /api/v1/me
+
+Echo the authenticated user as forwarded by the ingress middleware (Authelia or equivalent). The hub reads the `Remote-User`, `Remote-Name`, `Remote-Email`, and `Remote-Groups` headers; when the user header is missing, `username` defaults to `"anonymous"`.
+
+**Response:** `200 OK`
+```json
+{"username": "alice", "name": "Alice Doe", "email": "alice@example.com", "groups": "admins,operators"}
+```
+
+---
+
+## Error Format
+
+All non-WebSocket error responses return:
+
+```json
+{"error": "descriptive error message"}
+```
+
+| HTTP Status | Meaning |
+|-------------|---------|
+| `400` | Bad request (invalid JSON, missing required fields, unsupported query parameter values). |
+| `401` / `403` | Issued by the ingress layer, not by the hub itself. |
+| `404` | Resource not found. |
+| `405` | Method not allowed on this route. |
+| `409` | Conflict (resource already exists; deletion blocked by references; sync already running). |
+| `500` | Internal server error. |
+| `502` | Upstream backend (Prometheus, Forgejo) or the hub's database returned an error or was unreachable. |
+| `503` | A dependency this panel needs is not configured. The body's `error` field names it — the hub's database, or Prometheus for raw PromQL — and the console shows that text under the panel's own heading. |
+
+## Authentication
+
+The API supports two authentication methods. See
+[Access Control](access-control.md) for the full authorization model
+(groups, roles, visibility rules).
+
+### OIDC (interactive)
+
+Browser-based authentication via Zitadel. API requests carry a standard
+`Authorization: Bearer <jwt>` header. The OIDC middleware validates the
+token against the configured issuer and audience.
+
+### User tokens (programmatic)
+
+Personal access tokens prefixed with `ainsel_`. Created via
+`POST /api/v1/user-tokens`. A token grants the same permissions as the
+owning user.
+
+```
+Authorization: Bearer ainsel_abc123...
+```
+
+### Internal service auth
+
+Service-to-service calls use a shared secret via the `X-Internal-Token`
+header, scoped to `/api/internal/*` endpoints only.
+
+---
+
+Source of truth: [`services/hub/internal/api/server.go`](../services/hub/internal/api/server.go).

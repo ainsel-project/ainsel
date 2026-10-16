@@ -1,0 +1,174 @@
+name: Dependabot auto-merge
+
+# Dependabot PRs merge themselves: this gate watches every other check on the
+# PR and squash-merges it once they are all green. If any check is red, the
+# gate fails with it and the PR waits for a human - exactly like any red PR.
+#
+# Why not GitHub's auto-merge flag (the pattern in GitHub's docs)? Because
+# develop's ruleset has no required status checks, so arming auto-merge means
+# "merge immediately": the flag would merge on PR open before the ci-* runs
+# even start, it would merge PRs whose checks are failing right now, and it
+# stays armed across Dependabot force-pushes, merging every rebased head
+# unchecked. This gate instead re-runs on every head, waits for the checks it
+# can actually see, and merges with --match-head-commit so a concurrent
+# force-push fails the merge instead of sneaking an unchecked sha through.
+#
+# Scope: the job-level `if` (pull_request events) plus the author assertion in
+# the script (dispatch events) restrict this to Dependabot PRs. No other PR is
+# ever merged, and nothing here bypasses a red check.
+#
+# Identity caveat: GitHub exposes Dependabot inconsistently right now - the
+# pull_request event payload says `dependabot[bot]`, while the REST/GraphQL
+# API (gh pr view --json author) returns the app identity `app/dependabot`.
+# Both gates match bot logins containing "dependabot" so the gate keeps
+# working whichever form an endpoint returns. See run 37283701958 where this
+# mismatch killed the gate with "authored by 'app/dependabot'".
+#
+# Stale-gate caveat: every check run of this workflow (its own, and failed
+# leftovers of earlier gate attempts on the same head) is excluded from the
+# rollup by workflowName. The gate judges everything OTHER than itself; its
+# own red corpses (e.g. gates that died while CI was red, then were
+# re-dispatched by hand) must not gate it. Two live gates for one PR cannot
+# race: the concurrency group cancels the in-progress one.
+#
+# Cancelled caveat: sibling workflows (pr-title, gitleaks) run with their own
+# cancel-in-progress concurrency. Rapid rebase force-pushes cancel their
+# runs and leave a CANCELLED check run on the head while the replacement run
+# is seconds behind. A cancelled run says nothing about the head - the gate
+# skips CANCELLED and waits for the replacement instead.
+#
+# Merge-race caveat: when parallel gates squash-merge into develop one after
+# another, the base moves between a poll and the merge attempt and GitHub
+# rejects with "Base branch was modified". The merge is retried: each failed
+# attempt loops back to the poll, which re-reads the PR state/head and
+# re-verifies checks. Transient races self-heal; real conflicts exit red
+# within minutes (five attempts).
+#
+# The dispatch trigger exists so already-open Dependabot PRs (opened before
+# this workflow existed) and gates that hit the timeout can be re-run by hand:
+# `gh workflow run dependabot-auto-merge.yml -f pr=<number>`.
+#
+# No checkout and no third-party actions: gh + jq on the runner, same posture
+# as pr-title.yml. Pattern reference:
+# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/automating-dependabot-with-github-actions
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to gate and merge (must be authored by Dependabot)"
+        required: true
+
+permissions:
+  contents: write # squash-merge the PR, delete the merged branch
+  pull-requests: write # read PR metadata
+
+concurrency:
+  # One gate per PR; a Dependabot force-push cancels the stale gate and the
+  # new synchronize run starts a fresh one for the new head.
+  group: dependabot-auto-merge-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Auto-merge gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    if: >-
+      github.repository == 'DominikPinsel/ainsel' &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.pull_request.user.login, 'dependabot'))
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - name: Wait for green checks, then squash-merge
+        run: |
+          set -euo pipefail
+
+          # Belt and braces: the job-level `if` guards pull_request events,
+          # this guards dispatch (and any trigger added later). Accept both
+          # Dependabot identities (see header comment): the event payload says
+          # `dependabot[bot]`, the API says `app/dependabot`.
+          author="$(gh pr view "$PR_NUMBER" --json author -q '.author.login')"
+          if [ "$author" != "dependabot[bot]" ] && [ "$author" != "app/dependabot" ]; then
+            echo "::error::PR #$PR_NUMBER is authored by '$author'; this workflow only merges Dependabot PRs."
+            exit 1
+          fi
+
+          echo "Gating PR #$PR_NUMBER; rolls over every check except the Auto-merge gate itself."
+          # Grace period: the sibling workflows (gitleaks, pr-title, the
+          # path-filtered ci-* / dev-image-* set) are triggered by the same
+          # event but register their check runs moments later. Without this,
+          # an early poll could see an empty rollup and merge ungated.
+          sleep 30
+
+          deadline=$(( $(date +%s) + 5100 )) # 85 min; the job timeout is 90
+          attempts=0                         # merge attempts (merge-race caveat)
+          while true; do
+            pr_json="$(gh pr view "$PR_NUMBER" --json state,headRefOid,statusCheckRollup)"
+
+            state="$(jq -r '.state' <<<"$pr_json")"
+            if [ "$state" != "OPEN" ]; then
+              echo "PR #$PR_NUMBER is $state - nothing to do."
+              exit 0
+            fi
+            head="$(jq -r '.headRefOid' <<<"$pr_json")"
+
+            # Normalise both rollup shapes (Actions check runs and classic
+            # commit statuses) to {name, complete, ok}. Drop this workflow's
+            # own check runs (current and stale, see header comment): classic
+            # commit statuses have no workflowName and are kept.
+            checks="$(jq '
+              [ .statusCheckRollup[]?
+                | select((.workflowName // "") != "Dependabot auto-merge")
+                | select((.conclusion // .state // "") != "CANCELLED")
+                | {
+                    name: (.name // .context // "?"),
+                    complete: (
+                      (.status == "COMPLETED") or
+                      ((.state // "") | IN("SUCCESS","FAILURE","ERROR","NEUTRAL","CANCELLED","TIMED_OUT","ACTION_REQUIRED","SKIPPED","STALE"))
+                    ),
+                    ok: ((.conclusion // .state // "") | IN("SUCCESS","SKIPPED","NEUTRAL"))
+                  }
+              ]' <<<"$pr_json")"
+
+            total="$(jq 'length' <<<"$checks")"
+            pending="$(jq '[.[] | select(.complete | not)] | length' <<<"$checks")"
+            failed="$(jq '[.[] | select(.complete and (.ok | not))] | length' <<<"$checks")"
+            echo "$(date -u +%H:%M:%S)Z head=${head:0:7} checks=$total pending=$pending failed=$failed"
+
+            if [ "$failed" -gt 0 ]; then
+              echo "Red checks - not merging:"
+              jq -r '.[] | select(.complete and (.ok | not)) | "  - \(.name)"' <<<"$checks"
+              exit 1
+            fi
+            # Merge-race caveat (header comment): merge failures loop back to
+            # the poll above, which re-reads the PR state/head and re-verifies
+            # every check before the next attempt. Transient races self-heal;
+            # a hard failure (e.g. conflicts) burns the five attempts and
+            # exits red within minutes.
+            if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
+              if [ "$attempts" -eq 0 ]; then
+                echo "All checks green on ${head:0:7}; merging."
+              fi
+              if merge_err="$(gh pr merge "$PR_NUMBER" --squash --match-head-commit "$head" 2>&1)"; then
+                echo "PR #$PR_NUMBER merged."
+                exit 0
+              fi
+              attempts=$((attempts + 1))
+              echo "Merge attempt $attempts failed: $merge_err"
+              if [ "$attempts" -ge 5 ]; then
+                echo "::error::Gave up after $attempts merge attempts - waiting for a human."
+                exit 1
+              fi
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Timed out with $pending pending check(s) - not merging."
+              exit 1
+            fi
+            sleep 30
+          done

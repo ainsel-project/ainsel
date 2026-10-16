@@ -1,0 +1,1191 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/DominikPinsel/ainsel/services/hub/internal/mcpservers"
+	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	validation "k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// AgentImageRefInfo identifies which AgentImage an Agent uses.
+type AgentImageRefInfo struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName,omitempty"`
+}
+
+// AgentSkillsInfo is the API representation of the agent-scoped skill
+// selection: present = explicit override (empty items = no skills),
+// absent = inherit the referenced image's enabledSkills.
+type AgentSkillsInfo struct {
+	Items []string `json:"items"`
+}
+
+// AgentMCPServerInfo is the API representation of one agent-scoped MCP
+// server: the definition is resolved from the hub's MCP registry at
+// write time, so later registry edits do not silently change running
+// agents.
+type AgentMCPServerInfo struct {
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
+}
+
+// AgentMCPInfo is the API representation of the agent-scoped MCP
+// selection: present = explicit override (empty servers = no MCP
+// connections), absent = inherit the referenced image's mcpServers
+// (legacy behavior).
+type AgentMCPInfo struct {
+	Servers []AgentMCPServerInfo `json:"servers"`
+}
+
+// AgentMCPRequest selects MCP servers by registry name; the hub resolves
+// each name to its full definition when writing the agent.
+type AgentMCPRequest struct {
+	Servers []string `json:"servers"`
+}
+
+// resolveMCPRequest resolves registry names into agent-scoped MCP
+// definitions. A nil request means "leave unchanged"; a non-nil request
+// (including an empty Servers list) is an explicit selection and returns
+// a non-nil AgentMCP.
+func (s *Server) resolveMCPRequest(ctx context.Context, w http.ResponseWriter, req *AgentMCPRequest) (*agentv1alpha1.AgentMCP, error) {
+	if req == nil {
+		return nil, nil
+	}
+	if s.mcp == nil {
+		writeError(w, http.StatusServiceUnavailable, "mcp service not configured")
+		return nil, fmt.Errorf("mcp service not configured")
+	}
+	mcp := &agentv1alpha1.AgentMCP{Servers: make([]agentv1alpha1.AgentMCPServer, 0, len(req.Servers))}
+	for _, name := range req.Servers {
+		server, err := s.mcp.Get(ctx, name)
+		if err != nil {
+			if errors.Is(err, mcpservers.ErrNotFound) {
+				writeError(w, http.StatusBadRequest, "mcp server not found: "+name)
+				return nil, err
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return nil, err
+		}
+		mcp.Servers = append(mcp.Servers, agentv1alpha1.AgentMCPServer{
+			Name:         server.Name,
+			URL:          server.URL,
+			TokenFromEnv: server.TokenFromEnv,
+		})
+	}
+	return mcp, nil
+}
+
+// agentEnvFromRequest validates the requested env overrides and converts them
+// to CR entries. existing supplies the values of secret entries whose request
+// value is empty ("keep the existing value"), mirroring the image env contract.
+// A nil result means "no overrides", which is also what an empty request list
+// produces — clearing an agent's overrides returns it to the image defaults.
+func agentEnvFromRequest(w http.ResponseWriter, in []AgentImageEnvVarInfo, existing []agentv1alpha1.AgentEnvVar) ([]agentv1alpha1.AgentEnvVar, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	secretValues := make(map[string]string, len(existing))
+	for _, e := range existing {
+		if e.Secret {
+			secretValues[e.Name] = e.Value
+		}
+	}
+
+	out := make([]agentv1alpha1.AgentEnvVar, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, e := range in {
+		name := strings.TrimSpace(e.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "env name is required")
+			return nil, fmt.Errorf("env name is required")
+		}
+		if errs := validation.IsEnvVarName(name); len(errs) > 0 {
+			writeError(w, http.StatusBadRequest, "invalid env name "+name+": "+errs[0])
+			return nil, fmt.Errorf("invalid env name %q", name)
+		}
+		if seen[name] {
+			// The operator merges by name, so duplicates would silently keep
+			// only one value. Reject instead of guessing.
+			writeError(w, http.StatusBadRequest, "duplicate env name: "+name)
+			return nil, fmt.Errorf("duplicate env name %q", name)
+		}
+		seen[name] = true
+
+		value := e.Value
+		if e.Secret && value == "" {
+			value = secretValues[name]
+		}
+		out = append(out, agentv1alpha1.AgentEnvVar{Name: name, Value: value, Secret: e.Secret})
+	}
+	return out, nil
+}
+
+// SimpleAgentResponse is the simplified API representation of an Agent.
+type SimpleAgentResponse struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description,omitempty"`
+	ImageRef     AgentImageRefInfo `json:"imageRef"`
+	LLM          AgentLLMInfo      `json:"llm"`
+	Persona      *AgentPersonaInfo `json:"persona,omitempty"`
+	EnabledTools []string          `json:"enabledTools,omitempty"`
+	Skills       *AgentSkillsInfo  `json:"skills,omitempty"`
+	MCP          *AgentMCPInfo     `json:"mcp,omitempty"`
+	// Env lists this agent's environment overrides on top of the referenced
+	// image's env. Values of entries marked Secret are never returned.
+	Env []AgentImageEnvVarInfo `json:"env,omitempty"`
+	// Replicas caps the number of task Jobs running at once for this agent.
+	Replicas *int32 `json:"replicas,omitempty"`
+	// Paused reports whether task delivery is currently withheld: spec.pause
+	// evaluated at read time, so an expiring pause reads false on its own.
+	// Paused agents still accumulate their routed tasks as a backlog; the
+	// queue-depth fields show what has piled up.
+	Paused bool `json:"paused"`
+	// PausedUntil is when an expiring pause ends (RFC3339). Empty for a
+	// running agent and for an indefinite pause, which must be lifted
+	// explicitly.
+	PausedUntil    string                   `json:"pausedUntil,omitempty"`
+	Memory         *AgentMemoryInfo         `json:"memory,omitempty"`
+	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
+	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
+	AlibabaCloud   *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
+	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
+	Status         *SimpleAgentStatus       `json:"status,omitempty"`
+	UpdatedAt      string                   `json:"updatedAt,omitempty"`
+}
+
+type AgentLLMInfo struct {
+	Model       string   `json:"model"`
+	Provider    string   `json:"provider,omitempty"`
+	MaxTurns    int      `json:"maxTurns,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	// Vision mirrors spec.llm.vision: whether pi sends image input.
+	// A pointer keeps an explicit false distinguishable from "unset".
+	Vision *bool `json:"vision,omitempty"`
+	// ContextWindow mirrors spec.llm.contextWindow: overrides the context
+	// window (tokens) declared in the agent's generated models.json. It
+	// should match the context limit the actual LLM endpoint enforces. A
+	// pointer keeps it distinguishable from "unset".
+	ContextWindow *int `json:"contextWindow,omitempty"`
+}
+
+// AgentPersonaInfo is the REST representation of an Agent's persona reference.
+// ID points at a persona managed by the hub at /api/v1/personas.
+type AgentPersonaInfo struct {
+	ID string `json:"id"`
+}
+
+type AgentMemoryInfo struct {
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider,omitempty"`
+}
+
+type AgentOllamaCloudInfo struct {
+	// APIKey is the Ollama Cloud API key. If provided, the backend will create
+	// a secret to store it. On response, this field is always empty for security.
+	APIKey string `json:"apiKey,omitempty"`
+}
+
+type AgentOpenCodeInfo struct {
+	// APIKey is the OpenCode API key. If provided, the backend will create
+	// a secret to store it. On response, this field is always empty for security.
+	APIKey string `json:"apiKey,omitempty"`
+}
+
+type AgentAlibabaCloudInfo struct {
+	// APIKey is the Alibaba Token Plan API key. If provided, the backend will create
+	// a secret to store it. On response, this field is always empty for security.
+	APIKey string `json:"apiKey,omitempty"`
+}
+
+// AgentCustomProviderInfo is the REST representation of a custom LLM provider.
+type AgentCustomProviderInfo struct {
+	// URL is the custom LLM API base URL.
+	URL string `json:"url"`
+	// APIKey is the custom API key. If provided, the backend will create
+	// a secret to store it. On response, this field is always empty for security.
+	APIKey string `json:"apiKey,omitempty"`
+}
+
+type SimpleAgentStatus struct {
+	Ready    bool  `json:"ready"`
+	Replicas int32 `json:"replicas"`
+	// Desired is the number of task Jobs the operator is keeping in flight.
+	Desired int32 `json:"desired,omitempty"`
+	// Reason is a stable code for the scaling decision: JobPerTask or Capped.
+	Reason string `json:"reason,omitempty"`
+	// Message is a short explanation safe to show a user.
+	Message string `json:"message,omitempty"`
+}
+
+// scalingProblem explains a concurrency cap the operator cannot honour, or
+// returns "" when the value is workable. An unset replicas means one.
+func scalingProblem(scaling *agentv1alpha1.AgentScaling) string {
+	if scaling == nil {
+		return ""
+	}
+	if scaling.Replicas != nil && *scaling.Replicas < 0 {
+		return "replicas must not be negative"
+	}
+	return ""
+}
+
+// SimpleAgentCreateRequest is used to create a new Agent.
+type SimpleAgentCreateRequest struct {
+	Name         string            `json:"name"`
+	GroupID      string            `json:"groupId"`
+	Description  string            `json:"description,omitempty"`
+	ImageRef     AgentImageRefInfo `json:"imageRef"`
+	LLM          AgentLLMInfo      `json:"llm"`
+	Persona      *AgentPersonaInfo `json:"persona,omitempty"`
+	EnabledTools []string          `json:"enabledTools,omitempty"`
+	Skills       *AgentSkillsInfo  `json:"skills,omitempty"`
+	MCP          *AgentMCPRequest  `json:"mcp,omitempty"`
+	// Env sets this agent's environment overrides. For an entry marked
+	// Secret, an empty Value means "keep the existing value".
+	Env []AgentImageEnvVarInfo `json:"env,omitempty"`
+	// Replicas caps the number of task Jobs running at once. Defaults to 1;
+	// 0 pauses the agent (due tasks stay queued).
+	Replicas       *int32                   `json:"replicas,omitempty"`
+	Memory         *AgentMemoryInfo         `json:"memory,omitempty"`
+	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
+	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
+	AlibabaCloud   *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
+	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
+}
+
+// SimpleAgentUpdateRequest is used to update an existing Agent. All fields are optional.
+type SimpleAgentUpdateRequest struct {
+	Name         *string            `json:"name,omitempty"`
+	Description  *string            `json:"description,omitempty"`
+	ImageRef     *AgentImageRefInfo `json:"imageRef,omitempty"`
+	LLM          *AgentLLMInfo      `json:"llm,omitempty"`
+	Persona      *AgentPersonaInfo  `json:"persona,omitempty"`
+	EnabledTools *[]string          `json:"enabledTools,omitempty"`
+	Skills       *AgentSkillsInfo   `json:"skills,omitempty"`
+	MCP          *AgentMCPRequest   `json:"mcp,omitempty"`
+	// Env replaces this agent's environment overrides; present-but-empty
+	// clears them, so the agent runs on the image defaults again. For an
+	// entry marked Secret, an empty Value means "keep the existing value".
+	Env *[]AgentImageEnvVarInfo `json:"env,omitempty"`
+	// Replicas caps the number of task Jobs running at once; 0 pauses the
+	// agent (due tasks stay queued).
+	Replicas       *int32                   `json:"replicas,omitempty"`
+	Memory         *AgentMemoryInfo         `json:"memory,omitempty"`
+	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
+	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
+	AlibabaCloud   *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
+	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
+}
+
+// AgentUpdatedAtAnnotation is stamped by the hub on every agent write so the
+// API can expose a meaningful updatedAt for "recently updated" UIs.
+// Kubernetes objects carry no spec-change timestamp of their own, and all
+// user-driven updates flow through the hub, so the hub is the right place to
+// track it. A missing annotation falls back to the creation timestamp.
+const AgentUpdatedAtAnnotation = "ainsel.dev/updated-at"
+
+func stampAgentUpdatedAt() string {
+	return time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+}
+
+func agentUpdatedAt(a agentv1alpha1.Agent) string {
+	if v, ok := a.Annotations[AgentUpdatedAtAnnotation]; ok {
+		return v
+	}
+	return a.CreationTimestamp.UTC().Truncate(time.Second).Format(time.RFC3339)
+}
+
+func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) SimpleAgentResponse {
+	resp := SimpleAgentResponse{
+		ID:          a.Name,
+		Name:        a.Spec.DisplayName,
+		Description: a.Spec.Description,
+		ImageRef:    AgentImageRefInfo{Name: a.Spec.ImageRef.Name, DisplayName: imageDisplayName},
+		LLM: AgentLLMInfo{
+			Model:         a.Spec.LLM.Model,
+			Provider:      a.Spec.LLM.Provider,
+			MaxTurns:      a.Spec.LLM.MaxTurns,
+			Temperature:   a.Spec.LLM.Temperature,
+			Vision:        a.Spec.LLM.Vision,
+			ContextWindow: a.Spec.LLM.ContextWindow,
+		},
+		EnabledTools: a.Spec.EnabledTools,
+		UpdatedAt:    agentUpdatedAt(a),
+	}
+
+	if a.Spec.Persona.ID != "" {
+		resp.Persona = &AgentPersonaInfo{ID: a.Spec.Persona.ID}
+	}
+
+	// Skills: nil = inherit from the image (legacy), present = explicit.
+	if a.Spec.Skills != nil {
+		resp.Skills = &AgentSkillsInfo{Items: a.Spec.Skills.Items}
+	}
+
+	// MCP: nil = inherit from the image (legacy), present = explicit.
+	if a.Spec.MCP != nil {
+		mcpInfo := &AgentMCPInfo{Servers: make([]AgentMCPServerInfo, 0, len(a.Spec.MCP.Servers))}
+		for _, srv := range a.Spec.MCP.Servers {
+			mcpInfo.Servers = append(mcpInfo.Servers, AgentMCPServerInfo{
+				Name:         srv.Name,
+				URL:          srv.URL,
+				TokenFromEnv: srv.TokenFromEnv,
+			})
+		}
+		resp.MCP = mcpInfo
+	}
+
+	// Env overrides: secret values are masked, matching the image env
+	// contract, so a response can never expose them.
+	if len(a.Spec.Env) > 0 {
+		resp.Env = make([]AgentImageEnvVarInfo, 0, len(a.Spec.Env))
+		for _, e := range a.Spec.Env {
+			info := AgentImageEnvVarInfo{Name: e.Name, Secret: e.Secret}
+			if !e.Secret {
+				info.Value = e.Value
+			}
+			resp.Env = append(resp.Env, info)
+		}
+	}
+
+	// Replicas
+	if a.Spec.Scaling != nil {
+		resp.Replicas = a.Spec.Scaling.Replicas
+	}
+
+	// Pause state is computed from spec at read time, not mirrored from
+	// status: the CRD is the source of truth and expiry needs no controller.
+	resp.Paused = a.IsPaused(time.Now())
+	if resp.Paused && a.Spec.Pause.PausedUntil != nil {
+		resp.PausedUntil = a.Spec.Pause.PausedUntil.UTC().Format(time.RFC3339)
+	}
+
+	// Memory
+	if a.Spec.Memory != nil {
+		resp.Memory = &AgentMemoryInfo{
+			Enabled:  a.Spec.Memory.Enabled,
+			Provider: a.Spec.Memory.Provider,
+		}
+	}
+
+	// OllamaCloud - note: API key is never returned in responses for security
+	if a.Spec.OllamaCloud != nil {
+		resp.OllamaCloud = &AgentOllamaCloudInfo{}
+	}
+
+	// OpenCode - note: API key is never returned in responses for security
+	if a.Spec.OpenCode != nil {
+		resp.OpenCode = &AgentOpenCodeInfo{}
+	}
+
+	// AlibabaCloud - note: API key is never returned in responses for security
+	if a.Spec.AlibabaCloud != nil {
+		resp.AlibabaCloud = &AgentAlibabaCloudInfo{}
+	}
+
+	// CustomProvider - note: API key is never returned in responses for security
+	if a.Spec.CustomProvider != nil {
+		resp.CustomProvider = &AgentCustomProviderInfo{
+			URL: a.Spec.CustomProvider.URL,
+		}
+	}
+
+	// Status
+	ready := false
+	for _, c := range a.Status.Conditions {
+		if c.Type == agentv1alpha1.AgentConditionReady && c.Status == metav1.ConditionTrue {
+			ready = true
+			break
+		}
+	}
+	resp.Status = &SimpleAgentStatus{
+		Ready:    ready,
+		Replicas: a.Status.Replicas,
+	}
+	// How many task Jobs the operator is keeping in flight, and why. With no
+	// pods running this is the only way a reader can tell a paused agent from
+	// one whose Jobs cannot get scheduled.
+	if sc := a.Status.Scaling; sc != nil {
+		resp.Status.Desired = sc.Desired
+		resp.Status.Reason = sc.Reason
+		resp.Status.Message = sc.Message
+	}
+
+	return resp
+}
+
+// validateAgentImageRef checks that refName references an existing AgentImage and that
+// all entries in enabled are tools declared by that image. Returns the image's display
+// name along with a non-zero status code and error message on failure; returns
+// displayName, 0, "" on success.
+func (s *Server) validateAgentImageRef(ctx context.Context, refName string, enabled []string) (displayName string, statusCode int, errMessage string) {
+	if strings.TrimSpace(refName) == "" {
+		return "", http.StatusBadRequest, "imageRef.name is required"
+	}
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(ctx, types.NamespacedName{Namespace: s.ns, Name: refName}, &img); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", http.StatusBadRequest, fmt.Sprintf("imageRef.name %q does not match any AgentImage", refName)
+		}
+		return "", http.StatusInternalServerError, "lookup image: " + err.Error()
+	}
+	valid := make(map[string]struct{}, len(img.Spec.Tools))
+	for _, t := range img.Spec.Tools {
+		valid[t.Name] = struct{}{}
+	}
+	var unknown []string
+	for _, t := range enabled {
+		if _, ok := valid[t]; !ok {
+			unknown = append(unknown, t)
+		}
+	}
+	if len(unknown) > 0 {
+		return "", http.StatusBadRequest, "enabledTools not in image: " + strings.Join(unknown, ",")
+	}
+	return img.Spec.DisplayName, 0, ""
+}
+
+// resolveImageDisplayName looks up the AgentImage by resource name and returns
+// its Spec.DisplayName. Returns empty string on any lookup error (not found,
+// RBAC, network, etc.).
+func (s *Server) resolveImageDisplayName(ctx context.Context, imageName string) string {
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(ctx, types.NamespacedName{Namespace: s.ns, Name: imageName}, &img); err != nil {
+		return ""
+	}
+	return img.Spec.DisplayName
+}
+
+func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	switch r.Method {
+	case http.MethodGet:
+		s.listAgents(ctx, w, r)
+	case http.MethodPost:
+		s.createAgent(ctx, w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	name := extractName(r.URL.Path, "/api/v1/agents/")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "missing agent name")
+		return
+	}
+
+	// The agent task endpoints (next-task, tasks/{id}[/ack|/nack]) live solely
+	// on /api/internal/agents/ (handleInternalAgent). The old /api/v1 aliases
+	// are gone: they dispatched into the task handlers ahead of the CRUD
+	// requireRead/requireWrite checks below, letting any authenticated user
+	// drive another tenant's task queue. 404 any such shape here so a stale
+	// agent image gets an honest "not found" instead of a nonsense
+	// "agent not found" from the CRUD path.
+	if strings.HasSuffix(name, "/next-task") || strings.Contains(name, "/tasks/") {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	// Agent-scoped persona: inline content editing with copy-on-write
+	// ownership (see handlers_agent_persona.go).
+	if strings.HasSuffix(name, "/persona") {
+		s.handleAgentPersona(w, r, strings.TrimSuffix(name, "/persona"))
+		return
+	}
+
+	// Agent-scoped pause: withhold or restore task delivery (see
+	// handlers_agent_pause.go). Write-scoped like any agent config change.
+	if strings.HasSuffix(name, "/pause") {
+		paused := strings.TrimSuffix(name, "/pause")
+		if paused == "" {
+			writeError(w, http.StatusBadRequest, "missing agent name")
+			return
+		}
+		if !s.requireWrite(w, r, "agent", paused) {
+			return
+		}
+		s.handleAgentPause(w, r, paused)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		if !s.requireRead(w, r, "agent", name) {
+			return
+		}
+		s.getAgent(ctx, w, name)
+	case http.MethodPut:
+		if !s.requireWrite(w, r, "agent", name) {
+			return
+		}
+		s.updateAgent(ctx, w, r, name)
+	case http.MethodDelete:
+		if !s.requireWrite(w, r, "agent", name) {
+			return
+		}
+		s.deleteAgent(ctx, w, name)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleInternalAgent serves agent task endpoints under /api/internal/agents/.
+// These paths bypass the OIDC middleware (they don't match /api/v1/) and are
+// protected by X-Internal-Token at the handler level. Only task operations
+// (next-task, task fetch, ack, nack) are exposed; CRUD operations remain on
+// /api/v1/.
+//
+// This is the sole entry point for the task handlers, and the token check runs
+// here, before any sub-route dispatch, so that adding a new task sub-route
+// cannot accidentally ship unauthenticated.
+func (s *Server) handleInternalAgent(w http.ResponseWriter, r *http.Request) {
+	if !s.requireInternalToken(w, r) {
+		return
+	}
+	name := extractName(r.URL.Path, "/api/internal/agents/")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "missing agent name")
+		return
+	}
+
+	if strings.HasSuffix(name, "/next-task") {
+		s.handleAgentNextTask(w, r)
+		return
+	}
+	if strings.Contains(name, "/tasks/") {
+		if strings.HasSuffix(name, "/ack") {
+			s.handleAgentTaskAck(w, r)
+			return
+		}
+		if strings.HasSuffix(name, "/nack") {
+			s.handleAgentTaskNack(w, r)
+			return
+		}
+		// {name}/tasks/{id} without a verb is the jobPerTask fetch.
+		s.handleAgentTaskGet(w, r)
+		return
+	}
+
+	writeError(w, http.StatusNotFound, "not found")
+}
+
+func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	page, err := ParsePageParams(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var list agentv1alpha1.AgentList
+	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Sort by resource name for stable pagination across requests. Without an
+	// explicit sort the underlying client returns items in map-iteration order
+	// (in tests) or arbitrary kube-apiserver order, so successive page= calls
+	// could see the same item twice or miss it entirely.
+	sort.Slice(list.Items, func(i, j int) bool {
+		return list.Items[i].Name < list.Items[j].Name
+	})
+
+	// Filter to resources the caller can access (own groups + optional public).
+	if s.authzStore != nil && !s.callerIsAdmin(r) {
+		names := make([]string, len(list.Items))
+		for i, a := range list.Items {
+			names[i] = a.Name
+		}
+		set := toAccessSet(s.filterByAccess(r, "agent", names))
+		filtered := list.Items[:0]
+		for _, a := range list.Items {
+			if set[a.Name] {
+				filtered = append(filtered, a)
+			}
+		}
+		list.Items = filtered
+	}
+
+	// Build image id→displayName map for enrichment. A single namespace-scoped
+	// List avoids N+1 Gets per agent.
+	imageDisplayNames := make(map[string]string)
+	var imageList agentv1alpha1.AgentImageList
+	if err := s.client.List(ctx, &imageList, client.InNamespace(s.ns)); err == nil {
+		for _, img := range imageList.Items {
+			imageDisplayNames[img.Name] = img.Spec.DisplayName
+		}
+	} else {
+		slog.Warn("failed to list AgentImages for display name enrichment", "error", err)
+	}
+
+	total := len(list.Items)
+	lo, hi := page.Slice(total)
+	items := make([]SimpleAgentResponse, 0, hi-lo)
+	for _, a := range list.Items[lo:hi] {
+		items = append(items, toSimpleAgentResponse(a, imageDisplayNames[a.Spec.ImageRef.Name]))
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items":      items,
+		"total":      total,
+		"page":       page.Page,
+		"pageSize":   page.PageSize,
+		"totalPages": page.TotalPages(total),
+	})
+}
+
+func (s *Server) getAgent(ctx context.Context, w http.ResponseWriter, name string) {
+	var agent agentv1alpha1.Agent
+	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &agent); err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	imageDisplayName := s.resolveImageDisplayName(ctx, agent.Spec.ImageRef.Name)
+	writeJSON(w, http.StatusOK, toSimpleAgentResponse(agent, imageDisplayName))
+}
+
+func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	var req SimpleAgentCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	imageDisplayName, code, msg := s.validateAgentImageRef(ctx, req.ImageRef.Name, req.EnabledTools)
+	if code != 0 {
+		http.Error(w, msg, code)
+		return
+	}
+
+	// Validate group membership for resource creation.
+	if s.authzChecker != nil {
+		if req.GroupID == "" {
+			writeError(w, http.StatusBadRequest, "groupId is required")
+			return
+		}
+		if !s.requireGroupWrite(w, r, req.GroupID) {
+			return
+		}
+	}
+
+	if req.Skills != nil {
+		if err := s.validateEnabledSkills(ctx, w, req.Skills.Items); err != nil {
+			return
+		}
+	}
+	mcpSelection, err := s.resolveMCPRequest(ctx, w, req.MCP)
+	if err != nil {
+		return
+	}
+	agentEnv, err := agentEnvFromRequest(w, req.Env, nil)
+	if err != nil {
+		return
+	}
+
+	id := generateID("a")
+
+	agent := agentv1alpha1.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      id,
+			Namespace: s.ns,
+			Annotations: map[string]string{
+				AgentUpdatedAtAnnotation: stampAgentUpdatedAt(),
+			},
+		},
+	}
+	agent.APIVersion = "ainsel.dev/v1alpha1"
+	agent.Kind = "Agent"
+
+	agent.Spec.DisplayName = req.Name
+	agent.Spec.Description = req.Description
+	agent.Spec.ImageRef = agentv1alpha1.AgentImageRef{Name: req.ImageRef.Name}
+	agent.Spec.EnabledTools = req.EnabledTools
+	agent.Spec.LLM = agentv1alpha1.AgentLLM{
+		Model:         req.LLM.Model,
+		Provider:      req.LLM.Provider,
+		MaxTurns:      req.LLM.MaxTurns,
+		Temperature:   req.LLM.Temperature,
+		Vision:        req.LLM.Vision,
+		ContextWindow: req.LLM.ContextWindow,
+	}
+	if req.Persona != nil {
+		agent.Spec.Persona = agentv1alpha1.AgentPersona{
+			ID: req.Persona.ID,
+		}
+	}
+	if req.Skills != nil {
+		items := make([]string, len(req.Skills.Items))
+		copy(items, req.Skills.Items)
+		agent.Spec.Skills = &agentv1alpha1.AgentSkills{Items: items}
+	}
+	if mcpSelection != nil {
+		agent.Spec.MCP = mcpSelection
+	}
+	if len(agentEnv) > 0 {
+		agent.Spec.Env = agentEnv
+	}
+	if req.Replicas != nil {
+		agent.Spec.Scaling = &agentv1alpha1.AgentScaling{Replicas: req.Replicas}
+	}
+	if msg := scalingProblem(agent.Spec.Scaling); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if req.Memory != nil {
+		agent.Spec.Memory = &agentv1alpha1.AgentMemory{
+			Enabled:  req.Memory.Enabled,
+			Provider: req.Memory.Provider,
+		}
+	}
+
+	// Handle Ollama Cloud API key - create secret if provided
+	if req.OllamaCloud != nil && req.OllamaCloud.APIKey != "" {
+		secretName := fmt.Sprintf("%s-llm-key", agent.Name)
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: s.ns,
+			},
+			StringData: map[string]string{
+				"api-key": req.OllamaCloud.APIKey,
+			},
+		}
+		if err := s.client.Create(ctx, secret); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create Ollama Cloud secret: "+err.Error())
+			return
+		}
+		agent.Spec.OllamaCloud = &agentv1alpha1.AgentOllamaCloud{
+			APIKeySecretRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			},
+		}
+	}
+
+	// Handle OpenCode API key - create secret if provided
+	if req.OpenCode != nil && req.OpenCode.APIKey != "" {
+		secretName := fmt.Sprintf("%s-opencode-key", agent.Name)
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: s.ns,
+			},
+			StringData: map[string]string{
+				"api-key": req.OpenCode.APIKey,
+			},
+		}
+		if err := s.client.Create(ctx, secret); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create OpenCode secret: "+err.Error())
+			return
+		}
+		agent.Spec.OpenCode = &agentv1alpha1.AgentOpenCode{
+			APIKeySecretRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			},
+		}
+	}
+
+	// Handle Alibaba Token Plan API key - create secret if provided
+	if req.AlibabaCloud != nil && req.AlibabaCloud.APIKey != "" {
+		secretName := fmt.Sprintf("%s-alibaba-key", agent.Name)
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: s.ns,
+			},
+			StringData: map[string]string{
+				"api-key": req.AlibabaCloud.APIKey,
+			},
+		}
+		if err := s.client.Create(ctx, secret); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create Alibaba Token Plan secret: "+err.Error())
+			return
+		}
+		agent.Spec.AlibabaCloud = &agentv1alpha1.AgentAlibabaCloud{
+			APIKeySecretRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			},
+		}
+	}
+
+	// Handle custom provider - create secret + store URL if provided
+	if req.CustomProvider != nil {
+		// URL is required for custom providers
+		if req.CustomProvider.URL == "" {
+			writeError(w, http.StatusBadRequest, "custom provider URL is required")
+			return
+		}
+
+		agent.Spec.CustomProvider = &agentv1alpha1.AgentCustomProvider{
+			URL: req.CustomProvider.URL,
+		}
+
+		// API key is optional on the wire; create a secret only if provided.
+		if req.CustomProvider.APIKey != "" {
+			secretName := fmt.Sprintf("%s-custom-provider-key", agent.Name)
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: s.ns,
+				},
+				StringData: map[string]string{
+					"api-key": req.CustomProvider.APIKey,
+				},
+			}
+			if err := s.client.Create(ctx, secret); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to create custom provider secret: "+err.Error())
+				return
+			}
+			agent.Spec.CustomProvider.APIKeySecretRef = &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			}
+		}
+	}
+
+	if err := s.client.Create(ctx, &agent); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Assign the agent to the creator's chosen group.
+	if s.authzStore != nil {
+		groupID := req.GroupID
+		if groupID == "" {
+			groupID = "legacy"
+		}
+		if err := s.authzStore.SetResourceGroup(r.Context(), "agent", id, groupID, false); err != nil {
+			slog.Error("set resource group on create", "error", err, "resource", id)
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, imageDisplayName))
+}
+
+func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
+	var existing agentv1alpha1.Agent
+	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	var req SimpleAgentUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Validate imageRef/enabledTools if either is being changed.
+	effectiveRef := existing.Spec.ImageRef.Name
+	if req.ImageRef != nil {
+		effectiveRef = req.ImageRef.Name
+	}
+	effectiveTools := existing.Spec.EnabledTools
+	if req.EnabledTools != nil {
+		effectiveTools = *req.EnabledTools
+	}
+	var validatedDisplayName string
+	if req.ImageRef != nil || req.EnabledTools != nil {
+		var code int
+		var msg string
+		validatedDisplayName, code, msg = s.validateAgentImageRef(ctx, effectiveRef, effectiveTools)
+		if code != 0 {
+			http.Error(w, msg, code)
+			return
+		}
+	}
+
+	if req.Skills != nil {
+		if err := s.validateEnabledSkills(ctx, w, req.Skills.Items); err != nil {
+			return
+		}
+	}
+	mcpSelection, err := s.resolveMCPRequest(ctx, w, req.MCP)
+	if err != nil {
+		return
+	}
+	// Env overrides are resolved against the current spec so a secret entry
+	// submitted with an empty value keeps its stored value.
+	var agentEnv []agentv1alpha1.AgentEnvVar
+	if req.Env != nil {
+		agentEnv, err = agentEnvFromRequest(w, *req.Env, existing.Spec.Env)
+		if err != nil {
+			return
+		}
+	}
+
+	if req.Name != nil {
+		existing.Spec.DisplayName = *req.Name
+	}
+	if req.Description != nil {
+		existing.Spec.Description = *req.Description
+	}
+	if req.ImageRef != nil {
+		existing.Spec.ImageRef = agentv1alpha1.AgentImageRef{Name: req.ImageRef.Name}
+	}
+	if req.EnabledTools != nil {
+		existing.Spec.EnabledTools = *req.EnabledTools
+	}
+	if req.Skills != nil {
+		items := make([]string, len(req.Skills.Items))
+		copy(items, req.Skills.Items)
+		existing.Spec.Skills = &agentv1alpha1.AgentSkills{Items: items}
+	}
+	if mcpSelection != nil {
+		existing.Spec.MCP = mcpSelection
+	}
+	if req.Env != nil {
+		// Present-but-empty clears the overrides: the agent then runs on the
+		// referenced image's env alone.
+		existing.Spec.Env = agentEnv
+	}
+	if req.LLM != nil {
+		if req.LLM.Model != "" {
+			existing.Spec.LLM.Model = req.LLM.Model
+		}
+		if req.LLM.Provider != "" {
+			existing.Spec.LLM.Provider = req.LLM.Provider
+		}
+		if req.LLM.MaxTurns != 0 {
+			existing.Spec.LLM.MaxTurns = req.LLM.MaxTurns
+		}
+		if req.LLM.Temperature != nil {
+			existing.Spec.LLM.Temperature = req.LLM.Temperature
+		}
+		if req.LLM.Vision != nil {
+			existing.Spec.LLM.Vision = req.LLM.Vision
+		}
+		if req.LLM.ContextWindow != nil {
+			existing.Spec.LLM.ContextWindow = req.LLM.ContextWindow
+		}
+	}
+	if req.Persona != nil && req.Persona.ID != "" {
+		existing.Spec.Persona = agentv1alpha1.AgentPersona{ID: req.Persona.ID}
+	}
+	if req.Replicas != nil {
+		if existing.Spec.Scaling == nil {
+			existing.Spec.Scaling = &agentv1alpha1.AgentScaling{}
+		}
+		existing.Spec.Scaling.Replicas = req.Replicas
+	}
+	if msg := scalingProblem(existing.Spec.Scaling); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if req.Memory != nil {
+		existing.Spec.Memory = &agentv1alpha1.AgentMemory{
+			Enabled:  req.Memory.Enabled,
+			Provider: req.Memory.Provider,
+		}
+	}
+
+	// Handle Ollama Cloud API key update
+	if req.OllamaCloud != nil {
+		if req.OllamaCloud.APIKey != "" {
+			secretName := fmt.Sprintf("%s-llm-key", existing.Name)
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: s.ns,
+				},
+				StringData: map[string]string{
+					"api-key": req.OllamaCloud.APIKey,
+				},
+			}
+			if err := s.client.Create(ctx, secret); err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					if err := s.client.Update(ctx, secret); err != nil {
+						writeError(w, http.StatusInternalServerError, "failed to update Ollama Cloud secret: "+err.Error())
+						return
+					}
+				} else {
+					writeError(w, http.StatusInternalServerError, "failed to create Ollama Cloud secret: "+err.Error())
+					return
+				}
+			}
+			existing.Spec.OllamaCloud = &agentv1alpha1.AgentOllamaCloud{
+				APIKeySecretRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+					Key:                  "api-key",
+				},
+			}
+		}
+	}
+
+	// Handle OpenCode API key update
+	if req.OpenCode != nil {
+		if req.OpenCode.APIKey != "" {
+			secretName := fmt.Sprintf("%s-opencode-key", existing.Name)
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: s.ns,
+				},
+				StringData: map[string]string{
+					"api-key": req.OpenCode.APIKey,
+				},
+			}
+			if err := s.client.Create(ctx, secret); err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					if err := s.client.Update(ctx, secret); err != nil {
+						writeError(w, http.StatusInternalServerError, "failed to update OpenCode secret: "+err.Error())
+						return
+					}
+				} else {
+					writeError(w, http.StatusInternalServerError, "failed to create OpenCode secret: "+err.Error())
+					return
+				}
+			}
+			existing.Spec.OpenCode = &agentv1alpha1.AgentOpenCode{
+				APIKeySecretRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+					Key:                  "api-key",
+				},
+			}
+		}
+	}
+
+	// Handle Alibaba Token Plan API key update
+	if req.AlibabaCloud != nil {
+		if req.AlibabaCloud.APIKey != "" {
+			secretName := fmt.Sprintf("%s-alibaba-key", existing.Name)
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: s.ns,
+				},
+				StringData: map[string]string{
+					"api-key": req.AlibabaCloud.APIKey,
+				},
+			}
+			if err := s.client.Create(ctx, secret); err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					if err := s.client.Update(ctx, secret); err != nil {
+						writeError(w, http.StatusInternalServerError, "failed to update Alibaba Token Plan secret: "+err.Error())
+						return
+					}
+				} else {
+					writeError(w, http.StatusInternalServerError, "failed to create Alibaba Token Plan secret: "+err.Error())
+					return
+				}
+			}
+			existing.Spec.AlibabaCloud = &agentv1alpha1.AgentAlibabaCloud{
+				APIKeySecretRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+					Key:                  "api-key",
+				},
+			}
+		}
+	}
+
+	// Handle custom provider update (URL and optional API key).
+	// When the agent has no existing custom provider, URL is required: otherwise
+	// we'd create an orphan API-key secret while leaving spec.CustomProvider nil
+	// (and dereferencing it crashed the handler).
+	if req.CustomProvider != nil {
+		if existing.Spec.CustomProvider == nil {
+			if req.CustomProvider.URL == "" {
+				writeError(w, http.StatusBadRequest, "custom provider URL is required")
+				return
+			}
+			existing.Spec.CustomProvider = &agentv1alpha1.AgentCustomProvider{}
+		}
+		if req.CustomProvider.URL != "" {
+			existing.Spec.CustomProvider.URL = req.CustomProvider.URL
+		}
+		if req.CustomProvider.APIKey != "" {
+			secretName := fmt.Sprintf("%s-custom-provider-key", existing.Name)
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: s.ns,
+				},
+				StringData: map[string]string{
+					"api-key": req.CustomProvider.APIKey,
+				},
+			}
+			if err := s.client.Create(ctx, secret); err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					if err := s.client.Update(ctx, secret); err != nil {
+						writeError(w, http.StatusInternalServerError, "failed to update custom provider secret: "+err.Error())
+						return
+					}
+				} else {
+					writeError(w, http.StatusInternalServerError, "failed to create custom provider secret: "+err.Error())
+					return
+				}
+			}
+			existing.Spec.CustomProvider.APIKeySecretRef = &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			}
+		}
+	}
+
+	// Stamp the hub-managed updated-at annotation so the list API can surface
+	// recently updated agents.
+	if existing.Annotations == nil {
+		existing.Annotations = map[string]string{}
+	}
+	existing.Annotations[AgentUpdatedAtAnnotation] = stampAgentUpdatedAt()
+
+	if err := s.client.Update(ctx, &existing); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Re-pointing away from the agent's own persona orphans it — owned
+	// personas are invisible to the library, so reclaim it here.
+	if req.Persona != nil && req.Persona.ID != "" {
+		s.cleanupOwnedPersona(ctx, name, req.Persona.ID)
+	}
+
+	// Resolve image display name for the response. If we already validated the
+	// image ref above, reuse that display name; otherwise look it up.
+	imageDisplayName := validatedDisplayName
+	if imageDisplayName == "" && req.ImageRef == nil {
+		imageDisplayName = s.resolveImageDisplayName(ctx, existing.Spec.ImageRef.Name)
+	}
+	writeJSON(w, http.StatusOK, toSimpleAgentResponse(existing, imageDisplayName))
+}
+
+func (s *Server) deleteAgent(ctx context.Context, w http.ResponseWriter, name string) {
+	agent := &agentv1alpha1.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns},
+	}
+	if err := s.client.Delete(ctx, agent); err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+
+	// Reclaim the agent's owned persona, if any: it is invisible to the
+	// library, so nothing else would ever delete it.
+	s.cleanupOwnedPersona(ctx, name, "")
+
+	// Clean up ownership record.
+	if s.authzStore != nil {
+		if err := s.authzStore.DeleteResourceGroup(ctx, "agent", name); err != nil {
+			slog.Error("delete ownership", "error", err, "resource", name)
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -1,0 +1,755 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/telemetry"
+	agentv1alpha1 "github.com/DominikPinsel/ainsel/shared/api/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+// fakePromServer returns an httptest server that pretends to be Prometheus.
+// The handler is given the parsed query params and returns the JSON-encoded body.
+func fakePromServer(t *testing.T, handler func(path string, params url.Values) interface{}) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := handler(r.URL.Path, r.URL.Query())
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+}
+
+// vectorResponse builds a Prometheus instant-query response from {labels: value} pairs.
+// Each entry in samples is (metric labels, value as string).
+func vectorResponse(samples []vectorSample) interface{} {
+	results := make([]map[string]interface{}, 0, len(samples))
+	for _, s := range samples {
+		results = append(results, map[string]interface{}{
+			"metric": s.Labels,
+			"value":  []interface{}{1715100000.0, s.Value},
+		})
+	}
+	return map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"resultType": "vector",
+			"result":     results,
+		},
+	}
+}
+
+type vectorSample struct {
+	Labels map[string]string
+	Value  string
+}
+
+// matrixResponse builds a Prometheus range-query response with one series.
+func matrixResponse(samples [][2]float64) interface{} {
+	values := make([][]interface{}, 0, len(samples))
+	for _, s := range samples {
+		values = append(values, []interface{}{s[0], fmt.Sprintf("%g", s[1])})
+	}
+	return map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"resultType": "matrix",
+			"result": []map[string]interface{}{
+				{
+					"metric": map[string]string{},
+					"values": values,
+				},
+			},
+		},
+	}
+}
+
+func newServerWithProm(t *testing.T, prom *prometheus.Client, objects ...runtime.Object) *Server {
+	t.Helper()
+	s := testServer(t, objects...)
+	s.prom = prom
+	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
+	s.mux.HandleFunc("/api/v1/observability/metrics/timeseries", s.handleObservability)
+	s.mux.HandleFunc("/api/v1/observability/metrics/agents", s.handleObservability)
+	return s
+}
+
+// --- summary ---
+
+func TestObservability_SummaryReturns503WhenPromNotConfigured(t *testing.T) {
+	s := testServer(t)
+	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestObservability_SummaryAggregatesHubCounters(t *testing.T) {
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		if path != "/api/v1/query" {
+			t.Fatalf("unexpected path: %s", path)
+		}
+		q := params.Get("query")
+		switch {
+		case strings.Contains(q, "hub_events_consumed_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "42"}})
+		case strings.Contains(q, "hub_triggers_matched_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "30"}})
+		case strings.Contains(q, "hub_events_routed_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "29"}})
+		case strings.Contains(q, "hub_routing_errors_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "1"}})
+		}
+		t.Fatalf("unexpected query: %s", q)
+		return nil
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body MetricsSummary
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.EventsConsumed != 42 || body.TriggersMatched != 30 || body.EventsRouted != 29 || body.RoutingErrors != 1 {
+		t.Errorf("unexpected summary: %+v", body)
+	}
+	if body.UpdatedAt.IsZero() {
+		t.Error("expected updatedAt to be populated")
+	}
+}
+
+func TestObservability_SummaryHandlesEmptyResults(t *testing.T) {
+	// Fresh hub: no samples scraped yet — should return zeros, not 5xx.
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		return vectorResponse(nil)
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body MetricsSummary
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.EventsConsumed != 0 || body.RoutingErrors != 0 {
+		t.Errorf("expected zeros, got %+v", body)
+	}
+}
+
+func TestObservability_SummaryCaches(t *testing.T) {
+	var calls atomic.Int32
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		calls.Add(1)
+		return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "1"}})
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("call %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+
+	// 4 metrics in the registry => 4 prom calls on the first request, 0 on the others.
+	if got := calls.Load(); got != 4 {
+		t.Errorf("expected 4 prometheus calls (cached after first), got %d", got)
+	}
+}
+
+// --- timeseries ---
+
+func TestObservability_TimeseriesDefaultsToEventsConsumedWhenMetricOmitted(t *testing.T) {
+	var capturedQuery string
+	srv := fakePromServer(t, func(_ string, params url.Values) interface{} {
+		capturedQuery = params.Get("query")
+		return matrixResponse(nil)
+	})
+	defer srv.Close()
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(capturedQuery, "hub_events_consumed_total") {
+		t.Errorf("expected default metric to be events_consumed, got query %q", capturedQuery)
+	}
+	var body MetricsTimeseries
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Metric != "events_consumed" {
+		t.Errorf("expected response metric=events_consumed, got %q", body.Metric)
+	}
+}
+
+func TestObservability_TimeseriesRejectsUnknownMetric(t *testing.T) {
+	srv := fakePromServer(t, func(string, url.Values) interface{} { return nil })
+	defer srv.Close()
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=nonsense", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestObservability_TimeseriesRejectsUnknownRange(t *testing.T) {
+	srv := fakePromServer(t, func(string, url.Values) interface{} { return nil })
+	defer srv.Close()
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=events_consumed&range=42y", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestObservability_TimeseriesUsesRateQueryAndReturnsPoints(t *testing.T) {
+	var capturedQuery string
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		if path != "/api/v1/query_range" {
+			t.Fatalf("expected query_range, got %s", path)
+		}
+		capturedQuery = params.Get("query")
+		return matrixResponse([][2]float64{
+			{1715100000.0, 0.5},
+			{1715100060.0, 0.7},
+			{1715100120.0, 0.9},
+		})
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=events_consumed&range=1h", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(capturedQuery, "rate(hub_events_consumed_total[1m])") {
+		t.Errorf("expected rate query for 1h range, got %q", capturedQuery)
+	}
+	var body MetricsTimeseries
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Metric != "events_consumed" || body.Range != "1h" {
+		t.Errorf("unexpected envelope: %+v", body)
+	}
+	if len(body.Points) != 3 {
+		t.Fatalf("expected 3 points, got %d", len(body.Points))
+	}
+	if body.Points[2].Value != 0.9 {
+		t.Errorf("expected last value 0.9, got %v", body.Points[2].Value)
+	}
+}
+
+func TestObservability_TimeseriesDefaultRangeIs1h(t *testing.T) {
+	var capturedQuery string
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		capturedQuery = params.Get("query")
+		return matrixResponse(nil)
+	})
+	defer srv.Close()
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=routing_errors", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// 1h range => "1m" rate window.
+	if !strings.Contains(capturedQuery, "[1m]") {
+		t.Errorf("expected default range to use 1m rate window, got %q", capturedQuery)
+	}
+}
+
+// --- agents ---
+
+func TestObservability_AgentsAggregatesTokensAndInvocations(t *testing.T) {
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		q := params.Get("query")
+		switch {
+		case strings.Contains(q, "agent_tokens_used_total"):
+			return vectorResponse([]vectorSample{
+				{Labels: map[string]string{"agent": "dev", "token_type": "input"}, Value: "1500"},
+				{Labels: map[string]string{"agent": "dev", "token_type": "output"}, Value: "300"},
+				{Labels: map[string]string{"agent": "dev", "token_type": "cache_read"}, Value: "8000"},
+				{Labels: map[string]string{"agent": "dev", "token_type": "cache_write"}, Value: "200"},
+				{Labels: map[string]string{"agent": "reviewer", "token_type": "input"}, Value: "800"},
+				{Labels: map[string]string{"agent": "reviewer", "token_type": "output"}, Value: "200"},
+			})
+		case strings.Contains(q, "agent_invocations_total"):
+			return vectorResponse([]vectorSample{
+				{Labels: map[string]string{"agent": "dev"}, Value: "5"},
+				{Labels: map[string]string{"agent": "reviewer"}, Value: "3"},
+			})
+		}
+		t.Fatalf("unexpected query: %s", q)
+		return nil
+	})
+	defer srv.Close()
+
+	devAgent := &agentv1alpha1.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev", Namespace: "test-ns"},
+		Spec:       agentv1alpha1.AgentSpec{DisplayName: "Dev Bot"},
+	}
+	revAgent := &agentv1alpha1.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "reviewer", Namespace: "test-ns"},
+		Spec:       agentv1alpha1.AgentSpec{DisplayName: "Reviewer Bot"},
+	}
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil), devAgent, revAgent)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/agents", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body AgentsMetricsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Agents) != 2 {
+		t.Fatalf("expected 2 agents, got %d (%+v)", len(body.Agents), body.Agents)
+	}
+	// Sorted alphabetically: dev, reviewer.
+	dev := body.Agents[0]
+	rev := body.Agents[1]
+	if dev.Agent != "dev" || rev.Agent != "reviewer" {
+		t.Errorf("unexpected ordering: %+v", body.Agents)
+	}
+	if dev.AgentName != "Dev Bot" {
+		t.Errorf("dev agentName wrong: got %q", dev.AgentName)
+	}
+	if rev.AgentName != "Reviewer Bot" {
+		t.Errorf("reviewer agentName wrong: got %q", rev.AgentName)
+	}
+	if dev.InputTokens != 1500 || dev.OutputTokens != 300 {
+		t.Errorf("dev input/output wrong: %+v", dev)
+	}
+	if dev.CacheReadTokens != 8000 || dev.CacheWriteTokens != 200 {
+		t.Errorf("dev cache components wrong: %+v", dev)
+	}
+	if dev.TotalTokens != 10000 {
+		t.Errorf("dev total must include cache traffic, got %v", dev.TotalTokens)
+	}
+	// reviewer publishes no cache series at all (provider without prompt
+	// caching); its total must still be correct and the fields must be zero.
+	if rev.CacheReadTokens != 0 || rev.CacheWriteTokens != 0 || rev.TotalTokens != 1000 {
+		t.Errorf("reviewer tokens wrong: %+v", rev)
+	}
+	if dev.Invocations != 5 {
+		t.Errorf("dev invocations: expected 5, got %v", dev.Invocations)
+	}
+	// This hub has no database, so the counters are the chosen backend; the
+	// response must say so (issue #413).
+	if body.Source != metricsSourcePrometheus {
+		t.Errorf("source = %q, want %q", body.Source, metricsSourcePrometheus)
+	}
+	// failures/avgDurationMs have no counter behind them: the Prometheus path
+	// leaves them zero rather than synthesising them from another family.
+	if dev.Failures != 0 || dev.AvgDurationMs != 0 {
+		t.Errorf("prometheus path must leave failures/avgDurationMs zero, got %v/%v", dev.Failures, dev.AvgDurationMs)
+	}
+}
+
+func TestObservability_AgentsFallsBackToIDWhenAgentMissing(t *testing.T) {
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		q := params.Get("query")
+		if strings.Contains(q, "agent_tokens_used_total") {
+			return vectorResponse([]vectorSample{
+				{Labels: map[string]string{"agent": "ghost", "token_type": "input"}, Value: "100"},
+			})
+		}
+		return vectorResponse(nil)
+	})
+	defer srv.Close()
+	// No agents seeded.
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/agents", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body AgentsMetricsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %+v", body.Agents)
+	}
+	if body.Agents[0].Agent != "ghost" {
+		t.Errorf("expected agent=ghost, got %q", body.Agents[0].Agent)
+	}
+	if body.Agents[0].AgentName != "ghost" {
+		t.Errorf("expected agentName fallback to ID, got %q", body.Agents[0].AgentName)
+	}
+}
+
+func TestObservability_AgentsReturns503WhenPromNotConfigured(t *testing.T) {
+	s := testServer(t)
+	s.mux.HandleFunc("/api/v1/observability/metrics/agents", s.handleObservability)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/agents", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestObservability_RejectsNonGet(t *testing.T) {
+	srv := fakePromServer(t, func(string, url.Values) interface{} { return nil })
+	defer srv.Close()
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/observability/metrics/summary", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}
+
+// --- removed aliases ---
+//
+// The /api/v1/metrics/* aliases existed only for the pre-dashboard-rewrite
+// deployed frontend. They are gone; the paths must 404 rather than quietly
+// alias back onto the canonical handlers.
+//
+// This is deliberately built through the production New(...) constructor:
+// testServer/newServerWithProm register their routes by hand, so a 404
+// against those muxes would pass vacuously even if an alias registration
+// were re-added to New. Here the assertion fails if anyone re-registers an
+// alias in the production route table — and it checks the body, not just
+// the status, because handleObservability's own default branch also
+// answers 404 (as JSON), which a status-only check could not tell apart
+// from the mux's plaintext "page not found".
+
+func TestObservability_LegacyMetricPathsReturn404(t *testing.T) {
+	s := New(newFakeClient(), "test-ns", ConnectorConfig{}, nil, invocations.NewMemoryStore(100), nil, nil, nil, &Config{})
+	for _, path := range []string{
+		"/api/v1/metrics/summary",
+		"/api/v1/metrics/timeseries",
+		"/api/v1/metrics/agents",
+	} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			s.mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("expected 404 for removed alias %s, got %d: %s", path, rec.Code, rec.Body.String())
+			}
+			if got := strings.TrimSpace(rec.Body.String()); got != "404 page not found" {
+				t.Errorf("expected the mux's own 404 (route not registered) for %s, got body %q — an alias registration is back in New(...)", path, got)
+			}
+		})
+	}
+	// Control: the canonical path must still be registered by New(...) —
+	// otherwise the 404s above could just mean a broken constructor.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code == http.StatusNotFound {
+		t.Errorf("canonical summary path unexpectedly 404s through New(...)")
+	}
+}
+
+// --- range-aware summary ---
+
+func TestObservability_SummaryWithRangeUsesIncreaseQueries(t *testing.T) {
+	var capturedQueries []string
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		capturedQueries = append(capturedQueries, params.Get("query"))
+		return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "5"}})
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=6h", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// All four queries should use increase() with the 6h range.
+	for _, q := range capturedQueries {
+		if !strings.Contains(q, "increase(") || !strings.Contains(q, "[6h]") {
+			t.Errorf("expected increase query with [6h], got %q", q)
+		}
+	}
+}
+
+func TestObservability_SummaryWithRangeRoundsFractionalCounts(t *testing.T) {
+	// increase() extrapolates fractional values (e.g. 64.7826); the summary
+	// reports event counts, so values must be rounded to whole numbers before
+	// reaching the dashboard KPI cards.
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		q := params.Get("query")
+		switch {
+		case strings.Contains(q, "hub_events_consumed_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "64.7826"}})
+		case strings.Contains(q, "hub_triggers_matched_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "12.3"}})
+		case strings.Contains(q, "hub_events_routed_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "0.4"}})
+		case strings.Contains(q, "hub_routing_errors_total"):
+			return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "1.5"}})
+		}
+		t.Fatalf("unexpected query: %s", q)
+		return nil
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=24h", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body MetricsSummary
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.EventsConsumed != 65 || body.TriggersMatched != 12 || body.EventsRouted != 0 || body.RoutingErrors != 2 {
+		t.Errorf("expected rounded counts, got %+v", body)
+	}
+}
+
+func TestObservability_SummaryRejectsInvalidRange(t *testing.T) {
+	srv := fakePromServer(t, func(string, url.Values) interface{} { return nil })
+	defer srv.Close()
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=42y", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestObservability_SummaryWithoutRangePreservesLegacyBehavior(t *testing.T) {
+	// Without ?range=, the handler must use raw counter queries (no increase())
+	// to preserve backward compatibility.
+	var capturedQueries []string
+	srv := fakePromServer(t, func(path string, params url.Values) interface{} {
+		capturedQueries = append(capturedQueries, params.Get("query"))
+		return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "10"}})
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, q := range capturedQueries {
+		if strings.Contains(q, "increase(") {
+			t.Errorf("expected raw counter query without increase(), got %q", q)
+		}
+	}
+}
+
+func TestObservability_SummaryRangeCacheIsolation(t *testing.T) {
+	// Different ranges must not share cache entries.
+	var calls atomic.Int32
+	srv := fakePromServer(t, func(_ string, _ url.Values) interface{} {
+		calls.Add(1)
+		return vectorResponse([]vectorSample{{Labels: map[string]string{}, Value: "1"}})
+	})
+	defer srv.Close()
+
+	s := newServerWithProm(t, prometheus.NewClient(srv.URL, nil))
+
+	// First call with range=1h
+	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=1h", nil)
+	rec1 := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec1.Code)
+	}
+	firstCalls := calls.Load()
+
+	// Second call with range=6h — must hit Prometheus again (different cache key).
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=6h", nil)
+	rec2 := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec2.Code)
+	}
+	if calls.Load() == firstCalls {
+		t.Error("expected additional Prometheus calls for different range, but cache was hit")
+	}
+}
+
+// --- cache unit tests ---
+
+func TestPromCache_TTLExpires(t *testing.T) {
+	c := newPromCache(20 * time.Millisecond)
+	c.set("k", "v")
+	if v, ok := c.get("k"); !ok || v != "v" {
+		t.Fatalf("expected fresh hit, got ok=%v v=%v", ok, v)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, ok := c.get("k"); ok {
+		t.Fatal("expected entry to be expired")
+	}
+}
+
+// --- denseBuckets grid placement ---
+
+// TestDenseBucketsKeepsBucketsWithinSubMicrosecondDrift pins why the grid
+// lookup rounds instead of truncating. The store derives its bucket bounds in
+// Postgres, which is microsecond-accurate, so a bucket belonging on grid point
+// k arrives as start+k*step less the sub-microsecond remainder the window start
+// carried. Truncating filed every one of them a whole bucket early — a silently
+// mis-dated chart, not a cosmetic one.
+//
+// This needs no database, unlike the seeded suites that exercise the same path.
+func TestDenseBucketsKeepsBucketsWithinSubMicrosecondDrift(t *testing.T) {
+	// A wall-clock window start: the shape that actually has nanoseconds.
+	start := time.Date(2026, 10, 3, 22, 49, 40, 123456789, time.UTC)
+	end := start.Add(time.Hour)
+	const step = 30 * time.Second
+
+	// Bucket 118 as the store returns it — 118 steps in, less the 200ns that
+	// fell below the microsecond boundary.
+	drifted := start.Add(118*step - 200*time.Nanosecond)
+	points, err := denseBuckets([]telemetry.Bucket{{Start: drifted, Count: 3}}, start, end, step)
+	if err != nil {
+		t.Fatalf("sub-microsecond drift is on the grid, must not be refused: %v", err)
+	}
+
+	if len(points) != 120 {
+		t.Fatalf("expected 120 dense points for a 1h/30s window, got %d", len(points))
+	}
+	if got := points[117].Value; got != 0 {
+		t.Errorf("bucket 117 = %v, want 0: sub-microsecond drift shifted the series a whole bucket early", got)
+	}
+	if got := points[118].Value; got != 3 {
+		t.Errorf("bucket 118 = %v, want 3", got)
+	}
+
+	// The same drift on the leading bucket must not fall off the front of the
+	// grid, where an out-of-range index would drop the count outright.
+	head, err := denseBuckets([]telemetry.Bucket{{Start: start.Add(-200 * time.Nanosecond), Count: 1}}, start, end, step)
+	if err != nil {
+		t.Fatalf("leading bucket drift is on the grid, must not be refused: %v", err)
+	}
+	if got := head[0].Value; got != 1 {
+		t.Errorf("bucket 0 = %v, want 1", got)
+	}
+}
+
+// TestDenseBucketsRefusesBucketsOffItsGrid covers the guard that keeps the
+// rounding above honest. Rounding to the nearest grid point cannot tell a
+// sub-microsecond sliver of error from a bucket that belongs to a different grid
+// altogether — a store that dated its buckets from some other origin, say, would
+// arrive a fraction of a step off this window, and every one of its counts would
+// land in the wrong bucket with nothing to show it. Truncation had the same blind
+// spot, so this makes the assumption rounding rests on checkable: a store that
+// stops aligning to the window start now fails the request instead of drawing a
+// plausible lie. (A bucket exactly one step off stays invisible by construction;
+// it is indistinguishable from a legitimate neighbour.)
+func TestDenseBucketsRefusesBucketsOffItsGrid(t *testing.T) {
+	start := time.Date(2026, 10, 3, 22, 49, 40, 123456789, time.UTC)
+	end := start.Add(time.Hour)
+	const step = 30 * time.Second
+
+	for _, tc := range []struct {
+		name  string
+		start time.Time
+	}{
+		{"a quarter step late", start.Add(118*step + step/4)},
+		{"a quarter step early", start.Add(3*step - step/4)},
+		{"a few seconds off", start.Add(50*step + 2*time.Second)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			points, err := denseBuckets([]telemetry.Bucket{{Start: tc.start, Count: 7}}, start, end, step)
+			if err == nil {
+				t.Fatalf("expected an error for bucket %s, got %v", tc.start, points)
+			}
+			if !strings.Contains(err.Error(), "must bucket from the window start") {
+				t.Errorf("error should name the broken assumption, got: %v", err)
+			}
+		})
+	}
+
+	// A bucket outside the grid stays a silent drop, not an error: the response
+	// is capped at maxSeriesPoints, so a window wider than the cap legitimately
+	// returns rows the grid has no room for.
+	points, err := denseBuckets([]telemetry.Bucket{
+		{Start: start.Add(-time.Hour), Count: 4},
+		{Start: end.Add(time.Minute), Count: 4},
+	}, start, end, step)
+	if err != nil {
+		t.Fatalf("out-of-window buckets are dropped, not refused: %v", err)
+	}
+	var sum float64
+	for _, p := range points {
+		sum += p.Value
+	}
+	if sum != 0 {
+		t.Errorf("expected no counts on the grid, got %v", sum)
+	}
+}

@@ -1,0 +1,440 @@
+# =============================================================================
+# Resource Sizing Guide
+# =============================================================================
+# The active values below are the "small" tier — sized for a single-node dev
+# cluster with one or two users. For production deployments, override resources
+# using one of the overlay files:
+#
+#   helm install ainsel . -n ainsel -f chart/values-medium.yaml
+#   helm install ainsel . -n ainsel -f chart/values-large.yaml
+#
+# Or copy the relevant block from the tiers below into your own values file.
+#
+# Medium tier — estimated for ~10 active agents (NOT yet load-tested):
+#   agentOperator:     requests 100m/128Mi  limits 400m/512Mi
+#   connectorOperator: requests 100m/128Mi  limits 400m/512Mi
+#   hub:               requests 200m/512Mi  limits 500m/1Gi
+#   ui:                requests 50m/64Mi    limits 100m/128Mi
+#   postgres:          requests 200m/512Mi  limits 1/2Gi
+#   mcp:               requests 100m/128Mi  limits 400m/256Mi
+#
+# Large tier — estimated for ~100 active agents (NOT yet load-tested):
+#   agentOperator:     requests 300m/512Mi  limits 1/2Gi
+#   connectorOperator: requests 300m/512Mi  limits 1/2Gi
+#   hub:               requests 500m/1Gi    limits 2/4Gi
+#   ui:                requests 100m/128Mi  limits 200m/256Mi
+#   postgres:          requests 500m/1Gi    limits 2/4Gi
+#   mcp:               requests 300m/256Mi  limits 1/1Gi
+#
+# NOTE: StatefulSet storage sizes (postgres.storage)
+# are orthogonal to CPU/memory tiers. Scale storage independently based on data
+# volume and retention requirements.
+# =============================================================================
+
+namespace: ainsel
+# Whether the chart should create the target namespace itself.
+# Leave false (recommended) and use `helm install --create-namespace` or
+# create the namespace beforehand. Rendering the Namespace object inside the
+# chart makes fresh installs fail ownership validation on Helm 3.x when the
+# namespace already exists.
+createNamespace: false
+# NetworkPolicy controls. When enabled, a default-deny-ingress policy is
+# applied and per-component policies allow only the required traffic.
+# NOTE: NetworkPolicy enforcement requires a network stack that supports it.
+# Most CNIs do (Calico, Cilium, ...). k3s enforces policies with its built-in
+# network policy controller unless started with --disable-network-policy.
+# Plain flannel on upstream Kubernetes does NOT enforce NetworkPolicy.
+networkPolicy:
+  enabled: true
+  # Namespace running the ingress controller that serves the hub UI.
+  # Required so browser API traffic (ingress -> hub-backend) is allowed
+  # under the default-deny policy.
+  ingressNamespace: ingress-nginx
+  # Allow ingress-controller traffic to reach cert-manager HTTP-01 solver
+  # pods. Without this, ACME http01 certificate issuance fails under the
+  # default-deny policy with 'wrong status code 502'. Disable only if you
+  # issue certificates via DNS-01 or provide pre-existing secrets.
+  allowAcmeSolver: true
+  # Additional sources allowed to deliver webhooks to connector receiver
+  # pods, as a list of NetworkPolicy `from` peer objects. Use this when a
+  # webhook producer runs inside the cluster and delivers to connectors
+  # directly instead of through the ingress controller. Example:
+  #   connectorWebhookSources:
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: workloads
+  #       podSelector:
+  #         matchLabels:
+  #           app.kubernetes.io/name: forgejo
+  connectorWebhookSources: []
+agentOperator:
+  # Set to false to skip deploying the agent operator entirely.
+  enabled: true
+  replicas: 1
+  image:
+    repository: dpinsel/ainsel-k8s-ai-agent-operator
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  forgejoUrl: ""
+  forgejoTokenSecret: {}
+  # Terminating signal sent to agent pods. pflag parses this as a Go duration,
+  # so it needs a unit: "30m", not "1800".
+  agentGracePeriod: 0 # e.g. 30m
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsUser: 65532
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  imagePullSecrets: []
+  priorityClassName: ""
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+connectorOperator:
+  # Set to false to skip deploying the event gateway operator entirely.
+  enabled: true
+  replicas: 1
+  # Install a ClusterRole + ClusterRoleBinding for the gateway operator.
+  # Required by the released operator images, which watch Deployments,
+  # Services, Ingresses etc. across all namespaces. NOTE: with cluster-wide
+  # watching, only ONE event gateway operator may run per cluster; two
+  # instances will fight over connector resources. Set to false once you run
+  # an operator image that honors POD_NAMESPACE scoping (see
+  # operators/event-gateway cmd/main.go).
+  clusterWideRbac: true
+  # hubURL is passed as HUB_URL to the operator, which injects it into
+  # webhook-receiver connector pods. Defaults to the chart's hub service
+  # name when empty.
+  hubURL: ""
+  image:
+    repository: dpinsel/ainsel-k8s-event-source-gateway-operator
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  # connectorImagePullPolicy is applied to the webhook-receiver connector pods
+  # the operator creates (not the operator container above). Use Always for
+  # mutable tags (e.g. :dev) so newly built images are picked up on rollout;
+  # IfNotPresent is fine for immutable release tags.
+  connectorImagePullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsUser: 65532
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  imagePullSecrets: []
+  priorityClassName: ""
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+hub:
+  replicas: 1
+  image:
+    repository: dpinsel/ainsel-hub-backend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  port: 8080
+  metricsPort: 9090
+  # Namespace the hub backend operates on (agents, backfill, ownership).
+  # Defaults to the top-level `namespace` when empty. Only set this if the hub
+  # must operate on a different namespace than it is deployed to.
+  namespace: ""
+  ingress:
+    enabled: true
+    host: ainsel.example.com
+    path: /ainsel/api
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /api/$2
+  # Externally-reachable platform URL. When empty it is derived from the
+  # hub ingress host and ui.basePath (https://<hub.ingress.host><basePath>).
+  platformExternalUrl: ""
+  connectorImages:
+    webhook:
+      repository: dpinsel/ainsel-webhook-receiver
+      # The tag the receiver follows: rebuild the image and this tag moves, and the
+      # next rollout of the connector picks it up. Set digest instead to pin the
+      # receiver to one build - then the tag records where that build came from and
+      # nothing moves it. The hub copies these two into a new connector's
+      # spec.image.repository / .tag / .digest, and the event-gateway operator
+      # composes the container image from them.
+      tag: 0.1.0
+      digest: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsUser: 65532
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  imagePullSecrets: []
+  priorityClassName: ""
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+ui:
+  enabled: true
+  # Base path the frontend is served under (must match the ingress path
+  # prefix). Empty string serves from the domain root.
+  basePath: /ainsel
+  image:
+    repository: dpinsel/ainsel-hub-frontend
+    tag: "0.2.1"
+    pullPolicy: IfNotPresent
+  ingress:
+    enabled: true
+    host: ainsel.example.com
+    path: /ainsel(/|$)(.*)
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /$2
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext: {}
+  imagePullSecrets: []
+  priorityClassName: ""
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  storage: 5Gi
+  database: ainselhub
+  username: ainselhub
+  # When existingSecret is empty, the chart generates a random password and
+  # creates a Secret named `ainsel-hub-db`. When set, the chart references
+  # the existing Secret instead. The Secret must have keys:
+  #   - username  (string)  — Postgres role name; also read by the StatefulSet and init container
+  #   - password (string) — Postgres password
+  #   - database  (string)  — Postgres database name; also read by the StatefulSet and init container
+  #   - dsn      (string)  — full Postgres DSN consumed by the hub backend as HUB_DB_URL
+  auth:
+    existingSecret: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext: {}
+  imagePullSecrets: []
+  priorityClassName: ""
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+# Bootstrap resources
+mcp:
+  enabled: false
+  image:
+    repository: dpinsel/ainsel-mcp
+    tag: 0.1.0
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 8080
+  # Externally-reachable MCP URL — surfaces in the OAuth protected-resource
+  # metadata and the WWW-Authenticate header. Required when mcp.enabled is true.
+  resourceUrl: ""
+  ingress:
+    enabled: true
+    host: ainsel.example.com
+    path: /ainsel/mcp
+    className: nginx
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsUser: 65532
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  imagePullSecrets: []
+  priorityClassName: ""
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+# Chat MCP sidecar — injected into every agent pod by the operator when
+# both repository and tag are configured. When unset, no sidecar is added.
+chatMCP:
+  image:
+    repository: "dpinsel/ainsel-chat-mcp"
+    tag: "0.1.0"
+# OIDC configuration. When unset, the hub backend refuses to start unless
+# auth.allowInsecureNoAuth is true (see below); the frontend image always
+# requires a complete OIDC config, so the UI is only usable with OIDC set.
+auth:
+  # Authentication mode: oidc | local | none.
+  #   oidc  - external OIDC provider (requires oidcIssuer/clientId/projectId)
+  #   local - hub-managed username/password accounts (see auth.local);
+  #           an admin account is bootstrapped from a chart Secret
+  #   none  - no authentication; only safe port-forwarded or behind an edge
+  #           auth proxy (Authelia/Authentik/oauth2-proxy)
+  # Empty (default) keeps the legacy behavior: OIDC when oidcIssuer is
+  # configured, otherwise the chart's local-mode detection auto-enables
+  # no-auth when nothing is exposed via ingress.
+  mode: ""
+  oidcIssuer: ""
+  oidcClientId: ""
+  oidcProjectId: ""
+  # Allow the hub backend to run WITHOUT auth middleware (sets
+  # HUB_ALLOW_INSECURE_NO_AUTH=true). Only effective when oidcIssuer is
+  # empty. For local/air-gapped testing ONLY: every /api/v1/* endpoint
+  # becomes open to any caller. Never enable on a reachable host without an
+  # external auth proxy in front of the ingress.
+  #
+  # You normally do not need to set this by hand: when no ingress is enabled
+  # anywhere (hub/ui/mcp) and no OIDC issuer is set, the chart detects
+  # "local mode" and enables it automatically (see values-quickstart.yaml).
+  allowInsecureNoAuth: false
+  # internalValidateSecret is a shared secret between hub-backend and the MCP
+  # service used to protect the /api/internal/user-tokens/validate endpoint.
+  # When unset, user token auth is disabled; OIDC remains the only MCP auth.
+  internalValidateSecret: ""
+  # skillsMcpToken is the bearer token for the read-only skill catalogue MCP
+  # (/api/internal/skills/mcp in-cluster). Agents get it as a normal secret
+  # env entry on their AgentImage and reference it from
+  # spec.mcpServers[].tokenFromEnv. Deliberately separate from
+  # internalValidateSecret: that one is the cluster-wide internal credential
+  # and must not become a bearer token for a second endpoint. Unset leaves
+  # the catalogue endpoint answering 503, so it is opt-in per instance.
+  skillsMcpToken: ""
+  # Settings for mode "local" (hub-managed username/password accounts).
+  local:
+    # Username of the bootstrapped admin account (created on first start).
+    adminUser: admin
+    # Existing Secret holding the admin password under key "password".
+    # When empty, the chart generates one into Secret "ainsel-local-admin":
+    #   kubectl -n <ns> get secret ainsel-local-admin \
+    #     -o jsonpath='{.data.password}' | base64 -d
+    adminPasswordSecret: ""
+    # Existing Secret holding the JWT signing key under key "secret".
+    # When empty, the chart generates one into Secret "ainsel-local-jwt".
+    jwtSecretSecret: ""
+# Forgejo integration — enables the bug-report button in the frontend.
+# When unset, the report button's issue-creation call will fail with
+# "Forgejo is not configured". Leave empty to disable issue creation.
+forgejo:
+  apiBase: ""
+  repo: ""
+# Observability — external Prometheus endpoint and metric source
+#
+# metricsSource picks which backend answers the console's event KPIs and
+# throughput charts. "postgres" (default) reads the hub's own records: those rows
+# are written by the same routing decision that increments the counters, they
+# survive a hub pod restart, and nothing about them depends on a scrape
+# interval. "prometheus" asks the scraped hub_*_total counters instead, which
+# still covers activity older than the hub's database retention. The setting
+# changes only what the hub reads back — it still exports /metrics for Prometheus
+# to scrape either way, so Grafana and the alert rules are unaffected.
+#
+# Leave prometheus.url empty to keep the hub off Prometheus entirely: the event
+# KPIs and throughput charts are then still served from the hub's own database,
+# and only the token panels and raw PromQL go dark (they have no fallback).
+observability:
+  prometheus:
+    url: ""
+  metricsSource: "postgres"
+  serviceMonitor:
+    enabled: false
+    labels: {}
+    interval: "30s"
+  podMonitor:
+    enabled: false
+    labels: {}
+    interval: "30s"
+  # PrometheusRules — CPU throttling and OOM alerts (bonus).
+  # Requires the monitoring.coreos.com/v1 PrometheusRule CRD.
+  # Enable only when the Prometheus Operator is installed.
+  prometheusRules:
+    enabled: false

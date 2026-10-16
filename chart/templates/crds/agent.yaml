@@ -1,0 +1,648 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
+  name: agents.ainsel.dev
+spec:
+  group: ainsel.dev
+  names:
+    kind: Agent
+    listKind: AgentList
+    plural: agents
+    singular: agent
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.displayName
+      name: Display Name
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.replicas
+      name: Replicas
+      type: integer
+    - jsonPath: .status.paused
+      name: Paused
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Agent is the Schema for the agents API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AgentSpec defines the desired state of an Agent.
+            properties:
+              alibabaCloud:
+                description: |-
+                  AgentAlibabaCloud configures the Alibaba Token Plan provider.
+                  The APIKey is stored in a secret created by the hub backend.
+                properties:
+                  apiKeySecretRef:
+                    description: |-
+                      APIKeySecretRef references the secret containing the Alibaba Token Plan API key.
+                      The secret must have a key named "api-key".
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+              customProvider:
+                description: |-
+                  AgentCustomProvider configures a custom LLM provider.
+                  The URL is the OpenAI-compatible API endpoint and the API key is stored
+                  in a secret created by the hub backend.
+                properties:
+                  apiKeySecretRef:
+                    description: |-
+                      APIKeySecretRef references the secret containing the custom provider API key.
+                      The secret must have a key named "api-key".
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  url:
+                    description: URL is the base URL of the custom LLM API (e.g. https://api.openai.com/v1).
+                    type: string
+                required:
+                - url
+                type: object
+              description:
+                type: string
+              displayName:
+                type: string
+              enabledTools:
+                items:
+                  type: string
+                type: array
+              env:
+                description: |-
+                  Env holds this agent's environment variable overrides, applied on top of
+                  the referenced image's Env — the shared runtime profile's defaults. An
+                  entry whose Name matches a profile entry overrides its value; any other
+                  name is added for this agent only. Platform-managed names are ignored by
+                  the operator. Absent or empty means the agent runs on the profile's
+                  defaults alone.
+                items:
+                  description: |-
+                    AgentEnvVar is one per-agent environment variable override.
+
+                    Unlike Skills and MCP, agent env is a plain list rather than a wrapper with
+                    nil/empty distinction: entries *merge* over the referenced image's Env by
+                    name instead of replacing it, so "not configured" and "explicitly none"
+                    mean the same thing — run on the profile's defaults.
+                  properties:
+                    name:
+                      description: |-
+                        Name is the environment variable name. Matching a name in the
+                        referenced image's Env overrides that value for this agent.
+                      type: string
+                    secret:
+                      description: |-
+                        Secret marks Value as sensitive: the hub API masks it on read, and an
+                        empty Value on write means "keep the existing value" — the same
+                        contract as AgentImageEnvVar.
+                      type: boolean
+                    value:
+                      description: Value is the variable's value.
+                      type: string
+                  required:
+                  - name
+                  - value
+                  type: object
+                type: array
+              imageRef:
+                description: AgentImageRef references an AgentImage by metadata name
+                  in the same namespace.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              llm:
+                properties:
+                  contextWindow:
+                    description: |-
+                      ContextWindow overrides the context window (in tokens) written to the
+                      agent's generated models.json. It must match what the actual LLM
+                      endpoint enforces, not the model's paper limit: when the declared
+                      window exceeds the endpoint's real limit, neither pi's own overflow
+                      threshold nor the auto-compact preflight can fire before the endpoint
+                      rejects the request with a context-overflow error (e.g. an Ollama
+                      server serving a 131072-token context). 0 / unset means the single
+                      uniform default of 131072 (128k). Raise it via this field only if the
+                      endpoint actually allows more — the controller cannot detect the
+                      endpoint's real limit.
+                    minimum: 1024
+                    type: integer
+                  cost:
+                    description: |-
+                      Cost is the price of this model in USD per million tokens, written to
+                      the agent's generated pi models.json so pi can compute usage.cost for
+                      every message. Without it pi defaults the cost to zero and the hub's
+                      cost figures (conversation rows, token tiles, by-event totals) are all
+                      exactly 0. The four rates are priced separately because prompt-cache
+                      traffic is billed very differently from plain input (on Anthropic,
+                      roughly cacheRead 0.1x / cacheWrite 1.25x of input): a cost derived
+                      from an input+output total alone would be wrong in both directions.
+                      All four fields are required when the block is set — pi's model schema
+                      demands a complete cost object.
+                    properties:
+                      cacheRead:
+                        description: CacheRead is the USD price per million prompt-cache
+                          read tokens.
+                        type: number
+                      cacheWrite:
+                        description: CacheWrite is the USD price per million prompt-cache
+                          write tokens.
+                        type: number
+                      input:
+                        description: Input is the USD price per million uncached input
+                          tokens.
+                        type: number
+                      output:
+                        description: Output is the USD price per million output tokens.
+                        type: number
+                    required:
+                    - cacheRead
+                    - cacheWrite
+                    - input
+                    - output
+                    type: object
+                  maxTurns:
+                    type: integer
+                  model:
+                    type: string
+                  provider:
+                    type: string
+                  temperature:
+                    type: number
+                  vision:
+                    description: |-
+                      Vision controls whether pi sends image input. When true, the generated
+                      pi models.json advertises "input": ["text", "image"] so pi's media
+                      tools attach screenshots and image files; while false pi sends none,
+                      even to a model that can see them. The endpoint is never probed: images
+                      sent to a model that cannot see them fail the request. Changes take
+                      effect when the agent's pod next starts, since the init container
+                      copies models.json in at start. Defaults to false.
+                    type: boolean
+                required:
+                - model
+                type: object
+              mcp:
+                description: |-
+                  MCP explicitly defines the MCP servers this agent connects to at
+                  runtime, as resolved definitions (URL + token env reference), not just
+                  names. When nil, the agent runs on the referenced image's MCPServers —
+                  the shared runtime profile's defaults; once set, the agent's servers
+                  replace the image's, and empty Servers means no MCP connections.
+                properties:
+                  servers:
+                    description: Servers lists the MCP servers this agent connects
+                      to.
+                    items:
+                      description: |-
+                        AgentMCPServer is one MCP server definition this agent connects to at
+                        runtime: the URL is resolved from the hub's MCP registry at write time,
+                        so the agent pod is decoupled from later registry edits.
+                      properties:
+                        name:
+                          description: Name is the MCP registry entry name.
+                          type: string
+                        tokenFromEnv:
+                          description: |-
+                            TokenFromEnv names the env var on the agent pod whose value is sent
+                            as the bearer token. Empty means the server needs no token.
+                          type: string
+                        url:
+                          description: URL is the MCP server endpoint the agent runtime
+                            connects to.
+                          type: string
+                      required:
+                      - name
+                      - url
+                      type: object
+                    type: array
+                type: object
+              memory:
+                properties:
+                  enabled:
+                    type: boolean
+                  provider:
+                    type: string
+                required:
+                - enabled
+                type: object
+              ollamaCloud:
+                description: |-
+                  AgentOllamaCloud configures the Ollama Cloud provider.
+                  The APIKey is stored in a secret created by the hub backend.
+                properties:
+                  apiKeySecretRef:
+                    description: |-
+                      APIKeySecretRef references the secret containing the Ollama Cloud API key.
+                      The secret must have a key named "api-key".
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+              openCode:
+                description: |-
+                  AgentOpenCode configures the OpenCode provider.
+                  The APIKey is stored in a secret created by the hub backend.
+                properties:
+                  apiKeySecretRef:
+                    description: |-
+                      APIKeySecretRef references the secret containing the OpenCode API key.
+                      The secret must have a key named "api-key".
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+              pause:
+                description: |-
+                  Pause temporarily withholds task delivery from this agent: while active,
+                  the hub's claim endpoint hands out no tasks, so pending agent_tasks rows
+                  accumulate as a backlog that drains (in id order) once the pause ends.
+                  Event ingestion and routing are unaffected — nothing is lost while the
+                  agent is paused. Nil means the agent runs normally. This is orthogonal
+                  to Scaling, which governs pod count, not task delivery.
+                properties:
+                  pausedUntil:
+                    description: |-
+                      PausedUntil is when the pause ends. While it is in the future the agent
+                      stays paused; once it has passed the agent is running again without any
+                      further action. Nil means the pause is indefinite and must be lifted
+                      explicitly.
+                    format: date-time
+                    type: string
+                type: object
+              persona:
+                description: AgentPersona points the agent runtime at a persona managed
+                  by the hub.
+                properties:
+                  id:
+                    description: |-
+                      ID is the ULID of a persona managed by the hub.
+                      The agent operator mounts a ConfigMap named persona-<id>
+                      (rendered by the hub) at /etc/agent/persona.md.
+                    minLength: 1
+                    type: string
+                required:
+                - id
+                type: object
+              runtime:
+                description: |-
+                  AgentRuntime holds operator-managed runtime configuration for the agent pod.
+                  Fields like ImagePullPolicy and Resources are set by the operator or Helm
+                  bootstrap — they are not exposed via the hub REST API.
+                properties:
+                  imagePullPolicy:
+                    description: PullPolicy describes a policy for if/when to pull
+                      a container image
+                    type: string
+                  resources:
+                    description: ResourceRequirements describes the compute resource
+                      requirements.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  securityHardened:
+                    description: |-
+                      SecurityHardened controls whether the operator applies pod and container
+                      security hardening (readOnlyRootFilesystem, runAsNonRoot, drop ALL
+                      capabilities, seccomp RuntimeDefault, etc.) to the agent Deployment.
+                      Defaults to true when nil. Set to false to relax hardening for agent
+                      images that require it (e.g. sidecar images that must run as root).
+                    type: boolean
+                type: object
+              scaling:
+                description: |-
+                  AgentScaling holds the concurrency policy for the agent's task runs. Every
+                  queued task runs as its own Kubernetes Job — one pod, one task, exit — so
+                  Replicas is the cap on how many of those Jobs run at once. The agent's
+                  Deployment exists only as the pod template those Jobs are built from and is
+                  kept at zero replicas.
+                properties:
+                  replicas:
+                    description: |-
+                      Replicas caps the number of task Jobs running at once for this agent.
+                      Each task runs in its own Job, so this is the agent's concurrency limit.
+                      Defaults to 1. Set to 0 to pause the agent: due tasks stay queued.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
+              skills:
+                description: |-
+                  Skills explicitly selects the skill library entries this agent mounts.
+                  When nil, the agent runs on the referenced image's EnabledSkills — the
+                  shared runtime profile's defaults; once set, the agent's list replaces
+                  the image's, and an empty Items means no skills.
+                properties:
+                  items:
+                    description: Items lists skill library ids (hub /skills API) to
+                      mount for this agent.
+                    items:
+                      type: string
+                    type: array
+                type: object
+            required:
+            - displayName
+            - imageRef
+            - llm
+            - persona
+            - runtime
+            type: object
+          status:
+            description: AgentStatus defines the observed state of an Agent.
+            properties:
+              activeTasks:
+                description: |-
+                  ActiveTasks is agent_tasks rows currently being worked by a task pod.
+                  In the per-task Job model a row is only marked claimed by a pod that has
+                  already started running it, so this is a live-work count, not a drain
+                  signal.
+                format: int32
+                type: integer
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastInvocation:
+                description: |-
+                  LastInvocation is when the hub last enqueued a task for this agent. It
+                  is the idle clock for scaling down: quiet is measured from the last piece
+                  of work arriving, not from the last pod exiting.
+                format: date-time
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              paused:
+                description: |-
+                  Paused mirrors the effective pause state of spec.pause (nil, expired or
+                  active) as observed by the operator on its last reconcile, so
+                  `kubectl get agents` shows which agents are withholding task delivery.
+                  The authoritative check always evaluates spec.pause at read time; this
+                  field is display state and may lag until the next reconcile.
+                type: boolean
+              pendingTaskIds:
+                description: |-
+                  PendingTaskIDs lists the oldest runnable pending task ids (retry
+                  backoff elapsed), oldest first, capped at a fixed size. The operator
+                  creates one Job per id, bounded by spec.scaling.replicas. Written by the
+                  hub alongside the counts.
+                items:
+                  format: int64
+                  type: integer
+                type: array
+              pendingTasks:
+                description: PendingTasks is agent_tasks rows waiting to be claimed.
+                format: int32
+                type: integer
+              queueObservedAt:
+                description: QueueObservedAt is when PendingTasks/ActiveTasks were
+                  last measured.
+                format: date-time
+                type: string
+              replicas:
+                description: Replicas is the number of ready pods, as observed by
+                  the operator.
+                format: int32
+                type: integer
+              scaling:
+                description: |-
+                  Scaling explains the pod count the operator is driving toward. It exists
+                  because zero pods is now a valid steady state, and a reader needs to tell
+                  "asleep, waiting for work" from "broken".
+                properties:
+                  desired:
+                    description: |-
+                      Desired is the number of task Jobs the operator is keeping in flight,
+                      bounded by spec.scaling.replicas. Compare with status.replicas (ready
+                      pods) to see whether it is still catching up.
+                    format: int32
+                    type: integer
+                  message:
+                    description: Message is a one-line human-readable explanation,
+                      safe to show in a UI.
+                    type: string
+                  reason:
+                    description: |-
+                      Reason is a stable code for the decision: JobPerTask (work is running
+                      as per-task Jobs) or Capped (more tasks are due than the concurrency
+                      cap allows).
+                    type: string
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

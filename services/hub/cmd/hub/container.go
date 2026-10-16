@@ -1,0 +1,215 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+
+	"github.com/DominikPinsel/ainsel/services/hub/internal/api"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/authz"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/channels"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/chat"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/cron"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/eventqueue"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/invocations"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/mcpservers"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/personas"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/prometheus"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/queuesignal"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/router"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/skills"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/tasklogs"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/telemetry"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/triggerindex"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/triggers"
+	"github.com/DominikPinsel/ainsel/services/hub/internal/usertokens"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// container owns all constructed resources for the hub process.
+// It is unexported and lives in cmd/hub to keep the boot sequence
+// explicit and easy to step through in a debugger.
+type container struct {
+	pool           *pgxpool.Pool
+	mgr            ctrl.Manager
+	apiClient      client.Client
+	namespace      string
+	authzStore     *authz.Store
+	authzChecker   *authz.Checker
+	idx            *triggerindex.Index
+	triggerStore   *triggers.Store
+	channelStore   *channels.Store
+	channels       *channels.Service
+	channelRecon   *channels.Reconciler
+	transfer       *channels.Transfer
+	cronEmitter    *cron.Emitter
+	eventQueue     *eventqueue.Store
+	queueSignals   *queuesignal.Publisher
+	invStore       invocations.Store
+	mcpSvc         *mcpservers.Service
+	personaSvc     *personas.Service
+	skillSvc       *skills.Service
+	chatStore      *chat.Store
+	apiServer      *api.Server
+	userTokenStore *usertokens.Store
+	// telemetryStore answers the event metric panels from the hub's own records.
+	// It is the backend those panels ask by default, so the console keeps its
+	// charts on a hub with no Prometheus and reports the same figures with one.
+	telemetryStore *telemetry.Store
+	rtr            *router.Router
+	apiHTTPServer  *http.Server
+	metricsServer  *http.Server
+	promClient     *prometheus.Client
+	taskLogStore   *tasklogs.Store
+}
+
+// containerDeps holds optional injectable dependencies for testing.
+// When a field is nil, newContainer constructs the real resource.
+type containerDeps struct {
+	mgr       ctrl.Manager
+	apiClient client.Client
+}
+
+// containerConfig holds env-derived configuration for newContainer.
+type containerConfig struct {
+	dbURL       string
+	namespace   string
+	hubPort     string
+	metricsPort string
+	promURL     string
+	// metricsSource is HUB_METRICS_SOURCE: which backend answers the event
+	// metric panels. Empty means the default, the hub's own records. See
+	// wireMetricsSource.
+	metricsSource          string
+	claimTimeoutSecs       int
+	taskStartTimeoutSecs   int
+	connectorCfg           api.ConnectorConfig
+	hubAllowInsecureNoAuth bool
+}
+
+// newContainer constructs all hub resources in dependency order.
+// On error it cleans up partially constructed resources.
+func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) (*container, error) {
+	c := &container{namespace: cfg.namespace}
+
+	// --- Database ---
+	pool, err := wireDB(ctx, cfg.dbURL)
+	if err != nil {
+		return nil, err
+	}
+	c.pool = pool
+
+	// --- Event Queue ---
+	c.eventQueue = eventqueue.NewStore(pool)
+
+	// --- AuthZ ---
+	c.authzStore, c.authzChecker = wireAuthZ(ctx, pool)
+
+	// --- Kubernetes manager + client ---
+	if deps.mgr != nil {
+		c.mgr = deps.mgr
+	} else {
+		mgr, err := wireK8sManager(cfg.namespace)
+		if err != nil {
+			c.Close()
+			return nil, err
+		}
+		c.mgr = mgr
+	}
+
+	if deps.apiClient != nil {
+		c.apiClient = deps.apiClient
+	} else {
+		ac, err := wireAPIClient(c.mgr)
+		if err != nil {
+			c.Close()
+			return nil, err
+		}
+		c.apiClient = ac
+	}
+
+	// --- Queue signals ---
+	// Publishes per-agent queue depth onto Agent status, which is what lets the
+	// operator scale pods on real work instead of a standing replica count. The
+	// observer is registered on the store rather than at the enqueue call sites
+	// (router, chat, cron, channel transfers) so a new publisher cannot forget to
+	// wake somebody up.
+	//
+	// The lister is what makes the sweep survive a hub restart: the publisher's own
+	// record of what it published is in-memory, so without a durable "who opted
+	// into queue scaling" every idle agent would age its signal out and hold a pod
+	// until it was handed work again.
+	c.queueSignals = queuesignal.New(c.eventQueue,
+		queuesignal.NewK8sPatcher(c.apiClient, cfg.namespace),
+		queuesignal.WithAgentLister(queuesignal.NewK8sAgentLister(c.apiClient, cfg.namespace)))
+	c.eventQueue.SetQueueObserver(c.queueSignals.Observe)
+
+	// --- Triggers ---
+	c.idx = triggerindex.NewIndex()
+	c.triggerStore = triggers.NewStore(pool)
+
+	// --- Observability clients ---
+	c.promClient = wirePrometheus(cfg.promURL)
+
+	// --- Invocation store + cron emitter ---
+	// Invocation history is persisted in Postgres so it survives hub
+	// restarts — the event detail view reaches conversation transcripts
+	// through invocation records, and an in-memory buffer lost them on
+	// every restart. The memory store remains the fallback for tests.
+	c.invStore = invocations.NewPgStore(pool)
+	slog.Info("invocation history store ready", "backend", "postgres", "retention", invocations.Retention)
+	c.cronEmitter = cron.New(c.eventQueue, c.invStore)
+
+	// --- Channels ---
+	// The channel registry sits on top of the trigger registry and the event
+	// queue: every connector and every agent owns a stream, and the transfers
+	// recorded on those streams move events into inboxes no trigger matched.
+	c.channelStore = channels.NewStore(pool)
+	c.channels = channels.NewService(c.channelStore, c.eventQueue, c.triggerStore)
+	c.channelRecon = channels.NewReconciler(c.channelStore, c.eventQueue,
+		channels.NewKubeRegistry(c.apiClient, cfg.namespace))
+	c.transfer = channels.NewTransfer(c.channels, c.eventQueue, c.invStore)
+	c.cronEmitter.SetChannels(c.channels, c.transfer)
+
+	// --- Service layer ---
+	c.mcpSvc = wireMCP(pool)
+	c.personaSvc = wirePersonas(pool, c.apiClient, cfg.namespace)
+	c.skillSvc = wireSkills(pool, c.apiClient, cfg.namespace)
+	c.chatStore = chat.NewStore(pool)
+	c.taskLogStore = tasklogs.NewStore(pool)
+	c.telemetryStore = telemetry.NewStore(pool)
+
+	// --- API server + auth middleware ---
+	c.userTokenStore = usertokens.NewStore(pool)
+	c.apiServer = wireAPIServer(c, cfg)
+	if err := wireAuthMiddleware(ctx, c, cfg); err != nil {
+		c.Close()
+		return nil, err
+	}
+
+	// --- Router ---
+	c.rtr = router.New(c.eventQueue, c.idx, c.apiServer, c.invStore, c.transfer)
+	if err != nil {
+		c.Close()
+		return nil, fmt.Errorf("create router: %w", err)
+	}
+
+	// --- HTTP servers ---
+	c.metricsServer = wireMetricsServer(cfg.metricsPort)
+	c.apiHTTPServer = wireHTTPServer(cfg.hubPort, c.apiServer)
+
+	return c, nil
+}
+
+// Close releases all resources held by the container.
+// The controller-runtime manager is not stopped here because it is
+// stopped by cancelling the context passed to mgr.Start in main().
+func (c *container) Close() {
+	if c.pool != nil {
+		c.pool.Close()
+	}
+}
