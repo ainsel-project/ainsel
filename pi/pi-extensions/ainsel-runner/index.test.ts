@@ -333,8 +333,12 @@ describe("toConversationPayloads", () => {
 		assert.equal(out[0].role, "user");
 		assert.equal(out[0].inputTokens, 0);
 		assert.equal(out[0].outputTokens, 0);
-		assert.equal(out[0].cacheReadTokens, 0);
-		assert.equal(out[0].cacheWriteTokens, 0);
+		// A user row carries no usage: the cache/cost fields must be absent,
+		// not defaulted to 0. Defaults here would make the hub's presence
+		// flags read "reported" for rows that never had a figure (issue #75).
+		assert.equal("cacheReadTokens" in out[0], false);
+		assert.equal("cacheWriteTokens" in out[0], false);
+		assert.equal("costUsd" in out[0], false);
 		assert.equal(out[0].model, "");
 		assert.equal(out[0].stopReason, "");
 		assert.deepEqual(JSON.parse(out[0].content), [
@@ -399,25 +403,46 @@ describe("toConversationPayloads", () => {
 		});
 	});
 
-	it("defaults cache components to 0 when usage omits them", () => {
+	it("omits cache components when usage omits them", () => {
 		// A provider without prompt caching reports no cacheRead/cacheWrite.
-		// The payload must still carry explicit zeros rather than undefined,
-		// so the hub decodes them as zero instead of a missing field.
+		// The payload must omit the fields rather than default them to 0: an
+		// omitted field is stored as NULL — "not reported" — while a 0 would
+		// claim a measured zero (issue #75).
 		const messages = [
 			{ role: "assistant", model: "m", usage: { input: 5, output: 5, totalTokens: 10 }, content: [] },
 		];
 		const out = toConversationPayloads(messages, meta);
-		assert.equal(out[0].cacheReadTokens, 0);
-		assert.equal(out[0].cacheWriteTokens, 0);
+		assert.equal("cacheReadTokens" in out[0], false);
+		assert.equal("cacheWriteTokens" in out[0], false);
+		assert.equal("costUsd" in out[0], false);
 	});
 
-	it("defaults cache components to 0 when usage is absent entirely", () => {
+	it("omits cache components when usage is absent entirely", () => {
 		const messages = [{ role: "assistant", content: [{ type: "text", text: "x" }] }];
 		const out = toConversationPayloads(messages, meta);
 		assert.equal(out[0].inputTokens, 0);
 		assert.equal(out[0].outputTokens, 0);
+		assert.equal("cacheReadTokens" in out[0], false);
+		assert.equal("cacheWriteTokens" in out[0], false);
+		assert.equal("costUsd" in out[0], false);
+	});
+
+	it("keeps reported zeros as 0 rather than omitting them", () => {
+		// Issue #75, other direction: a provider reporting cached_tokens: 0 has
+		// a measured zero hit rate, and a priced model on a free run reports
+		// cost 0. Both must be sent as 0 so the hub stores a measurement.
+		const messages = [
+			{
+				role: "assistant",
+				model: "m",
+				usage: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0, cost: { total: 0 }, totalTokens: 10 },
+				content: [],
+			},
+		];
+		const out = toConversationPayloads(messages, meta);
 		assert.equal(out[0].cacheReadTokens, 0);
 		assert.equal(out[0].cacheWriteTokens, 0);
+		assert.equal(out[0].costUsd, 0);
 	});
 
 	it("skips unknown roles", () => {
@@ -1613,13 +1638,27 @@ describe("tokenComponents", () => {
 
 	it("keeps a pure cache hit, which has no billable input", () => {
 		// Regression guard: this message has totalTokens > 0 but input 0, so it
-		// must still contribute its cache read rather than vanish.
+		// must still contribute its cache read rather than vanish. The reported
+		// zeros stay too (issue #75): they are measurements, not absences.
 		const out = tokenComponents({ input: 0, output: 0, cacheRead: 4096, cacheWrite: 0, totalTokens: 4096 });
-		assert.deepEqual(out, [["cache_read", 4096]]);
+		assert.deepEqual(out, [
+			["input", 0],
+			["output", 0],
+			["cache_read", 4096],
+			["cache_write", 0],
+		]);
 	});
 
-	it("drops zero, negative, non-numeric and non-finite values", () => {
-		assert.deepEqual(tokenComponents({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }), []);
+	it("publishes reported zeros and drops negative, non-numeric and non-finite values", () => {
+		// Issue #75: a reported 0 is a measurement — dropping it would collapse
+		// "the provider says zero" into "the provider says nothing". Negative
+		// and non-numeric values stay garbage: they are dropped.
+		assert.deepEqual(tokenComponents({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }), [
+			["input", 0],
+			["output", 0],
+			["cache_read", 0],
+			["cache_write", 0],
+		]);
 		assert.deepEqual(tokenComponents({ input: -5, output: 10 }), [["output", 10]]);
 		assert.deepEqual(tokenComponents({ input: "10", output: 10 }), [["output", 10]]);
 		assert.deepEqual(tokenComponents({ input: Number.NaN, output: Number.POSITIVE_INFINITY }), []);
@@ -1636,16 +1675,21 @@ describe("costOf", () => {
 		assert.equal(costOf({ cost: { total: 0.0123 } }), 0.0123);
 	});
 
-	it("reads 0 for an unpriced model, which pi reports as cost 0", () => {
-		// A model without a cost block in models.json gets usage.cost.total 0;
-		// the runner must not raise a counter series for it.
+	it("reads 0 as a measured free run", () => {
+		// Issue #75: a priced model on a free run reports total 0 — that is a
+		// measurement and must be raised, not dropped.
 		assert.equal(costOf({ cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }), 0);
-		assert.equal(costOf({}), 0);
-		assert.equal(costOf(undefined), 0);
-		assert.equal(costOf(null), 0);
-		assert.equal(costOf({ cost: { total: "3" } }), 0);
-		assert.equal(costOf({ cost: { total: Number.NaN } }), 0);
-		assert.equal(costOf({ cost: { total: -1 } }), 0);
+	});
+
+	it("reads undefined when no figure is reported", () => {
+		// An unpriced model reports no cost figure at all: undefined, so the
+		// runner raises no series and the hub says "not reported" (issue #75).
+		assert.equal(costOf({}), undefined);
+		assert.equal(costOf(undefined), undefined);
+		assert.equal(costOf(null), undefined);
+		assert.equal(costOf({ cost: { total: "3" } }), undefined);
+		assert.equal(costOf({ cost: { total: Number.NaN } }), undefined);
+		assert.equal(costOf({ cost: { total: -1 } }), undefined);
 	});
 });
 

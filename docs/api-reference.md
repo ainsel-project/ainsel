@@ -1107,13 +1107,17 @@ Aggregate dashboard tile. Returns resource counts (total + healthy) for agents, 
   "connectors": {"total": 2, "healthy": 2},
   "triggers":   {"total": 12, "healthy": 11},
   "errors":     {"lastHour": 3},
-  "tokens":     {"inputTokens": 120000, "outputTokens": 45000, "cacheReadTokens": 1800000, "cacheWriteTokens": 60000, "totalTokens": 2025000, "costUsd": 1.87}
+  "tokens":     {"inputTokens": 120000, "outputTokens": 45000, "cacheReadTokens": 1800000, "cacheWriteTokens": 60000, "totalTokens": 2025000, "costUsd": 1.87, "cacheReported": true, "costReported": true}
 }
 ```
 
 `costUsd` is priced consumption — pi's `usage.cost`, priced from each model's
-`spec.llm.cost` block (see the administrator guide). Agents running unpriced
-models report zero cost. See [token components](#token-components).
+`spec.llm.cost` block (see the administrator guide). `cacheReported` and
+`costReported` are presence flags: `false` means no data in scope ever
+reported that figure — for example every agent runs an unpriced model — so
+the corresponding numeric is a placeholder and readers must render it as
+"not reported", never as a measured `0` or `$0.00`. A reported zero keeps its
+flag `true`. See [token components](#token-components).
 
 The tile degrades rather than fails: with no Prometheus the token fields stay at zero, and with no log store the error count stays at zero. Neither makes the request fail.
 
@@ -1283,7 +1287,7 @@ no database.
 ```json
 {
   "agents": [
-    {"agent": "a-3f9a2b", "agentName": "Reviewer", "inputTokens": 12000, "outputTokens": 4500, "cacheReadTokens": 180000, "cacheWriteTokens": 9000, "totalTokens": 205500, "invocations": 42, "failures": 2, "avgDurationMs": 31400}
+    {"agent": "a-3f9a2b", "agentName": "Reviewer", "inputTokens": 12000, "outputTokens": 4500, "cacheReadTokens": 180000, "cacheWriteTokens": 9000, "totalTokens": 205500, "invocations": 42, "failures": 2, "avgDurationMs": 31400, "cacheReported": true}
   ],
   "updatedAt": "2026-05-20T10:00:00Z",
   "source": "postgres"
@@ -1294,7 +1298,8 @@ no database.
 window, matching `GET /api/v1/invocations?agent=<name>` for the same window.
 `failures` counts `failure`/`timeout` statuses and `avgDurationMs` averages the
 completed invocations; both are populated on the records path only and read as
-zero under `source: "prometheus"`.
+zero under `source: "prometheus"`. `cacheReported` is the row's presence flag
+for the cache components (see [token components](#token-components)).
 
 ### GET /api/v1/observability/metrics/tokens/summary
 
@@ -1310,6 +1315,8 @@ zero under `source: "prometheus"`.
   "cacheWriteTokens": 6100,
   "totalTokens": 159700,
   "costUsd": 0.42,
+  "cacheReported": true,
+  "costReported": true,
   "previousTotalTokens": 9100,
   "updatedAt": "2026-05-20T10:00:00Z"
 }
@@ -1325,15 +1332,20 @@ under-reports real consumption by the whole cached volume, which in an agent loo
 usually the large majority of the prompt.
 
 `cacheReadTokens / (inputTokens + cacheReadTokens + cacheWriteTokens)` is the cache hit
-rate. Providers without prompt caching publish no cache series, so those fields read as
-zero.
+rate. Presence is a separate fact: `cacheReported` is `true` only when the data in scope
+reported a cache figure at least once — a reported `0` is a measured zero hit rate and
+keeps the flag `true`. Providers without prompt caching report nothing, so their fields
+carry `cacheReported: false` and the summed zeros are placeholders: readers must render
+them as "not reported", never as a measured `0%`.
 
 `costUsd` is the priced counterpart: pi computes it per message from the model's cost
 block (`spec.llm.cost`, USD per million tokens for each of the four components), the
 runtime reports it on each conversation row and as `agent_cost_usd_total`, and the hub
 sums whichever source answers the query. Cache traffic is priced separately from input
 — at very different rates — so a cost derived from an input+output total alone would be
-wrong in both directions at once. Models without a cost block price everything at 0.
+wrong in both directions at once. A model without a cost block reports no figure at all:
+`costReported: false`, which is a different fact from a priced model whose runs happen
+to cost nothing (`costReported: true`, `costUsd: 0`).
 
 ### GET /api/v1/observability/metrics/tokens/timeseries
 
@@ -1368,7 +1380,7 @@ empty string.
 {
   "range": "24h",
   "rows": [
-    {"agent": "a-3f9a2b", "repo": "ainsel-project/ainsel", "eventType": "issue.opened", "model": "gpt-4", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
+    {"agent": "a-3f9a2b", "repo": "ainsel-project/ainsel", "eventType": "issue.opened", "model": "gpt-4", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31, "cacheReported": true, "costReported": true}
   ],
   "updatedAt": "2026-05-20T10:00:00Z",
   "source": "postgres"
@@ -1457,7 +1469,7 @@ Return agent conversation messages captured from agent turns and stored in the `
 }
 ```
 
-Each message has the fields `id` (number), `invocationId`, `correlationId`, `agentName`, `role` (`user` | `assistant` | `toolResult`), `content` (a JSON **string** — see encoding note below), `model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `costUsd`, `stopReason`, and `createdAt` (RFC3339). The token and cost fields are per-message pi usage figures (see [token components](#token-components)); rows written by runtimes that predate cache/cost reporting carry zeros.
+Each message has the fields `id` (number), `invocationId`, `correlationId`, `agentName`, `role` (`user` | `assistant` | `toolResult`), `content` (a JSON **string** — see encoding note below), `model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `costUsd`, `stopReason`, and `createdAt` (RFC3339). The token and cost fields are per-message pi usage figures (see [token components](#token-components)). `cacheReadTokens`, `cacheWriteTokens` and `costUsd` are `null` when the runtime reported no figure — a provider without prompt caching, an unpriced model, or a row (like any `user` or `toolResult` row) that carries no usage at all — which is a different fact from a reported `0`. Rows written before migration 0025 carry ambiguous zeros and decode as `0`, not `null`.
 
 **`content` encoding:** `content` is always a JSON-encoded string. For `user` and `assistant` messages it decodes to an array of blocks: `{"type":"text","text"}`, `{"type":"thinking","text"}`, and `{"type":"toolCall","id","name","arguments"}`. For `toolResult` messages it decodes to a single object: `{"toolCallId","isError","content"}`.
 
@@ -1477,19 +1489,23 @@ Per-`(agent, repository, issueNumber, model)` token consumption. The hub's own c
 ```json
 {
   "tokens": [
-    {"agent": "a-3f9a2b", "repository": "ainsel-project/ainsel", "issueNumber": "42", "model": "unsloth/gpt-oss-120b-GGUF:F16", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31}
+    {"agent": "a-3f9a2b", "repository": "ainsel-project/ainsel", "issueNumber": "42", "model": "unsloth/gpt-oss-120b-GGUF:F16", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31, "cacheReported": true, "costReported": true}
   ],
-  "total": {"inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31},
+  "total": {"inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31, "cacheReported": true, "costReported": true},
   "source": "postgres"
 }
 ```
 
 `costUsd` is priced consumption — the conversation rows' `cost_usd` on the
-records path, the `agent_cost_usd_total` counter on the Prometheus path — and
-is 0 for agents whose models carry no `spec.llm.cost` block. Rows written
-before the subject columns existed carry an empty `issueNumber` (subject
-unknown); they are included, never dropped. Component semantics are described
-under [token components](#token-components).
+records path, the `agent_cost_usd_total` counter on the Prometheus path. The
+per-row `cacheReported`/`costReported` flags say whether any row in the group
+ever reported that figure (see [token components](#token-components)); when
+false, the summed numeric is a placeholder for "not reported" — for example an
+agent whose models carry no `spec.llm.cost` block — and must not be rendered
+as a measured `0` or `$0.00`. Rows written before the subject columns existed
+carry an empty `issueNumber` (subject unknown); they are included, never
+dropped. Component semantics are described under
+[token components](#token-components).
 
 **Status codes:** `200`, `400` on a non-integer `issueNumber` or a malformed `since`/`until`, `502` on a backend query failure, `503` when no metrics backend is configured (or when Prometheus is pinned but its URL is unset).
 

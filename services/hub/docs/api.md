@@ -724,14 +724,22 @@ backend it did pick fails to answer.
   "totalTokens": 2430000,
   "previousTotalTokens": 950000,
   "costUsd": 1.23,
+  "cacheReported": true,
+  "costReported": true,
   "updatedAt": "2026-05-10T15:30:00Z"
 }
 ```
 
 `source` is `"postgres"` when the hub answered from its own conversation rows —
 the default — and `"prometheus"` when it read the token counters. `totalTokens`
-sums all four components. `costUsd` is the priced consumption over the window
-and is non-zero only once the agent's model is priced (`spec.llm.cost`).
+sums all four components. `costUsd` is the priced consumption over the window;
+it is only meaningful once the agent's model is priced (`spec.llm.cost`).
+`cacheReported`/`costReported` are presence flags: `false` means nothing in the
+window reported that figure — an un-caching provider, an unpriced model, or a
+window of rows that predate the nullable columns — so the corresponding numeric
+is a placeholder readers must render as "not reported", never as a measured
+`0`/`0%`/`$0.00`. A reported zero (a real 0% hit rate, a free run) keeps its
+flag `true`. See [docs/observability.md](../../../docs/observability.md).
 `previousTotalTokens` contains the token total for the equivalent prior
 window (used by the frontend for trend indicators). Returns `400` when
 `range` is outside the supported set; `503` when the hub has neither a database
@@ -798,12 +806,18 @@ response carries no `source` field because there is only one backend.
       "cacheReadTokens": 60000,
       "cacheWriteTokens": 2000,
       "totalTokens": 81000,
-      "costUsd": 0.42
+      "costUsd": 0.42,
+      "cacheReported": true,
+      "costReported": true
     }
   ],
   "updatedAt": "2026-05-10T15:30:00Z"
 }
 ```
+
+Each row carries the same `cacheReported`/`costReported` presence flags as
+`tokens/summary`: true when any invocation of that event reported the figure,
+false when the summed cache/cost are placeholders for "not reported".
 
 Returns `400` when `range` is outside the supported set, `503` with
 `{"error": "hub database not configured: these panels read the hub's own task log table"}`
@@ -846,13 +860,18 @@ it, so the totals can differ by exactly those rows. See
       "cacheReadTokens": 9000,
       "cacheWriteTokens": 500,
       "totalTokens": 11300,
-      "costUsd": 0.05
+      "costUsd": 0.05,
+      "cacheReported": true,
+      "costReported": true
     }
   ],
   "updatedAt": "2026-05-10T15:30:00Z",
   "source": "postgres"
 }
 ```
+
+Each row carries the same `cacheReported`/`costReported` presence flags as
+`tokens/summary` — per group, not per window.
 
 Returns `400` when `range` is outside the supported set, `503` with
 `{"error": "no metrics backend: give the hub a database to read its own records from, or set observability.prometheus.url"}`
@@ -918,7 +937,8 @@ on this window's grid — refused rather than drawn as a mis-dated chart.
       "totalTokens": 10000,
       "invocations": 5,
       "failures": 1,
-      "avgDurationMs": 3200
+      "avgDurationMs": 3200,
+      "cacheReported": true
     }
   ],
   "updatedAt": "2026-05-10T15:30:00Z",
@@ -928,7 +948,9 @@ on this window's grid — refused rather than drawn as a mis-dated chart.
 
 `totalTokens` sums all four components — pi's reported `input` excludes the
 cache components, so a total built from input + output alone under-counts by
-the whole cached volume. `failures` counts invocations in a `failure` or
+the whole cached volume. `cacheReported` is the row's presence flag for the
+cache components ("not reported" vs. a measured zero — see `tokens/summary`).
+`failures` counts invocations in a `failure` or
 `timeout` status and `avgDurationMs` averages the completed invocations'
 duration; both are populated on the records path only (zero under
 `source: "prometheus"`, where they have no counter to come from).

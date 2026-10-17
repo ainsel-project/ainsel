@@ -628,8 +628,10 @@ The runner reports that per-message cost with its conversation rows and
 raises `agent_cost_usd_total{agent,repo,org,event_type,model}` for
 Prometheus. The hub sums both into the token summary tile, the by-subject
 and by-event tables, the conversation ledger and the `get_token_usage` MCP
-tool. Without `spec.llm.cost` pi prices everything at zero, and every cost
-figure stays exactly `$0.00`.
+tool. Without `spec.llm.cost` there is no cost figure to report: the runner
+omits the field (the hub stores NULL and raises no counter series), and the
+console renders cost as "not reported" — a different fact from a priced
+model whose runs happen to cost `$0.00` (issue #75).
 
 ```yaml
 spec:
