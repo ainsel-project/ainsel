@@ -96,7 +96,7 @@ run (`BASE_TAG=<sha>`), never on whatever `:dev` happens to point at.
 4. Add a corresponding build-push step in the pi CI workflows,
    pushing to a new repository
    (`dpinsel/ainsel-pi-<variant>:<version>`). Publish the floating tag only,
-   on develop - see the variant note above.
+   on main - see the variant note above.
 5. Update the table above.
 
 ### Building locally

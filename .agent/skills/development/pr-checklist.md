@@ -10,7 +10,7 @@
 
 - [ ] **Read the issue** — Understand the bug/feature fully. Reproduce if possible.
 - [ ] **Identify affected component(s)** — See `component-reference.md` for the map.
-- [ ] **Sync with remote** — `git fetch origin` and branch from latest `origin/develop`.
+- [ ] **Sync with remote** — `git fetch origin` and branch from latest `origin/main`.
 - [ ] **Create a focused branch** — One topic per PR.
   - `fix/<short-description>` for bugs
   - `feat/<short-description>` for features
@@ -38,11 +38,10 @@ Run the checks for **every component you touched** (see `component-reference.md`
 
 ### 4. Pushing & Creating the PR
 
-- [ ] **Push to your branch** — Never push directly to `develop` or `main` (both protected).
-- [ ] **Create PR** targeting `develop` — GitHub pre-fills the base from the repo
-      default, so check it reads `develop` before submitting. `main` is
-      release-only and receives work only through a `develop` → `main`
-      promotion PR (see [`AGENTS.md`](../../../AGENTS.md)).
+- [ ] **Push to your branch** — Never push directly to `main` (protected).
+- [ ] **Create PR** targeting `main` — GitHub pre-fills the base from the repo
+      default, which is `main`; confirm it reads `main` before submitting as a
+      sanity check (see [`AGENTS.md`](../../../AGENTS.md)).
 - [ ] **PR title** — Conventional commit format.
 - [ ] **PR body** — Include:
   - `## Problem` — What's broken or missing
@@ -59,14 +58,13 @@ Run the checks for **every component you touched** (see `component-reference.md`
   - Amend or add fixup commit → force-push to your branch
 - [ ] **CI green** — All checks must pass before merge.
 - [ ] **Respond to review** — Address comments, push updates.
-- [ ] **Rebase if stale** — `git fetch origin && git rebase origin/develop` if `develop` moved.
+- [ ] **Rebase if stale** — `git fetch origin && git rebase origin/main` if `main` moved.
 
 ### 6. Common Pitfalls
 
 | Pitfall | Prevention |
 |---------|-----------|
-| Branch includes unrelated commits | Always branch from `origin/develop`, not a local branch |
-| PR silently targets `main` | Work lands on the release line and needs a manual cherry-pick back | Confirm the base reads `develop` before submitting |
+| Branch includes unrelated commits | Always branch from `origin/main`, not a local branch |
 | CI fails on a test you changed | Run tests locally before pushing |
 | Go workspace out of sync | Run `go work sync` if you added/removed modules |
 | Go dependency drift | Run `go mod tidy` after adding/removing imports |
@@ -80,7 +78,7 @@ Run the checks for **every component you touched** (see `component-reference.md`
 ## Quick Reference
 
 ```
-1. git fetch origin → branch from origin/develop
+1. git fetch origin → branch from origin/main
 2. Make minimal, focused changes
 3. Run lint + test + build for affected components
 4. Update tests if behavior changed

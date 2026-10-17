@@ -68,20 +68,21 @@ pins a single image tag per component.
 
 ### Branching
 
-- `develop` is the default branch and the integration line. Never commit
-  directly to it.
-- `main` is the release line. It is not a PR target — work reaches it only via
-  the promotion merge described below.
+- `main` is the default branch: the integration line and the release line.
+  Never commit directly to it — it is protected, and PR review is the only
+  route in.
 - Feature work happens on `<type>/<short-description>` branches
   (e.g., `feat/github-connector`, `fix/webhook-timeout`,
-  `docs/architecture-update`).
-- Open PRs against `develop` and squash-merge them, so the PR title becomes
+  `docs/architecture-update`), cut from `origin/main`.
+- Open PRs against `main` and squash-merge them, so the PR title becomes
   the commit subject.
-- **Promote `develop` into `main` with a merge commit, never a squash.**
-  release-please derives the version and `CHANGELOG.md` from the conventional
-  commits reachable on `main`. A squash promotion collapses all of them into a
-  single `release:` commit, which is not a conventional type, so the changelog
-  would omit everything the release actually ships.
+- **Squash-merging each PR is what keeps release-please correct.** It
+  derives the version and `CHANGELOG.md` from the conventional commits
+  reachable on `main`; one squashed PR commit carries exactly one
+  conventional subject, which is what it needs. What stays forbidden is any
+  merge onto `main` that collapses several PRs into a single
+  non-conventional commit — release-please would then see no features and
+  no fixes to release.
 - Always `git pull --rebase` before pushing.
 
 ### Pull Requests

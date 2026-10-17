@@ -19,9 +19,9 @@ reported as `UNKNOWN`, and the goal is to keep that list empty.
 
 | class | shape | written by | collected? |
 |---|---|---|---|
-| build | `:<short-sha>` (7 hex) | `dev-image-*.yml` on push to `main`/`develop` | yes |
+| build | `:<short-sha>` (7 hex) | `dev-image-*.yml` on push to `main` | yes |
 | variant build | `<major.minor>-<short-sha>`, e.g. `1.24-0ae751b` | `dev-image-pi.yml` | yes |
-| mutable | `:dev` | `dev-image-*.yml`, `develop` only | **never** |
+| mutable | `:dev` | `dev-image-*.yml`, `main` only | **never** |
 | float | `:1.24`, `:8.0` | `dev-image-pi.yml` | **never** |
 | cache | `buildcache`, `buildcache-v2` | no workflow — dead since `b66f4adc` (2026-07-20) | yes, see below |
 | release | `:X.Y.Z`, `:vX.Y.Z`, `<float>-X.Y.Z` | `release.yml` | only by an explicit purge |
