@@ -6,6 +6,12 @@ name: CI - workflows
 # workflow's metadata step the way the runner would and asserts the outcome for
 # every event/branch combination. The tag policy itself is in CONTRIBUTING.md.
 #
+# The same workflow guards the branch model the tag policy assumes: docs that
+# still describe the retired develop/main flow misroute contributor and agent
+# work, so scripts/check-branch-model-docs.py fails on any tracked .md that
+# references `develop`. The '**/*.md' path filters are what make it fire on
+# docs-only PRs (issue #73).
+#
 # permissions: contents: read — checkout needs a token to fetch the repo;
 # an empty permissions block relies on anonymous access, which fails 404 here.
 
@@ -16,6 +22,9 @@ on:
       - '.github/workflows/dev-image-*.yml'
       - '.github/workflows/ci-workflows.yml'
       - 'scripts/test-dev-image-workflows.py'
+      - 'scripts/check-branch-model-docs.py'
+      - '**/*.md'
+      - '*.md'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -23,6 +32,9 @@ on:
       - '.github/workflows/dev-image-*.yml'
       - '.github/workflows/ci-workflows.yml'
       - 'scripts/test-dev-image-workflows.py'
+      - 'scripts/check-branch-model-docs.py'
+      - '**/*.md'
+      - '*.md'
   workflow_dispatch:
 
 permissions:
@@ -36,3 +48,5 @@ jobs:
       - uses: actions/checkout@v7
       - name: Assert the publish decision for every dev-image workflow
         run: python3 scripts/test-dev-image-workflows.py
+      - name: Assert no tracked doc still describes the retired branch model
+        run: python3 scripts/check-branch-model-docs.py
