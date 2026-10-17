@@ -1350,7 +1350,12 @@ to cost nothing (`costReported: true`, `costUsd: 0`).
 ### GET /api/v1/observability/metrics/tokens/timeseries
 
 24-hour token-usage sparkline stepped at 30-minute intervals. Points sum every
-token component, cache traffic included.
+token component, cache traffic included. Presence is reported on
+`tokens/summary` and the by-subject/by-event rows only: each point here is a
+single summed total with no cache or cost component to qualify, so the
+series carries no `cacheReported`/`costReported` flag — a bucket of
+unreported-cache traffic is indistinguishable from a bucket of genuine usage
+and is deliberately drawn as a real value.
 
 **Query parameters:** `range` — `24h` only (other values return `400`).
 

@@ -776,7 +776,10 @@ the hub has no database.
 ```
 
 The series is **dense**: every bucket across the window is present, gaps
-zero-filled, so the sparkline can place points by index. Returns `400` when
+zero-filled, so the sparkline can place points by index. Presence is reported
+on `tokens/summary` and the by-event/by-subject rows only: a point here is a
+single summed total with no cache or cost component to qualify, so the series
+carries no `cacheReported`/`costReported` flag. Returns `400` when
 `range` is not `24h`, `503` when neither backend can answer (the `503` reason
 names the missing dependency), and `502` when the chosen backend fails.
 
