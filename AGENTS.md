@@ -44,17 +44,12 @@ errors, control-plane health, Docker Hub tag retention). The index with
 
 ## Non-negotiable rules
 
-- **Open every PR against `develop`.** `develop` is the default branch and the
-  only PR target. `main` is release-only: it receives work exclusively through
-  a `develop` → `main` promotion PR, never through a PR of its own.
-  Branch from `origin/develop`, open the PR against `develop`. Never commit
-  directly to either branch.
-
-  This is stricter than "don't commit to `main`": a PR *targeting* `main` from
-  an otherwise clean feature branch still lands work on the release line. That
-  is how #336, #337 and #339 reached `main`, and once there they needed a
-  manual cherry-pick to return to `develop` — a `main` → `develop` merge was
-  not clean (#340, #341).
+- **Open every PR against `main`.** `main` is the default branch, the
+  integration line and the release line — the only PR target. Branch from
+  `origin/main`, open the PR against `main`, and squash-merge so the PR title
+  becomes the commit subject on the trunk. Never commit directly to `main`:
+  branch protection is the only guard keeping unreviewed work off the release
+  line, and it is what makes every commit on `main` a reviewed one.
 - **Conventional Commits** for every commit: `feat:`, `fix:`, `chore:`,
   `docs:`, `refactor:`, `test:`, `perf:`. Imperative, lowercase, no trailing period.
 - **One topic per PR.** Don't bundle unrelated changes — open separate PRs.
@@ -77,10 +72,10 @@ errors, control-plane health, Docker Hub tag retention). The index with
 
 1. `git fetch origin && git status` — confirm your branch is in sync with
    the remote, you're not on `main`, and your branch was cut from
-   `origin/develop`.
-2. When you open the PR, confirm the base reads `develop` before submitting.
-   GitHub pre-fills the base from the repository default, so a branch that
-   drifted off `main` will silently offer `main` as the base.
+   `origin/main`.
+2. When you open the PR, confirm the base reads `main` before submitting.
+   GitHub pre-fills the base from the repository default, which is `main`
+   today — the check is a cheap sanity guard, not a known failure mode.
 3. If you're picking up an open PR, verify it's still open and unmerged
    before adding commits.
 4. Run `pnpm install` and the per-module Go build (see

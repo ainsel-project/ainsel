@@ -131,15 +131,15 @@ repository on Forgejo, not here.
 
 | workflow | trigger | does |
 | --- | --- | --- |
-| `ci-<component>.yml` (10) | PR based on `main` or `develop`, path-filtered | build, test, lint that component |
+| `ci-<component>.yml` (10) | PR based on `main`, path-filtered | build, test, lint that component |
 | `pr-title.yml` | PR opened, edited or updated | reject a PR title release-please could not parse |
 | `dependabot-auto-merge.yml` | PR by `dependabot[bot]`, or dispatch with a PR number | wait for every other check on the PR, then squash-merge it; refuse on any red check |
 | `ci-chart.yml` | same, for `chart/**` and `operators/*/config/crd/**` | helm lint, template with default/example/medium/large values, CRD sync check |
 | `ci-workflows.yml` | same, for `dev-image-*.yml` and their test | assert the publish decision for every event/branch combination |
-| `dev-image-<component>.yml` (8) | push to `main` or `develop`, path-filtered | build and push images (see tags below) |
+| `dev-image-<component>.yml` (8) | push to `main`, path-filtered | build and push images (see tags below) |
 | `dev-image-<component>.yml` (8) | PR, or a dispatch without `publish`, path-filtered | **build only** - no login, no push, image discarded |
 | `maintenance-untag.yml` | weekly schedule, or dispatch | report (and, on an explicit dispatch, delete) stale Docker Hub tags - see [`docs/maintenance.md`](docs/maintenance.md) |
-| `betterleaks.yml` | push and PR on `main`/`develop` | secret scanning |
+| `betterleaks.yml` | push and PR on `main` | secret scanning |
 | `deploy-docs-pages.yml` | push to `main` on docs paths | publish the docs site |
 | `release.yml` | push to `main`, or dispatch | release-please maintains the release PR; when one merges, publish images + chart and verify |
 
@@ -151,12 +151,14 @@ chart jobs install Helm with the official `get-helm-3` script.
 `dev-image-*` tags are deliberately asymmetric, and the guard lives in each
 workflow:
 
-- push to `develop` → `:dev` (mutable, what the dev cluster runs) and `:<short-sha>`
-- push to `main` → `:<short-sha>` only
+- push to `main` → `:dev` (mutable, what the dev cluster runs) and `:<short-sha>`
+- any other branch → nothing: the triggers match `main` only, and the publish
+  decision refuses to name `:dev` even if a run somehow starts from another ref
 
-Nothing on `main` writes `:dev`. Main builds used to overwrite it on every
-push, which took the dev cluster down by replacing its images with code that
-lacked migrations develop had already applied - see PR #182.
+Only the trunk may name `:dev`. The dev cluster runs it, and a build that is
+not the integration line used to overwrite it on every push, which took the
+dev cluster down by replacing its images with code that lacked migrations
+`main` had already applied - see PR #182.
 
 Publishing is a single decision computed in each workflow's `Compute image
 metadata` step, never re-derived from `github.event_name` in the build steps. Two
@@ -164,7 +166,7 @@ leaks closed by that:
 
 - a PR run is a compile check on the Dockerfile and nothing more - the image is
   loaded into the runner and discarded, so a branch never produces a registry
-  tag. There is no image to deploy from a PR: merge to `develop` for that.
+  tag. There is no image to deploy from a PR: merge to `main` for that.
 - `workflow_dispatch` is not restricted to a branch, so a dispatch from any
   feature branch used to publish a `:<short-sha>` tag no review had looked at. It
   now publishes only when the `publish` input is set.
@@ -175,7 +177,7 @@ into `ci-workflows.yml` because a YAML `run:` block is otherwise unchecked until
 build talks to the live registry.
 
 The pi variants additionally move their floating `:1.24` / `:8.0` tags on
-`develop` only, and always build against the base produced by their own run rather
+`main` only, and always build against the base produced by their own run rather
 than whatever `:dev` happens to point at. They publish no per-build tag at all -
 see [`pi/README.md`](pi/README.md).
 
@@ -239,9 +241,8 @@ Three files define it:
 
 ### How a release happens
 
-1. Merge PRs into `develop` and promote `develop` into `main` as usual.
-   **Promotions must be merged with a merge commit, not squashed** — see
-   [Why promotions are merge commits](#why-promotions-are-merge-commits).
+1. Merge PRs into `main` with a squash, as usual — see
+   [Why PRs squash-merge into `main`](#why-prs-squash-merge-into-main).
 2. On every push to `main`, `.github/workflows/release.yml` runs
    release-please. If there are release-worthy commits it opens — or refreshes —
    a release PR titled `chore(main): release <version>`, containing the
@@ -294,18 +295,17 @@ workflow has had exactly one run, which failed on this setting — so the `lates
 `0.1.0` … `0.3.0` tags on Docker Hub predate release-please and are not releases of
 anything.
 
-### Why promotions are merge commits
+### Why PRs squash-merge into `main`
 
-release-please reads the conventional commits **on `main`**. A squash promotion
-collapses all of develop's per-PR commits into a single
-`release: promote develop to main` commit, and `release:` is not a conventional
-type — so `main` would appear to contain no features and no fixes at all. The
-changelog would omit everything the release actually ships, and release-please
-would propose no bump. Merging with a merge commit keeps every PR commit
-reachable from `main`, which is what makes the changelog correct.
-
-The same applies to any PR merged straight into `main`: squash is fine there,
-because one squashed commit still carries that PR's conventional subject.
+release-please reads the conventional commits **on `main`** to derive the
+version and `CHANGELOG.md`. A squash-merged PR is exactly what it wants: one
+commit carrying that PR's conventional subject, and `pr-title.yml` already
+rejects titles release-please could not parse. What stays forbidden is any
+merge onto `main` that collapses several PRs into a single non-conventional
+commit — a bulk `release:` promotion commit is the worked example: `release:`
+is not a conventional type, so `main` would appear to contain no features and
+no fixes at all. The changelog would omit everything the release actually
+ships, and release-please would propose no bump.
 
 ### Prereleases and `latest`
 
@@ -323,37 +323,37 @@ published.
 
 ### Releasing is not deploying
 
-The dev cluster keeps running mutable `:dev` images built from `develop`; the
+The dev cluster keeps running mutable `:dev` images built from `main`; the
 `AInsel/ainsel-deployment` workflow on Forgejo rolls them out on a schedule. A
 release does not touch it. Pointing an environment at a release means setting
 the chart version (or the component `image.tag` values) explicitly.
 
 ## Branching
 
-- `main` is the release branch. Merges here build `:<short-sha>` images only,
-  and releases are cut by tagging - see [Releases](#releases).
-  **Never commit directly to `main`.**
-- `develop` is the development branch. Pushes here build `:dev` images that
-  the `ainsel-dev` environment runs. Cut `develop` from `main` and keep
-  it fed with work in progress.
+- `main` is the trunk: the default branch, the integration line and the
+  release line. Pushes here build `:dev` and `:<short-sha>` images, and
+  releases are cut from it by release-please tagging - see
+  [Releases](#releases). **Never commit directly to `main`**: it is
+  protected, and PR review is the only route in.
 - Feature work happens on `type/short-description` branches
   (`feat/agent-scaling`, `fix/webhook-timeout`, `docs/architecture-update`)
-  and is merged via PR into `develop`.
-- Base new branches on the latest `origin/develop`:
-  `git fetch origin && git checkout -b feat/my-thing origin/develop`.
+  and is merged via PR into `main`.
+- Base new branches on the latest `origin/main`:
+  `git fetch origin && git checkout -b feat/my-thing origin/main`.
 - Always `git pull --rebase` before pushing to catch remote changes.
 - Delete branches after merging.
 
 ## Pull requests
 
 - **One topic per PR.** Don't bundle unrelated changes — open separate PRs.
-- Open against `develop`. Squash merge is the norm - it is the only merge type
-  the repository allows, so PR titles become commit subjects on both branches.
+- Open against `main`. Squash merge is the norm - it is the only merge type
+  the repository allows, so the PR title becomes the commit subject on the
+  trunk (see [Why PRs squash-merge into `main`](#why-prs-squash-merge-into-main)).
 - The PR description should explain *why*, not just *what*.
 - Reference the issue you're addressing if there is one.
-- Rebase your branch on `develop` regularly:
-  `git fetch origin && git rebase origin/develop`.
-- CI runs only for PRs based on `main` or `develop`. A PR stacked on another
+- Rebase your branch on `main` regularly:
+  `git fetch origin && git rebase origin/main`.
+- CI runs only for PRs based on `main`. A PR stacked on another
   feature branch gets no CI, so retarget it if you need the checks.
 
 Before opening a PR, run everything in [Testing & quality](#testing--quality)

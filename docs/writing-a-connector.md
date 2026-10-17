@@ -8,7 +8,7 @@ form POST, and wiring events to agents is a trigger. You write code only for
 sources that don't fit that shape — and even then, the code is a small
 standalone program that posts canonical events to one HTTP endpoint.
 
-> **Last verified against:** `develop` (commit `274bab0a`), September 2026.
+> **Last verified against:** `main` (commit `f65a064b`), October 2026.
 > File paths and field names should match the current codebase; if they
 > drift, please open an issue or PR to update this doc.
 

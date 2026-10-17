@@ -53,7 +53,7 @@ that prefix's `bin/` on `PATH`.
 git clone https://github.com/ainsel-project/ainsel.git
 cd ainsel
 git fetch origin
-git checkout -b <type>/<short-name> origin/develop   # never edit on develop — see AGENTS.md
+git checkout -b <type>/<short-name> origin/main   # never edit on main — see AGENTS.md
 
 pnpm install --frozen-lockfile    # frontend workspace deps
 ```

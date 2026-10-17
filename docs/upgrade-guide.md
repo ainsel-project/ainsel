@@ -92,7 +92,7 @@ go run ./services/hub/cmd/migrate-triggers
   are skipped, so a partial run can simply be re-executed.
 
 The package doc comment in
-[`services/hub/cmd/migrate-triggers/main.go`](https://github.com/ainsel-project/ainsel/blob/develop/services/hub/cmd/migrate-triggers/main.go)
+[`services/hub/cmd/migrate-triggers/main.go`](https://github.com/ainsel-project/ainsel/blob/main/services/hub/cmd/migrate-triggers/main.go)
 is the source of truth for usage.
 
 ## Rolling back
