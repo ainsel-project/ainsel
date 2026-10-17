@@ -224,8 +224,26 @@ export type TokensTotals = {
   costUsd?: number
 }
 
+// One ledger row — the hub's TokenEntry struct
+// (services/hub/internal/api/handlers_tokens.go): token consumption for one
+// agent + repo + issue + model combination, from either backend. The cache
+// and cost fields are optional for the same reason as in TokensSummary: a
+// hub older than the cache split omits them.
+export type TokensLedgerEntry = {
+  agent: string
+  repository: string
+  issueNumber: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  totalTokens: number
+  costUsd?: number
+}
+
 type TokensLedgerEnvelope = {
-  tokens: unknown[]
+  tokens: TokensLedgerEntry[]
   total: TokensTotals
   source?: MetricsSource
 }
