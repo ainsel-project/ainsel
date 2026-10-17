@@ -286,12 +286,14 @@ export function costOf(usage: any): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
-/** Returns the value when it is a finite number, undefined otherwise — the
- *  ingest-side twin of tokenComponents' filter: a reported 0 stays 0, an
- *  absent figure stays absent instead of being flattened into a measured
- *  zero (issue #75). Pure and exported for unit testing. */
+/** Returns the value when it is a finite non-negative number, undefined
+ *  otherwise — the ingest-side twin of tokenComponents' filter: a reported 0
+ *  stays 0, an absent or negative figure stays absent instead of being
+ *  flattened into a measured zero (issue #75). Dropping negatives matters for
+ *  the presence flags: a garbage negative would otherwise be stored and flip
+ *  COUNT(col) > 0 to "reported". Pure and exported for unit testing. */
 export function finiteNumberOrUndefined(value: any): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 // EventContext is the normalized view of an event.

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { extractEventContext, buildUserMessage, createTurnTracker, beginTurn, endTurn, recordAssistantEnd, captureMessage, markSettled, waitForSettle, toConversationPayloads, postTaskMessages, reportConversation, flushTurnMessages, queueConversationFlush, redactSecrets, resetRedactionCache, writeAgentPidFile, capToolResultContent, truncateWithMarker, resolveToolResultMaxChars, resolveEventDataMaxChars, resolveInternalToken, tokenComponents, costOf, eventSubject } from "./index.ts";
+import { extractEventContext, buildUserMessage, createTurnTracker, beginTurn, endTurn, recordAssistantEnd, captureMessage, markSettled, waitForSettle, toConversationPayloads, postTaskMessages, reportConversation, flushTurnMessages, queueConversationFlush, redactSecrets, resetRedactionCache, writeAgentPidFile, capToolResultContent, truncateWithMarker, resolveToolResultMaxChars, resolveEventDataMaxChars, resolveInternalToken, tokenComponents, costOf, finiteNumberOrUndefined, eventSubject } from "./index.ts";
 import type { HubEvent, TurnTracker, ConversationPayload } from "./index.ts";
 
 describe("extractEventContext", () => {
@@ -1690,6 +1690,29 @@ describe("costOf", () => {
 		assert.equal(costOf({ cost: { total: "3" } }), undefined);
 		assert.equal(costOf({ cost: { total: Number.NaN } }), undefined);
 		assert.equal(costOf({ cost: { total: -1 } }), undefined);
+	});
+});
+
+describe("finiteNumberOrUndefined", () => {
+	it("keeps a reported zero as a measured zero", () => {
+		// Issue #75: 0 is a measurement (real 0% cache hit, free run) and must
+		// survive to the ingest payload, not be flattened into absence.
+		assert.equal(finiteNumberOrUndefined(0), 0);
+		assert.equal(finiteNumberOrUndefined(4096), 4096);
+	});
+
+	it("maps absent and non-numeric figures to undefined", () => {
+		assert.equal(finiteNumberOrUndefined(undefined), undefined);
+		assert.equal(finiteNumberOrUndefined(null), undefined);
+		assert.equal(finiteNumberOrUndefined("10"), undefined);
+		assert.equal(finiteNumberOrUndefined(Number.NaN), undefined);
+		assert.equal(finiteNumberOrUndefined(Number.POSITIVE_INFINITY), undefined);
+	});
+
+	it("drops negatives like tokenComponents does", () => {
+		// The twin claim must hold: a garbage negative forwarded to the hub
+		// would be stored and flip COUNT(col) > 0 to "reported" (issue #75).
+		assert.equal(finiteNumberOrUndefined(-5), undefined);
 	});
 });
 

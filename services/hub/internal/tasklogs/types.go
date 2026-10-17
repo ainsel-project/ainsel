@@ -97,9 +97,9 @@ type ConversationListOptions struct {
 // figure — an un-caching provider, an unpriced model, a user/toolResult row
 // with no usage at all — and is stored as NULL, while a non-nil zero is a
 // run that genuinely had no cache hits or cost nothing. Readers must render
-// NULL-backed sums as "not reported", never as 0. Rows written before
-// migration 0025 carry an ambiguous 0 and read as not reported on the
-// presence flags.
+// NULL-backed sums as "not reported", never as 0. Migration 0025 backfills
+// the ambiguous zeros written by older runtimes to NULL, so pre-migration
+// rows read as not reported too.
 type ConversationMessage struct {
 	ID               int64  `json:"id"`
 	InvocationID     string `json:"invocationId,omitempty"`

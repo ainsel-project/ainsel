@@ -297,7 +297,8 @@ func (s *Store) TokensByInvocationSince(ctx context.Context, since time.Time) ([
 // CacheReported/CostReported say whether the window held any row with a
 // *reported* (non-NULL) cache/cost figure (issue #75). A window whose rows
 // all left the column NULL — an un-caching provider, or pre-migration-0025
-// rows whose zeros are ambiguous — reads false, and readers must render the
+// rows whose ambiguous zeros migration 0025 backfilled to NULL — reads
+// false, and readers must render the
 // summed figures as "not reported", never as a measured 0. A reported zero
 // counts as reported, so a provider that genuinely reports cached_tokens: 0
 // keeps its real 0.

@@ -172,7 +172,8 @@ series), and the console renders those tiles and cells as "not reported" instead
 of a real-looking `0%` hit rate or `$0.00`. A reported zero — a provider that
 genuinely reports `cached_tokens: 0`, a priced model on a free run — keeps its
 flag true and renders as the measured zero it is. Rows written before migration
-0025 stored ambiguous zeros and still read as zeros.
+0025 stored ambiguous zeros; the migration backfills them to NULL, so those rows
+read as not reported too.
 
 To have Prometheus scrape the hub's own `/metrics` endpoint, enable the ServiceMonitor or PodMonitor resources in `values.yaml`. This is independent of `metricsSource`: the hub exports these counters whether or not it also reads them back.
 
