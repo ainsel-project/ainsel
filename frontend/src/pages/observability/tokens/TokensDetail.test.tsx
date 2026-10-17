@@ -24,6 +24,13 @@ const TOKEN_ROWS = [
 ]
 
 function defaultFetch(url: string): Response {
+  if (url.endsWith('/tokens')) {
+    // The cumulative ledger behind the "Total Tokens (all time)" tile.
+    return new Response(
+      JSON.stringify({ tokens: [], total: { totalTokens: 1_000_000, inputTokens: 700_000, outputTokens: 300_000 } }),
+      { status: 200 },
+    )
+  }
   if (url.includes('/tokens/summary')) {
     return new Response(
       JSON.stringify({ totalTokens: 1_000_000, inputTokens: 700_000, outputTokens: 300_000 }),
@@ -59,6 +66,30 @@ describe('TokensDetail', () => {
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     await waitFor(() => expect(screen.getByText('1M')).toBeInTheDocument())
     expect(screen.getByText('Total Tokens (all time)')).toBeInTheDocument()
+  })
+
+  it('reads the all-time tile from the ledger, not the range-bound summary', async () => {
+    // The tile used to read /tokens/summary, which answers the server default
+    // range (24h) when no range is given — so the "all time" figure was
+    // really a 24h figure. It must read the cumulative ledger instead.
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.endsWith('/tokens')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ tokens: [], total: { totalTokens: 5_000_000 } }),
+          { status: 200 },
+        ))
+      }
+      if (url.includes('/tokens/summary')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ totalTokens: 600_000 }),
+          { status: 200 },
+        ))
+      }
+      return Promise.resolve(defaultFetch(url))
+    }))
+    renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
+    await waitFor(() => expect(screen.getByText('5M')).toBeInTheDocument())
+    expect(screen.queryByText('600K')).not.toBeInTheDocument()
   })
 
   it('renders token rows sorted by total descending', async () => {
