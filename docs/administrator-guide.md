@@ -129,7 +129,8 @@ state as the operators reconcile it.*
    `kubectl get webhookconnectors -n ainsel` shows `Ready=True`.
 
 3. **Define an agent.** Create an `Agent` CRD with a `displayName`,
-   `runtime.provider`, `llm.model`, `imageRef`, a `persona` (inline or
+   `llm.provider` (required — one of `ollama-cloud`, `opencode`,
+   `alibaba-cloud`, `custom`), `llm.model`, `imageRef`, a `persona` (inline or
    ConfigMap), and an `enabledTools` list. The agent operator
    reconciles a Deployment (replica count from `spec.scaling`) and a
    per-agent metrics Service.
