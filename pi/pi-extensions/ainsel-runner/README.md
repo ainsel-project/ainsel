@@ -76,7 +76,7 @@ from the chart's shared `auth.internalValidateSecret`).
 | `AGENT_NAME` | yes | Logical agent name (used in hub API paths) |
 | `HUB_URL` | yes | Hub backend base URL (e.g. `http://ainsel-hub:8080`) |
 | `HUB_INTERNAL_VALIDATE_SECRET` | yes | Shared secret for `X-Internal-Token` header |
-| `OLLAMA_CLOUD_MODEL` | yes | Model identifier; reported in token metrics |
+| `AINSEL_LLM_MODEL` | yes | Model identifier; reported in token metrics. The legacy alias `OLLAMA_CLOUD_MODEL` is read as a fallback for one release (issue #96); there is no default |
 | `NAK_DELAY_MS` | no | NACK backoff in ms before the hub re-delivers a failed task (default `60000`) |
 | `TURN_TIMEOUT_MS` | no | Maximum time in ms to wait for a single LLM turn before aborting and nacking (default `600000`, i.e. 10 minutes) |
 | `TURN_SETTLE_TIMEOUT_MS` | no | Maximum time in ms to wait for an aborted turn to settle before proceeding (default `10000`, i.e. 10 seconds). Backstop only — after `ctx.abort()` the run should settle in milliseconds. |
@@ -115,7 +115,8 @@ single prompt a run makes. Those completions also write a `task_conversations` r
 `role: "system"` and `stopReason` `compaction` or `branch_summary`, because the hub
 reads its own rows in preference to these counters (see docs/observability.md); a
 counter-only fix would leave them invisible in the console. They carry no model of their
-own, so they are labelled with `OLLAMA_CLOUD_MODEL` — the model the run summarises with.
+own, so they are labelled with `AINSEL_LLM_MODEL` — the model the run summarises with
+(the legacy `OLLAMA_CLOUD_MODEL` alias is accepted while the dual-write window is open).
 
 ## Why an extension, not a separate Node process
 
@@ -147,7 +148,7 @@ result contains one, the hub never receives it.
 1. On first use, the runner collects all `process.env` values.
 2. Values are excluded from redaction if:
    - The variable name is in a denylist of known non-sensitive vars
-     (`AGENT_NAME`, `HUB_URL`, `OLLAMA_CLOUD_MODEL`, `PATH`, `HOME`, etc.)
+     (`AGENT_NAME`, `HUB_URL`, `AINSEL_LLM_MODEL`, `PATH`, `HOME`, etc.)
    - The variable name starts with `AINSEL_EVENT_` (per-task context vars)
    - The value is shorter than 8 characters (avoids corrupting common
      short strings like booleans, ports, or single words)

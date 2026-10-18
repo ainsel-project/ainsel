@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { extractEventContext, buildUserMessage, createTurnTracker, beginTurn, endTurn, recordAssistantEnd, captureMessage, markSettled, waitForSettle, toConversationPayloads, postTaskMessages, reportConversation, flushTurnMessages, queueConversationFlush, redactSecrets, resetRedactionCache, writeAgentPidFile, capToolResultContent, truncateWithMarker, resolveToolResultMaxChars, resolveEventDataMaxChars, resolveInternalToken, tokenComponents, costOf, finiteNumberOrUndefined, hasRecordableUsage, recordUsage, counterValue, summaryConversationMessage, registerUsageEvents, eventSubject } from "./index.ts";
+import { extractEventContext, buildUserMessage, createTurnTracker, beginTurn, endTurn, recordAssistantEnd, captureMessage, markSettled, waitForSettle, toConversationPayloads, postTaskMessages, reportConversation, flushTurnMessages, queueConversationFlush, redactSecrets, resetRedactionCache, writeAgentPidFile, capToolResultContent, truncateWithMarker, resolveToolResultMaxChars, resolveEventDataMaxChars, resolveInternalToken, tokenComponents, costOf, finiteNumberOrUndefined, hasRecordableUsage, recordUsage, counterValue, summaryConversationMessage, registerUsageEvents, eventSubject, resolveModelEnv, sessionModel } from "./index.ts";
 import type { HubEvent, TurnTracker, ConversationPayload } from "./index.ts";
 
 describe("extractEventContext", () => {
@@ -1189,17 +1189,19 @@ describe("redactSecrets", () => {
 		setEnv({
 			AGENT_NAME: "my-agent-name-long",
 			HUB_URL: "http://hub.example.com:8080",
+			AINSEL_LLM_MODEL: "canonical-model-xyz",
 			OLLAMA_CLOUD_MODEL: "llama-3.1-70b-instruct",
 		});
 		try {
 			const messages = [
-				{ role: "assistant", content: [{ type: "text", text: "agent my-agent-name-long at http://hub.example.com:8080 using llama-3.1-70b-instruct" }] },
+				{ role: "assistant", content: [{ type: "text", text: "agent my-agent-name-long at http://hub.example.com:8080 using llama-3.1-70b-instruct and canonical-model-xyz" }] },
 			];
 			const meta = { agentName: "a", invocationId: "i", correlationId: "c" };
 			const out = toConversationPayloads(messages, meta);
 			assert.ok(out[0].content.includes("my-agent-name-long"), "AGENT_NAME must not be redacted");
 			assert.ok(out[0].content.includes("http://hub.example.com:8080"), "HUB_URL must not be redacted");
-			assert.ok(out[0].content.includes("llama-3.1-70b-instruct"), "model must not be redacted");
+			assert.ok(out[0].content.includes("llama-3.1-70b-instruct"), "model alias must not be redacted");
+			assert.ok(out[0].content.includes("canonical-model-xyz"), "AINSEL_LLM_MODEL must not be redacted");
 		} finally {
 			restoreEnv();
 		}
@@ -1744,6 +1746,7 @@ function withEventEnv(labels: Record<string, string>, fn: () => Promise<void> | 
 		"AINSEL_EVENT_REPO",
 		"AINSEL_EVENT_ORG",
 		"AINSEL_EVENT_TYPE",
+		"AINSEL_LLM_MODEL",
 		"OLLAMA_CLOUD_MODEL",
 	];
 	const saved: Record<string, string | undefined> = {};
@@ -2127,5 +2130,54 @@ describe("writeAgentPidFile", () => {
 		// Announcing itself is never worth losing the task over.
 		const missing = path.join(os.tmpdir(), `ainsel-absent-${process.pid}-${Date.now()}`);
 		assert.equal(writeAgentPidFile(missing), null);
+	});
+});
+
+describe("resolveModelEnv / sessionModel (issue #96 model contract)", () => {
+	function withModelEnv(labels: Record<string, string | undefined>, fn: () => void): void {
+		const keys = ["AINSEL_LLM_MODEL", "OLLAMA_CLOUD_MODEL"];
+		const saved: Record<string, string | undefined> = {};
+		for (const key of keys) {
+			saved[key] = process.env[key];
+			delete process.env[key];
+		}
+		for (const [key, value] of Object.entries(labels)) {
+			if (value !== undefined) process.env[key] = value;
+		}
+		try {
+			fn();
+		} finally {
+			for (const key of keys) {
+				if (saved[key] === undefined) delete process.env[key];
+				else process.env[key] = saved[key] as string;
+			}
+		}
+	}
+
+	it("prefers AINSEL_LLM_MODEL over the legacy alias", () => {
+		withModelEnv({ AINSEL_LLM_MODEL: "canonical-model", OLLAMA_CLOUD_MODEL: "legacy-model" }, () => {
+			assert.equal(resolveModelEnv(), "canonical-model");
+			assert.equal(sessionModel(), "canonical-model");
+		});
+	});
+
+	it("falls back to OLLAMA_CLOUD_MODEL (one-release alias)", () => {
+		withModelEnv({ OLLAMA_CLOUD_MODEL: "legacy-model" }, () => {
+			assert.equal(resolveModelEnv(), "legacy-model");
+			assert.equal(sessionModel(), "legacy-model");
+		});
+	});
+
+	it("returns the empty string when neither name is set (no default model)", () => {
+		withModelEnv({}, () => {
+			assert.equal(resolveModelEnv(), "");
+			assert.equal(sessionModel(), "");
+		});
+	});
+
+	it("treats a blank AINSEL_LLM_MODEL as unset and falls through to the alias", () => {
+		withModelEnv({ AINSEL_LLM_MODEL: "  ", OLLAMA_CLOUD_MODEL: "legacy-model" }, () => {
+			assert.equal(resolveModelEnv(), "legacy-model");
+		});
 	});
 });
