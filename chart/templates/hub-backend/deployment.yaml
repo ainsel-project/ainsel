@@ -161,9 +161,9 @@ spec:
             {{- end }}
             - name: OIDC_SIGNING_ALGS
               value: {{ .Values.auth.oidcSigningAlgs | quote }}
-            {{- if .Values.auth.oidcRolesClaim }}
+            {{- with include "ainsel.oidcRolesClaim" . }}
             - name: OIDC_ROLES_CLAIM
-              value: {{ .Values.auth.oidcRolesClaim | quote }}
+              value: {{ . | quote }}
             {{- end }}
             {{- if or (eq $authMode "none") (and (not $authMode) (not .Values.auth.oidcIssuer) (or .Values.auth.allowInsecureNoAuth (include "ainsel.localMode" .))) }}
             - name: HUB_ALLOW_INSECURE_NO_AUTH

@@ -210,9 +210,10 @@ or `oidcScopes` overrides the corresponding default.
 service environment variables. Existing `ZITADEL_ISSUER` / `OIDC_PROJECT_ID`
 remain aliases, with the neutral variables taking precedence.
 
-JWT roles default to the legacy `urn:zitadel:iam:org:project:roles` claim.
-Use `auth.oidcRolesClaim` for another claim, such as `groups` or the nested
-path `realm_access.roles`. An exact claim key takes precedence over dotted
+JWT roles default to the top-level `groups` claim, or to the legacy
+`urn:zitadel:iam:org:project:roles` claim when `auth.oidcProjectId` is set.
+Use `auth.oidcRolesClaim` for another claim, such as the nested path
+`realm_access.roles`. An exact claim key takes precedence over dotted
 path traversal, so namespaced keys containing dots remain usable. Role
 arrays contain strings; role objects use their keys as role names. Roles
 are informational.
