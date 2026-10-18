@@ -180,7 +180,7 @@ function OidcBridge({ children }: { children: ReactNode }) {
   // one, silent renewal would have to run through a hidden iframe against
   // the IdP — which cannot work in this deployment (the IdP session cookie
   // is SameSite=Lax and the app and IdP live on separate sites, e.g.
-  // devoper.duckdns.org vs auth-devoper.duckdns.org), so we go straight to
+  // app.example.com vs auth.example.com), so we go straight to
   // an interactive signinRedirect instead of waiting for the iframe to
   // time out.
   setUnauthorizedHandler(() => {

@@ -46,7 +46,7 @@ When deployed via the ainsel-chart:
 ```yaml
 hub:
   image:
-    repository: localhost:30500/ainsel/ainsel-hub-backend
+    repository: registry.example.com/ainsel/ainsel-hub-backend
     tag: latest
   port: 8080
   metricsPort: 9090
