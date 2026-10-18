@@ -26,7 +26,12 @@ import (
 func receiveEventWith(events <-chan string, want ...string) bool {
 	for {
 		select {
-		case ev := <-events:
+		case ev, ok := <-events:
+			if !ok {
+				// Closed channel: further receives return immediately, which
+				// would spin instead of timing out.
+				return false
+			}
 			match := true
 			for _, w := range want {
 				if !strings.Contains(ev, w) {
