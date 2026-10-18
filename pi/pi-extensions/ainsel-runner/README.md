@@ -97,10 +97,14 @@ Summing only `input` and `output` under-reports what the model actually processe
 the whole cached volume, which in an agent loop is usually the large majority of the
 prompt.
 
-Components that are zero or absent are not published, so a provider without prompt
-caching produces no `cache_read` / `cache_write` series at all. Treat a missing series
-as zero, and use `cache_read / (input + cache_read + cache_write)` as the cache hit
-rate when checking whether prompt caching is actually working.
+A component is published whenever pi reports it as a finite non-negative
+number — including 0 — and only absent, negative or non-numeric values are
+dropped. A reported `cached_tokens: 0` therefore reaches Prometheus as a
+0-valued `cache_read` series: presence of a series means "the provider
+reports cache figures", and its absence means "not reported" — two different
+facts the hub distinguishes (issue #75). Use
+`cache_read / (input + cache_read + cache_write)` as the cache hit rate when
+checking whether prompt caching is actually working.
 
 Usage is booked from every LLM call pi reports, not only from assistant messages:
 `message_end` (any message that carries `usage`, which pi also types on tool results),
