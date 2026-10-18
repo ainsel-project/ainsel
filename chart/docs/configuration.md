@@ -171,6 +171,7 @@ favor of an externally managed database by pointing the hub's `HUB_DB_URL`
 | `postgres.image.tag` | string | `"17-alpine"` | Image tag |
 | `postgres.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `postgres.storage` | string | `5Gi` | PVC size for the StatefulSet |
+| `postgres.storageClassName` | string | `""` | StorageClass for the data volume. Empty uses the cluster default; an existing install keeps the class its StatefulSet was created with (volume claim templates are immutable). Argo CD and other renderers without cluster access cannot detect it: installs created before this value existed must set `local-path` |
 | `postgres.database` | string | `ainselhub` | Database name (used when the chart manages credentials) |
 | `postgres.username` | string | `ainselhub` | Role name (used when the chart manages credentials) |
 | `postgres.auth.existingSecret` | string | `""` | Name of an existing Secret to use instead of chart-generated credentials. When empty, the chart generates a random password and creates a Secret named `ainsel-hub-db`. The Secret must have keys `username`, `password`, `database`, and `dsn` (the full DSN consumed by the hub backend as `HUB_DB_URL`) |
