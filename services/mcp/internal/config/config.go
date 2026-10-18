@@ -4,24 +4,31 @@ import (
 	"errors"
 	"os"
 	"strconv"
+
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 type Config struct {
 	Port                   int
 	OIDCIssuer             string
-	OIDCProjectID          string
-	OIDCClientID           string
+	OIDCAudience           string
+	OIDCRolesClaim         string
+	OIDCScopes             string
+	OIDCSigningAlgs        []string
 	MCPResourceURL         string
 	HubURL                 string
 	InternalValidateSecret string
 }
 
 func Load() Config {
+	oidcCfg := oidc.FromEnvironment()
 	return Config{
 		Port:                   envInt("PORT", 8080),
-		OIDCIssuer:             envStr("OIDC_ISSUER", ""),
-		OIDCProjectID:          envStr("OIDC_PROJECT_ID", ""),
-		OIDCClientID:           envStr("OIDC_CLIENT_ID", ""),
+		OIDCIssuer:             oidcCfg.Issuer,
+		OIDCAudience:           oidcCfg.Audience,
+		OIDCRolesClaim:         oidcCfg.RolesClaim,
+		OIDCScopes:             envStr("OIDC_SCOPES", ""),
+		OIDCSigningAlgs:        oidcCfg.SigningAlgs,
 		MCPResourceURL:         envStr("MCP_RESOURCE_URL", ""),
 		HubURL:                 envStr("HUB_URL", "http://hub-backend.ainsel.svc.cluster.local:8080"),
 		InternalValidateSecret: envStr("INTERNAL_VALIDATE_SECRET", ""),
@@ -32,8 +39,8 @@ func (c Config) Validate() error {
 	if c.OIDCIssuer == "" {
 		return errors.New("OIDC_ISSUER is required")
 	}
-	if c.OIDCProjectID == "" {
-		return errors.New("OIDC_PROJECT_ID is required")
+	if c.OIDCAudience == "" {
+		return errors.New("OIDC_AUDIENCE (or OIDC_CLIENT_ID) is required")
 	}
 	return nil
 }
