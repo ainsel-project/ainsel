@@ -197,7 +197,7 @@ func wireAuthMiddleware(ctx context.Context, c *container, cfg containerConfig) 
 		if issuer == "" || audience == "" {
 			return fmt.Errorf("auth mode oidc requires OIDC_ISSUER and OIDC_AUDIENCE (or OIDC_CLIENT_ID) to be set")
 		}
-		if err := wireOIDCAuth(c, issuer, audience); err != nil {
+		if err := wireOIDCAuth(c, oidcCfg); err != nil {
 			return err
 		}
 	case "local":
@@ -245,15 +245,15 @@ func wireAuthMiddleware(ctx context.Context, c *container, cfg containerConfig) 
 }
 
 // wireOIDCAuth builds the OIDC middleware chain (previous default behavior).
-func wireOIDCAuth(c *container, issuer, audience string) error {
-	slog.Info("OIDC auth enabled", "issuer", issuer, "audience", audience)
+func wireOIDCAuth(c *container, oidcCfg oidc.Config) error {
+	slog.Info("OIDC auth enabled", "issuer", oidcCfg.Issuer, "audience", oidcCfg.Audience)
 	// Resolve JWKS/userinfo endpoints from the issuer's OIDC discovery
 	// document. Hardcoding provider-specific paths broke username/email
 	// enrichment on Zitadel versions whose userinfo endpoint lives at
 	// /oidc/v1/userinfo instead of /oauth/v2/userinfo. There is no
 	// fallback: a broken issuer must fail startup visibly.
 	discoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	jwksURL, userInfoURL, derr := oidc.ResolveEndpoints(discoveryCtx, nil, issuer)
+	jwksURL, userInfoURL, derr := oidc.ResolveEndpoints(discoveryCtx, nil, oidcCfg.Issuer)
 	cancel()
 	if derr != nil {
 		return fmt.Errorf("oidc endpoint resolution: %w", derr)
@@ -266,14 +266,9 @@ func wireOIDCAuth(c *container, issuer, audience string) error {
 	if v := os.Getenv("OIDC_USERINFO_URL"); v != "" {
 		userInfoURL = v
 	}
-	oidcMW, err := oidc.NewMiddleware(oidc.Config{
-		Issuer:      issuer,
-		Audience:    audience,
-		RolesClaim:  os.Getenv("OIDC_ROLES_CLAIM"),
-		SigningAlgs: oidc.FromEnvironment().SigningAlgs,
-		JWKSURL:     jwksURL,
-		UserInfoURL: userInfoURL,
-	})
+	oidcCfg.JWKSURL = jwksURL
+	oidcCfg.UserInfoURL = userInfoURL
+	oidcMW, err := oidc.NewMiddleware(oidcCfg)
 	if err != nil {
 		return fmt.Errorf("auth middleware setup: %w", err)
 	}
