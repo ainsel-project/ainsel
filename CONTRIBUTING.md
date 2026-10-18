@@ -21,7 +21,7 @@ on code and design rather than people.
 
 ## Reporting issues
 
-Open an issue in the Forgejo issue tracker for the
+Open a GitHub issue in the
 [ainsel-project/ainsel](https://github.com/ainsel-project/ainsel/issues)
 repo. Useful issues include:
 
@@ -125,9 +125,9 @@ Avoid editing the workflows or Dockerfiles without coordinating — see
 ## CI runners
 
 Everything in `.github/workflows/` runs on **GitHub Actions** with the standard
-`ubuntu-latest` label, so any runner can pick the jobs up. The dev-cluster
-deployment is the one exception: it lives in the `AInsel/ainsel-deployment`
-repository on Forgejo, not here.
+`ubuntu-latest` label, so any runner can pick the jobs up. Deploying to a
+cluster is out of scope here: this repo builds and publishes images, and
+rolling them out is left to whatever pipeline owns the environment.
 
 | workflow | trigger | does |
 | --- | --- | --- |
@@ -323,8 +323,8 @@ published.
 
 ### Releasing is not deploying
 
-The dev cluster keeps running mutable `:dev` images built from `main`; the
-`AInsel/ainsel-deployment` workflow on Forgejo rolls them out on a schedule. A
+A dev install keeps running mutable `:dev` images built from `main`, and
+rolling those out is whatever deploy pipeline runs in that environment. A
 release does not touch it. Pointing an environment at a release means setting
 the chart version (or the component `image.tag` values) explicitly.
 
@@ -409,5 +409,5 @@ full tutorial covering the CRD, service, operator, and chart integration.
 - For architectural questions, start by skimming
   [`docs/architecture.md`](docs/architecture.md).
 
-There is no chat, Discord, Matrix, or discussion forum — Forgejo issues
+There is no chat, Discord, Matrix, or discussion forum — GitHub issues
 are the only support surface. Open an issue for anything not covered above.

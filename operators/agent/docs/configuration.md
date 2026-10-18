@@ -140,7 +140,7 @@ for work" is distinguishable from "broken": `mode`, `desired`, and a `reason` of
 `Disabled`.
 
 ```console
-$ kubectl get agent.ainsel.dev a-reviewer -n ainsel-dev -o jsonpath='{.status.scaling}'
+$ kubectl get agent.ainsel.dev a-reviewer -n ainsel -o jsonpath='{.status.scaling}'
 {"desired":0,"message":"quiet for 4m12s","mode":"queue","reason":"ScaledToZero"}
 ```
 

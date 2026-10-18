@@ -59,7 +59,7 @@ spec:
     username: code-reviewer
     email: code-reviewer@ainsel.dev
   runtime:
-    image: localhost:30500/ainsel/ainsel-ai-agent:latest
+    image: registry.example.com/ainsel/ainsel-ai-agent:latest
     provider: claude
     resources:
       requests:

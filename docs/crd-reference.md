@@ -147,7 +147,7 @@ Referenced by `Agent.spec.imageRef.name`.
 |-------|------|----------|-------------|
 | `displayName` | string | Yes | Human-readable image name |
 | `description` | string | No | Image description |
-| `imageURL` | string | Yes | Container image URL (e.g. `localhost:30500/ainsel/ainsel-ai-agent:latest`) |
+| `imageURL` | string | Yes | Container image URL (e.g. `registry.example.com/ainsel/ainsel-ai-agent:latest`) |
 | `tools[]` | []AgentImageTool | No | Tools exposed by this image |
 | `tools[].name` | string | Yes | Tool name |
 | `tools[].kind` | string | Yes | Tool kind: `container`, `shell`, or `mcp` |
@@ -191,7 +191,7 @@ metadata:
 spec:
   displayName: "AInsel AI Agent (latest)"
   description: "Default agent image with forgejo, git, and shell tools"
-  imageURL: localhost:30500/ainsel/ainsel-ai-agent:latest
+  imageURL: registry.example.com/ainsel/ainsel-ai-agent:latest
   tools:
     - name: forgejo
       kind: container
@@ -218,7 +218,7 @@ spec:
       tokenFromEnv: MEMORY_MCP_TOKEN
   sidecars:
     - name: sqlite-mcp
-      image: localhost:30500/ainsel/sqlite-mcp:latest
+      image: registry.example.com/ainsel/sqlite-mcp:latest
       port: 9090
       mcpPath: /mcp
   enabledSkills:
