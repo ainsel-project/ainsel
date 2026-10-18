@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -418,6 +419,8 @@ func userFromClaims(c jwt.MapClaims, rolesClaim string) *User {
 		for role := range raw {
 			u.Roles = append(u.Roles, role)
 		}
+		// Map iteration order is random; keep Roles stable for consumers and logs.
+		slices.Sort(u.Roles)
 	}
 	return u
 }

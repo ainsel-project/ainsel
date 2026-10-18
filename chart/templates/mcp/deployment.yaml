@@ -78,8 +78,10 @@ spec:
               value: {{ .Values.auth.oidcSigningAlgs | quote }}
             - name: OIDC_CLIENT_ID
               value: {{ .Values.auth.oidcClientId | quote }}
+            {{- if .Values.auth.oidcRolesClaim }}
             - name: OIDC_ROLES_CLAIM
               value: {{ .Values.auth.oidcRolesClaim | quote }}
+            {{- end }}
             - name: OIDC_SCOPES
               value: {{ include "ainsel.oidcScopes" . | quote }}
             {{- if .Values.mcp.externalUrl }}

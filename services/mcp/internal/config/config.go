@@ -13,6 +13,7 @@ type Config struct {
 	OIDCIssuer             string
 	OIDCAudience           string
 	OIDCRolesClaim         string
+	OIDCScopes             string
 	OIDCSigningAlgs        []string
 	OIDCClientID           string
 	MCPResourceURL         string
@@ -27,6 +28,7 @@ func Load() Config {
 		OIDCIssuer:             oidcCfg.Issuer,
 		OIDCAudience:           oidcCfg.Audience,
 		OIDCRolesClaim:         oidcCfg.RolesClaim,
+		OIDCScopes:             envStr("OIDC_SCOPES", ""),
 		OIDCSigningAlgs:        oidcCfg.SigningAlgs,
 		OIDCClientID:           envStr("OIDC_CLIENT_ID", ""),
 		MCPResourceURL:         envStr("MCP_RESOURCE_URL", ""),

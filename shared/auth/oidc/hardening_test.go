@@ -162,6 +162,31 @@ func TestMiddlewareLegacyDefaultRoles(t *testing.T) {
 		t.Fatalf("legacy default: want [viewer], got %v", user.Roles)
 	}
 }
+func TestMiddlewareMapRolesAreSorted(t *testing.T) {
+	oidcTestEnvironment(t)
+	key := newRSAKey(t)
+	server := startJWKSServer(t, key, "test-key")
+	cfg := oidc.FromEnvironment()
+	cfg.JWKSURL = server.URL
+	// Enough keys that Go's randomised map iteration practically never
+	// yields sorted order by accident.
+	roles := map[string]any{}
+	var want []string
+	for i := 19; i >= 0; i-- {
+		role := fmt.Sprintf("role-%02d", i)
+		roles[role] = map[string]any{}
+		want = append([]string{role}, want...)
+	}
+	claims := oidcTestClaims()
+	claims["urn:zitadel:iam:org:project:roles"] = roles
+	status, user := authenticateToken(t, cfg, signedToken(t, key, "test-key", claims))
+	if status != 200 {
+		t.Fatalf("status %d", status)
+	}
+	if !reflect.DeepEqual(user.Roles, want) {
+		t.Fatalf("map roles: want sorted %v, got %v", want, user.Roles)
+	}
+}
 func TestMiddlewareUserInfoSubjectMismatch(t *testing.T) {
 	oidcTestEnvironment(t)
 	key := newRSAKey(t)
