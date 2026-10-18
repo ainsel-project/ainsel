@@ -116,6 +116,7 @@ written `<component>.<key>`:
 | `hub.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
 | `hub.ingress.path` | string | `/ainsel/api` | Ingress path prefix; only `<path>/v1/*` is published |
 | `hub.ingress.className` | string | `nginx` | Ingress class |
+| `hub.ingress.tlsSecretName` | string | `hub-tls` | Secret holding the TLS certificate for this host |
 | `hub.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /api/$2` | Ingress annotations |
 | `hub.platformExternalUrl` | string | `""` | Externally-reachable platform URL. When empty it is derived from the hub ingress host and `ui.basePath` (`https://<hub.ingress.host><basePath>`) |
 | `hub.connectorImages.webhook.repository` | string | `dpinsel/ainsel-webhook-receiver` | Webhook-receiver image repository. The hub copies repository/tag/digest into a new connector's `spec.image.*`; the event-gateway operator composes the container image from them |
@@ -155,6 +156,7 @@ via `hub.extraEnv` in your `values.yaml`.
 | `ui.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
 | `ui.ingress.path` | string | `/ainsel(/|$)(.*)` | Ingress path (regex form used with the rewrite-target annotation) |
 | `ui.ingress.className` | string | `nginx` | Ingress class |
+| `ui.ingress.tlsSecretName` | string | `ui-tls` | Secret holding the TLS certificate for this host |
 | `ui.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /$2` | Ingress annotations |
 | `ui.resources` | object | 10m/16Mi → 100m/64Mi | CPU/memory |
 

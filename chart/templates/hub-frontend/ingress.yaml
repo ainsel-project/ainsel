@@ -17,7 +17,7 @@ spec:
   tls:
     - hosts:
         - {{ .Values.ui.ingress.host }}
-      secretName: ui-tls
+      secretName: {{ .Values.ui.ingress.tlsSecretName | default "ui-tls" }}
   rules:
     - host: {{ .Values.ui.ingress.host }}
       http:

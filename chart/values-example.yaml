@@ -39,6 +39,8 @@ hub:
     host: ainsel.example.com
     path: /ainsel/api
     className: nginx
+    # Secret holding the TLS certificate for this host
+    tlsSecretName: hub-tls
     annotations:
       nginx.ingress.kubernetes.io/rewrite-target: /api/$2
       # Example environment-specific annotations — uncomment and adjust:
@@ -58,6 +60,8 @@ ui:
     host: ainsel.example.com
     path: /ainsel(/|$)(.*)
     className: nginx
+    # Secret holding the TLS certificate for this host
+    tlsSecretName: ui-tls
     annotations:
       nginx.ingress.kubernetes.io/rewrite-target: /$2
       # Example environment-specific annotations — uncomment and adjust:
