@@ -266,6 +266,12 @@ postgres:
     tag: "17-alpine"
     pullPolicy: IfNotPresent
   storage: 5Gi
+  # StorageClass for the data volume. Empty uses the cluster default; an
+  # existing install keeps the class its StatefulSet was created with.
+  # Renderers without cluster access (Argo CD, `helm template`) cannot see the
+  # existing class: installs created before this value existed must set
+  # "local-path" explicitly there.
+  storageClassName: ""
   database: ainselhub
   username: ainselhub
   # When existingSecret is empty, the chart generates a random password and
