@@ -63,12 +63,27 @@ type AgentReconciler struct {
 	// AgentGracePeriod is the pod terminationGracePeriodSeconds for agent
 	// deployments. Zero uses the default (1800).
 	AgentGracePeriod int64
+
+	// DigestResolver resolves mutable image tags to registry manifest
+	// digests for the restart-on-rebuild annotation. When nil, a
+	// default anonymous-only resolver is used.
+	DigestResolver *DigestResolver
+}
+
+// digestResolver returns the configured resolver, or a package default
+// (anonymous auth, HTTPS-only) when none was injected.
+func (r *AgentReconciler) digestResolver() *DigestResolver {
+	if r.DigestResolver != nil {
+		return r.DigestResolver
+	}
+	return defaultDigestResolver()
 }
 
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agents/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agents/finalizers,verbs=update
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agentimages,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 
 // gracePeriod returns the configured agent grace period or the default.
 func (r *AgentReconciler) gracePeriod() int64 {

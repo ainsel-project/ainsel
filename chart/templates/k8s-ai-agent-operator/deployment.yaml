@@ -63,6 +63,9 @@ spec:
             - --leader-elect            {{- if .Values.agentOperator.agentGracePeriod }}
             - --agent-grace-period={{ .Values.agentOperator.agentGracePeriod }}
             {{- end }}
+            {{- with .Values.agentOperator.insecureRegistries }}
+            - --insecure-registries={{ join "," . }}
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom:

@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -497,10 +499,10 @@ var _ = Describe("Agent Controller", func() {
 			Expect(degradedCondition.Message).To(ContainSubstring("MISSING_TOKEN"))
 
 			By("Verifying a Warning Event was recorded")
-			Expect(fakeRecorder.Events).To(Receive(And(
-				ContainSubstring("MCPTokenEnvMissing"),
-				ContainSubstring("forgejo-mcp-server"),
-			)))
+			// Other Warning events (e.g. ImageDigestResolutionFailed when the
+			// fixture image's registry is unreachable from the test env) may
+			// be queued ahead of the MCP one, so drain until a match.
+			waitForEvent(fakeRecorder.Events, "MCPTokenEnvMissing", "forgejo-mcp-server")
 
 			By("Verifying MCP_SERVER_TOKENS is not set (all entries skipped)")
 			deploy := &appsv1.Deployment{}
@@ -625,3 +627,30 @@ var _ = Describe("Agent Controller", func() {
 		})
 	})
 })
+
+// waitForEvent drains the fake recorder's channel until an event containing
+// all substrings is found. Reconciliation may emit unrelated events (e.g.
+// ImageDigestResolutionFailed when a registry is unreachable from the test
+// environment), so a single Receive is not deterministic.
+func waitForEvent(events <-chan string, substrings ...string) string {
+	GinkgoHelper()
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			matched := true
+			for _, s := range substrings {
+				if !strings.Contains(event, s) {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				return event
+			}
+		case <-deadline:
+			Fail("timed out waiting for event containing " + strings.Join(substrings, ", "))
+			return ""
+		}
+	}
+}

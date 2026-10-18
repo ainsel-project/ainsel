@@ -85,6 +85,7 @@ written `<component>.<key>`:
 | `agentOperator.forgejoUrl` | string | `""` | Forgejo base URL passed to the operator as `FORGEJO_URL`; empty disables the Forgejo integration in the operator |
 | `agentOperator.forgejoTokenSecret` | object | `{}` | `{name, key}` of an existing Secret holding the Forgejo token, passed to the operator as `FORGEJO_TOKEN_SECRET_NAME` / `FORGEJO_TOKEN_SECRET_KEY`. Empty disables it |
 | `agentOperator.agentGracePeriod` | string | `0` (flag omitted) | Grace period for the terminating signal sent to agent pods, passed as `--agent-grace-period`. Parsed as a Go duration, so it needs a unit: `"30m"`, not `"1800"` |
+| `agentOperator.insecureRegistries` | list | `[]` | Registry hosts (`host` or `host:port`) the operator contacts over plain HTTP when resolving image digests for the restart-on-rebuild annotation, rendered as `--insecure-registries=a,b`. All other registries are HTTPS-only; there is no automatic HTTP fallback |
 | `agentOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
 
 ### Connector Operator

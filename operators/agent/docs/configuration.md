@@ -16,6 +16,7 @@ The operator requires cluster-level permissions to:
 - Watch and manage `Agent` and `Trigger` CRDs
 - Read `WebhookConnector` CRDs (for trigger validation)
 - Create and manage Deployments, ConfigMaps, Services, and ServiceAccounts
+- Read ServiceAccounts and pull-secret Secrets (registry credentials for image digest resolution)
 
 These permissions are defined in the `config/rbac/` directory and applied via Kustomize or Helm.
 
@@ -26,6 +27,7 @@ The operator binary accepts the following flags (in addition to standard kubebui
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--agent-grace-period` | `1800` | Pod `terminationGracePeriodSeconds` for agent deployments. Allows in-flight tasks to finish on SIGTERM. |
+| `--insecure-registries` | *(empty)* | Comma-separated registry hosts (`host` or `host:port`) contacted over plain HTTP when resolving image digests (see [Image Digest Resolution](#image-digest-resolution-restart-on-rebuild)). All other registries are HTTPS-only. Exposed as `agentOperator.insecureRegistries` in the Helm chart. |
 | `--agent-scale-down-window` | `0` → `2m` | How long an agent with `minReplicas` set must stay free of queued and in-flight work before its last pod is removed. `0` leaves the controller default. |
 | `--queue-signal-ttl` | `0` → `5m` | How long the hub's published queue measurement may be trusted. Older than this, the operator holds the current pod count instead of scaling to zero. `0` leaves the controller default. |
 
@@ -44,6 +46,42 @@ them as `agentOperator.agentScaleDownWindow` and `agentOperator.queueSignalTTL`.
 The window is a latency trade, not a resource one: a short window parks pods sooner and makes
 the next request pay the cold boot. `queueSignalTTL` only needs to stay comfortably above the
 hub's 60s publish sweep, so it rarely wants tuning.
+
+## Image Digest Resolution (Restart on Rebuild)
+
+On every reconcile the operator resolves the agent image's manifest digest at the
+registry and stamps it as the `ainsel.dev/image-digest` pod-template annotation. When a
+mutable tag (e.g. `:dev`) is rebuilt, the digest changes, the pod template changes, and
+Kubernetes performs a rolling restart — agents pick up the new image without an explicit
+version bump.
+
+**Authentication.** The operator speaks the standard OCI distribution auth flow: the
+manifest request is sent anonymously first; on a `401`/`403` the `WWW-Authenticate`
+challenge is followed (Bearer realms are exchanged for a pull-scoped token, Basic
+challenges are answered with credentials) and the request is retried once. This works
+against Docker Hub, GHCR, ECR, GAR, Harbor, and any spec-compliant registry. Bearer
+tokens are cached per registry+repository for their validity window.
+
+**Credentials.** When a challenge requires them, the operator reads (lazily — never on
+the anonymous happy path) the `imagePullSecrets` of the agent pod template, falling back
+to the `imagePullSecrets` of the ServiceAccount the pod uses
+(`spec.template.spec.serviceAccountName`, defaulting to `default`) in the agent's
+namespace. Both `.dockerconfigjson` and legacy `.dockercfg` formats are understood, and
+`docker.io` / `index.docker.io` / `registry-1.docker.io` are treated as one registry.
+Token material and credentials are never logged.
+
+**Plain HTTP.** Registries are contacted over HTTPS only. There is **no automatic
+HTTP fallback**: an HTTP-only registry (e.g. an in-cluster zot) must be listed in
+`--insecure-registries` (Helm: `agentOperator.insecureRegistries`), matched on exact
+`host[:port]`.
+
+**Failures are non-blocking but visible.** A registry outage must never stop the
+Deployment from being reconciled, so a resolution failure only skips the annotation for
+that reconcile — but it is logged at Error level and emits a Warning event on the Agent:
+
+```console
+$ kubectl get events --field-selector reason=ImageDigestResolutionFailed
+```
 
 ## Operator Environment Variables
 

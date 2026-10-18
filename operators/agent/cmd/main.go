@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -68,6 +69,12 @@ func main() {
 	var agentGracePeriod int64
 	flag.Int64Var(&agentGracePeriod, "agent-grace-period", 1800,
 		"Pod terminationGracePeriodSeconds for agent deployments.")
+
+	var insecureRegistries string
+	flag.StringVar(&insecureRegistries, "insecure-registries", "",
+		"Comma-separated registry hosts (host or host:port) that are contacted over plain HTTP "+
+			"when resolving image digests for restart-on-rebuild annotations. All other registries "+
+			"are always contacted over HTTPS; there is no automatic HTTP fallback.")
 
 	opts := zap.Options{
 		Development: true,
@@ -183,6 +190,7 @@ func main() {
 		Scheme:           mgr.GetScheme(),
 		Recorder:         mgr.GetEventRecorderFor("agent-controller"), //nolint:staticcheck // deprecated API still required for record.EventRecorder type compatibility
 		AgentGracePeriod: agentGracePeriod,
+		DigestResolver:   controller.NewDigestResolver(mgr.GetClient(), splitCSVFlag(insecureRegistries)),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Agent")
 		os.Exit(1)
@@ -203,4 +211,16 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// splitCSVFlag splits a comma-separated flag value into trimmed, non-empty
+// entries.
+func splitCSVFlag(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
