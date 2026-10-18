@@ -51,9 +51,6 @@ The operator pod itself reads the following environment variables to control wha
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `FORGEJO_URL` | Optional | Forgejo API URL. When set, propagated as a literal value to each agent's `FORGEJO_URL`. |
-| `FORGEJO_TOKEN_SECRET_NAME` | Optional | Name of a Kubernetes Secret in the agent's namespace containing the Forgejo API token. When set, agents get `FORGEJO_TOKEN` via `valueFrom.secretKeyRef` (the operator never reads the token value). |
-| `FORGEJO_TOKEN_SECRET_KEY` | Optional | Key inside `FORGEJO_TOKEN_SECRET_NAME`. Defaults to `token`. |
 | `HUB_URL` | Optional | Hub API base URL, propagated to agent pods and MCP sidecars so the runtime can poll for tasks. |
 
 ## Agent Environment Variables
@@ -68,9 +65,6 @@ When the Agent controller creates a Deployment for an Agent CR, it sets these en
 | `HUB_URL` | Operator env (`HUB_URL`) | Hub API the runtime polls for tasks |
 | `HUB_INTERNAL_VALIDATE_SECRET` | Operator env | `X-Internal-Token` used against the hub's internal endpoints. Platform-owned: declarations on the AgentImage are dropped in favour of this. |
 | `AGENT_PERSONA_PATH` | Mount path | Path to persona file |
-| `FORGEJO_URL` | Operator env (`FORGEJO_URL`) | Forgejo API URL |
-| `FORGEJO_TOKEN` | `secretKeyRef` (configured via `FORGEJO_TOKEN_SECRET_NAME` / `FORGEJO_TOKEN_SECRET_KEY` on the operator) | Forgejo API token |
-| `HUB_ENABLED` | Constant: `true` | Enables publishing of task lifecycle events to the hub backend |
 
 ## Scaling
 

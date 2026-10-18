@@ -124,7 +124,6 @@ Variables consumed by the `ainsel-runner` extension (see
 | `AGENT_NAME`       | yes      | Logical agent name, used in the task URLs and propagated into event context for every tool call |
 | `OLLAMA_CLOUD_MODEL` | yes    | Model the runner asks for; the operator writes it from `spec.llm.model` |
 | `OLLAMA_API_KEY`   | yes      | Read by the pi-ollama-cloud provider (operator mounts from `<agent>-ollama-key` Secret) |
-| `HUB_ENABLED`      | no       | Default `true`. Set to `false` to silence hub task lifecycle publishing. |
 | `AGENT_TOOLS`      | no       | Comma-separated allowlist consumed by the ainsel-tools extension. Unset = all tools available. |
 | `AGENT_PERSONA_PATH` | no     | Default `/etc/agent/persona.md`. The entrypoint passes this (and `AGENT.md` in the same directory if present) to pi via `--append-system-prompt`. |
 

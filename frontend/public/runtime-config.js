@@ -8,6 +8,4 @@ window.__AINSEL_CONFIG__ = {
   oidcClientId: "",
   oidcProjectId: "",
   oidcScopes: "",
-  forgejoApiBase: "",
-  forgejoRepo: "",
 };

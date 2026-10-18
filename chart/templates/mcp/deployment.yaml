@@ -63,13 +63,8 @@ spec:
           env:
             - name: PORT
               value: "{{ .Values.mcp.port }}"
-            - name: NAMESPACE
-              value: {{ .Values.namespace }}
             - name: HUB_URL
-              value: http://hub-backend.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.hub.port }}            {{- if .Values.observability.prometheus.url }}
-            - name: PROMETHEUS_URL
-              value: {{ .Values.observability.prometheus.url | quote }}
-            {{- end }}
+              value: http://hub-backend.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.hub.port }}
             - name: OIDC_ISSUER
               value: {{ .Values.auth.oidcIssuer | quote }}
             - name: OIDC_AUDIENCE
