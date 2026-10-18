@@ -34,7 +34,7 @@ for its container image and tool catalog.
 | `runtime.imagePullPolicy` | string | No | Kubernetes image pull policy (`Always`, `Never`, `IfNotPresent`) |
 | `runtime.resources` | ResourceRequirements | No | CPU/memory requests and limits for the agent pod |
 | `llm.model` | string | Yes | LLM model identifier (e.g. `unsloth/gpt-oss-120b-GGUF:F16`) |
-| `llm.provider` | string | No | LLM provider backend. One of `ollama-cloud`, `opencode`, `custom` |
+| `llm.provider` | string | Yes (no schema default) | LLM provider backend. Enum: `ollama-cloud`, `opencode`, `alibaba-cloud`, `custom`. Unknown values are rejected by the API server; an unset provider fails the reconcile with `Ready=False` / reason `InvalidLLMProvider` — there is deliberately no fallback to a built-in provider, so agents never end up on a provider nobody chose |
 | `llm.maxTurns` | int | No | Maximum tool-use loop turns |
 | `llm.temperature` | float64 | No | LLM sampling temperature |
 | `llm.vision` | bool | No | Whether pi sends image input. When true the operator advertises `"input": ["text", "image"]` to pi, so screenshots and image attachments are attached; while false pi sends none, even to a model that can see them. The endpoint is never probed: images sent to a model that cannot see them fail the request. Takes effect when the agent's pod next starts (the init container copies `models.json` in at start). Default false |
@@ -49,7 +49,11 @@ for its container image and tool catalog.
 | `memory.enabled` | bool | Yes | Enable shared memory |
 | `memory.provider` | string | No | Memory provider |
 | `ollamaCloud.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Ollama Cloud API key (key: `api-key`). Used when `llm.provider` is `ollama-cloud` |
+| `ollamaCloud.baseUrl` | string | No | Override for the Ollama Cloud API base URL (default `https://ollama.com/v1`). Written to the generated `models.json`; the endpoint is never probed |
 | `openCode.apiKeySecretRef` | SecretKeySelector | No | Secret containing the OpenCode API key (key: `api-key`). Used when `llm.provider` is `opencode` |
+| `openCode.baseUrl` | string | No | Override for the OpenCode API base URL (default `https://opencode.ai/zen/go/v1`) |
+| `alibabaCloud.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Alibaba Token Plan API key (key: `api-key`). Used when `llm.provider` is `alibaba-cloud` |
+| `alibabaCloud.baseUrl` | string | No | Override for the Alibaba base URL — e.g. a different MaaS region than the built-in `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`, or a private compatible-mode endpoint |
 | `customProvider.url` | string | No | Base URL of a custom OpenAI-compatible LLM API (e.g. `https://api.openai.com/v1`). Required when `llm.provider` is `custom` (the `customProvider` block is optional, but `url` is mandatory when `customProvider` is specified) |
 | `customProvider.apiKeySecretRef` | SecretKeySelector | No | Secret containing the custom provider API key (key: `api-key`) |
 
