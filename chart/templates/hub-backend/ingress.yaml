@@ -17,7 +17,7 @@ spec:
   tls:
     - hosts:
         - {{ .Values.hub.ingress.host }}
-      secretName: hub-tls
+      secretName: {{ .Values.hub.ingress.tlsSecretName | default "hub-tls" }}
   rules:
     - host: {{ .Values.hub.ingress.host }}
       http:
