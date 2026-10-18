@@ -593,6 +593,15 @@ func TestObservability_StatsTokensServedFromRecords(t *testing.T) {
 	if stats.Tokens.CacheReadTokens != 8000 {
 		t.Errorf("stats cacheReadTokens = %v, want 8000", stats.Tokens.CacheReadTokens)
 	}
+	// The presence flags ride the same records path: the seed row reports
+	// cache but no cost, so cache must read reported and cost must not
+	// (issue #75).
+	if !stats.Tokens.CacheReported {
+		t.Errorf("stats cacheReported = false, want true (seeded row reports cache)")
+	}
+	if stats.Tokens.CostReported {
+		t.Errorf("stats costReported = true, want false (seeded row carries no cost)")
+	}
 }
 
 func TestObservability_TokenPanelsWithNoBackendAtAll(t *testing.T) {

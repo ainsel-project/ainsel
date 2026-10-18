@@ -1333,8 +1333,9 @@ usually the large majority of the prompt.
 
 `cacheReadTokens / (inputTokens + cacheReadTokens + cacheWriteTokens)` is the cache hit
 rate. Presence is a separate fact: `cacheReported` is `true` only when the data in scope
-reported a cache figure at least once — a reported `0` is a measured zero hit rate and
-keeps the flag `true`. Providers without prompt caching report nothing, so their fields
+reported a cache figure at least once — either cache column counts, since the
+flag is one presence group for the read/write pair; a reported `0` is
+a measured zero hit rate and keeps the flag `true`. Providers without prompt caching report nothing, so their fields
 carry `cacheReported: false` and the summed zeros are placeholders: readers must render
 them as "not reported", never as a measured `0%`.
 
@@ -1474,7 +1475,7 @@ Return agent conversation messages captured from agent turns and stored in the `
 }
 ```
 
-Each message has the fields `id` (number), `invocationId`, `correlationId`, `agentName`, `role` (`user` | `assistant` | `toolResult`), `content` (a JSON **string** — see encoding note below), `model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `costUsd`, `stopReason`, and `createdAt` (RFC3339). The token and cost fields are per-message pi usage figures (see [token components](#token-components)). `cacheReadTokens`, `cacheWriteTokens` and `costUsd` are `null` when the runtime reported no figure — a provider without prompt caching, an unpriced model, or a row (like any `user` or `toolResult` row) that carries no usage at all — which is a different fact from a reported `0`. Rows written before migration 0025 stored ambiguous zeros; the migration backfills them to `null`, so pre-migration rows read as not reported too.
+Each message has the fields `id` (number), `invocationId`, `correlationId`, `agentName`, `role` (`user` | `assistant` | `toolResult`), `content` (a JSON **string** — see encoding note below), `model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `costUsd`, `stopReason`, and `createdAt` (RFC3339). The token and cost fields are per-message pi usage figures (see [token components](#token-components)). `cacheReadTokens`, `cacheWriteTokens` and `costUsd` are **omitted from the response** when the runtime reported no figure — a provider without prompt caching, an unpriced model, or a row (like any `user` or `toolResult` row) that carries no usage at all — which is a different fact from a reported `0`. (These fields are nullable in the store but serialized with `omitempty`, so on the wire the not-reported marker is the *absence of the key*, never a `null` value; a present key always carries a measured number.) Rows written before migration 0025 stored ambiguous zeros; the migration backfills them to NULL in the store, so pre-migration rows read as not reported too.
 
 **`content` encoding:** `content` is always a JSON-encoded string. For `user` and `assistant` messages it decodes to an array of blocks: `{"type":"text","text"}`, `{"type":"thinking","text"}`, and `{"type":"toolCall","id","name","arguments"}`. For `toolResult` messages it decodes to a single object: `{"toolCallId","isError","content"}`.
 

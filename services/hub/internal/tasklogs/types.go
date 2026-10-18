@@ -66,7 +66,14 @@ type TokenSubjectUsageRow struct {
 	CacheWriteTokens int64
 	CostUSD          float64
 	// CacheReported is true when at least one row in the group had a non-NULL
-	// cache column; CostReported likewise for cost_usd (issue #75).
+	// cache column; CostReported likewise for cost_usd (issue #75). The two
+	// cache columns are deliberately one presence group rather than two
+	// flags: the flag answers "did the runtime report cache figures?", and
+	// readers render both cache cells from it. A provider that reports only
+	// one component marks the pair reported, and the other column then reads
+	// as a measured zero — accepted because the alternative (per-column
+	// flags) would double every presence claim in the API for a case no
+	// known provider produces.
 	CacheReported bool
 	CostReported  bool
 }

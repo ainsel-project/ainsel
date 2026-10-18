@@ -651,6 +651,15 @@ alone would be wrong in both directions at once. Changing `spec.llm.cost`
 regenerates `models.json`, which restarts the agent's pods so the new rates
 apply to the next turn.
 
+The "not reported" semantics above are a runner–hub contract, so upgrade the
+two together: migration 0025 NULLs the ambiguous stored zeros, but a runner
+older than this change still sends an explicit `0` for every figure it did not
+measure, so its rows land as measured zeros again the moment they arrive.
+Redeploy the agents (new runner image) alongside the upgraded hub. Note also
+that the 0025 *down* migration restores the `NOT NULL DEFAULT 0` constraint by
+collapsing every NULL back to `0` — rolling the migration back is lossy for
+presence by design.
+
 ![The Token Detail page: all-time total and 24-hour input/output tiles above
 a by-agent table breaking usage down per repo/event, agent and model, with
 input, output, I/O ratio and total columns and a per-row link to the
