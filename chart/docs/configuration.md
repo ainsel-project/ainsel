@@ -82,8 +82,6 @@ written `<component>.<key>`:
 | `agentOperator.image.repository` | string | `dpinsel/ainsel-k8s-ai-agent-operator` | Image repository |
 | `agentOperator.image.tag` | string | `"0.1.0"` | Image tag |
 | `agentOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
-| `agentOperator.forgejoUrl` | string | `""` | Forgejo base URL passed to the operator as `FORGEJO_URL`; empty disables the Forgejo integration in the operator |
-| `agentOperator.forgejoTokenSecret` | object | `{}` | `{name, key}` of an existing Secret holding the Forgejo token, passed to the operator as `FORGEJO_TOKEN_SECRET_NAME` / `FORGEJO_TOKEN_SECRET_KEY`. Empty disables it |
 | `agentOperator.agentGracePeriod` | string | `0` (flag omitted) | Grace period for the terminating signal sent to agent pods, passed as `--agent-grace-period`. Parsed as a Go duration, so it needs a unit: `"30m"`, not `"1800"` |
 | `agentOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
 
@@ -232,17 +230,6 @@ client registration is handled there.
 | `auth.local.adminUser` | string | `admin` | Username of the bootstrapped admin account (created on first start, `mode: local`) |
 | `auth.local.adminPasswordSecret` | string | `""` | Existing Secret holding the admin password under key `password`. When empty, the chart generates one into Secret `ainsel-local-admin` (read it with `kubectl -n <ns> get secret ainsel-local-admin -o jsonpath='{.data.password}' \| base64 -d`) |
 | `auth.local.jwtSecretSecret` | string | `""` | Existing Secret holding the JWT signing key under key `secret`. When empty, the chart generates one into Secret `ainsel-local-jwt` |
-
-### Forgejo Integration
-
-Enables the bug-report button in the frontend. When unset, the report
-button's issue-creation call fails with "Forgejo is not configured" — leave
-empty to disable issue creation.
-
-| Value | Type | Default | Description |
-|-------|------|---------|-------------|
-| `forgejo.apiBase` | string | `""` | Forgejo API base URL |
-| `forgejo.repo` | string | `""` | Target repository for bug-report issues |
 
 ### Observability
 

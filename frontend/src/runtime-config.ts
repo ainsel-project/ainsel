@@ -6,8 +6,6 @@ type AinselConfig = {
   oidcClientId: string
   oidcProjectId?: string
   oidcScopes?: string
-  forgejoApiBase?: string
-  forgejoRepo?: string
 }
 
 export type ResolvedConfig = AinselConfig & { authMode: AuthMode }

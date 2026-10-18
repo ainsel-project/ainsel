@@ -20,8 +20,6 @@ OIDC_ISSUER="${OIDC_ISSUER:-}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-}"
 OIDC_PROJECT_ID="${OIDC_PROJECT_ID:-}"
 OIDC_SCOPES="${OIDC_SCOPES:-}"
-FORGEJO_API_BASE="${FORGEJO_API_BASE:-}"
-FORGEJO_REPO="${FORGEJO_REPO:-}"
 
 write_config() {
   auth_mode="$1"
@@ -32,8 +30,6 @@ window.__AINSEL_CONFIG__ = {
   oidcClientId: "${OIDC_CLIENT_ID}",
   oidcProjectId: "${OIDC_PROJECT_ID}",
   oidcScopes: "${OIDC_SCOPES}",
-  forgejoApiBase: "${FORGEJO_API_BASE}",
-  forgejoRepo: "${FORGEJO_REPO}",
 };
 EOF
 }

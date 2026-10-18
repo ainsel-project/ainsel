@@ -9,10 +9,6 @@ agentOperator:
     repository: dpinsel/ainsel-k8s-ai-agent-operator
     tag: latest
     pullPolicy: IfNotPresent
-  forgejoUrl: ""
-  forgejoTokenSecret:
-    name: forgejo-admin-token
-    key: token
 
 connectorOperator:
   image:
@@ -89,10 +85,6 @@ auth:
   oidcScopes: "openid profile email offline_access"
   oidcRolesClaim: "groups"
   internalValidateSecret: ""
-
-forgejo:
-  apiBase: ""
-  repo: ""
 
 mcp:
   enabled: false

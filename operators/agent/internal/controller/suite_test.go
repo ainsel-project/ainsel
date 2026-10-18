@@ -60,9 +60,6 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "config", "crd", "bases"),
-			// Stub CRDs for resources owned by external operators (e.g. KEDA) so we
-			// can verify the controller reconciles them without vendoring their CRDs.
-			filepath.Join("..", "..", "test", "crds"),
 		},
 		ErrorIfCRDPathMissing: true,
 	}

@@ -302,7 +302,6 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 		// below so image config can never override it (see
 		// platformManagedAgentEnv).
 		{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: resolveHubInternalToken()},
-		{Name: "HUB_ENABLED", Value: "true"},
 	}
 	// OLLAMA_API_KEY is required by the pi/Ollama-Cloud runtime.
 	// The secret is created by the hub backend when the agent is
