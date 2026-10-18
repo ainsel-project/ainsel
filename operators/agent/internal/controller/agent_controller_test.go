@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -16,6 +18,30 @@ import (
 
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
+
+// receiveEventWith drains a fake recorder's events until one contains all of
+// want. Unrelated events can be queued ahead of the one under test — the
+// digest-resolution Warning fires for every reconcile whose image is
+// unreachable — so a single Receive would race.
+func receiveEventWith(events <-chan string, want ...string) bool {
+	for {
+		select {
+		case ev := <-events:
+			match := true
+			for _, w := range want {
+				if !strings.Contains(ev, w) {
+					match = false
+					break
+				}
+			}
+			if match {
+				return true
+			}
+		case <-time.After(2 * time.Second):
+			return false
+		}
+	}
+}
 
 var _ = Describe("Agent Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -497,10 +523,8 @@ var _ = Describe("Agent Controller", func() {
 			Expect(degradedCondition.Message).To(ContainSubstring("MISSING_TOKEN"))
 
 			By("Verifying a Warning Event was recorded")
-			Expect(fakeRecorder.Events).To(Receive(And(
-				ContainSubstring("MCPTokenEnvMissing"),
-				ContainSubstring("forgejo-mcp-server"),
-			)))
+			Expect(receiveEventWith(fakeRecorder.Events, "MCPTokenEnvMissing", "forgejo-mcp-server")).To(BeTrue(),
+				"a Warning event about the missing token env var must be recorded")
 
 			By("Verifying MCP_SERVER_TOKENS is not set (all entries skipped)")
 			deploy := &appsv1.Deployment{}

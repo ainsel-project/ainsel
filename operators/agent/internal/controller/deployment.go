@@ -645,8 +645,16 @@ func (r *AgentReconciler) stampPodTemplateAnnotations(ctx context.Context, agent
 	// digest changes, which causes Kubernetes to perform a rolling
 	// restart so agents pick up the new image automatically.
 	if digest, err := resolveImageDigest(ctx, podImage); err != nil {
-		logf.FromContext(ctx).Info("could not resolve image digest; skipping restart annotation",
-			"image", podImage, "error", err)
+		// Non-blocking by design: a registry outage or an unsupported registry
+		// must never stop the Deployment from reconciling. But the lost restart
+		// trigger is invisible from the outside — the agent just keeps running
+		// the old image — so surface it as a Warning event on the Agent.
+		logf.FromContext(ctx).Error(err, "could not resolve image digest; skipping restart annotation",
+			"image", podImage)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(agent, corev1.EventTypeWarning, "ImageDigestResolutionFailed",
+				"Could not resolve image digest for %s; restart-on-rebuild annotation skipped: %v", podImage, err)
+		}
 	} else {
 		deploy.Spec.Template.Annotations[imageDigestAnnotation] = digest
 	}
