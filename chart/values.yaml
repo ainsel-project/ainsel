@@ -378,10 +378,11 @@ auth:
   # Space-separated scopes; empty uses standard scopes, or legacy project scope
   # when oidcProjectId is supplied. Set explicitly for provider-specific scopes.
   oidcScopes: ""
-  # JWT claim containing role strings or object keys (e.g. groups).
+  # JWT claim containing role strings or object keys. Empty reads `groups`, or
+  # the legacy Zitadel project-roles claim when oidcProjectId is set.
   # Exact claim keys take precedence over dotted nested paths.
   # Roles are informational; application permissions are managed in the hub DB.
-  oidcRolesClaim: "urn:zitadel:iam:org:project:roles"
+  oidcRolesClaim: ""
   # Deprecated Zitadel compatibility alias; not required for other providers.
   oidcProjectId: ""
   # Allow the hub backend to run WITHOUT auth middleware (sets

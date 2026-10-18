@@ -44,6 +44,15 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/* Roles claim; empty lets the services default to `groups`. */}}
+{{- define "ainsel.oidcRolesClaim" -}}
+{{- if .Values.auth.oidcRolesClaim -}}
+{{- .Values.auth.oidcRolesClaim -}}
+{{- else if .Values.auth.oidcProjectId -}}
+urn:zitadel:iam:org:project:roles
+{{- end -}}
+{{- end -}}
+
 {{/* Shared provider scopes for browser and MCP clients. */}}
 {{- define "ainsel.oidcScopes" -}}
 {{- if .Values.auth.oidcScopes -}}
