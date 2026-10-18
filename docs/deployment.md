@@ -329,6 +329,51 @@ kubectl run curl-test -n ainsel --rm -it --image=curlimages/curl --restart=Never
   curl -s http://hub-backend:8080/health
 ```
 
+## Ingress controllers
+
+The chart's ingress templates render differently depending on the
+`className` set on `hub.ingress`, `ui.ingress`, and `mcp.ingress`:
+
+- **ingress-nginx** (`className: nginx`, the default): paths are rendered as
+  nginx regexes with `nginx.ingress.kubernetes.io/use-regex` and
+  `rewrite-target` annotations, which map the external paths onto the paths
+  the services serve internally (this is the behaviour the chart was
+  originally written for).
+- **Any other class** (Traefik, HAProxy, a cloud LB controller, …): paths are
+  rendered as literal paths — `pathType: Prefix` for the hub, frontend, and
+  MCP ingresses, `Exact` for the MCP OAuth `.well-known` ingresses — and
+  **all** `nginx.ingress.kubernetes.io/*` annotations are dropped, including
+  any you set in `*.ingress.annotations`, because other controllers cannot
+  interpret them.
+
+Because the nginx rewrite annotations are not rendered on other
+controllers, you must configure path rewriting in your own controller so
+the services receive the paths they serve (example paths for Traefik
+`ReplacePathRegex` / `StripPrefix` middleware, HAProxy rewrite rules, etc.):
+
+| Ingress | Published path | Path the service expects |
+|---|---|---|
+| `hub-backend` | `<hub.ingress.path>/v1/*` (default `/ainsel/api/v1/*`) | `/api/v1/*` |
+| `hub-frontend` | `<ui.ingress.path>` with any trailing nginx capture groups stripped (default `/ainsel`) | the frontend serves under `ui.basePath` |
+| `ainsel-mcp` | `<mcp.ingress.path>` (default `/ainsel/mcp`) | `/mcp` |
+| `ainsel-mcp-oauth-metadata` | `/.well-known/oauth-authorization-server<mcp.ingress.path>` | `/.well-known/oauth-authorization-server` |
+| `ainsel-mcp-oauth-protected-resource` | `/.well-known/oauth-protected-resource<mcp.ingress.path>` | `/.well-known/oauth-protected-resource` |
+
+> **Security:** the hub-backend ingress must publish only
+> `<hub.ingress.path>/v1/*`. The hub also serves `/api/internal/*` on the
+> same port, authenticated solely by the cluster-wide `X-Internal-Token`
+> secret — those routes must never be reachable from outside the cluster.
+> On ingress-nginx this isolation is enforced by the regex capture group;
+> on other controllers it is enforced by the literal `Prefix` path. Do not
+> add rewrite or catch-all rules that widen it back to the path root.
+
+WebhookConnector ingresses are created by the event-gateway operator with
+literal `Exact` paths and are controller-agnostic already.
+
+The rendering is covered by golden-file tests:
+`python3 scripts/test-chart-ingress.py` (regenerate with `--update` after
+intentional template changes).
+
 ## ArgoCD Deployment
 
 For GitOps, create an ArgoCD Application that points at this repo's `chart/` directory:

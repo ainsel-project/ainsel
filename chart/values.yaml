@@ -172,6 +172,11 @@ hub:
   # must operate on a different namespace than it is deployed to.
   namespace: ""
   ingress:
+    # With className: nginx the path below is rendered as an nginx regex
+    # together with use-regex/rewrite-target annotations. Any other class
+    # renders a literal Prefix path and drops every nginx.ingress.kubernetes.io/*
+    # annotation (including the ones here) — see "Ingress controllers" in
+    # docs/deployment.md.
     enabled: true
     host: ainsel.example.com
     path: /ainsel/api
@@ -232,6 +237,9 @@ ui:
     tag: "0.2.1"
     pullPolicy: IfNotPresent
   ingress:
+    # See the note on hub.ingress: non-nginx classes get a literal Prefix path
+    # (trailing capture groups such as (/|$)(.*) are stripped) and no nginx
+    # annotations.
     enabled: true
     host: ainsel.example.com
     path: /ainsel(/|$)(.*)
@@ -321,6 +329,9 @@ mcp:
   # metadata and the WWW-Authenticate header. Required when mcp.enabled is true.
   resourceUrl: ""
   ingress:
+    # See the note on hub.ingress: non-nginx classes get literal Prefix/Exact
+    # paths and no nginx rewrite annotations, so the rewrite onto /mcp has to
+    # be done by controller-side middleware.
     enabled: true
     host: ainsel.example.com
     path: /ainsel/mcp

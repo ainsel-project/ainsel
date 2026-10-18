@@ -113,7 +113,7 @@ written `<component>.<key>`:
 | `hub.ingress.enabled` | bool | `true` | Enable ingress |
 | `hub.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
 | `hub.ingress.path` | string | `/ainsel/api` | Ingress path prefix; only `<path>/v1/*` is published |
-| `hub.ingress.className` | string | `nginx` | Ingress class |
+| `hub.ingress.className` | string | `nginx` | Ingress class. `nginx` renders regex paths and nginx rewrite annotations; any other class renders a literal `<path>/v1` Prefix path (no nginx annotations) — configure controller-side rewrite middleware |
 | `hub.ingress.tlsSecretName` | string | `hub-tls` | Secret holding the TLS certificate for this host |
 | `hub.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /api/$2` | Ingress annotations |
 | `hub.platformExternalUrl` | string | `""` | Externally-reachable platform URL. When empty it is derived from the hub ingress host and `ui.basePath` (`https://<hub.ingress.host><basePath>`) |
@@ -153,7 +153,7 @@ via `hub.extraEnv` in your `values.yaml`.
 | `ui.ingress.enabled` | bool | `true` | Enable ingress |
 | `ui.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
 | `ui.ingress.path` | string | `/ainsel(/|$)(.*)` | Ingress path (regex form used with the rewrite-target annotation) |
-| `ui.ingress.className` | string | `nginx` | Ingress class |
+| `ui.ingress.className` | string | `nginx` | Ingress class. Non-nginx classes render a literal Prefix path (trailing nginx capture groups stripped, no nginx annotations) |
 | `ui.ingress.tlsSecretName` | string | `ui-tls` | Secret holding the TLS certificate for this host |
 | `ui.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /$2` | Ingress annotations |
 | `ui.resources` | object | 10m/16Mi → 100m/64Mi | CPU/memory |
@@ -193,7 +193,7 @@ The AInsel MCP server ([`services/mcp`](../../services/mcp/)), opt-in.
 | `mcp.ingress.enabled` | bool | `true` | Enable ingress (also renders the OAuth metadata well-known ingresses) |
 | `mcp.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
 | `mcp.ingress.path` | string | `/ainsel/mcp` | Ingress path |
-| `mcp.ingress.className` | string | `nginx` | Ingress class |
+| `mcp.ingress.className` | string | `nginx` | Ingress class. Non-nginx classes render literal paths (no nginx rewrite annotations) — configure controller-side rewrite middleware |
 | `mcp.ingress.annotations` | object | `{}` | Ingress annotations |
 | `mcp.resources` | object | 50m/64Mi → 200m/128Mi | CPU/memory |
 
