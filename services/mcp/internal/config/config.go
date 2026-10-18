@@ -15,7 +15,6 @@ type Config struct {
 	OIDCRolesClaim         string
 	OIDCScopes             string
 	OIDCSigningAlgs        []string
-	OIDCClientID           string
 	MCPResourceURL         string
 	HubURL                 string
 	InternalValidateSecret string
@@ -30,7 +29,6 @@ func Load() Config {
 		OIDCRolesClaim:         oidcCfg.RolesClaim,
 		OIDCScopes:             envStr("OIDC_SCOPES", ""),
 		OIDCSigningAlgs:        oidcCfg.SigningAlgs,
-		OIDCClientID:           envStr("OIDC_CLIENT_ID", ""),
 		MCPResourceURL:         envStr("MCP_RESOURCE_URL", ""),
 		HubURL:                 envStr("HUB_URL", "http://hub-backend.ainsel.svc.cluster.local:8080"),
 		InternalValidateSecret: envStr("INTERNAL_VALIDATE_SECRET", ""),
