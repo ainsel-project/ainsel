@@ -221,8 +221,8 @@ func jsonPayload(s string) map[string]any {
 
 // TestTriggerDirectorAutomatedLabel documents the filter config for the
 // t-director-automated-label trigger. The payload shape matches what the
-// normalizer emits for issue.label.added events after the label field was
-// added to IssueData.
+// normalizer emits for issue.label.added events, where the payload carries
+// the single added label alongside the issue object.
 func TestTriggerDirectorAutomatedLabel(t *testing.T) {
 	// Payload: issue.label.added — "automated" was just applied to issue #181.
 	payload := jsonPayload(`{
