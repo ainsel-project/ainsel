@@ -88,7 +88,7 @@ func main() {
 		metadata, err := auth.ProtectedResourceMetadataHandler(auth.MetadataConfig{
 			ResourceURL: cfg.MCPResourceURL,
 			Issuer:      cfg.OIDCIssuer,
-			Scopes:      os.Getenv("OIDC_SCOPES"),
+			Scopes:      cfg.OIDCScopes,
 		})
 		if err != nil {
 			log.Error("OAuth protected resource metadata", "error", err)
