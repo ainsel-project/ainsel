@@ -66,6 +66,25 @@ When the Agent controller creates a Deployment for an Agent CR, it sets these en
 | `HUB_INTERNAL_VALIDATE_SECRET` | Operator env | `X-Internal-Token` used against the hub's internal endpoints. Platform-owned: declarations on the AgentImage are dropped in favour of this. |
 | `AGENT_PERSONA_PATH` | Mount path | Path to persona file |
 
+## Image Digest Resolution (restart-on-rebuild)
+
+Before writing an agent Deployment, the operator resolves the image tag to the
+registry manifest digest and stamps it on the pod template as
+`ainsel.dev/image-digest`. When a mutable tag (e.g. `:dev`) is rebuilt, the
+digest changes and Kubernetes rolls the pods so the agent picks up the new
+image. Digest-pinned references (`repo@sha256:…`) are used as-is.
+
+Authentication is anonymous, with an anonymous Docker Hub pull token for
+`docker.io`. A registry that demands credentials — GHCR, ECR, Harbor, any
+private registry — therefore fails resolution, as does a registry outage.
+
+That failure is non-blocking: the Deployment still reconciles, only the digest
+annotation is skipped, so the agent keeps running the old image until something
+else restarts it. The failure is reported as an `Error` log line and a Warning
+event `ImageDigestResolutionFailed` on the Agent, which is the signal that
+authenticated digest resolution (`WWW-Authenticate` challenge handling plus
+`imagePullSecrets`) is needed rather than a registry misconfiguration.
+
 ## Scaling
 
 The operator owns `Deployment.spec.replicas` directly. There is no HPA and no
