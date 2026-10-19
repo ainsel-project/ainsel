@@ -314,3 +314,38 @@ func TestFilterNullValues(t *testing.T) {
 		t.Fatal("expected not-contains on missing field to return false")
 	}
 }
+
+// TestFilterPathThroughArrayOfObjects covers raw forge payloads, where labels
+// arrive as objects: "issue.labels.name" collects the name of every label.
+func TestFilterPathThroughArrayOfObjects(t *testing.T) {
+	labeled := jsonPayload(`{"issue": {"labels": [{"id": 1, "name": "bug"}, {"id": 2, "name": "epic"}]}}`)
+	unlabeled := jsonPayload(`{"issue": {"labels": []}}`)
+
+	notEpic := Filter{Field: "issue.labels.name", Op: "not-contains", Value: "epic"}
+	if notEpic.Match(labeled) {
+		t.Fatal("expected not-contains to reject an issue labeled epic")
+	}
+	if !notEpic.Match(unlabeled) {
+		t.Fatal("expected not-contains to pass an issue without labels")
+	}
+
+	isBug := Filter{Field: "issue.labels.name", Op: "contains", Value: "bug"}
+	if !isBug.Match(labeled) {
+		t.Fatal("expected contains to find the bug label")
+	}
+
+	inAny := Filter{Field: "issue.labels.name", Op: "in", Values: []string{"epic", "rfc"}}
+	if !inAny.Match(labeled) {
+		t.Fatal("expected in to match the epic label")
+	}
+}
+
+// TestFilterPathThroughArraySkipsElementsWithoutField checks that elements
+// missing the remaining path are ignored instead of failing the whole match.
+func TestFilterPathThroughArraySkipsElementsWithoutField(t *testing.T) {
+	payload := jsonPayload(`{"items": [{"name": "a"}, "scalar", {"other": 1}, {"name": "b"}]}`)
+	f := Filter{Field: "items.name", Op: "contains", Value: "b"}
+	if !f.Match(payload) {
+		t.Fatal("expected match on the element that has the field")
+	}
+}
