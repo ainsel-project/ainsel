@@ -150,11 +150,48 @@ func (s *Store) UserPasswordHash(ctx context.Context, id string) (string, error)
 	return hash, nil
 }
 
-// SetPassword stores a new password hash for a user.
+// SetPassword stores a new password hash for a user and bumps the user's
+// token version in the same statement, so every previously issued local
+// session JWT is invalidated the moment the password changes (issue #112).
+// Doing it in one UPDATE closes the window where the new hash is stored but
+// old tokens would still validate.
 func (s *Store) SetPassword(ctx context.Context, id, hash string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`, hash, id)
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE users SET password_hash = $1, token_version = token_version + 1, updated_at = now()
+		WHERE id = $2
+	`, hash, id)
 	if err != nil {
 		return fmt.Errorf("authz.SetPassword: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UserTokenVersion returns the user's current token version. Kept separate
+// from GetUser, like UserPasswordHash, so it never reaches serialized API
+// responses. The localauth middleware compares it against the claim embedded
+// in local session JWTs.
+func (s *Store) UserTokenVersion(ctx context.Context, id string) (int64, error) {
+	var v int64
+	err := s.pool.QueryRow(ctx, `SELECT token_version FROM users WHERE id = $1`, id).Scan(&v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("authz.UserTokenVersion: %w", err)
+	}
+	return v, nil
+}
+
+// BumpTokenVersion increments the user's token version, invalidating all
+// previously issued local session JWTs without changing the password
+// ("sign out everywhere").
+func (s *Store) BumpTokenVersion(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET token_version = token_version + 1, updated_at = now() WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("authz.BumpTokenVersion: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
