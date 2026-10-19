@@ -28,8 +28,51 @@ func (s *Server) LocalAuthEnabled() bool {
 	return len(s.localAuthSecret) > 0
 }
 
-// minPasswordLen is the password policy floor for create/reset/change.
-const minPasswordLen = 8
+// SetPasswordPolicy installs the password policy enforced on all
+// password-setting paths. Must be called before the server starts serving,
+// following the SetLocalAuthSecret pattern.
+func (s *Server) SetPasswordPolicy(p PasswordPolicy) {
+	s.passwordPolicy = &p
+}
+
+// passwordPolicyOrDefault returns the effective policy. The zero-value Server
+// (and test servers built without wiring) falls back to the default, which
+// reproduces the pre-config behavior exactly.
+func (s *Server) passwordPolicyOrDefault() PasswordPolicy {
+	if s.passwordPolicy == nil {
+		return DefaultPasswordPolicy()
+	}
+	return *s.passwordPolicy
+}
+
+// validatePassword checks a candidate password against the server's policy.
+// All three password-setting paths (create, admin reset, own change) must use
+// this so the configured policy cannot be bypassed.
+func (s *Server) validatePassword(p string) error {
+	return s.passwordPolicyOrDefault().Validate(p)
+}
+
+// handlePasswordPolicy exposes the active password policy so the frontend can
+// render matching hints on all password forms. Any authenticated caller may
+// read it: the change-password form is available to non-admins, and the rules
+// are enforced visibly at set-time anyway, so the policy is not a secret.
+// Mounted inside the auth middleware (see serveHTTPInner).
+func (s *Server) handlePasswordPolicy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	p := s.passwordPolicyOrDefault()
+	classes := p.RequireClasses
+	if classes == nil {
+		classes = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"minLength":               p.MinLength,
+		"maxLength":               MaxPasswordLen,
+		"requireCharacterClasses": classes,
+	})
+}
 
 // usernameRe restricts local usernames to a safe, lowercase, URL-friendly
 // character set so they can never collide with OIDC subs or break paths.
@@ -38,16 +81,6 @@ var usernameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$`)
 func validateUsername(u string) error {
 	if !usernameRe.MatchString(u) {
 		return errors.New("username must be 1-64 chars of lowercase a-z, 0-9, '.', '_', '-' (no leading/trailing punctuation)")
-	}
-	return nil
-}
-
-func validatePassword(p string) error {
-	if len(p) < minPasswordLen {
-		return errors.New("password must be at least 8 characters")
-	}
-	if len(p) > 128 {
-		return errors.New("password must be at most 128 characters")
 	}
 	return nil
 }
@@ -189,7 +222,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
-	if err := validatePassword(body.New); err != nil {
+	if err := s.validatePassword(body.New); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

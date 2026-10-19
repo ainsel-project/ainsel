@@ -76,3 +76,56 @@ func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 		}
 	})
 }
+
+func TestPasswordPolicyFromEnv(t *testing.T) {
+	// Defaults must reproduce the historical hard-coded policy exactly:
+	// min 8, max 128 (hard), no character classes.
+	t.Setenv("HUB_LOCAL_PASSWORD_MIN_LENGTH", "")
+	t.Setenv("HUB_LOCAL_PASSWORD_CHARACTER_CLASSES", "")
+	p, err := passwordPolicyFromEnv()
+	if err != nil {
+		t.Fatalf("defaults: unexpected error %v", err)
+	}
+	if p.MinLength != 8 || len(p.RequireClasses) != 0 {
+		t.Fatalf("defaults: got %+v", p)
+	}
+
+	t.Run("valid overrides", func(t *testing.T) {
+		t.Setenv("HUB_LOCAL_PASSWORD_MIN_LENGTH", "12")
+		t.Setenv("HUB_LOCAL_PASSWORD_CHARACTER_CLASSES", "upper, digit")
+		p, err := passwordPolicyFromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.MinLength != 12 || len(p.RequireClasses) != 2 || p.RequireClasses[0] != "upper" || p.RequireClasses[1] != "digit" {
+			t.Fatalf("got %+v", p)
+		}
+	})
+
+	// Every rejection must name the offending variable: a typo'd policy must
+	// fail the deploy loudly, not silently weaken it.
+	cases := []struct {
+		name        string
+		minLen      string
+		classes     string
+		wantErrName string
+	}{
+		{"min length zero", "0", "", "HUB_LOCAL_PASSWORD_MIN_LENGTH"},
+		{"min length above hard max", "129", "", "HUB_LOCAL_PASSWORD_MIN_LENGTH"},
+		{"min length not an integer", "twelve", "", "HUB_LOCAL_PASSWORD_MIN_LENGTH"},
+		{"unknown class", "", "lower,bogus", "HUB_LOCAL_PASSWORD_CHARACTER_CLASSES"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HUB_LOCAL_PASSWORD_MIN_LENGTH", tc.minLen)
+			t.Setenv("HUB_LOCAL_PASSWORD_CHARACTER_CLASSES", tc.classes)
+			_, err := passwordPolicyFromEnv()
+			if err == nil {
+				t.Fatal("want startup error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.wantErrName) {
+				t.Fatalf("error %q must name %s", err, tc.wantErrName)
+			}
+		})
+	}
+}

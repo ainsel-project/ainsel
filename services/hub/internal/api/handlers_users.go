@@ -54,7 +54,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := validatePassword(body.Password); err != nil {
+	if err := s.validatePassword(body.Password); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -192,7 +192,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Password != nil {
 			// Admin password reset for any user with local credentials.
-			if err := validatePassword(*body.Password); err != nil {
+			if err := s.validatePassword(*body.Password); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}

@@ -330,7 +330,12 @@ func wireLocalAuth(ctx context.Context, c *container) error {
 		return fmt.Errorf("auth mode local requires HUB_LOCAL_JWT_SECRET to be set")
 	}
 
-	if err := bootstrapLocalAdmin(ctx, c.authzStore); err != nil {
+	policy, err := passwordPolicyFromEnv()
+	if err != nil {
+		return err
+	}
+
+	if err := bootstrapLocalAdmin(ctx, c.authzStore, policy); err != nil {
 		return fmt.Errorf("bootstrap local admin: %w", err)
 	}
 
@@ -347,7 +352,9 @@ func wireLocalAuth(ctx context.Context, c *container) error {
 		return userTokenMW(localMW(localauth.RequireAuth(disabledGuard(c.apiServer.IdentityPersistMiddleware(next)))))
 	})
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
-	slog.Info("local auth enabled", "loginEndpoint", "/api/v1/auth/login")
+	c.apiServer.SetPasswordPolicy(policy)
+	slog.Info("local auth enabled", "loginEndpoint", "/api/v1/auth/login",
+		"passwordMinLength", policy.MinLength, "passwordCharacterClasses", policy.RequireClasses)
 	return nil
 }
 
@@ -368,7 +375,11 @@ func wireOIDCPlusLocalAuth(ctx context.Context, c *container, oidcCfg oidc.Confi
 	if err != nil {
 		return err
 	}
-	if err := bootstrapLocalAdmin(ctx, c.authzStore); err != nil {
+	policy, err := passwordPolicyFromEnv()
+	if err != nil {
+		return err
+	}
+	if err := bootstrapLocalAdmin(ctx, c.authzStore, policy); err != nil {
 		return fmt.Errorf("bootstrap local admin: %w", err)
 	}
 	chainMW := localauth.NewChainMiddleware([]byte(secret), c.authzStore, oidcMW)
@@ -381,16 +392,48 @@ func wireOIDCPlusLocalAuth(ctx context.Context, c *container, oidcCfg oidc.Confi
 		return userTokenMW(chainMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
 	})
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
+	c.apiServer.SetPasswordPolicy(policy)
 	c.apiServer.SetUserInfoURL(userInfoURL)
-	slog.Info("oidc+local auth enabled", "issuer", oidcCfg.Issuer, "audience", oidcCfg.Audience, "loginEndpoint", "/api/v1/auth/login")
+	slog.Info("oidc+local auth enabled", "issuer", oidcCfg.Issuer, "audience", oidcCfg.Audience, "loginEndpoint", "/api/v1/auth/login",
+		"passwordMinLength", policy.MinLength, "passwordCharacterClasses", policy.RequireClasses)
 	return nil
+}
+
+// passwordPolicyFromEnv reads the HUB_LOCAL_PASSWORD_* overrides for the
+// password policy. Invalid values fail startup naming the offending
+// variable — same fail-fast posture as the rest of wireAuthMiddleware, so a
+// typo'd class name becomes a deploy-time error instead of a silently
+// weakened policy. Unset variables keep the historical defaults (min 8,
+// max 128 hard-coded, no character classes).
+func passwordPolicyFromEnv() (api.PasswordPolicy, error) {
+	p := api.DefaultPasswordPolicy()
+	if v := os.Getenv("HUB_LOCAL_PASSWORD_MIN_LENGTH"); v != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return p, fmt.Errorf("invalid HUB_LOCAL_PASSWORD_MIN_LENGTH %q: want an integer", v)
+		}
+		if n < 1 || n > api.MaxPasswordLen {
+			return p, fmt.Errorf("invalid HUB_LOCAL_PASSWORD_MIN_LENGTH %d: want 1..%d", n, api.MaxPasswordLen)
+		}
+		p.MinLength = n
+	}
+	if v := os.Getenv("HUB_LOCAL_PASSWORD_CHARACTER_CLASSES"); v != "" {
+		classes, err := api.ParsePasswordCharacterClasses(v)
+		if err != nil {
+			return p, fmt.Errorf("invalid HUB_LOCAL_PASSWORD_CHARACTER_CLASSES %q: %w", v, err)
+		}
+		p.RequireClasses = classes
+	}
+	return p, nil
 }
 
 // bootstrapLocalAdmin creates the initial admin account on first start in
 // local mode. HUB_LOCAL_ADMIN_USER defaults to "admin"; the password comes
 // from HUB_LOCAL_ADMIN_PASSWORD and is only used when the account does not
-// exist yet — restarts never silently change an existing password.
-func bootstrapLocalAdmin(ctx context.Context, store *authz.Store) error {
+// exist yet — restarts never silently change an existing password. The
+// bootstrap password is checked against the configured policy so a strict
+// policy cannot be bypassed by the very first account.
+func bootstrapLocalAdmin(ctx context.Context, store *authz.Store, policy api.PasswordPolicy) error {
 	adminUser := os.Getenv("HUB_LOCAL_ADMIN_USER")
 	if adminUser == "" {
 		adminUser = "admin"
@@ -411,6 +454,9 @@ func bootstrapLocalAdmin(ctx context.Context, store *authz.Store) error {
 	}
 	if adminPass == "" {
 		return fmt.Errorf("admin user %q does not exist and HUB_LOCAL_ADMIN_PASSWORD is empty", id)
+	}
+	if err := policy.Validate(adminPass); err != nil {
+		return fmt.Errorf("HUB_LOCAL_ADMIN_PASSWORD: %w", err)
 	}
 	hash, err := localauth.HashPassword(adminPass)
 	if err != nil {
