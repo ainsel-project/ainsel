@@ -233,6 +233,8 @@ client registration is handled there.
 | `auth.local.adminUser` | string | `admin` | Username of the bootstrapped admin account (created on first start, `mode: local` and `mode: oidc+local`) |
 | `auth.local.adminPasswordSecret` | string | `""` | Existing Secret holding the admin password under key `password`. When empty, the chart generates one into Secret `ainsel-local-admin` (read it with `kubectl -n <ns> get secret ainsel-local-admin -o jsonpath='{.data.password}' \| base64 -d`) |
 | `auth.local.jwtSecretSecret` | string | `""` | Existing Secret holding the JWT signing key under key `secret`. When empty, the chart generates one into Secret `ainsel-local-jwt` |
+| `auth.local.passwordPolicy.minLength` | int | `8` | Minimum local-account password length (1–128). Enforced by the hub on user create, admin password reset, and self-service password change. The maximum stays hard-coded at 128 (DoS guard, not a policy knob). Rendered as `HUB_LOCAL_PASSWORD_MIN_LENGTH` |
+| `auth.local.passwordPolicy.requireCharacterClasses` | list | `[]` | Required character classes: any of `lower`, `upper`, `digit`, `symbol` (ASCII printable non-alphanumeric). Empty means no class requirement. The console reads the effective policy from `GET /api/v1/auth/password-policy` and shows matching hints. Warning: the chart-generated admin password is alphanumeric only — with `symbol` required, set `auth.local.adminPasswordSecret` to a Secret whose password contains a symbol, or the hub refuses to start when it bootstraps the admin. Rendered as `HUB_LOCAL_PASSWORD_CHARACTER_CLASSES` |
 
 ### Observability
 

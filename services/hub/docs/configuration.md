@@ -54,6 +54,22 @@ login/password endpoints and for how password changes invalidate issued sessions
 | `HUB_LOCAL_ADMIN_USER` | `admin` | Username of the admin account bootstrapped on first start. |
 | `HUB_LOCAL_ADMIN_PASSWORD` | _(unset)_ | Password for the bootstrap admin. Used only while that account does not exist; ignored afterwards (change it via `PUT /api/v1/auth/password`). |
 
+The password policy for these accounts is configurable via the variables
+below. The chart renders them from `auth.local.passwordPolicy.*`; invalid
+values fail startup naming the offending variable. Unset variables keep the
+historical defaults, and the maximum length stays hard-coded at 128 (DoS
+guard, not a policy knob).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HUB_LOCAL_PASSWORD_MIN_LENGTH` | `8` | Minimum password length (1–128). Enforced on user create, admin password reset, and self-service password change; violations return a `400` listing every broken rule. Also checked against `HUB_LOCAL_ADMIN_PASSWORD` when the bootstrap admin is created. |
+| `HUB_LOCAL_PASSWORD_CHARACTER_CLASSES` | _(unset)_ | Comma-separated required character classes: `lower`, `upper`, `digit`, `symbol` (ASCII printable non-alphanumeric). Empty means no class requirement. Unknown names fail startup. |
+
+The effective policy is served at `GET /api/v1/auth/password-policy`
+(authenticated) so the console can render matching hints on all password
+forms. Password expiry (`maxAgeDays`) is not implemented yet — it needs the
+forced-password-change flow first.
+
 ## Helm Values
 
 When deployed via the ainsel-chart:
