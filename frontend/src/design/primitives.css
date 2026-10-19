@@ -320,6 +320,7 @@ table.reg tbody td {
 table.reg tbody tr:hover td { background: var(--hover-subtle); }
 table.reg tbody tr.row-err td { background: var(--signal-haze); }
 table.reg tbody tr.row-stale td { background: rgba(128, 128, 128, 0.06); }
+table.reg tbody tr.row-disabled td { opacity: 0.45; }
 table.reg .rowno {
   font-family: var(--mono);
   color: var(--ink-4);
