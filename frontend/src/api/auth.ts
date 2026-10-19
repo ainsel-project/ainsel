@@ -11,6 +11,14 @@ export type LocalUser = {
   sub: string
   username: string
   isAdmin: boolean
+  /**
+   * Forced change (issue #113): the current password was issued by someone
+   * else — the chart-generated bootstrap password, an admin-created account, or
+   * an admin reset. Until it is changed the hub's gate answers 403
+   * `password_change_required` for everything but /auth/me, /auth/password and
+   * /auth/logout, and the console routes to /change-password instead.
+   */
+  mustChangePassword: boolean
 }
 
 export type LoginResponse = {

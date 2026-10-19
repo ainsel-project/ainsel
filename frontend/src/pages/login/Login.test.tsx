@@ -30,6 +30,7 @@ function renderLogin() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<div>dashboard reached</div>} />
+          <Route path="/change-password" element={<div>change password screen</div>} />
         </Routes>
       </AuthProvider>
     </MemoryRouter>,
@@ -100,6 +101,42 @@ describe('Login', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('invalid credentials')
+    localStorage.clear()
+  })
+
+  it('sends an account still holding an issued password to the change screen', async () => {
+    // Issue #113: the bootstrap admin password, an admin-created account and an
+    // admin reset all leave the account flagged. The console would only answer
+    // 403s, so login routes to the change screen instead — and must not do the
+    // full-page bounce the unflagged path does.
+    seedConfig({ authMode: 'local' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            token: 'tok',
+            expiresAt: '2030-01-01T00:00:00Z',
+            user: { sub: 'local:admin', username: 'admin', isAdmin: true, mustChangePassword: true },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    const replaceMock = vi.fn()
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, replace: replaceMock },
+      writable: true,
+      configurable: true,
+    })
+
+    renderLogin()
+    await userEvent.type(screen.getByLabelText('Username'), 'admin')
+    await userEvent.type(screen.getByLabelText('Password'), 'secret123')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    expect(await screen.findByText('change password screen')).toBeInTheDocument()
+    expect(replaceMock).not.toHaveBeenCalled()
     localStorage.clear()
   })
 

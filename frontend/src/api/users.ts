@@ -7,6 +7,11 @@ export type HubUser = {
   username: string
   isAdmin: boolean
   disabled: boolean
+  /**
+   * Forced-change flag (issue #113), local accounts only. Optional because the
+   * registry also holds OIDC users, for whom the hub has no password to force.
+   */
+  mustChangePassword?: boolean
   createdAt: string
   updatedAt: string
 }
