@@ -277,4 +277,31 @@ describe('Profile', () => {
     expect((screen.getByLabelText('Current password') as HTMLInputElement).value).toBe('')
     expect((screen.getByLabelText('New password') as HTMLInputElement).value).toBe('')
   })
+
+  it('shows the hub-configured password policy hint on the change form', async () => {
+    authState.mode = 'local'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/auth/password-policy')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                minLength: 10,
+                maxLength: 128,
+                requireCharacterClasses: ['symbol'],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
+    renderWithProviders(<Profile />, { route: '/profile' })
+    await waitFor(() => expect(screen.getByText('kim')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText('At least 10 characters; 1 symbol.')).toBeInTheDocument(),
+    )
+  })
 })
