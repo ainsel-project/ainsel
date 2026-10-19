@@ -190,6 +190,13 @@ memberships and user tokens are kept, but the user fails all authentication:
 login is rejected and existing session JWTs and user tokens return 401 while
 disabled. Re-enabling restores access immediately.
 
+One accepted boundary: an already-established WebSocket connection
+(`/api/v1/ws`) is not torn out when the user is disabled — it stays open
+until the client reconnects, at which point the upgrade itself fails
+authentication. Until then the connection only keeps receiving the read-only
+stats/event stream; the hub does not interpret client messages on it, so no
+new authorization decisions are granted to a disabled user.
+
 ```bash
 curl -X PATCH https://ainsel.example.com/api/v1/users/<user-id> \
   -H "Authorization: Bearer <admin-token>" \
