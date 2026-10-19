@@ -117,6 +117,11 @@ spec:
             {{- end }}
             - name: HUB_METRICS_SOURCE
               value: {{ .Values.observability.metricsSource | default "postgres" | quote }}
+            {{- $authEvents := .Values.hub.authEvents | default dict }}
+            - name: HUB_AUTH_EVENT_RETENTION_DAYS
+              value: {{ $authEvents.retentionDays | default 90 | quote }}
+            - name: HUB_AUTH_EVENT_MAX_ROWS
+              value: {{ $authEvents.maxRows | default 100000 | quote }}
             - name: HUB_DB_URL
               valueFrom:
                 secretKeyRef:
