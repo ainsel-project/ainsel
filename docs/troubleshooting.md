@@ -166,6 +166,15 @@ For `auth.mode: local`: the bootstrap admin password lives in the
 reset the account by updating the Secret and deleting the `local:admin` row
 from the `users` table so the bootstrap recreates it on next start.
 
+A login that succeeds but lands on a "choose a new password" screen is not a
+failure: the account still holds a password an administrator set (bootstrap,
+user creation, or a reset) and has to replace it. API calls from such an account
+answer `403` with `"code": "password_change_required"` until it does — including
+personal access tokens, which inherit the state of the user that owns them. Only
+the user can clear the flag, by changing the password under Profile; an
+administrator reset sets it again. Deleting the user's `users` row and letting the
+bootstrap recreate the account also starts it over as flagged.
+
 ---
 
 ## MCP server not connecting
