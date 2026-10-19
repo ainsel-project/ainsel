@@ -1483,6 +1483,59 @@ Each message has the fields `id` (number), `invocationId`, `correlationId`, `age
 
 ---
 
+## Users
+
+The user registry backs authentication and authorization. Local users carry
+the ID `local:<username>`; OIDC users are persisted under their OIDC subject.
+
+### GET /api/v1/users
+
+List all registry users. Any authenticated user may call this.
+
+**Response:** `200 OK` — array of user objects:
+```json
+[
+  {"id": "local:alice", "email": "alice@example.com", "username": "alice", "isAdmin": false, "disabled": false, "createdAt": "2026-10-01T12:00:00Z", "updatedAt": "2026-10-19T12:00:00Z"}
+]
+```
+
+### POST /api/v1/users
+
+Create a locally-managed user (admin only).
+
+**Request:** `{"username": "alice", "password": "...", "email": "alice@example.com", "isAdmin": false}`
+
+**Status codes:** `201`, `400` on an invalid username/password, `409` if the user already exists.
+
+### GET /api/v1/users/{id}
+
+Fetch one user. **Status codes:** `200`, `404`.
+
+### PATCH /api/v1/users/{id}
+
+Partial update (admin only). Any subset of the fields below; omitted fields are
+untouched. Returns the updated user object (same shape as the list above).
+
+| Field | Meaning |
+|-------|---------|
+| `isAdmin` | Grant or revoke the admin role. Demoting the last admin is rejected. |
+| `password` | Admin password reset for users with local credentials. Invalidates that user's existing session JWTs (token versioning). |
+| `disabled` | Disable or re-enable the account without deleting it. Group memberships and user tokens are kept; while disabled, login, session JWTs, and user tokens all fail with `401`. See [access control](./access-control.md). |
+
+Guards when disabling: an admin cannot disable their own account, and the last
+admin cannot be disabled. Disabling does not force-teardown an open
+`/api/v1/ws` connection (see the caveat in
+[access control](./access-control.md)).
+
+**Status codes:** `200`, `400` on an invalid new password or malformed body, `403` for non-admin callers, `404` for an unknown user, `409` with `"cannot disable your own account"`, `"cannot disable the last admin"`, or `"cannot demote the last admin"`.
+
+### DELETE /api/v1/users/{id}
+
+Delete a registry user (admin only). Guards: no self-deletion; the last admin
+cannot be deleted. **Status codes:** `204`, `403`, `404`, `409`.
+
+---
+
 ## Tokens
 
 ### GET /api/v1/tokens

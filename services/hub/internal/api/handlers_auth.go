@@ -110,6 +110,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		fail()
 		return
 	}
+	if u.Disabled {
+		// Same generic 401 as a wrong password — never reveal that the
+		// account exists but is disabled. Logged separately for audit.
+		slog.Info("auth_login_disabled_user", "log_type", "auth_event", "username", body.Username)
+		fail()
+		return
+	}
 
 	// Embed the current token version so a later password change/reset or
 	// sign-out-everywhere invalidates this token (issue #112). One extra PK

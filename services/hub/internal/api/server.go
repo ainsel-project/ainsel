@@ -32,6 +32,7 @@ type authzStore interface {
 	GetUser(ctx context.Context, id string) (*authz.User, error)
 	ListUsers(ctx context.Context) ([]authz.User, error)
 	SetAdmin(ctx context.Context, userID string, isAdmin bool) error
+	SetDisabled(ctx context.Context, userID string, disabled bool) error
 	ClearUsername(ctx context.Context, id string) error
 	CreateLocalUser(ctx context.Context, id, email, username, passwordHash string, isAdmin bool) (*authz.User, error)
 	UserPasswordHash(ctx context.Context, id string) (string, error)

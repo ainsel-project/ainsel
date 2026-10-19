@@ -70,6 +70,15 @@ func (f *fakeAuthzStore) SetAdmin(_ context.Context, id string, isAdmin bool) er
 	f.users[id] = u
 	return nil
 }
+func (f *fakeAuthzStore) SetDisabled(_ context.Context, id string, disabled bool) error {
+	u, ok := f.users[id]
+	if !ok {
+		return authz.ErrNotFound
+	}
+	u.Disabled = disabled
+	f.users[id] = u
+	return nil
+}
 func (f *fakeAuthzStore) CreateLocalUser(_ context.Context, id, email, username, passwordHash string, isAdmin bool) (*authz.User, error) {
 	if _, ok := f.users[id]; ok {
 		return nil, authz.ErrAlreadyExists
