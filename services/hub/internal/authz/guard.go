@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -30,7 +31,10 @@ type DisabledUserChecker interface {
 // requests is the job of the surrounding closers (RequireAuth, oidcMW).
 // Users with no registry row yet pass through: a first-seen OIDC identity is
 // legitimately not persisted until IdentityPersistMiddleware runs, which sits
-// inside this guard in both wired chains.
+// inside this guard in every wired chain.
+//
+// Error bodies use the API's JSON error envelope ({"error": ...}) so clients
+// that parse the standard shape work unchanged on the disabled path.
 func NewDisabledGuard(store DisabledUserChecker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,14 +49,24 @@ func NewDisabledGuard(store DisabledUserChecker) func(http.Handler) http.Handler
 					next.ServeHTTP(w, r)
 					return
 				}
-				http.Error(w, "internal error", http.StatusInternalServerError)
+				writeGuardError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			if disabled {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				// Same generic "unauthorized" message as the anonymous closers:
+				// "disabled" must not be distinguishable from "not signed in".
+				writeGuardError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// writeGuardError mirrors the api package's writeError envelope without
+// importing it (authz must stay dependency-light).
+func writeGuardError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

@@ -2,6 +2,7 @@ package authz_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -52,6 +53,18 @@ func TestDisabledGuard_BlocksDisabledUser(t *testing.T) {
 	rec := doGuard(mux, "alice")
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("disabled user: status = %d, want 401", rec.Code)
+	}
+	// The body must use the API's JSON error envelope, not http.Error's
+	// text/plain, so clients parsing {"error": ...} work on this path too.
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("content type = %q, want application/json", ct)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body %q is not JSON: %v", rec.Body.String(), err)
+	}
+	if body["error"] != "unauthorized" {
+		t.Fatalf("error = %q, want %q", body["error"], "unauthorized")
 	}
 }
 
