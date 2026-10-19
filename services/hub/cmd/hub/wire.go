@@ -308,11 +308,15 @@ func wireOIDCAuth(c *container, oidcCfg oidc.Config) error {
 	userTokenMW := buildUserTokenMiddleware(c)
 	// Authorization is enforced in handlers via requireRead/requireWrite/
 	// requireManage helpers. The middleware chain only handles authentication.
+	// The disabled guard sits inside both token middlewares so a disabled
+	// user is rejected even with a still-valid OIDC access token; it is
+	// required in every future chain too (e.g. a combined oidc+local mode).
 	// The identity persistence middleware is the innermost handler so it
 	// runs after userTokenMW and oidcMW have populated the request context
 	// with the authenticated user's identity.
+	disabledGuard := authz.NewDisabledGuard(c.authzStore)
 	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
-		return userTokenMW(oidcMW(c.apiServer.IdentityPersistMiddleware(next)))
+		return userTokenMW(oidcMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
 	})
 	c.apiServer.SetUserInfoURL(userInfoURL)
 	return nil
@@ -332,11 +336,15 @@ func wireLocalAuth(ctx context.Context, c *container) error {
 
 	localMW := localauth.NewMiddleware([]byte(secret), c.authzStore)
 	userTokenMW := buildUserTokenMiddleware(c)
+	// The disabled guard sits inside both token middlewares (required in any
+	// future combined chain too): local session JWTs are verified statelessly,
+	// so this is what makes disabling take effect immediately.
+	disabledGuard := authz.NewDisabledGuard(c.authzStore)
 	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
 		// RequireAuth sits inside both token middlewares: anonymous requests
 		// fall through the token checks and are rejected there, mirroring how
 		// the OIDC middleware rejects missing bearer tokens.
-		return userTokenMW(localMW(localauth.RequireAuth(c.apiServer.IdentityPersistMiddleware(next))))
+		return userTokenMW(localMW(localauth.RequireAuth(disabledGuard(c.apiServer.IdentityPersistMiddleware(next)))))
 	})
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
 	slog.Info("local auth enabled", "loginEndpoint", "/api/v1/auth/login")
@@ -365,8 +373,12 @@ func wireOIDCPlusLocalAuth(ctx context.Context, c *container, oidcCfg oidc.Confi
 	}
 	chainMW := localauth.NewChainMiddleware([]byte(secret), c.authzStore, oidcMW)
 	userTokenMW := buildUserTokenMiddleware(c)
+	// Same innermost-guard rule as the single-mode chains: both halves of
+	// chainMW verify tokens statelessly, so the disabled check must run
+	// inside chainMW and outside IdentityPersistMiddleware.
+	disabledGuard := authz.NewDisabledGuard(c.authzStore)
 	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
-		return userTokenMW(chainMW(c.apiServer.IdentityPersistMiddleware(next)))
+		return userTokenMW(chainMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
 	})
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
 	c.apiServer.SetUserInfoURL(userInfoURL)
