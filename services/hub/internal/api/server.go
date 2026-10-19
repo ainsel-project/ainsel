@@ -36,6 +36,8 @@ type authzStore interface {
 	CreateLocalUser(ctx context.Context, id, email, username, passwordHash string, isAdmin bool) (*authz.User, error)
 	UserPasswordHash(ctx context.Context, id string) (string, error)
 	SetPassword(ctx context.Context, id, hash string) error
+	UserTokenVersion(ctx context.Context, id string) (int64, error)
+	BumpTokenVersion(ctx context.Context, id string) error
 	DeleteUser(ctx context.Context, id string) error
 	UserGroupIDs(ctx context.Context, userID string) ([]string, error)
 	UserGroupRoles(ctx context.Context, userID string) (map[string]authz.GroupRole, error)
@@ -272,6 +274,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
 	s.mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
 	s.mux.HandleFunc("/api/v1/auth/password", s.handleChangePassword)
+	s.mux.HandleFunc("/api/v1/auth/sign-out-all", s.handleSignOutAll)
 	s.mux.HandleFunc("/api/v1/user-tokens", s.handleUserTokens)
 	s.mux.HandleFunc("/api/v1/user-tokens/", s.handleUserTokenDelete)
 	s.mux.HandleFunc("/api/internal/user-tokens/validate", s.handleUserTokenValidate)

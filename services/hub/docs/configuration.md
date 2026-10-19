@@ -40,6 +40,20 @@ permissions. `ZITADEL_ISSUER` and `OIDC_PROJECT_ID` remain aliases; neutral
 variables take precedence, and an unset audience falls back to the legacy
 project ID before the client ID.
 
+### Auth (local)
+
+With `HUB_AUTH_MODE=local` — or `oidc+local`, where it is the break-glass path
+alongside the IdP — the hub authenticates users against its own `users` table
+(argon2id password hashes) and issues stateless session JWTs.
+See [api.md](api.md#local-authentication) for the login/password endpoints
+and for how password changes invalidate issued sessions.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HUB_LOCAL_JWT_SECRET` | _required_ | HS256 signing secret for local session JWTs. The hub refuses to start in local mode without it. Rotating it invalidates every session; it is not covered by token versioning — treat it like a credential. |
+| `HUB_LOCAL_ADMIN_USER` | `admin` | Username of the admin account bootstrapped on first start. |
+| `HUB_LOCAL_ADMIN_PASSWORD` | _(unset)_ | Password for the bootstrap admin. Used only while that account does not exist; ignored afterwards (change it via `PUT /api/v1/auth/password`). |
+
 ## Helm Values
 
 When deployed via the ainsel-chart:

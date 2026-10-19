@@ -56,6 +56,74 @@ Returns the health status of the hub backend.
 
 ---
 
+## Local Authentication
+
+Available when the hub runs with `HUB_AUTH_MODE=local` or `HUB_AUTH_MODE=oidc+local`
+(the break-glass path of a coexistence install; see
+[configuration.md](configuration.md)). Local users authenticate with a
+username/password and receive a stateless session JWT (12h TTL) used as a
+`Bearer` token. Passwords are never stored in plain text and never appear in
+API responses.
+
+### POST /api/v1/auth/login
+
+Exchanges credentials for a session token. Rate-limited per IP and per
+username. Returns a generic 401 for any failure (unknown user, wrong
+password).
+
+**Request:**
+```json
+{"username": "alice", "password": "secret123"}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "token": "<jwt>",
+  "expiresAt": "2026-10-19T18:00:00Z",
+  "user": {"sub": "local:alice", "username": "alice", "isAdmin": false}
+}
+```
+
+### POST /api/v1/auth/logout
+
+Stateless no-op (`204 No Content`) for API symmetry: the client discards its
+token. To actually revoke sessions, use `sign-out-all` or change the password.
+
+### PUT /api/v1/auth/password
+
+Changes the caller's own password (local accounts only). Requires knowledge
+of the current password.
+
+**Request:**
+```json
+{"current": "secret123", "new": "newsecret456"}
+```
+
+**Response:** `200 OK` — `"status": "ok"`. A wrong `current` password yields
+401 and does **not** invalidate existing sessions.
+
+### POST /api/v1/auth/sign-out-all
+
+Bumps the caller's token version, immediately invalidating **every** local
+session JWT issued for that user — including the one making this call
+(`200 OK`). The next request with any old token gets 401; re-login via
+`/auth/login` restores access.
+
+### Session invalidation (token versioning)
+
+Each user carries a `token_version` counter embedded as a claim in every
+issued JWT. The auth middleware compares the claim against the stored value
+on every request; a mismatch means 401. The counter is bumped automatically
+on any password change or admin reset (`PATCH /api/v1/users/{id}` with a
+`password` field) and explicitly by `sign-out-all`. A password change or
+reset therefore logs out **all** of that user's local sessions immediately —
+in `oidc+local` mode exactly as in `local` mode, so a coexistence install
+cannot opt out of revocation. OIDC tokens and user tokens
+(`/api/v1/user-tokens`, which have their own revocation) are unaffected.
+
+---
+
 ## Agents
 
 ### GET /api/v1/agents
