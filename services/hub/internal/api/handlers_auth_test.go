@@ -35,7 +35,7 @@ func localAuthTestServer(t *testing.T) (*Server, *fakeAuthzStore) {
 	s.mux.HandleFunc("/api/v1/auth/sign-out-all", s.handleSignOutAll)
 	s.mux.HandleFunc("/api/v1/users", s.handleUsers)
 	s.mux.HandleFunc("/api/v1/users/", s.handleUser)
-	s.mux.Handle("/api/v1/auth/me", oidc.MeHandler())
+	s.mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
 	return s, store
 }
 
@@ -45,7 +45,7 @@ func seedAdmin(t *testing.T, store *fakeAuthzStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateLocalUser(context.Background(), "local:admin", "", "admin", hash, true); err != nil {
+	if _, err := store.CreateLocalUser(context.Background(), "local:admin", "", "admin", hash, true, false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -307,7 +307,7 @@ func TestCreateUserRequiresAdmin(t *testing.T) {
 	seedAdmin(t, store)
 	// Non-admin local user.
 	hash, _ := localauth.HashPassword("user-password")
-	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false); err != nil {
+	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -325,7 +325,7 @@ func TestDeleteUser(t *testing.T) {
 	admin := asUser("local:admin", "admin")
 
 	hash, _ := localauth.HashPassword("user-password")
-	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false); err != nil {
+	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -350,7 +350,7 @@ func TestDeleteUserGuards(t *testing.T) {
 	}
 	// Last admin blocked (add second admin, delete self-guard check again).
 	hash, _ := localauth.HashPassword("second-admin")
-	if _, err := store.CreateLocalUser(context.Background(), "local:admin2", "", "admin2", hash, true); err != nil {
+	if _, err := store.CreateLocalUser(context.Background(), "local:admin2", "", "admin2", hash, true, false); err != nil {
 		t.Fatal(err)
 	}
 	rec = doJSON(t, s, http.MethodDelete, "/api/v1/users/local:admin2", nil, admin)
@@ -371,7 +371,7 @@ func TestAdminPasswordReset(t *testing.T) {
 	admin := asUser("local:admin", "admin")
 
 	hash, _ := localauth.HashPassword("user-password")
-	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false); err != nil {
+	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false, false); err != nil {
 		t.Fatal(err)
 	}
 

@@ -79,11 +79,11 @@ func (f *fakeAuthzStore) SetDisabled(_ context.Context, id string, disabled bool
 	f.users[id] = u
 	return nil
 }
-func (f *fakeAuthzStore) CreateLocalUser(_ context.Context, id, email, username, passwordHash string, isAdmin bool) (*authz.User, error) {
+func (f *fakeAuthzStore) CreateLocalUser(_ context.Context, id, email, username, passwordHash string, isAdmin, mustChange bool) (*authz.User, error) {
 	if _, ok := f.users[id]; ok {
 		return nil, authz.ErrAlreadyExists
 	}
-	u := authz.User{ID: id, Email: email, Username: username, IsAdmin: isAdmin, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	u := authz.User{ID: id, Email: email, Username: username, IsAdmin: isAdmin, MustChangePassword: mustChange, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	f.users[id] = u
 	f.passwords[id] = passwordHash
 	return &u, nil
@@ -94,11 +94,14 @@ func (f *fakeAuthzStore) UserPasswordHash(_ context.Context, id string) (string,
 	}
 	return f.passwords[id], nil
 }
-func (f *fakeAuthzStore) SetPassword(_ context.Context, id, hash string) error {
-	if _, ok := f.users[id]; !ok {
+func (f *fakeAuthzStore) SetPasswordWithFlag(_ context.Context, id, hash string, mustChange bool) error {
+	u, ok := f.users[id]
+	if !ok {
 		return authz.ErrNotFound
 	}
 	f.passwords[id] = hash
+	u.MustChangePassword = mustChange
+	f.users[id] = u
 	// Mirrors the real store: password writes bump the token version in the
 	// same statement, invalidating previously issued local session JWTs.
 	f.tokenVersions[id]++

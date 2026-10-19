@@ -16,7 +16,7 @@ func TestStoreLocalUserLifecycle(t *testing.T) {
 	defer env.cleanup()
 	ctx := context.Background()
 
-	u, err := env.store.CreateLocalUser(ctx, "local:alice", "alice@example.com", "alice", "$argon2id$fake", true)
+	u, err := env.store.CreateLocalUser(ctx, "local:alice", "alice@example.com", "alice", "$argon2id$fake", true, false)
 	if err != nil {
 		t.Fatalf("CreateLocalUser: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestStoreLocalUserLifecycle(t *testing.T) {
 	}
 
 	// Duplicate is rejected.
-	if _, err := env.store.CreateLocalUser(ctx, "local:alice", "", "alice", "x", false); !errors.Is(err, authz.ErrAlreadyExists) {
+	if _, err := env.store.CreateLocalUser(ctx, "local:alice", "", "alice", "x", false, false); !errors.Is(err, authz.ErrAlreadyExists) {
 		t.Fatalf("duplicate: got %v, want ErrAlreadyExists", err)
 	}
 
@@ -34,20 +34,20 @@ func TestStoreLocalUserLifecycle(t *testing.T) {
 	if err != nil || hash != "$argon2id$fake" {
 		t.Fatalf("UserPasswordHash = %q, %v", hash, err)
 	}
-	if err := env.store.SetPassword(ctx, "local:alice", "$argon2id$new"); err != nil {
-		t.Fatalf("SetPassword: %v", err)
+	if err := env.store.SetPasswordWithFlag(ctx, "local:alice", "$argon2id$new", true); err != nil {
+		t.Fatalf("SetPasswordWithFlag: %v", err)
 	}
 	hash, err = env.store.UserPasswordHash(ctx, "local:alice")
 	if err != nil || hash != "$argon2id$new" {
-		t.Fatalf("after SetPassword = %q, %v", hash, err)
+		t.Fatalf("after SetPasswordWithFlag = %q, %v", hash, err)
 	}
 
 	// Missing user errors.
 	if _, err := env.store.UserPasswordHash(ctx, "local:ghost"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("UserPasswordHash(ghost): %v", err)
 	}
-	if err := env.store.SetPassword(ctx, "local:ghost", "x"); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("SetPassword(ghost): %v", err)
+	if err := env.store.SetPasswordWithFlag(ctx, "local:ghost", "x", false); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("SetPasswordWithFlag(ghost): %v", err)
 	}
 	if err := env.store.DeleteUser(ctx, "local:ghost"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("DeleteUser(ghost): %v", err)
@@ -70,7 +70,7 @@ func TestStoreUpsertKeepsLocalPassword(t *testing.T) {
 	defer env.cleanup()
 	ctx := context.Background()
 
-	if _, err := env.store.CreateLocalUser(ctx, "local:bob", "", "bob", "$argon2id$orig", false); err != nil {
+	if _, err := env.store.CreateLocalUser(ctx, "local:bob", "", "bob", "$argon2id$orig", false, false); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate identity-persist upserts with partial data.
@@ -90,6 +90,51 @@ func TestStoreUpsertKeepsLocalPassword(t *testing.T) {
 	}
 	if u.Email != "bob@example.com" || u.Username != "bob" {
 		t.Fatalf("upsert fields wrong: %+v", u)
+	}
+}
+
+// TestStoreMustChangePassword covers the forced-change flag (issue #113): it
+// round-trips through create, is stated by every password write, and survives
+// the identity-persist upserts that run on every authenticated request.
+func TestStoreMustChangePassword(t *testing.T) {
+	env := newTestAuthZ(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	// Created flagged (bootstrap admin / admin-created user).
+	if _, err := env.store.CreateLocalUser(ctx, "local:carol", "", "carol", "$argon2id$boot", true, true); err != nil {
+		t.Fatal(err)
+	}
+	u, err := env.store.GetUser(ctx, "local:carol")
+	if err != nil || !u.MustChangePassword {
+		t.Fatalf("created flagged: %+v, %v", u, err)
+	}
+	// ListUsers reports the same flag as GetUser.
+	users, err := env.store.ListUsers(ctx)
+	if err != nil || len(users) != 1 || !users[0].MustChangePassword {
+		t.Fatalf("ListUsers flag = %+v, %v", users, err)
+	}
+
+	// Identity persistence must not clear a pending change.
+	if _, err := env.store.UpsertUser(ctx, "local:carol", "carol@example.com", "carol"); err != nil {
+		t.Fatal(err)
+	}
+	if u, err = env.store.GetUser(ctx, "local:carol"); err != nil || !u.MustChangePassword {
+		t.Fatalf("upsert cleared the flag: %+v, %v", u, err)
+	}
+
+	// Admin reset re-arms it; the owner's own change clears it.
+	if err := env.store.SetPasswordWithFlag(ctx, "local:carol", "$argon2id$reset", true); err != nil {
+		t.Fatal(err)
+	}
+	if u, err = env.store.GetUser(ctx, "local:carol"); err != nil || !u.MustChangePassword {
+		t.Fatalf("reset must arm the flag: %+v, %v", u, err)
+	}
+	if err := env.store.SetPasswordWithFlag(ctx, "local:carol", "$argon2id$chosen", false); err != nil {
+		t.Fatal(err)
+	}
+	if u, err = env.store.GetUser(ctx, "local:carol"); err != nil || u.MustChangePassword {
+		t.Fatalf("self-change must clear the flag: %+v, %v", u, err)
 	}
 }
 

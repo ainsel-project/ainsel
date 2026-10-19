@@ -35,11 +35,11 @@ type authzStore interface {
 	SetAdmin(ctx context.Context, userID string, isAdmin bool) error
 	SetDisabled(ctx context.Context, userID string, disabled bool) error
 	ClearUsername(ctx context.Context, id string) error
-	CreateLocalUser(ctx context.Context, id, email, username, passwordHash string, isAdmin bool) (*authz.User, error)
+	CreateLocalUser(ctx context.Context, id, email, username, passwordHash string, isAdmin, mustChange bool) (*authz.User, error)
 	UserPasswordHash(ctx context.Context, id string) (string, error)
-	SetPassword(ctx context.Context, id, hash string) error
 	UserTokenVersion(ctx context.Context, id string) (int64, error)
 	BumpTokenVersion(ctx context.Context, id string) error
+	SetPasswordWithFlag(ctx context.Context, id, hash string, mustChange bool) error
 	DeleteUser(ctx context.Context, id string) error
 	UserGroupIDs(ctx context.Context, userID string) ([]string, error)
 	UserGroupRoles(ctx context.Context, userID string) (map[string]authz.GroupRole, error)
@@ -274,7 +274,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/stats", s.handleStats)
 	s.mux.HandleFunc("/api/v1/ws", s.handleWs)
 	s.mux.HandleFunc("/api/v1/me", s.handleMe)
-	s.mux.Handle("/api/v1/auth/me", oidc.MeHandler())
+	s.mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
 	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/timeseries", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/agents", s.handleObservability)
@@ -342,7 +342,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
 	if s.authMW != nil && strings.HasPrefix(r.URL.Path, "/api/v1/") && !isAuthExempt(r.URL.Path) {
-		s.authMW(s.mux).ServeHTTP(w, r)
+		// The forced-change gate sits inside the auth chain because it decides on
+		// the context user, and in front of the mux because a gate the handlers
+		// have to opt into is a gate new endpoints forget.
+		s.authMW(s.passwordChangeGate(s.mux)).ServeHTTP(w, r)
 		return
 	}
 	s.mux.ServeHTTP(w, r)
@@ -351,7 +354,8 @@ func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
 // isAuthExempt lists /api/v1/* paths that must stay reachable without a
 // session. Only the login endpoint qualifies: it validates credentials
 // itself and is still protected by the global per-IP rate limiter plus a
-// per-username throttle.
+// per-username throttle. Login stays exempt even for a flagged user — they
+// need it to reach the forced change screen.
 func isAuthExempt(path string) bool {
 	return path == "/api/v1/auth/login"
 }

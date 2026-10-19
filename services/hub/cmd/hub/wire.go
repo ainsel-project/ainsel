@@ -434,6 +434,12 @@ func passwordPolicyFromEnv() (api.PasswordPolicy, error) {
 // exist yet — restarts never silently change an existing password. The
 // bootstrap password is checked against the configured policy so a strict
 // policy cannot be bypassed by the very first account.
+//
+// The bootstrapped password is issued rather than chosen by the account owner
+// — chart-generated in a Kubernetes Secret, or supplied by the operator via
+// auth.local.adminPasswordSecret — so the account is created with the
+// forced-change flag set (issue #113): the first login has to replace it
+// before the console is usable.
 func bootstrapLocalAdmin(ctx context.Context, store *authz.Store, policy api.PasswordPolicy) error {
 	adminUser := os.Getenv("HUB_LOCAL_ADMIN_USER")
 	if adminUser == "" {
@@ -463,7 +469,7 @@ func bootstrapLocalAdmin(ctx context.Context, store *authz.Store, policy api.Pas
 	if err != nil {
 		return err
 	}
-	if _, err := store.CreateLocalUser(bctx, id, "", adminUser, hash, true); err != nil {
+	if _, err := store.CreateLocalUser(bctx, id, "", adminUser, hash, true, true); err != nil {
 		if errors.Is(err, authz.ErrAlreadyExists) {
 			return nil
 		}
