@@ -15,12 +15,18 @@ import (
 
 // fakeAuthzStore is a minimal in-memory store for user-sync tests.
 type fakeAuthzStore struct {
-	users     map[string]authz.User
-	passwords map[string]string
+	users         map[string]authz.User
+	passwords     map[string]string
+	tokenVersions map[string]int64
+	versionErr    error // when set, UserTokenVersion/BumpTokenVersion fail with it
 }
 
 func newFakeAuthzStore() *fakeAuthzStore {
-	return &fakeAuthzStore{users: make(map[string]authz.User), passwords: make(map[string]string)}
+	return &fakeAuthzStore{
+		users:         make(map[string]authz.User),
+		passwords:     make(map[string]string),
+		tokenVersions: make(map[string]int64),
+	}
 }
 
 func (f *fakeAuthzStore) UpsertUser(_ context.Context, sub, email, username string) (*authz.User, error) {
@@ -84,6 +90,28 @@ func (f *fakeAuthzStore) SetPassword(_ context.Context, id, hash string) error {
 		return authz.ErrNotFound
 	}
 	f.passwords[id] = hash
+	// Mirrors the real store: password writes bump the token version in the
+	// same statement, invalidating previously issued local session JWTs.
+	f.tokenVersions[id]++
+	return nil
+}
+func (f *fakeAuthzStore) UserTokenVersion(_ context.Context, id string) (int64, error) {
+	if f.versionErr != nil {
+		return 0, f.versionErr
+	}
+	if _, ok := f.users[id]; !ok {
+		return 0, authz.ErrNotFound
+	}
+	return f.tokenVersions[id], nil
+}
+func (f *fakeAuthzStore) BumpTokenVersion(_ context.Context, id string) error {
+	if f.versionErr != nil {
+		return f.versionErr
+	}
+	if _, ok := f.users[id]; !ok {
+		return authz.ErrNotFound
+	}
+	f.tokenVersions[id]++
 	return nil
 }
 func (f *fakeAuthzStore) DeleteUser(_ context.Context, id string) error {

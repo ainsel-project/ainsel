@@ -330,7 +330,7 @@ func wireLocalAuth(ctx context.Context, c *container) error {
 		return fmt.Errorf("bootstrap local admin: %w", err)
 	}
 
-	localMW := localauth.NewMiddleware([]byte(secret))
+	localMW := localauth.NewMiddleware([]byte(secret), c.authzStore)
 	userTokenMW := buildUserTokenMiddleware(c)
 	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
 		// RequireAuth sits inside both token middlewares: anonymous requests
@@ -363,7 +363,7 @@ func wireOIDCPlusLocalAuth(ctx context.Context, c *container, oidcCfg oidc.Confi
 	if err := bootstrapLocalAdmin(ctx, c.authzStore); err != nil {
 		return fmt.Errorf("bootstrap local admin: %w", err)
 	}
-	chainMW := localauth.NewChainMiddleware([]byte(secret), oidcMW)
+	chainMW := localauth.NewChainMiddleware([]byte(secret), c.authzStore, oidcMW)
 	userTokenMW := buildUserTokenMiddleware(c)
 	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
 		return userTokenMW(chainMW(c.apiServer.IdentityPersistMiddleware(next)))
