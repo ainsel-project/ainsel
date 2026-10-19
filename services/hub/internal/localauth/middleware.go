@@ -54,6 +54,55 @@ func NewMiddleware(secret []byte) func(http.Handler) http.Handler {
 	}
 }
 
+// NewChainMiddleware returns a middleware for the "oidc+local" coexistence
+// mode (issue #114). It decides *before* delegating, using the same
+// LooksLocal/VerifyToken primitives as NewMiddleware:
+//
+//   - no bearer token, or a token that is not a local session JWT → the
+//     request is handed to the fallback chain (the OIDC middleware), which
+//     rejects anonymous requests with its own 401 — no RequireAuth closer is
+//     needed in this mode;
+//   - a valid local session JWT → the user is placed in the request context
+//     and next is called directly, so the OIDC middleware never sees a local
+//     bearer token it would reject;
+//   - a local-shaped token that fails verification → 401 directly, exactly
+//     like NewMiddleware: an expired/tampered local token must never
+//     surface as the confusing "invalid OIDC token" error.
+//
+// NewMiddleware deliberately stays untouched for "local" mode; this
+// combinator exists because plain nesting (NewMiddleware(oidcMW(next)))
+// would let a successfully authenticated local request fall into the OIDC
+// middleware and be rejected there.
+func NewChainMiddleware(secret []byte, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tok := extractBearer(r.Header.Get("Authorization"))
+			if tok == "" || !LooksLocal(tok) {
+				fallback(next).ServeHTTP(w, r)
+				return
+			}
+
+			claims, err := VerifyToken(secret, tok)
+			if err != nil {
+				http.Error(w, "invalid token", http.StatusUnauthorized)
+				return
+			}
+
+			var roles []string
+			if claims.Admin {
+				roles = []string{"admin"}
+			}
+			ctx := oidc.ContextWithUser(r.Context(), &oidc.User{
+				Sub:      claims.Sub,
+				Username: claims.Username,
+				Roles:    roles,
+			})
+			ctx = oidc.ContextWithToken(ctx, tok)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 func extractBearer(header string) string {
 	const prefix = "Bearer "
 	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {

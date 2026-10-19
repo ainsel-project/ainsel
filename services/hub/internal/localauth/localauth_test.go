@@ -176,6 +176,87 @@ func TestMiddleware(t *testing.T) {
 	})
 }
 
+// TestChainMiddleware covers the oidc+local coexistence combinator
+// (issue #114). The fallback stands in for the OIDC middleware.
+func TestChainMiddleware(t *testing.T) {
+	var seen *oidc.User
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, _ := oidc.FromContext(r.Context())
+		seen = u
+		w.WriteHeader(http.StatusOK)
+	})
+	fallbackCalled := false
+	fallback := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fallbackCalled = true
+			// Stand in for the OIDC middleware: anonymous → 401.
+			if r.Header.Get("Authorization") == "" {
+				http.Error(w, "missing bearer token", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	mw := NewChainMiddleware(testSecret, fallback)
+
+	t.Run("valid local token authenticates without touching the fallback", func(t *testing.T) {
+		seen, fallbackCalled = nil, false
+		tok, _, _ := IssueToken(testSecret, "local:alice", "alice", true)
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		mw(inner).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if fallbackCalled {
+			t.Fatal("OIDC fallback must not run for a valid local token")
+		}
+		if seen == nil || seen.Sub != "local:alice" || seen.Username != "alice" {
+			t.Fatalf("user not set correctly: %+v", seen)
+		}
+	})
+
+	t.Run("tampered local token gets 401 and never reaches the fallback", func(t *testing.T) {
+		seen, fallbackCalled = nil, false
+		tok, _, _ := IssueToken(testSecret, "local:alice", "alice", false)
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+tok+"x")
+		rec := httptest.NewRecorder()
+		mw(inner).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", rec.Code)
+		}
+		if fallbackCalled || seen != nil {
+			t.Fatalf("local-fail must not fall through: fallback=%v user=%v", fallbackCalled, seen)
+		}
+	})
+
+	t.Run("foreign token is delegated to the fallback", func(t *testing.T) {
+		seen, fallbackCalled = nil, false
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer some.rs256.token")
+		rec := httptest.NewRecorder()
+		mw(inner).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !fallbackCalled || seen != nil {
+			t.Fatalf("expected delegation, got status=%d fallback=%v user=%v", rec.Code, fallbackCalled, seen)
+		}
+	})
+
+	t.Run("anonymous request is delegated and rejected by the fallback", func(t *testing.T) {
+		seen, fallbackCalled = nil, false
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		mw(inner).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || !fallbackCalled {
+			t.Fatalf("expected 401 from fallback, got status=%d fallback=%v", rec.Code, fallbackCalled)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "missing bearer token") {
+			t.Fatalf("anonymous rejection must come from the fallback: %q", body)
+		}
+	})
+}
+
 func TestRequireAuth(t *testing.T) {
 	reached := false
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

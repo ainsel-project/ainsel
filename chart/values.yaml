@@ -375,10 +375,14 @@ chatMCP:
 # auth.allowInsecureNoAuth is true (see below); the frontend image always
 # requires a complete OIDC config, so the UI is only usable with OIDC set.
 auth:
-  # Authentication mode: oidc | local | none.
+  # Authentication mode: oidc | local | oidc+local | none.
   #   oidc  - external OIDC provider (requires oidcIssuer/oidcClientId)
   #   local - hub-managed username/password accounts (see auth.local);
   #           an admin account is bootstrapped from a chart Secret
+  #   oidc+local - both at once: login page offers SSO and a local
+  #           username/password form (gradual SSO migration or a break-glass
+  #           local admin next to SSO). Requires the full OIDC config and
+  #           the auth.local secrets; the local admin is bootstrapped too
   #   none  - no authentication; only safe port-forwarded or behind an edge
   #           auth proxy (Authelia/Authentik/oauth2-proxy)
   # Empty (default) keeps the legacy behavior: OIDC when oidcIssuer is
@@ -424,9 +428,12 @@ auth:
   # and must not become a bearer token for a second endpoint. Unset leaves
   # the catalogue endpoint answering 503, so it is opt-in per instance.
   skillsMcpToken: ""
-  # Settings for mode "local" (hub-managed username/password accounts).
+  # Settings for modes "local" and "oidc+local" (hub-managed
+  # username/password accounts).
   local:
-    # Username of the bootstrapped admin account (created on first start).
+    # Username of the bootstrapped admin account (created on first start;
+    # also created in mode oidc+local — delete it via the admin users API
+    # if you want SSO-only users despite the coexistence mode).
     adminUser: admin
     # Existing Secret holding the admin password under key "password".
     # When empty, the chart generates one into Secret "ainsel-local-admin":
