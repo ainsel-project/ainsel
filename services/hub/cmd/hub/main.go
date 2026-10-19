@@ -43,6 +43,8 @@ func main() {
 		metricsSource:          envOrDefault("HUB_METRICS_SOURCE", ""),
 		claimTimeoutSecs:       envIntOrDefault("TASK_CLAIM_TIMEOUT_SECONDS", 1800),
 		taskStartTimeoutSecs:   envIntOrDefault("TASK_START_TIMEOUT_SECONDS", 900),
+		authEventRetentionDays: envIntOrDefault("HUB_AUTH_EVENT_RETENTION_DAYS", 90),
+		authEventMaxRows:       envIntOrDefault("HUB_AUTH_EVENT_MAX_ROWS", 100000),
 		connectorCfg:           api.LoadConnectorConfig(),
 		hubAllowInsecureNoAuth: os.Getenv("HUB_ALLOW_INSECURE_NO_AUTH") == "true",
 	}
@@ -148,6 +150,35 @@ func main() {
 					slog.Error("invocation prune failed", "error", err)
 				} else if inv > 0 {
 					slog.Info("pruned old invocations", "count", inv)
+				}
+			}
+		}
+	}))
+
+	// Auth-event audit-trail retention (issue #116): hourly, non-fatal, same
+	// cadence as task-log pruning. Age first (the privacy/compliance lever),
+	// then the row cap (burst protection between sweeps); the cap keeps the
+	// newest rows.
+	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
+		retention := time.Duration(cfg.authEventRetentionDays) * 24 * time.Hour
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				n, err := c.auditEventStore.Prune(ctx, retention)
+				if err != nil {
+					slog.Error("auth event prune failed", "error", err)
+				} else if n > 0 {
+					slog.Info("pruned old auth events", "count", n)
+				}
+				n, err = c.auditEventStore.TrimToMax(ctx, cfg.authEventMaxRows)
+				if err != nil {
+					slog.Error("auth event trim failed", "error", err)
+				} else if n > 0 {
+					slog.Info("trimmed auth events to row cap", "count", n)
 				}
 			}
 		}
