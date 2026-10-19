@@ -6,11 +6,11 @@ determined by their role in that group.
 
 ## Authentication
 
-Interactive users authenticate either through an external OIDC provider or
-with hub-managed local accounts (`auth.mode: local`), depending on the
-deployment. In addition, every user can create personal access tokens for
-programmatic use. All methods resolve to the same user identity and grant
-the same permissions.
+Interactive users authenticate through an external OIDC provider, with
+hub-managed local accounts (`auth.mode: local`), or both at once
+(`auth.mode: oidc+local`), depending on the deployment. In addition, every
+user can create personal access tokens for programmatic use. All methods
+resolve to the same user identity and grant the same permissions.
 
 ### OIDC (interactive)
 
@@ -20,7 +20,8 @@ frontend handles the OAuth flow automatically. API requests carry a standard
 
 ### Local users (interactive)
 
-When the platform runs with `auth.mode: local`, users sign in with
+When the platform runs with `auth.mode: local` (or `oidc+local`, where the
+login page offers both paths), users sign in with
 username/password against the hub itself. An `admin` account is bootstrapped
 on first start; further users are managed by admins via the UI (**Admin →
 Users**) or the `/api/v1/users` API. Successful logins receive a session

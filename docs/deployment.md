@@ -146,6 +146,7 @@ ui:
 | _(empty)_ | OIDC if `oidcIssuer` is set, otherwise no-auth (only auto-enabled when nothing is exposed via ingress) | derived | upgrading existing installs |
 | `oidc`  | external OIDC provider     | IdP redirect flow     | organization SSO |
 | `local` | hub-managed username/password accounts | login form | exposed installs without an IdP |
+| `oidc+local` | OIDC **and** local accounts, chained: local session JWTs are verified by the hub, everything else by the IdP | login chooser (SSO button + username/password form) | gradual SSO migration, or a break-glass local admin next to SSO |
 | `none`  | no auth middleware         | "no auth" indicator   | port-forward or behind an edge auth proxy (Authelia/Authentik/oauth2-proxy) |
 
 Without any configuration the hub backend **refuses to start** unless it
@@ -270,6 +271,34 @@ existing Secrets instead. Further users are managed via the UI
 (**Admin → Users**) or the `/api/v1/users` API; every user can change their
 own password under Profile. See `chart/values-local.yaml` for a full
 example.
+
+### OIDC + local coexistence
+
+```yaml
+auth:
+  mode: oidc+local
+  oidcIssuer: "https://your-oidc-provider.example.com"
+  oidcClientId: "ainsel"
+  local:
+    adminUser: admin   # optional, defaults to admin
+```
+
+Both halves are required: the OIDC settings exactly as for `mode: oidc`,
+plus the local admin/JWT Secrets as for `mode: local` (auto-generated when
+not supplied). The login page offers the SSO button and the
+username/password form side by side; a local session JWT is verified by the
+hub and never reaches the IdP middleware, and a failed local token is
+rejected as a local failure — it never surfaces as a confusing OIDC error.
+Local users carry the `local:` subject prefix, so the two identity
+namespaces are disjoint and each user sees only what the authz grants give
+them.
+
+Note that this mode **bootstraps the local admin** (chart-generated
+password) and permanently exposes `/api/v1/auth/login` next to SSO — that
+is the break-glass path. Delete the admin account via **Admin → Users** if
+you want SSO-only identities despite the coexistence mode. MCP does not
+accept local session JWTs by design; local users reach it via user tokens
+(`/api/v1/user-tokens`) as in `local` mode.
 
 ### No auth (local or proxied installs)
 
