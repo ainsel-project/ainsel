@@ -149,6 +149,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.auth.local.jwtSecretSecret | default "ainsel-local-jwt" }}
                   key: secret
+            {{- $pwPolicy := .Values.auth.local.passwordPolicy | default dict }}
+            - name: HUB_LOCAL_PASSWORD_MIN_LENGTH
+              value: {{ $pwPolicy.minLength | default 8 | quote }}
+            {{- with $pwPolicy.requireCharacterClasses }}
+            - name: HUB_LOCAL_PASSWORD_CHARACTER_CLASSES
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.auth.oidcIssuer }}
             - name: OIDC_ISSUER
