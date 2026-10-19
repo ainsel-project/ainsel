@@ -260,7 +260,10 @@ func (r *AgentReconciler) reconcileDeployment(ctx context.Context, agent *ainsel
 
 		deploy.Labels = plan.labels
 
-		agentEnv := buildAgentEnv(ctx, agent, agentName, img, plan)
+		agentEnv, err := buildAgentEnv(ctx, agent, agentName, img, plan)
+		if err != nil {
+			return err
+		}
 
 		deploy.Spec = appsv1.DeploymentSpec{
 			// Zero forever: work runs as per-task Jobs, never as Deployment
@@ -289,10 +292,23 @@ func (r *AgentReconciler) reconcileDeployment(ctx context.Context, agent *ainsel
 // plan.mcpEntries (the MCP_SERVERS value) and plan.missingEnv (token
 // references to env vars the AgentImage does not define), both consumed by
 // later render stages and the Reconcile loop.
-func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName string, img *ainselv1alpha1.AgentImage, plan *podPlan) []corev1.EnvVar {
+func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName string, img *ainselv1alpha1.AgentImage, plan *podPlan) ([]corev1.EnvVar, error) {
+	pp, err := resolvePiProvider(agent)
+	if err != nil {
+		// Reconcile validates the provider up front; this keeps a caller that
+		// skips that check from rendering a Deployment with a wrong provider.
+		return nil, err
+	}
 	envs := []corev1.EnvVar{
 		{Name: "AGENT_NAME", Value: agent.Name},
-		{Name: "PI_PROVIDER", Value: resolvePiProvider(agent).Name},
+		{Name: "PI_PROVIDER", Value: pp.Name},
+		// AINSEL_LLM_MODEL is the provider-neutral runtime model contract
+		// (issue #96). OLLAMA_CLOUD_MODEL is written as a transitional alias
+		// with the same value for one release, so old runtime images keep
+		// working against a new operator and new runtime images work against
+		// old operators (the operator and the AgentImage version
+		// independently). Remove the alias one release after this lands.
+		{Name: "AINSEL_LLM_MODEL", Value: agent.Spec.LLM.Model},
 		{Name: "OLLAMA_CLOUD_MODEL", Value: agent.Spec.LLM.Model},
 		{Name: "AGENT_PERSONA_PATH", Value: "/etc/agent/persona.md"},
 		{Name: "HUB_URL", Value: resolveHubURL()},
@@ -472,7 +488,7 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 			Value: tokenValue,
 		})
 	}
-	return envs
+	return envs, nil
 }
 
 // renderPodTemplate assembles the pod template from the plan and the rendered

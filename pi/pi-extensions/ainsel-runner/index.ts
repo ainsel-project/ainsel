@@ -18,9 +18,11 @@
  *           owns retries.
  *
  * Required env (operator already sets all of these):
- *   HUB_URL, AGENT_NAME, HUB_INTERNAL_VALIDATE_SECRET, OLLAMA_CLOUD_MODEL,
+ *   HUB_URL, AGENT_NAME, HUB_INTERNAL_VALIDATE_SECRET, AINSEL_LLM_MODEL,
  *   AINSEL_TASK_ID (the task this container exists to run; the runner exits
  *   if it is missing — a pod without a task is a misconfiguration).
+ *   AINSEL_LLM_MODEL may also arrive under its legacy alias
+ *   OLLAMA_CLOUD_MODEL (accepted for one release, issue #96).
  *
  * Optional env:
  *   NAK_DELAY_MS           default 60000 — NACK backoff (ms) before retry
@@ -50,6 +52,7 @@ import * as prom from "prom-client";
 const REDACTION_DENYLIST = new Set([
 	"AGENT_NAME",
 	"PI_PROVIDER",
+	"AINSEL_LLM_MODEL",
 	"OLLAMA_CLOUD_MODEL",
 	"AGENT_PERSONA_PATH",
 	"HUB_URL",
@@ -380,9 +383,19 @@ export async function counterValue(name: string, labels: Record<string, string>)
  *
  *  Compaction and branch-summary entries store `usage` but no model — pi
  *  summarises with the model the run is configured for, so the operator's
- *  OLLAMA_CLOUD_MODEL is the same one that produced the tokens. */
-function sessionModel(): string {
-	return process.env.OLLAMA_CLOUD_MODEL ?? "";
+ *  AINSEL_LLM_MODEL is the same one that produced the tokens. The legacy
+ *  OLLAMA_CLOUD_MODEL name is read as a fallback for one release (issue #96)
+ *  so a new runtime still works against an operator that only writes the
+ *  old name. */
+export function sessionModel(): string {
+	return resolveModelEnv();
+}
+
+/** Resolve the configured LLM model from the environment: the canonical
+ *  provider-neutral AINSEL_LLM_MODEL wins; the legacy OLLAMA_CLOUD_MODEL
+ *  alias is accepted while the dual-write window is open (issue #96). */
+export function resolveModelEnv(env: NodeJS.ProcessEnv = process.env): string {
+	return env.AINSEL_LLM_MODEL?.trim() || env.OLLAMA_CLOUD_MODEL?.trim() || "";
 }
 
 /** Build the transcript row for a compaction or branch-summary completion.
@@ -741,6 +754,18 @@ function required(name: string): string {
 	if (!v) {
 		logError(`${name} is required; ainsel-runner cannot start`);
 		throw new Error(`${name} is required`);
+	}
+	return v;
+}
+
+/** Like required(), but for the model contract: resolves AINSEL_LLM_MODEL
+ *  with the legacy OLLAMA_CLOUD_MODEL alias (issue #96) and fails loudly
+ *  when neither is set — there is no default model. */
+function requiredModel(): string {
+	const v = resolveModelEnv();
+	if (!v) {
+		logError("AINSEL_LLM_MODEL is required; ainsel-runner cannot start");
+		throw new Error("AINSEL_LLM_MODEL is required");
 	}
 	return v;
 }
@@ -1692,7 +1717,7 @@ export default function ainselRunnerExtension(pi: ExtensionAPI) {
 			agentName = required("AGENT_NAME");
 			hubUrl = required("HUB_URL");
 			token = resolveInternalToken();
-			model = required("OLLAMA_CLOUD_MODEL");
+			model = requiredModel();
 		} catch {
 			return;
 		}

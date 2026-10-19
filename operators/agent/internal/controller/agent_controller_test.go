@@ -351,7 +351,7 @@ var _ = Describe("Agent Controller", func() {
 				Spec: ainselv1alpha1.AgentSpec{
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: testImageName},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona000000000AA"},
-					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent1)).To(Succeed())
@@ -365,7 +365,7 @@ var _ = Describe("Agent Controller", func() {
 				Spec: ainselv1alpha1.AgentSpec{
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: testImageName},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona000000000BB"},
-					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent2)).To(Succeed())
@@ -441,7 +441,7 @@ var _ = Describe("Agent Controller", func() {
 				Spec: ainselv1alpha1.AgentSpec{
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: "shared-image"},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona00000000000"},
-					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent1)).To(Succeed())
@@ -455,7 +455,7 @@ var _ = Describe("Agent Controller", func() {
 				Spec: ainselv1alpha1.AgentSpec{
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: "shared-image"},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona00000000001"},
-					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent2)).To(Succeed())
@@ -469,7 +469,7 @@ var _ = Describe("Agent Controller", func() {
 				Spec: ainselv1alpha1.AgentSpec{
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: "other-image"},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona00000000002"},
-					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent3)).To(Succeed())
@@ -615,7 +615,7 @@ var _ = Describe("Agent Controller", func() {
 				Spec: ainselv1alpha1.AgentSpec{
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: "skilled-image"},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona00000000000"},
-					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent1)).To(Succeed())
@@ -629,7 +629,7 @@ var _ = Describe("Agent Controller", func() {
 				Spec: ainselv1alpha1.AgentSpec{
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: "plain-image"},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona00000000001"},
-					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent2)).To(Succeed())
@@ -651,6 +651,76 @@ var _ = Describe("Agent Controller", func() {
 			Expect(requests).To(ConsistOf(
 				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "agent-skilled"}},
 			))
+		})
+	})
+
+	// Issue #96: provider selection is explicit. An Agent without a valid
+	// spec.llm.provider must fail the reconcile loudly instead of silently
+	// landing on Ollama Cloud.
+	Context("When an Agent has an invalid LLM provider", func() {
+		ctx := context.Background()
+
+		BeforeEach(func() {
+			ensureAgentFixtures(ctx)
+		})
+
+		AfterEach(func() {
+			cleanupAgentFixtures(ctx)
+		})
+
+		It("should fail the reconcile with Ready=False/InvalidLLMProvider when the provider is unset", func() {
+			agent := &ainselv1alpha1.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-no-provider", Namespace: "default"},
+				Spec: ainselv1alpha1.AgentSpec{
+					ImageRef: ainselv1alpha1.AgentImageRef{Name: fixtureImageName},
+					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona000000000CC"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, agent) })
+
+			nn := types.NamespacedName{Name: "agent-no-provider", Namespace: "default"}
+			controllerReconciler := &AgentReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			res, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.RequeueAfter).To(BeZero(), "an invalid provider must not hot-requeue; the object only changes on user edit")
+
+			By("Reporting Ready=False with reason InvalidLLMProvider")
+			got := &ainselv1alpha1.Agent{}
+			Expect(k8sClient.Get(ctx, nn, got)).To(Succeed())
+			var ready *metav1.Condition
+			for i := range got.Status.Conditions {
+				if got.Status.Conditions[i].Type == ainselv1alpha1.AgentConditionReady {
+					ready = &got.Status.Conditions[i]
+				}
+			}
+			Expect(ready).NotTo(BeNil(), "the reconcile must set a Ready condition")
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal("InvalidLLMProvider"))
+			Expect(ready.Message).To(ContainSubstring("spec.llm.provider"))
+
+			By("Creating no Deployment for the invalid agent")
+			deploy := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "agent-agent-no-provider", Namespace: "default"}, deploy)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "no Deployment may exist for an agent with an invalid provider")
+		})
+
+		It("should reject an unknown provider value at the API server via the CRD enum", func() {
+			agent := &ainselv1alpha1.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-bogus-provider", Namespace: "default"},
+				Spec: ainselv1alpha1.AgentSpec{
+					ImageRef: ainselv1alpha1.AgentImageRef{Name: fixtureImageName},
+					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona000000000DD"},
+					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: "ollama"},
+				},
+			}
+			// "ollama" is not one of the enum values — the API server must
+			// reject it outright, before the operator ever sees the object.
+			Expect(k8sClient.Create(ctx, agent)).NotTo(Succeed())
 		})
 	})
 })
