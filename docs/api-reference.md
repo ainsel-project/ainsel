@@ -1610,6 +1610,75 @@ Echo the authenticated user as forwarded by the ingress middleware (Authelia or 
 
 ---
 
+## Audit
+
+### GET /api/v1/audit/auth-events
+
+Admin-only list of persisted auth events, newest first
+(`occurred_at DESC, id DESC`). Accepts the standard pagination parameters.
+
+Auth events are written at the same sites as the structured `auth_event` log
+lines, with the same event names: `auth_login`, `auth_login_failed`,
+`auth_password_changed`, `user_created`, `user_password_reset`,
+`user_deleted`. Rows contain no secrets — the write path never sees a
+password or token.
+
+**Query parameters:**
+
+| Param | Description |
+|-------|-------------|
+| `user` | Matches `actorSub` **or** `target` — everything involving one user in one query. |
+| `type` | Event type, exact match. Repeatable; multiple values are OR-ed. |
+| `from` | RFC3339 timestamp, inclusive lower bound on `occurredAt`. |
+| `to` | RFC3339 timestamp, exclusive upper bound on `occurredAt`. |
+| `page` / `pageSize` | See the pagination table at the top of this document. |
+
+**Response:** standard envelope, `items` sorted newest-first:
+
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "occurredAt": "2026-10-19T06:13:33.123Z",
+      "actorSub": "local:admin",
+      "eventType": "user_created",
+      "target": "local:carol",
+      "sourceIp": "203.0.113.7",
+      "outcome": "success"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 1
+}
+```
+
+Semantics and caveats:
+
+- `actorSub` is the acting user. On `auth_login_failed` against a
+  non-existent user it is the derived local id (`local:<username>`) of the
+  *attempted* username — the attempt is the signal worth recording.
+- `target` equals `actorSub` for self-events (login, password change) and the
+  affected user id for admin actions.
+- `sourceIp` is the first `X-Forwarded-For` entry when present, else the peer
+  address. XFF is spoofable if the hub is exposed directly without a trusted
+  proxy; acceptable for this audit surface.
+- In `oidc` mode only the three user-management event types appear: OIDC
+  logins complete at the issuer and never reach the hub backend.
+- Non-admins get `401` (anonymous) or `403` (authenticated non-admin, and any
+  caller in `none` mode where no admin concept exists). Unparseable
+  `page`/`pageSize`/`from`/`to` return `400`. A missing audit store returns
+  `503`; in practice the hub refuses to start without `HUB_DB_URL`, so this
+  is a defensive path rather than an operational mode.
+- Retention: rows older than `HUB_AUTH_EVENT_RETENTION_DAYS` are deleted
+  hourly (`0` disables age-based deletion), then the table is trimmed to
+  `HUB_AUTH_EVENT_MAX_ROWS` rows (newest kept; `0` disables the cap). See
+  [configuration](../services/hub/docs/configuration.md).
+
+---
+
 ## Error Format
 
 All non-WebSocket error responses return:

@@ -10,6 +10,19 @@
 | `HUB_NAMESPACE` | `ainsel` | Kubernetes namespace for CRD operations |
 | `HUB_PROMETHEUS_URL` | _(unset)_ | Prometheus HTTP base URL, used for the token endpoints and raw PromQL only. Those return `503` when it is unset; the event metrics endpoints do not need it. |
 | `HUB_METRICS_SOURCE` | `postgres` | Which backend answers `/metrics/summary` and `/metrics/timeseries`: `postgres` reads the hub's own records, `prometheus` reads the scraped `hub_*_total` counters. Anything else falls back to `postgres` with a warning at startup. See [observability.md](../../../docs/observability.md). |
+| `HUB_AUTH_EVENT_RETENTION_DAYS` | `90` | Auth events (table `auth_events`) older than this many days are deleted by an hourly sweep. `0` disables the age-based deletion. |
+| `HUB_AUTH_EVENT_MAX_ROWS` | `100000` | After the age-based sweep, `auth_events` is trimmed to this many rows (newest kept). `0` disables the row cap. |
+
+### Auth-event audit trail
+
+The hub persists auth events (`auth_login`, `auth_login_failed`,
+`auth_password_changed`, `user_created`, `user_password_reset`,
+`user_deleted`) in Postgres and serves them from the admin-only
+`GET /api/v1/audit/auth-events` endpoint — see
+[api.md](api.md#audit). Both retention limits are applied by one hourly
+sweep (age-based delete first, then the row cap) and are **not** related to
+`scripts/hub-retention.py`, which prunes Docker Hub image tags. The chart
+exposes them as `hub.authEvents.retentionDays` and `hub.authEvents.maxRows`.
 
 ### Auth (OIDC)
 
@@ -78,6 +91,9 @@ hub:
     limits:
       cpu: 200m
       memory: 256Mi
+  authEvents:
+    retentionDays: 90
+    maxRows: 100000
 ```
 
 ## Kubernetes RBAC
