@@ -173,6 +173,7 @@ Users with the admin flag bypass all authorization checks. Admins can:
 - Access any resource in any group
 - Manage any group's membership
 - Promote/demote other admins
+- Disable/enable user accounts
 - See all observability data
 
 Admin status is managed via the users API:
@@ -182,6 +183,18 @@ curl -X PATCH https://ainsel.example.com/api/v1/users/<user-id> \
   -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"isAdmin": true}'
+```
+
+Admins can also **disable** an account without deleting it — group
+memberships and user tokens are kept, but the user fails all authentication:
+login is rejected and existing session JWTs and user tokens return 401 while
+disabled. Re-enabling restores access immediately.
+
+```bash
+curl -X PATCH https://ainsel.example.com/api/v1/users/<user-id> \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"disabled": true}'
 ```
 
 ## Internal Service Authentication
