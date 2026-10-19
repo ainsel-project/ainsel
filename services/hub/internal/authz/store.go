@@ -42,8 +42,8 @@ func (s *Store) UpsertUser(ctx context.Context, sub, email, username string) (*U
 			email    = CASE WHEN $2 = '' THEN users.email    ELSE $2 END,
 			username = CASE WHEN $3 = '' THEN users.username  ELSE $3 END,
 			updated_at = now()
-		RETURNING id, email, username, is_admin, created_at, updated_at
-	`, sub, email, username).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
+		RETURNING id, email, username, is_admin, disabled, created_at, updated_at
+	`, sub, email, username).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("upsert user: %w", err)
 	}
@@ -54,9 +54,9 @@ func (s *Store) UpsertUser(ctx context.Context, sub, email, username string) (*U
 func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, email, username, is_admin, created_at, updated_at
+		SELECT id, email, username, is_admin, disabled, created_at, updated_at
 		FROM users WHERE id = $1
-	`, id).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
+	`, id).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -69,7 +69,7 @@ func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 // ListUsers returns all users ordered by username.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, email, username, is_admin, created_at, updated_at
+		SELECT id, email, username, is_admin, disabled, created_at, updated_at
 		FROM users ORDER BY username
 	`)
 	if err != nil {
@@ -79,7 +79,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	var out []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("authz.ListUsers: %w", err)
 		}
 		out = append(out, u)
@@ -97,6 +97,35 @@ func (s *Store) SetAdmin(ctx context.Context, userID string, isAdmin bool) error
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetDisabled sets or clears the disabled flag. A disabled user cannot log in
+// and all authenticated API access is rejected; group memberships and user
+// tokens are untouched, so re-enabling restores access.
+func (s *Store) SetDisabled(ctx context.Context, userID string, disabled bool) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET disabled = $1, updated_at = now() WHERE id = $2`, disabled, userID)
+	if err != nil {
+		return fmt.Errorf("authz.SetDisabled: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// IsUserDisabled reports whether the user exists and is disabled. Returns
+// ErrNotFound when the user has no registry row yet (e.g. a first-seen OIDC
+// identity that has not been persisted).
+func (s *Store) IsUserDisabled(ctx context.Context, id string) (bool, error) {
+	var disabled bool
+	err := s.pool.QueryRow(ctx, `SELECT disabled FROM users WHERE id = $1`, id).Scan(&disabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("authz.IsUserDisabled: %w", err)
+	}
+	return disabled, nil
 }
 
 // ClearUsername resets a user's stored username to '', triggering a fresh
@@ -124,8 +153,8 @@ func (s *Store) CreateLocalUser(ctx context.Context, id, email, username, passwo
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO users (id, email, username, is_admin, password_hash, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, now(), now())
-		RETURNING id, email, username, is_admin, created_at, updated_at
-	`, id, email, username, isAdmin, passwordHash).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
+		RETURNING id, email, username, is_admin, disabled, created_at, updated_at
+	`, id, email, username, isAdmin, passwordHash).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrAlreadyExists
@@ -330,7 +359,7 @@ func (s *Store) RemoveGroupMember(ctx context.Context, groupID, userID string) e
 // ListGroupMembers returns all users in a group with their roles.
 func (s *Store) ListGroupMembers(ctx context.Context, groupID string) ([]MemberWithUser, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT u.id, u.email, u.username, u.is_admin, u.created_at, u.updated_at, gm.role
+		SELECT u.id, u.email, u.username, u.is_admin, u.disabled, u.created_at, u.updated_at, gm.role
 		FROM users u JOIN group_members gm ON gm.user_id = u.id
 		WHERE gm.group_id = $1 ORDER BY u.username
 	`, groupID)
@@ -342,7 +371,7 @@ func (s *Store) ListGroupMembers(ctx context.Context, groupID string) ([]MemberW
 	for rows.Next() {
 		var m MemberWithUser
 		var role string
-		if err := rows.Scan(&m.User.ID, &m.User.Email, &m.User.Username, &m.User.IsAdmin, &m.User.CreatedAt, &m.User.UpdatedAt, &role); err != nil {
+		if err := rows.Scan(&m.User.ID, &m.User.Email, &m.User.Username, &m.User.IsAdmin, &m.User.Disabled, &m.User.CreatedAt, &m.User.UpdatedAt, &role); err != nil {
 			return nil, fmt.Errorf("authz.ListGroupMembers: %w", err)
 		}
 		m.Role = GroupRole(role)
