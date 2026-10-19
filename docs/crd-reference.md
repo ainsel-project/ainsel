@@ -308,7 +308,7 @@ Each filter has three fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `field` | string | Dot-separated path into the event payload (e.g. `repo`, `action`, `issue.labels`) |
+| `field` | string | Dot-separated path into the event payload (e.g. `repo`, `action`, `issue.labels.name`). A path that crosses an array collects the value from every element, so `issue.labels.name` is the list of label names |
 | `op` | string | Comparison operator (see table below) |
 | `value` | string | Comparison value (used by all operators except `in`/`not-in`) |
 | `values` | []string | Comparison values for `in` and `not-in` operators |
