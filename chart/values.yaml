@@ -224,8 +224,9 @@ hub:
   priorityClassName: ""
   # Auth-event audit trail retention (issue #116). The hub sweeps hourly:
   # rows older than retentionDays are deleted, then the table is trimmed to
-  # maxRows rows (newest kept). Note: scripts/hub-retention.py is Docker Hub
-  # image-tag retention and has nothing to do with this setting.
+  # maxRows rows (newest kept). Set either to 0 to disable that lever.
+  # Note: scripts/hub-retention.py is Docker Hub image-tag retention and has
+  # nothing to do with this setting.
   authEvents:
     retentionDays: 90
     maxRows: 100000
