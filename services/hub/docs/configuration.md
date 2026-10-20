@@ -45,8 +45,8 @@ project ID before the client ID.
 With `HUB_AUTH_MODE=local` — or `oidc+local`, where it is the break-glass path
 alongside the IdP — the hub authenticates users against its own `users` table
 (argon2id password hashes) and issues stateless session JWTs.
-See [api.md](api.md#local-authentication) for the login/password endpoints
-and for how password changes invalidate issued sessions.
+See the [API Reference](../../../docs/api-reference.md#local-authentication) for the
+login/password endpoints and for how password changes invalidate issued sessions.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
