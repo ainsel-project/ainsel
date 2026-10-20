@@ -161,6 +161,35 @@ func TestPruneAndTrimToMax(t *testing.T) {
 	}
 }
 
+func TestPruneNonPositiveIsNoop(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	if err := s.Insert(ctx, mkEvent("audit-test:keep", TypeLogin, "audit-test:keep", OutcomeSuccess)); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	// Backdate the row far past any plausible retention window.
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE auth_events SET occurred_at = now() - interval '10 years'
+		 WHERE actor_sub = 'audit-test:keep'`); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	// Retention 0 (and negatives) must never delete: with a zero duration the
+	// cutoff would be "now" and the whole table would go away every sweep.
+	for _, retention := range []time.Duration{0, -time.Hour} {
+		n, err := s.Prune(ctx, retention)
+		if err != nil {
+			t.Fatalf("prune(%v): %v", retention, err)
+		}
+		if n != 0 {
+			t.Fatalf("prune(%v) deleted %d rows, want 0", retention, n)
+		}
+	}
+	_, total, _ := s.List(ctx, ListOptions{User: "audit-test:keep"})
+	if total != 1 {
+		t.Fatalf("row count = %d, want 1", total)
+	}
+}
+
 func TestTrimToMaxNonPositiveIsNoop(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()

@@ -160,8 +160,13 @@ func (s *Store) List(ctx context.Context, opts ListOptions) ([]Event, int, error
 }
 
 // Prune deletes events older than the given retention duration. Returns the
-// number of deleted rows.
+// number of deleted rows. A non-positive retention is a no-op: the documented
+// "0 disables age-based deletion" value must never degenerate into a cutoff of
+// now(), which would delete the entire audit trail.
 func (s *Store) Prune(ctx context.Context, retention time.Duration) (int64, error) {
+	if retention <= 0 {
+		return 0, nil
+	}
 	cutoff := time.Now().Add(-retention)
 	tag, err := s.pool.Exec(ctx, `DELETE FROM auth_events WHERE occurred_at < $1`, cutoff)
 	if err != nil {
