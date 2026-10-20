@@ -137,7 +137,10 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 
 	events, total, err := s.authEvents.List(r.Context(), opts)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query audit events: "+err.Error())
+		// Log the store detail server-side; the client gets a generic message so
+		// internal DB error text never reaches an API response body.
+		slog.Error("audit events list failed", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to query audit events")
 		return
 	}
 
