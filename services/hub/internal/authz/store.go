@@ -33,6 +33,10 @@ func newID() string { return ulid.Make().String() }
 // UpsertUser creates or updates a user from OIDC claims. Returns the user.
 // Empty email/username values are treated as "not provided" and will not
 // overwrite existing non-empty values in the database.
+//
+// This is the OIDC path: it never touches must_change_password. An OIDC-synced
+// row has no local password to change, so a forced-change screen for it would
+// be a dead end.
 func (s *Store) UpsertUser(ctx context.Context, sub, email, username string) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
@@ -42,8 +46,8 @@ func (s *Store) UpsertUser(ctx context.Context, sub, email, username string) (*U
 			email    = CASE WHEN $2 = '' THEN users.email    ELSE $2 END,
 			username = CASE WHEN $3 = '' THEN users.username  ELSE $3 END,
 			updated_at = now()
-		RETURNING id, email, username, is_admin, disabled, created_at, updated_at
-	`, sub, email, username).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+		RETURNING id, email, username, is_admin, disabled, must_change_password, created_at, updated_at
+	`, sub, email, username).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("upsert user: %w", err)
 	}
@@ -54,9 +58,9 @@ func (s *Store) UpsertUser(ctx context.Context, sub, email, username string) (*U
 func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, email, username, is_admin, disabled, created_at, updated_at
+		SELECT id, email, username, is_admin, disabled, must_change_password, created_at, updated_at
 		FROM users WHERE id = $1
-	`, id).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+	`, id).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -69,7 +73,7 @@ func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 // ListUsers returns all users ordered by username.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, email, username, is_admin, disabled, created_at, updated_at
+		SELECT id, email, username, is_admin, disabled, must_change_password, created_at, updated_at
 		FROM users ORDER BY username
 	`)
 	if err != nil {
@@ -79,7 +83,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	var out []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("authz.ListUsers: %w", err)
 		}
 		out = append(out, u)
@@ -148,13 +152,18 @@ const LocalUserIDPrefix = "local:"
 // CreateLocalUser inserts a locally-managed user with password credentials.
 // Unlike UpsertUser it fails with ErrAlreadyExists when the ID is taken, so
 // a caller can never silently overwrite an existing account's credentials.
-func (s *Store) CreateLocalUser(ctx context.Context, id, email, username, passwordHash string, isAdmin bool) (*User, error) {
+//
+// mustChange states the intent for the forced-change flag (issue #113): every
+// caller that hands a password to someone other than its owner — the bootstrap
+// admin, an admin-created account — passes true so the password cannot outlive
+// the moment it was issued.
+func (s *Store) CreateLocalUser(ctx context.Context, id, email, username, passwordHash string, isAdmin, mustChange bool) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO users (id, email, username, is_admin, password_hash, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, now(), now())
-		RETURNING id, email, username, is_admin, disabled, created_at, updated_at
-	`, id, email, username, isAdmin, passwordHash).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+		INSERT INTO users (id, email, username, is_admin, password_hash, must_change_password, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+		RETURNING id, email, username, is_admin, disabled, must_change_password, created_at, updated_at
+	`, id, email, username, isAdmin, passwordHash, mustChange).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrAlreadyExists
@@ -179,18 +188,28 @@ func (s *Store) UserPasswordHash(ctx context.Context, id string) (string, error)
 	return hash, nil
 }
 
-// SetPassword stores a new password hash for a user and bumps the user's
-// token version in the same statement, so every previously issued local
-// session JWT is invalidated the moment the password changes (issue #112).
-// Doing it in one UPDATE closes the window where the new hash is stored but
-// old tokens would still validate.
-func (s *Store) SetPassword(ctx context.Context, id, hash string) error {
+// SetPasswordWithFlag stores a new password hash, states the forced-change
+// flag, and bumps the user's token version — all in the same statement.
+//
+// mustChange (issue #113) is true when the password is being handed to someone
+// who did not choose it (admin reset), false when the owner just proved
+// knowledge of the old one (self-service change).
+//
+// The token_version bump (issue #112) invalidates every previously issued
+// local session JWT the moment the password changes. Doing it in one UPDATE
+// closes the window where the new hash is stored but old tokens would still
+// validate.
+//
+// It is deliberately the only password write the store exposes: every write
+// has to state its intent for the flag, and session invalidation gets exactly
+// one place to bump the token version.
+func (s *Store) SetPasswordWithFlag(ctx context.Context, id, hash string, mustChange bool) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE users SET password_hash = $1, token_version = token_version + 1, updated_at = now()
+		UPDATE users SET password_hash = $1, must_change_password = $3, token_version = token_version + 1, updated_at = now()
 		WHERE id = $2
-	`, hash, id)
+	`, hash, id, mustChange)
 	if err != nil {
-		return fmt.Errorf("authz.SetPassword: %w", err)
+		return fmt.Errorf("authz.SetPasswordWithFlag: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
@@ -359,7 +378,7 @@ func (s *Store) RemoveGroupMember(ctx context.Context, groupID, userID string) e
 // ListGroupMembers returns all users in a group with their roles.
 func (s *Store) ListGroupMembers(ctx context.Context, groupID string) ([]MemberWithUser, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT u.id, u.email, u.username, u.is_admin, u.disabled, u.created_at, u.updated_at, gm.role
+		SELECT u.id, u.email, u.username, u.is_admin, u.disabled, u.must_change_password, u.created_at, u.updated_at, gm.role
 		FROM users u JOIN group_members gm ON gm.user_id = u.id
 		WHERE gm.group_id = $1 ORDER BY u.username
 	`, groupID)
@@ -371,7 +390,7 @@ func (s *Store) ListGroupMembers(ctx context.Context, groupID string) ([]MemberW
 	for rows.Next() {
 		var m MemberWithUser
 		var role string
-		if err := rows.Scan(&m.User.ID, &m.User.Email, &m.User.Username, &m.User.IsAdmin, &m.User.Disabled, &m.User.CreatedAt, &m.User.UpdatedAt, &role); err != nil {
+		if err := rows.Scan(&m.User.ID, &m.User.Email, &m.User.Username, &m.User.IsAdmin, &m.User.Disabled, &m.User.MustChangePassword, &m.User.CreatedAt, &m.User.UpdatedAt, &role); err != nil {
 			return nil, fmt.Errorf("authz.ListGroupMembers: %w", err)
 		}
 		m.Role = GroupRole(role)

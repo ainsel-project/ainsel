@@ -184,8 +184,132 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			"sub":      u.ID,
 			"username": u.Username,
 			"isAdmin":  u.IsAdmin,
+			// The login response carries the flag so the frontend can route to
+			// the forced change screen without a second round-trip to /auth/me.
+			"mustChangePassword": u.MustChangePassword,
 		},
 	})
+}
+
+// CodePasswordChangeRequired is the machine-readable code every 403 from the
+// forced-change gate carries. The frontend branches on this code; the message
+// text is not a contract.
+const CodePasswordChangeRequired = "password_change_required"
+
+// writePasswordChangeRequired answers with 403 — not 401: a 401 would hand the
+// request to the shared client's session-recovery path, which logs the user out
+// instead of taking them to the change screen.
+func writePasswordChangeRequired(w http.ResponseWriter) {
+	writeJSON(w, http.StatusForbidden, map[string]string{
+		"error":   "forbidden",
+		"code":    CodePasswordChangeRequired,
+		"message": "password change required",
+	})
+}
+
+// isPasswordChangeAllowed lists what a flagged local user may still reach:
+// their own identity, the password change itself, and logout. Exact path and
+// method, not prefixes — a prefix would open sibling routes under /auth/.
+func isPasswordChangeAllowed(path, method string) bool {
+	switch {
+	case path == "/api/v1/auth/me" && method == http.MethodGet:
+		return true
+	case path == "/api/v1/auth/password" && method == http.MethodPut:
+		return true
+	case path == "/api/v1/auth/logout" && method == http.MethodPost:
+		return true
+	}
+	return false
+}
+
+// passwordChangeGate enforces the forced password change (issue #113) for local
+// accounts whose password was issued by someone else: the bootstrapped admin,
+// an admin-created user, or a user whose password an admin reset.
+//
+// The decision is read from the database on every request rather than taken
+// from a JWT claim. The flag is cleared by the change itself, so a claim would
+// keep 403-ing a user who has already changed their password until they logged
+// in again; a DB read is correct the moment the change lands. It costs one
+// indexed primary-key read per local-mode request, which the authz checker
+// already pays for its own decisions.
+//
+// Anything that is not a local account — OIDC subjects, and requests in
+// `none` mode, where this middleware is never reached — short-circuits, so
+// those modes are unaffected.
+func (s *Server) passwordChangeGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.authzStore == nil || isPasswordChangeAllowed(r.URL.Path, r.Method) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		u, ok := oidc.FromContext(r.Context())
+		if !ok || !strings.HasPrefix(u.Sub, authz.LocalUserIDPrefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		stored, err := s.authzStore.GetUser(r.Context(), u.Sub)
+		if errors.Is(err, authz.ErrNotFound) {
+			// Deleted from the registry: there is no flag to enforce, and the
+			// handlers answered such a request on their own before this gate
+			// existed. Keep that behaviour instead of claiming a change is due.
+			next.ServeHTTP(w, r)
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !stored.MustChangePassword {
+			next.ServeHTTP(w, r)
+			return
+		}
+		slog.Info("auth_password_change_required", "log_type", "auth_event", "sub", u.Sub, "path", r.URL.Path)
+		writePasswordChangeRequired(w)
+	})
+}
+
+// authMeResponse is the GET /api/v1/auth/me wire shape. It keeps the exact
+// fields the shared oidc.MeHandler emitted (sub/email/username/roles) and adds
+// the forced-change flag, so the swap to the hub-side handler is additive for
+// every existing consumer.
+type authMeResponse struct {
+	Sub                string   `json:"sub"`
+	Email              string   `json:"email"`
+	Username           string   `json:"username"`
+	Roles              []string `json:"roles"`
+	MustChangePassword bool     `json:"mustChangePassword"`
+}
+
+// handleAuthMe serves GET /api/v1/auth/me. It replaces the shared
+// oidc.MeHandler mount: same echo of the context user, plus the forced-change
+// flag read from the registry. shared/auth/oidc stays DB-free — this is the
+// hub-side seam allowed to look at the store.
+func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	u, ok := oidc.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	// Normalize a nil Roles slice to [] in JSON, as the shared handler did:
+	// clients must not have to handle two shapes.
+	roles := u.Roles
+	if roles == nil {
+		roles = []string{}
+	}
+	resp := authMeResponse{Sub: u.Sub, Email: u.Email, Username: u.Username, Roles: roles}
+	// Only local accounts have a flag to report. An unknown subject reads as
+	// false rather than 404, so /auth/me stays a self-report and not a way to
+	// probe the registry.
+	if s.authzStore != nil && strings.HasPrefix(u.Sub, authz.LocalUserIDPrefix) {
+		if stored, err := s.authzStore.GetUser(r.Context(), u.Sub); err == nil {
+			resp.MustChangePassword = stored.MustChangePassword
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleLogout is a stateless no-op kept for API symmetry: clients discard
@@ -199,7 +323,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleChangePassword lets an authenticated LOCAL user change their own
-// password after proving knowledge of the current one.
+// password after proving knowledge of the current one. A successful change
+// clears the forced-change flag (issue #113): the caller just proved the old
+// password, so the account now holds one its owner chose.
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -238,7 +364,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if err := s.authzStore.SetPassword(r.Context(), u.Sub, newHash); err != nil {
+	if err := s.authzStore.SetPasswordWithFlag(r.Context(), u.Sub, newHash, false); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

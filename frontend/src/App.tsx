@@ -9,6 +9,7 @@ import { AgentForm } from './pages/agents/AgentForm'
 import { AgentWizard } from './pages/agents/AgentWizard'
 import { AgentList } from './pages/agents/AgentList'
 import { Callback } from './pages/auth/Callback'
+import { ForcedPasswordChange } from './pages/auth/ForcedPasswordChange'
 import { ConnectorDetail } from './pages/connectors/ConnectorDetail'
 import { ConnectorForm } from './pages/connectors/ConnectorForm'
 import { ConnectorList } from './pages/connectors/ConnectorList'
@@ -66,6 +67,9 @@ export default function App() {
             <Route element={<LoginLayout />}>
               <Route path="/login" element={<Login />} />
               <Route path="/auth/callback" element={<Callback />} />
+              {/* Outside the app shell on purpose: a local account that still
+                  holds an issued password has no console to render (issue #113). */}
+              <Route path="/change-password" element={<ForcedPasswordChange />} />
             </Route>
 
             <Route

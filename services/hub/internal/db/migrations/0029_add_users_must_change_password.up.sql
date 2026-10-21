@@ -1,0 +1,15 @@
+-- Force a password change before the console is usable (issue #113). Two
+-- kinds of account hold a password their owner never chose: the bootstrapped
+-- local admin (chart-generated, stored in the "ainsel-local-admin" Secret) and
+-- any account whose password an admin created or reset. Without this flag both
+-- keep working indefinitely, so a leaked chart secret or an intercepted reset
+-- password is a permanent credential.
+--
+-- The flag is meaningful only for rows with local credentials
+-- (password_hash <> ''). An OIDC-synced user has no hub-side password to
+-- change, and forcing them to a change screen would dead-end the session, so
+-- the store never sets it on those rows.
+--
+-- Additive with a DEFAULT: existing rows — every account that logged in under
+-- its own password — read as "no change pending", which is correct for them.
+ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT false;

@@ -26,9 +26,15 @@ type User struct {
 	IsAdmin  bool   `json:"isAdmin"`
 	// Disabled cuts the user off from login and all API access without
 	// deleting the row: group memberships and user tokens survive.
-	Disabled  bool      `json:"disabled"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Disabled bool `json:"disabled"`
+	// MustChangePassword is the forced-change flag (issue #113): the account's
+	// current password was issued by someone else — bootstrap, admin create or
+	// admin reset — and has to be replaced before the console is usable. Only
+	// ever true for local-credential accounts; OIDC users have no hub-side
+	// password to change.
+	MustChangePassword bool      `json:"mustChangePassword"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 // Group is a named collection of users. Groups are flat — no nesting.

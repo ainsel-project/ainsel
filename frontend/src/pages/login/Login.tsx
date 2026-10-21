@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthProvider'
 import { Button } from '../../primitives/Button'
 import { Field } from '../../primitives/Field'
@@ -13,6 +13,7 @@ import { Input } from '../../primitives/Input'
 //   - none:       straight through to the dashboard.
 export function Login() {
   const auth = useAuth()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const paramError = searchParams.get('error')
 
@@ -21,12 +22,18 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // Already authenticated — bounce straight in.
+  // Already authenticated — bounce straight in. A local account still holding a
+  // password it did not choose goes to the forced change screen instead (issue
+  // #113): the console would only answer 403s, and the change screen needs the
+  // token this login just produced.
   useEffect(() => {
-    if (auth.ready && auth.token) {
-      window.location.replace(`${import.meta.env.BASE_URL}dashboard`)
+    if (!auth.ready || !auth.token) return
+    if (auth.user?.mustChangePassword) {
+      navigate('/change-password', { replace: true })
+      return
     }
-  }, [auth.ready, auth.token])
+    window.location.replace(`${import.meta.env.BASE_URL}dashboard`)
+  }, [auth.ready, auth.token, auth.user?.mustChangePassword, navigate])
 
   if (auth.mode === 'none') {
     return <Navigate to="/dashboard" replace />
@@ -38,7 +45,9 @@ export function Login() {
     setError(null)
     try {
       await auth.login(username, password)
-      window.location.replace(`${import.meta.env.BASE_URL}dashboard`)
+      // No navigation here: the effect above reacts to the session the login
+      // just stored, so a fresh sign-in and an already-signed-in visit to /login
+      // take the same path — dashboard, or the forced change screen.
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed')
       setBusy(false)

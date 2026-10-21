@@ -265,11 +265,19 @@ kubectl -n ainsel get secret ainsel-local-admin \
   -o jsonpath='{.data.password}' | base64 -d
 ```
 
+That password was generated, not chosen, so the account is flagged and the first
+login lands on a change-password screen instead of the console (see
+[Access Control](access-control.md#forced-password-change)). The Secret keeps the
+original value; it is not updated when the password is changed.
+
 To bring your own credentials point `auth.local.adminPasswordSecret`
 (key `password`) and `auth.local.jwtSecretSecret` (key `secret`) at
-existing Secrets instead. Further users are managed via the UI
-(**Admin → Users**) or the `/api/v1/users` API; every user can change their
-own password under Profile. See `chart/values-local.yaml` for a full
+existing Secrets instead. A brought-own password forces the same first-login
+change: the hub cannot tell a chart-generated password from an operator-chosen
+one, and the account owner is not the one who set it. Further users are managed
+via the UI (**Admin → Users**) or the `/api/v1/users` API; each is flagged the
+same way when an admin sets their password. Every user can change their own
+password under Profile. See `chart/values-local.yaml` for a full
 example.
 
 ### OIDC + local coexistence

@@ -2,7 +2,7 @@ import { act, render, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import { AuthProvider, useAuth } from './AuthProvider'
-import { UnauthorizedError, request, setUnauthorizedHandler } from '../api/client'
+import { ApiError, UnauthorizedError, request, setUnauthorizedHandler, setPasswordChangeRequiredHandler } from '../api/client'
 import type { ResolvedConfig } from '../runtime-config'
 
 // react-oidc-context is mocked so OidcBridge can be driven with a precise
@@ -179,6 +179,7 @@ describe('AuthProvider (local mode)', () => {
   beforeEach(() => {
     localStorage.clear()
     setUnauthorizedHandler(null)
+    setPasswordChangeRequiredHandler(null)
   })
 
   it('restores an unexpired local session', () => {
@@ -199,6 +200,55 @@ describe('AuthProvider (local mode)', () => {
     expect(localStorage.getItem('ainsel.local.token')).toBeNull()
     rerender()
     expect(result.current.token).toBeNull()
+  })
+
+  it('flags the session on 403 password_change_required without dropping it', async () => {
+    // A password reset by an admin reaches a signed-in user this way. The token
+    // is still valid — only restricted — so the session survives and RequireAuth
+    // swaps the console for the change screen (issue #113).
+    seedLocalSession()
+    seedConfig(LOCAL_CFG)
+    const { result, rerender } = renderHook(() => useAuth(), { wrapper: Wrapper })
+    expect(result.current.user?.mustChangePassword).toBeFalsy()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ message: 'password change required', code: 'password_change_required' }),
+          { status: 403 },
+        ),
+      ),
+    )
+    await expect(request('/agents')).rejects.toBeInstanceOf(ApiError)
+    rerender()
+    expect(result.current.user?.mustChangePassword).toBe(true)
+    expect(result.current.token).toBe('local-tok')
+    expect(
+      JSON.parse(localStorage.getItem('ainsel.local.user') ?? '{}').mustChangePassword,
+    ).toBe(true)
+  })
+
+  it('setMustChangePassword persists the flag for a reload', async () => {
+    seedLocalSession()
+    seedConfig(LOCAL_CFG)
+    const { result } = renderHook(() => useAuth(), { wrapper: Wrapper })
+    await act(async () => {
+      result.current.setMustChangePassword(true)
+    })
+    expect(result.current.user?.mustChangePassword).toBe(true)
+    expect(JSON.parse(localStorage.getItem('ainsel.local.user') ?? '{}').mustChangePassword).toBe(
+      true,
+    )
+  })
+
+  it('ignores setMustChangePassword when there is no user to flag', async () => {
+    seedConfig(LOCAL_CFG)
+    const { result } = renderHook(() => useAuth(), { wrapper: Wrapper })
+    await act(async () => {
+      result.current.setMustChangePassword(true)
+    })
+    expect(result.current.user).toBeNull()
+    expect(localStorage.getItem('ainsel.local.user')).toBeNull()
   })
 })
 

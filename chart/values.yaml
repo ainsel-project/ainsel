@@ -447,6 +447,8 @@ auth:
     # When empty, the chart generates one into Secret "ainsel-local-admin":
     #   kubectl -n <ns> get secret ainsel-local-admin \
     #     -o jsonpath='{.data.password}' | base64 -d
+    # A generated password was not chosen by the user, so the first login is
+    # forced through the change-password screen; the Secret is not updated then.
     adminPasswordSecret: ""
     # Existing Secret holding the JWT signing key under key "secret".
     # When empty, the chart generates one into Secret "ainsel-local-jwt".

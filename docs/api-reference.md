@@ -1690,7 +1690,7 @@ All non-WebSocket error responses return:
 | HTTP Status | Meaning |
 |-------------|---------|
 | `400` | Bad request (invalid JSON, missing required fields, unsupported query parameter values). |
-| `401` / `403` | Issued by the ingress layer, not by the hub itself. |
+| `401` / `403` | Mostly issued by the ingress layer. The hub issues them itself for local accounts: `401` on a failed `POST /api/v1/auth/login` or a wrong current password, and `403` with `"code": "password_change_required"` while an account still holds a password it did not choose (see [Local accounts](#local-accounts)). |
 | `404` | Resource not found. |
 | `405` | Method not allowed on this route. |
 | `409` | Conflict (resource already exists; deletion blocked by references; sync already running). |
@@ -1789,6 +1789,33 @@ owning user.
 ```
 Authorization: Bearer ainsel_abc123...
 ```
+
+### Local accounts
+
+With `auth.mode: local` the hub authenticates users itself. These endpoints are
+registered only in that mode.
+
+| Endpoint | Notes |
+|----------|-------|
+| `POST /api/v1/auth/login` | `{"username", "password"}` → session JWT (`HS256`, ~12h) plus the user. Unauthenticated. |
+| `GET /api/v1/auth/me` | Current identity: `sub`, `email`, `username`, `roles`, `mustChangePassword`. |
+| `PUT /api/v1/auth/password` | `{"current", "new"}` — requires proving the current password. Clears `mustChangePassword`. |
+| `POST /api/v1/auth/logout` | Best-effort; the JWT is stateless, so the client simply discards it. |
+
+An account whose password was set by someone else — the bootstrap `admin`, an
+admin-created user, or an admin reset — carries `mustChangePassword: true` and is
+gated: every other `/api/v1` endpoint answers `403`
+
+```json
+{"error": "forbidden", "code": "password_change_required", "message": "password change required"}
+```
+
+until the password is changed through `PUT /api/v1/auth/password`. The gate reads
+the flag from the database on each request, so it lifts on the first call after a
+successful change — no re-login. It applies to local subjects only: an OIDC token
+is never gated. A personal access token (`ainsel_…`) resolves to its owning user,
+so a token created by a flagged account is gated as well — change the password
+before scripting against a freshly bootstrapped `admin`.
 
 ### Internal service auth
 

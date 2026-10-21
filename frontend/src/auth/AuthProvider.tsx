@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { AuthProvider as OidcProvider, useAuth as useOidcAuth } from 'react-oidc-context'
 import { WebStorageStateStore } from 'oidc-client-ts'
-import { setAuthToken, setUnauthorizedHandler } from '../api/client'
+import { setAuthToken, setUnauthorizedHandler, setPasswordChangeRequiredHandler } from '../api/client'
 import { login as apiLogin } from '../api/auth'
 import { runtimeConfig, type AuthMode, type ResolvedConfig } from '../runtime-config'
 
@@ -18,6 +18,11 @@ export type AuthUser = {
   username: string
   email?: string
   isAdmin?: boolean
+  /**
+   * Forced change (issue #113), local mode only: the account's password was
+   * issued by someone else and has to be replaced before the console opens.
+   */
+  mustChangePassword?: boolean
 }
 
 // AuthState is the unified auth surface. Components should only use this —
@@ -32,6 +37,13 @@ export type AuthState = {
   isAdmin: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => void
+  /**
+   * Set or clear the forced-change flag on the stored session (issue #113).
+   * Local mode only — a no-op in the other modes, which have no hub-managed
+   * password. The hub stays the source of truth: this only updates what the
+   * console renders with, never what it accepts.
+   */
+  setMustChangePassword: (mustChange: boolean) => void
   signinRedirect: () => void
   signoutRedirect: () => void
 }
@@ -98,11 +110,24 @@ function useLocalSession() {
     setSession({ token: null, user: null })
   }, [])
 
-  return { session, setSession, loginLocal, logoutLocal }
+  // Flag updates go to both the state and localStorage: the flag is what
+  // RequireAuth gates on, and it has to survive a reload — the forced screen is
+  // reachable as a URL, and a reload must not open the console.
+  const setMustChangePassword = useCallback(
+    (mustChange: boolean) => {
+      if (!session.user) return
+      const user = { ...session.user, mustChangePassword: mustChange }
+      localStorage.setItem(USER_KEY, JSON.stringify(user))
+      setSession({ token: session.token, user })
+    },
+    [session],
+  )
+
+  return { session, setSession, loginLocal, logoutLocal, setMustChangePassword }
 }
 
 function LocalAuthProvider({ children }: { children: ReactNode }) {
-  const { session, loginLocal, logoutLocal } = useLocalSession()
+  const { session, loginLocal, logoutLocal, setMustChangePassword } = useLocalSession()
   const login = loginLocal
   const logout = logoutLocal
 
@@ -115,18 +140,25 @@ function LocalAuthProvider({ children }: { children: ReactNode }) {
       isAdmin: Boolean(session.user?.isAdmin),
       login,
       logout,
+      setMustChangePassword,
       signinRedirect: () => {
         window.location.href = `${import.meta.env.BASE_URL}login`
       },
       signoutRedirect: logout,
     }),
-    [session, login, logout],
+    [session, login, logout, setMustChangePassword],
   )
 
   // 401 recovery: drop the stale session and let RequireAuth route to
   // /login (local mode uses a client-side <Navigate>). No page reload, so
   // no loop is possible.
   setUnauthorizedHandler(() => logout())
+
+  // A password reset by an admin cuts this session off at its next request with
+  // 403 password_change_required. The token is still valid — only restricted —
+  // so the recovery is to re-arm the flag and let RequireAuth swap the console
+  // for the forced change screen, not to log the user out.
+  setPasswordChangeRequiredHandler(() => setMustChangePassword(true))
 
   return <AuthCtx.Provider value={state}>{children}</AuthCtx.Provider>
 }
@@ -136,6 +168,7 @@ function NoneAuthProvider({ children }: { children: ReactNode }) {
   // No session to recover in 'none' mode; clear any previously registered
   // handler so stray 401s only surface as errors in the UI.
   setUnauthorizedHandler(null)
+  setPasswordChangeRequiredHandler(null)
   const state: AuthState = useMemo(
     () => ({
       mode: 'none',
@@ -145,6 +178,7 @@ function NoneAuthProvider({ children }: { children: ReactNode }) {
       isAdmin: false,
       login: async () => undefined,
       logout: () => undefined,
+      setMustChangePassword: () => undefined,
       signinRedirect: () => undefined,
       signoutRedirect: () => undefined,
     }),
@@ -219,6 +253,11 @@ function OidcBridge({ children }: { children: ReactNode }) {
     })()
   })
 
+  // The IdP owns OIDC passwords: the hub never arms the forced-change flag for
+  // these accounts, so no recovery is registered (and a stale local-mode
+  // handler from a previous mount must not survive).
+  setPasswordChangeRequiredHandler(null)
+
   const state: AuthState = useMemo(
     () => ({
       mode: 'oidc',
@@ -238,6 +277,7 @@ function OidcBridge({ children }: { children: ReactNode }) {
       logout: () => {
         void oidc.signoutRedirect()
       },
+      setMustChangePassword: () => undefined,
       signinRedirect: () => {
         void oidc.signinRedirect()
       },
@@ -263,7 +303,8 @@ function OidcBridge({ children }: { children: ReactNode }) {
 // browser would produce confusing /auth/me results and mixed-origin calls.
 function OidcLocalBridge({ children }: { children: ReactNode }) {
   const oidc = useOidcAuth()
-  const { session, loginLocal, logoutLocal } = useLocalSession()
+  const { session, loginLocal, logoutLocal, setMustChangePassword: setLocalMustChange } =
+    useLocalSession()
 
   // Same expired-user rule as OidcBridge: an expired stored user still
   // exposes its dead access token and must count as unauthenticated.
@@ -317,6 +358,16 @@ function OidcLocalBridge({ children }: { children: ReactNode }) {
     void oidc.signinRedirect()
   }, [oidc])
 
+  // Forced change (issue #113) applies to the local side only: the hub never
+  // arms the flag for OIDC identities, so the setter is inert while the OIDC
+  // session is the active one.
+  const setMustChangePassword = useCallback(
+    (mustChange: boolean) => {
+      if (activeMethod === 'local') setLocalMustChange(mustChange)
+    },
+    [activeMethod, setLocalMustChange],
+  )
+
   // 401 recovery follows the source of the token that was attached: a 401
   // on a local token must never bounce the user to the external IdP, and a
   // 401 on an OIDC token must not clear a healthy local session.
@@ -345,6 +396,14 @@ function OidcLocalBridge({ children }: { children: ReactNode }) {
     })()
   })
 
+  // A password reset by an admin cuts a signed-in local session off at its
+  // next request with 403 password_change_required — re-arm the flag so
+  // RequireAuth swaps the console for the forced change screen. An OIDC
+  // token can never trigger this (the hub does not arm the flag for it).
+  setPasswordChangeRequiredHandler(() => {
+    if (activeMethod === 'local') setLocalMustChange(true)
+  })
+
   const state: AuthState = useMemo(
     () => ({
       mode: 'oidc+local',
@@ -354,10 +413,11 @@ function OidcLocalBridge({ children }: { children: ReactNode }) {
       isAdmin: Boolean(session.user?.isAdmin) && activeMethod === 'local',
       login,
       logout,
+      setMustChangePassword,
       signinRedirect,
       signoutRedirect: logout,
     }),
-    [oidc, token, user, session, activeMethod, login, logout, signinRedirect],
+    [oidc, token, user, session, activeMethod, login, logout, setMustChangePassword, signinRedirect],
   )
 
   return <AuthCtx.Provider value={state}>{children}</AuthCtx.Provider>

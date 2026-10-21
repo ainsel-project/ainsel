@@ -58,7 +58,7 @@ type UnauthorizedHandler = () => void
 
 let unauthorizedHandler: UnauthorizedHandler | null = null
 let unauthorizedHandledAt = 0
-const UNAUTHORIZED_COOLDOWN_MS = 10_000
+const RECOVERY_COOLDOWN_MS = 10_000
 
 /**
  * Register (or replace/clear) the recovery action for 401 API responses.
@@ -73,12 +73,61 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
 function recoverFromUnauthorized() {
   if (!unauthorizedHandler) return
   const now = Date.now()
-  if (now - unauthorizedHandledAt < UNAUTHORIZED_COOLDOWN_MS) return
+  if (now - unauthorizedHandledAt < RECOVERY_COOLDOWN_MS) return
   unauthorizedHandledAt = now
   try {
     unauthorizedHandler()
   } catch {
     // Recovery must never mask the UnauthorizedError the caller throws.
+  }
+}
+
+// --- forced password change (issue #113) ------------------------------------
+//
+// A local account whose password was issued by someone else is cut off by the
+// hub's gate: every /api/v1/* call except /auth/me, /auth/password and
+// /auth/logout answers 403 with the stable code below. This is deliberately not
+// folded into the 401 path — the session is valid, only restricted, so the
+// recovery is "show the change screen", not "log out and re-authenticate".
+//
+// The active AuthProvider registers a handler that flags the stored user, which
+// is what RequireAuth gates on. Deduped like the 401 path: a page firing ten
+// requests on mount must not fire ten recoveries.
+
+/** Machine-readable code of the hub's forced-change gate. */
+export const PASSWORD_CHANGE_REQUIRED = 'password_change_required'
+
+type PasswordChangeRequiredHandler = () => void
+
+let passwordChangeRequiredHandler: PasswordChangeRequiredHandler | null = null
+let passwordChangeRequiredHandledAt = 0
+
+/**
+ * Register (or replace/clear) the recovery action for 403 responses carrying
+ * {@link PASSWORD_CHANGE_REQUIRED}. Registered by the local AuthProvider.
+ */
+export function setPasswordChangeRequiredHandler(handler: PasswordChangeRequiredHandler | null) {
+  passwordChangeRequiredHandler = handler
+  if (handler === null) passwordChangeRequiredHandledAt = 0
+}
+
+function isPasswordChangeRequired(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    (body as { code?: unknown }).code === PASSWORD_CHANGE_REQUIRED
+  )
+}
+
+function recoverFromPasswordChangeRequired() {
+  if (!passwordChangeRequiredHandler) return
+  const now = Date.now()
+  if (now - passwordChangeRequiredHandledAt < RECOVERY_COOLDOWN_MS) return
+  passwordChangeRequiredHandledAt = now
+  try {
+    passwordChangeRequiredHandler()
+  } catch {
+    // Recovery must never mask the ApiError the caller throws.
   }
 }
 
@@ -147,6 +196,12 @@ export async function request<T = unknown>(
     // stored OIDC user holds an expired token.
     recoverFromUnauthorized()
     throw new UnauthorizedError(parsed)
+  }
+  if (res.status === 403 && isPasswordChangeRequired(parsed)) {
+    // A mid-session admin reset reaches the console this way: the token is
+    // still valid, so the auth layer swaps the console for the change screen.
+    recoverFromPasswordChangeRequired()
+    throw new ApiError(403, message, parsed)
   }
   if (res.status === 503) throw new ServiceUnavailableError(parsed, message)
   throw new ApiError(res.status, message, parsed)

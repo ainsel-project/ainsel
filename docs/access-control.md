@@ -27,6 +27,35 @@ on first start; further users are managed by admins via the UI (**Admin →
 Users**) or the `/api/v1/users` API. Successful logins receive a session
 JWT, used exactly like the OIDC one below.
 
+#### Forced password change
+
+A password that someone else set is not a password the user chose, so such an
+account is flagged `must_change_password` and must replace it before it can use
+the console. The flag is armed when:
+
+- the bootstrap `admin` account is created with the chart-generated password,
+- an admin creates a user with a password,
+- an admin resets a user's password.
+
+It is cleared when the user changes their own password through **Profile →
+Change password** (`PUT /api/v1/auth/password`). Changing it does not log the
+session out.
+
+While the flag is set, the hub answers `403` with a stable code for every
+`/api/v1` endpoint except the few the change itself needs:
+
+```json
+{"error": "forbidden", "code": "password_change_required", "message": "password change required"}
+```
+
+`POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `PUT /api/v1/auth/password`
+and `POST /api/v1/auth/logout` stay available — the user has to be able to log
+in to change the password, and to log out if they would rather not. The console
+uses the code to show a forced change screen instead of the dashboard.
+
+The flag is local accounts only: an OIDC subject authenticates at the identity
+provider, which owns that password, and the hub never sets it for them.
+
 ### User tokens (programmatic)
 
 Personal access tokens (PATs) for scripts, CI pipelines, and MCP clients.

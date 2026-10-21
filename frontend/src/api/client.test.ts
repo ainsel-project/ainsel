@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiError,
+  PASSWORD_CHANGE_REQUIRED,
   ServiceUnavailableError,
   UnauthorizedError,
   request,
   setAuthToken,
   setUnauthorizedHandler,
+  setPasswordChangeRequiredHandler,
 } from './client'
 
 const mockFetch = () => globalThis.fetch as ReturnType<typeof vi.fn>
@@ -179,5 +181,73 @@ describe('api/client', () => {
       expect(err).toBeInstanceOf(ApiError)
       expect((err as ApiError).status).toBe(401)
     }
+  })
+})
+
+describe('api/client (forced password change)', () => {
+  const gateBody = () =>
+    JSON.stringify({ message: 'password change required', code: PASSWORD_CHANGE_REQUIRED })
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    setAuthToken(null)
+    setPasswordChangeRequiredHandler(null)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('routes a 403 with the forced-change code to the recovery handler', async () => {
+    const handler = vi.fn()
+    setPasswordChangeRequiredHandler(handler)
+    mockFetch().mockResolvedValue(new Response(gateBody(), { status: 403 }))
+    const err = await request('/agents').catch((e) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(403)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves an ordinary 403 to the caller', async () => {
+    // Permission errors are a normal response for a member hitting an admin
+    // route; treating them as a forced change would lock the user out of the
+    // console over a plain authorization failure.
+    const handler = vi.fn()
+    setPasswordChangeRequiredHandler(handler)
+    mockFetch().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'forbidden', code: 'forbidden' }), { status: 403 }),
+    )
+    const err = await request('/users').catch((e) => e)
+    expect((err as ApiError).status).toBe(403)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('coalesces a burst of forced-change 403s into one recovery', async () => {
+    const handler = vi.fn()
+    setPasswordChangeRequiredHandler(handler)
+    mockFetch().mockImplementation(() => Promise.resolve(new Response(gateBody(), { status: 403 })))
+    await Promise.allSettled([request('/a'), request('/b'), request('/c')])
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it('recovers again once the cooldown has elapsed', async () => {
+    vi.useFakeTimers()
+    const handler = vi.fn()
+    setPasswordChangeRequiredHandler(handler)
+    mockFetch().mockImplementation(() => Promise.resolve(new Response(gateBody(), { status: 403 })))
+    await expect(request('/foo')).rejects.toBeInstanceOf(ApiError)
+    vi.advanceTimersByTime(10_001)
+    await expect(request('/foo')).rejects.toBeInstanceOf(ApiError)
+    expect(handler).toHaveBeenCalledTimes(2)
+  })
+
+  it('a throwing handler never masks the ApiError', async () => {
+    setPasswordChangeRequiredHandler(() => {
+      throw new Error('recovery blew up')
+    })
+    mockFetch().mockResolvedValue(new Response(gateBody(), { status: 403 }))
+    const err = await request('/foo').catch((e) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toBe('password change required')
   })
 })

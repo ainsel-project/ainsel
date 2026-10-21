@@ -66,7 +66,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := authz.LocalUserIDPrefix + body.Username
-	u, err := s.authzStore.CreateLocalUser(r.Context(), id, strings.TrimSpace(body.Email), body.Username, hash, body.IsAdmin)
+	// The password came from an admin, not from its owner: arm the forced
+	// change (issue #113) so it cannot outlive the moment it was issued.
+	u, err := s.authzStore.CreateLocalUser(r.Context(), id, strings.TrimSpace(body.Email), body.Username, hash, body.IsAdmin, true)
 	if errors.Is(err, authz.ErrAlreadyExists) {
 		writeError(w, http.StatusConflict, "user already exists")
 		return
@@ -193,7 +195,9 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 			slog.Info(event, "log_type", "auth_event", "id", id)
 		}
 		if body.Password != nil {
-			// Admin password reset for any user with local credentials.
+			// Admin password reset for any user with local credentials. The
+			// replacement password was not chosen by its owner, so it arms the
+			// forced change (issue #113).
 			if err := s.validatePassword(*body.Password); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -203,7 +207,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
-			if err := s.authzStore.SetPassword(r.Context(), id, hash); err != nil {
+			if err := s.authzStore.SetPasswordWithFlag(r.Context(), id, hash, true); err != nil {
 				if errors.Is(err, authz.ErrNotFound) {
 					writeError(w, http.StatusNotFound, "user not found")
 					return
