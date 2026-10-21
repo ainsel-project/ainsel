@@ -100,6 +100,12 @@ type Server struct {
 	// localAuthSecret is the HS256 signing key for local session JWTs.
 	// Non-empty enables /api/v1/auth/login (auth.mode=local).
 	localAuthSecret []byte
+	// passwordPolicy is the configured password rule set enforced on create,
+	// admin reset, and own change, and served by
+	// GET /api/v1/auth/password-policy. nil means DefaultPasswordPolicy()
+	// (min 8, max 128, no classes) — the historical behavior. Wired from
+	// HUB_LOCAL_PASSWORD_* envs via SetPasswordPolicy in local mode.
+	passwordPolicy *PasswordPolicy
 	// loginThrottle guards /api/v1/auth/login against per-username brute
 	// force; initialized together with localAuthSecret.
 	loginThrottle *loginThrottle
@@ -276,6 +282,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
 	s.mux.HandleFunc("/api/v1/auth/password", s.handleChangePassword)
 	s.mux.HandleFunc("/api/v1/auth/sign-out-all", s.handleSignOutAll)
+	s.mux.HandleFunc("/api/v1/auth/password-policy", s.handlePasswordPolicy)
 	s.mux.HandleFunc("/api/v1/user-tokens", s.handleUserTokens)
 	s.mux.HandleFunc("/api/v1/user-tokens/", s.handleUserTokenDelete)
 	s.mux.HandleFunc("/api/internal/user-tokens/validate", s.handleUserTokenValidate)

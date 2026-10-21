@@ -1692,6 +1692,14 @@ Bumps the caller's token version, immediately invalidating **every** local sessi
 that user — including the one making this call (`200 OK`). The next request with any old token gets
 `401`; re-login via `/auth/login` restores access.
 
+#### GET /api/v1/auth/password-policy
+
+Returns the effective local-auth password policy (authenticated, any user) so the console can render
+matching hints on all password forms: `{"minLength": 8, "maxLength": 128, "requireCharacterClasses": []}`.
+The enforcing component is the source of truth; `requireCharacterClasses` lists the configured
+classes (`lower`, `upper`, `digit`, `symbol`) and is `[]` when none are required. Configured via
+`HUB_LOCAL_PASSWORD_*` — see [configuration.md](../services/hub/docs/configuration.md).
+
 #### Session invalidation (token versioning)
 
 Each user carries a `token_version` counter embedded as a claim in every issued JWT. The auth

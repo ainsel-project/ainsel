@@ -11,6 +11,7 @@ import {
   isUnsyncedUser,
 } from '../../api/users'
 import type { HubUser } from '../../api/users'
+import { usePasswordPolicyHint } from '../../api/passwordPolicy'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
 import { useAuth } from '../../auth/AuthProvider'
 import { Button } from '../../primitives/Button'
@@ -41,6 +42,8 @@ export function UserList() {
   const create = useCreateUser()
   const remove = useDeleteUser()
   const resetPw = useResetUserPassword()
+  // Hub-served policy hint for the create form and the reset dialog.
+  const passwordHint = usePasswordPolicyHint()
 
   const isAdmin = currentUser?.isAdmin === true
 
@@ -301,7 +304,7 @@ export function UserList() {
                       autoComplete="off"
                     />
                   </Field>
-                  <Field label="Password" htmlFor="new-password" hint="At least 8 characters.">
+                  <Field label="Password" htmlFor="new-password" hint={passwordHint}>
                     <Input
                       id="new-password"
                       type="password"
@@ -390,7 +393,7 @@ export function UserList() {
         confirmLabel="Reset"
         body={
           resetTarget ? (
-            <Field label="New password" htmlFor="reset-password" hint="At least 8 characters.">
+            <Field label="New password" htmlFor="reset-password" hint={passwordHint}>
               <Input
                 id="reset-password"
                 type="password"

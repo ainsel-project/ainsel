@@ -239,4 +239,42 @@ describe('UserList', () => {
     const otherToggle = screen.getByRole('button', { name: /enable carol/i })
     expect(otherToggle).toBeEnabled()
   })
+
+  it('shows the hub-configured password policy hint on the create form', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/auth/password-policy')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                minLength: 12,
+                maxLength: 128,
+                requireCharacterClasses: ['upper', 'digit'],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
+    renderWithProviders(<UserList />, { route: '/admin/users' })
+    await waitFor(() => expect(screen.getByText('bob@example.com')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /new user/i }))
+    await waitFor(() =>
+      expect(screen.getByText('At least 12 characters; 1 uppercase letter; 1 digit.')).toBeInTheDocument(),
+    )
+  })
+
+  it('falls back to the historical hint when the policy endpoint is unavailable', async () => {
+    // defaultFetch answers '{}' for the policy path — an old hub or a broken
+    // response must degrade to the pre-policy text, not to "undefined".
+    renderWithProviders(<UserList />, { route: '/admin/users' })
+    await waitFor(() => expect(screen.getByText('bob@example.com')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /new user/i }))
+    await waitFor(() => expect(screen.getByText('At least 8 characters.')).toBeInTheDocument())
+  })
 })

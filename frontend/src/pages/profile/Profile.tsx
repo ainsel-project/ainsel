@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useAuth } from '../../auth/AuthProvider'
 import { changePassword } from '../../api/auth'
+import { usePasswordPolicyHint } from '../../api/passwordPolicy'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
 import { userDisplayName, useSyncMe } from '../../api/users'
 import { Titleblock } from '../../layout/Titleblock'
@@ -117,6 +118,8 @@ export function Profile() {
  *  triggering the shared client's session-recovery reload. */
 function ChangePasswordPanel() {
   const { token } = useAuth()
+  // Hub-served policy hint; the hub's 400 stays the contract, this is advisory.
+  const passwordHint = usePasswordPolicyHint()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -165,7 +168,7 @@ function ChangePasswordPanel() {
             required
           />
         </Field>
-        <Field label="New password" htmlFor="change-password-next">
+        <Field label="New password" htmlFor="change-password-next" hint={passwordHint}>
           <Input
             id="change-password-next"
             type="password"

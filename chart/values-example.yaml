@@ -89,6 +89,15 @@ auth:
   oidcScopes: "openid profile email offline_access"
   oidcRolesClaim: "groups"
   internalValidateSecret: ""
+  # Password policy for hub-managed local accounts (auth.mode: local). The hub
+  # enforces it on create / admin reset / own change; the console shows the
+  # matching hints. Maximum length is fixed at 128. Classes: lower, upper,
+  # digit, symbol. Note: with "symbol" required, the chart-generated admin
+  # password will not pass — supply auth.local.adminPasswordSecret instead.
+  # local:
+  #   passwordPolicy:
+  #     minLength: 12
+  #     requireCharacterClasses: [upper, digit]
 
 mcp:
   enabled: false
