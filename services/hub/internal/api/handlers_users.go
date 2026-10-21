@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -75,6 +76,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("user_created", "log_type", "auth_event", "id", id, "isAdmin", body.IsAdmin)
+	s.recordAuthEvent(r, auditevents.TypeUserCreated, callerSub(r), id, auditevents.OutcomeSuccess)
 	writeJSON(w, http.StatusCreated, u)
 }
 
@@ -210,6 +212,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			slog.Info("user_password_reset", "log_type", "auth_event", "id", id)
+			s.recordAuthEvent(r, auditevents.TypeUserPasswordReset, callerSub(r), id, auditevents.OutcomeSuccess)
 		}
 		u, err := s.authzStore.GetUser(r.Context(), id)
 		if err != nil {
@@ -260,6 +263,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	slog.Info("user_deleted", "log_type", "auth_event", "id", id)
+	s.recordAuthEvent(r, auditevents.TypeUserDeleted, callerSub(r), id, auditevents.OutcomeSuccess)
 	w.WriteHeader(http.StatusNoContent)
 }
 

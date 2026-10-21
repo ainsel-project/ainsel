@@ -48,6 +48,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
       { idx: '20', name: 'Users', to: '/users' },
       { idx: '21', name: 'Groups', to: '/groups' },
       { idx: '22', name: 'Connectors', to: '/connectors' },
+      { idx: '23', name: 'Audit', to: '/audit' },
     ],
   },
 ]

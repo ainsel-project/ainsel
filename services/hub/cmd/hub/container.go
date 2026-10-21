@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
@@ -65,6 +66,8 @@ type container struct {
 	metricsServer  *http.Server
 	promClient     *prometheus.Client
 	taskLogStore   *tasklogs.Store
+	// auditEventStore persists the auth-event audit trail (issue #116).
+	auditEventStore *auditevents.Store
 }
 
 // containerDeps holds optional injectable dependencies for testing.
@@ -89,6 +92,11 @@ type containerConfig struct {
 	taskStartTimeoutSecs   int
 	connectorCfg           api.ConnectorConfig
 	hubAllowInsecureNoAuth bool
+	// Auth-event audit-trail retention (issue #116): rows older than
+	// authEventRetentionDays are deleted, then the table is trimmed to
+	// authEventMaxRows rows (newest kept).
+	authEventRetentionDays int
+	authEventMaxRows       int
 }
 
 // newContainer constructs all hub resources in dependency order.
@@ -181,6 +189,7 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 	c.skillSvc = wireSkills(pool, c.apiClient, cfg.namespace)
 	c.chatStore = chat.NewStore(pool)
 	c.taskLogStore = tasklogs.NewStore(pool)
+	c.auditEventStore = auditevents.NewStore(pool)
 	c.telemetryStore = telemetry.NewStore(pool)
 
 	// --- API server + auth middleware ---

@@ -125,6 +125,7 @@ func wireAPIServer(c *container, cfg containerConfig) *api.Server {
 	srv.SetChannelService(c.channels, c.transfer)
 	srv.SetUserTokenStore(c.userTokenStore)
 	srv.SetTaskLogStore(c.taskLogStore)
+	srv.SetAuditEventStore(c.auditEventStore)
 	srv.SetTaskStartTimeout(time.Duration(cfg.taskStartTimeoutSecs) * time.Second)
 	srv.SetTelemetryStore(c.telemetryStore)
 	// Logged rather than left implicit: which backend answers is the difference

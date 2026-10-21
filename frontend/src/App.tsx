@@ -34,6 +34,7 @@ import { PersonaList } from './pages/personas/PersonaList'
 import { SettingsLayout } from './pages/settings/SettingsLayout'
 import { Profile } from './pages/profile/Profile'
 import { UserList } from './pages/users/UserList'
+import { AuditEvents } from './pages/audit/AuditEvents'
 import { GroupDetail } from './pages/groups/GroupDetail'
 import { GroupForm } from './pages/groups/GroupForm'
 import { GroupList } from './pages/groups/GroupList'
@@ -106,6 +107,7 @@ export default function App() {
 
               <Route path="/profile" element={<Profile />} />
               <Route path="/users" element={<UserList />} />
+              <Route path="/audit" element={<AuditEvents />} />
               <Route path="/groups" element={<GroupList />} />
               <Route path="/groups/new" element={<GroupForm />} />
               <Route path="/groups/:id" element={<GroupDetail />} />

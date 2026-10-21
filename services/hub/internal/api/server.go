@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
@@ -57,6 +58,14 @@ type authzStore interface {
 	ListResourcesByGroups(ctx context.Context, resourceType string, groupIDs []string, includePublic bool) ([]string, error)
 }
 
+// authEventsStore is the interface satisfied by *auditevents.Store and test
+// doubles. Insert is called on the request path and must never block long;
+// List backs the admin audit endpoint.
+type authEventsStore interface {
+	Insert(ctx context.Context, e *auditevents.Event) error
+	List(ctx context.Context, opts auditevents.ListOptions) ([]auditevents.Event, int, error)
+}
+
 // Server provides a REST API for managing Ainsel CRDs.
 type Server struct {
 	client             client.Client
@@ -78,6 +87,7 @@ type Server struct {
 	channelTransfer        *channels.Transfer
 	chat                   *chat.Store
 	taskLogs               *tasklogs.Store
+	authEvents             authEventsStore
 	authzStore             authzStore
 	authzChecker           *authz.Checker
 	userTokens             *usertokens.Store
@@ -187,6 +197,13 @@ func (s *Server) SetTaskLogStore(store *tasklogs.Store) {
 	s.taskLogs = store
 }
 
+// SetAuditEventStore wires the auth-event audit store. When unset (e.g. a hub
+// without a database), the auth handlers skip row writes and the audit
+// endpoint answers 503 — behaviour is exactly as before the store existed.
+func (s *Server) SetAuditEventStore(store authEventsStore) {
+	s.authEvents = store
+}
+
 // SetAuthMiddleware installs an HTTP middleware that wraps every /api/v1/*
 // request. Pass nil (the default) to leave the API open. This follows the
 // same pattern as other optional wiring: keep the constructor signature stable.
@@ -291,6 +308,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/groups", s.handleGroups)
 	s.mux.HandleFunc("/api/v1/groups/", s.handleGroup)
 	s.mux.HandleFunc("/api/v1/me/resources", s.handleMyResources)
+	s.mux.HandleFunc("/api/v1/audit/auth-events", s.handleAuditAuthEvents)
 	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
 	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
 	if personaSvc != nil {

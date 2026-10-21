@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -119,6 +120,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	fail := func() {
 		s.loginThrottle.recordFailure(body.Username)
 		slog.Warn("auth_login_failed", "log_type", "auth_event", "username", body.Username)
+		// The attempted username is the brute-force signal, so it is recorded
+		// even when the user does not exist: actor/target carry the derived
+		// local id, matching what a successful login for that name would write.
+		id := authz.LocalUserIDPrefix + body.Username
+		s.recordAuthEvent(r, auditevents.TypeLoginFailed, id, id, auditevents.OutcomeFailure)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 	}
 
@@ -170,6 +176,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	s.loginThrottle.recordSuccess(body.Username)
 	slog.Info("auth_login", "log_type", "auth_event", "username", body.Username, "isAdmin", u.IsAdmin)
+	s.recordAuthEvent(r, auditevents.TypeLogin, u.ID, u.ID, auditevents.OutcomeSuccess)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token":     token,
 		"expiresAt": exp.UTC().Format(time.RFC3339),
@@ -236,6 +243,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("auth_password_changed", "log_type", "auth_event", "sub", u.Sub)
+	s.recordAuthEvent(r, auditevents.TypePasswordChanged, u.Sub, u.Sub, auditevents.OutcomeSuccess)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
