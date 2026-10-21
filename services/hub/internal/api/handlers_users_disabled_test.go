@@ -18,7 +18,7 @@ func seedUser(t *testing.T, store *fakeAuthzStore, id, username, password string
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateLocalUser(context.Background(), id, "", username, hash, isAdmin); err != nil {
+	if _, err := store.CreateLocalUser(context.Background(), id, "", username, hash, isAdmin, false); err != nil {
 		t.Fatal(err)
 	}
 }

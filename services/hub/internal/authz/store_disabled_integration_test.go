@@ -16,7 +16,7 @@ func TestDisabledFlag(t *testing.T) {
 	defer env.cleanup()
 	ctx := context.Background()
 
-	if _, err := env.store.CreateLocalUser(ctx, "local:alice", "alice@example.com", "alice", "$argon2id$fake", false); err != nil {
+	if _, err := env.store.CreateLocalUser(ctx, "local:alice", "alice@example.com", "alice", "$argon2id$fake", false, false); err != nil {
 		t.Fatalf("CreateLocalUser: %v", err)
 	}
 

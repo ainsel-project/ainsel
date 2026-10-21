@@ -246,7 +246,7 @@ func TestAdminResetPasswordEnforcesPolicy(t *testing.T) {
 	admin := asUser("local:admin", "admin")
 
 	hash, _ := localauth.HashPassword("user-password")
-	if _, err := store.CreateLocalUser(t.Context(), "local:bob", "", "bob", hash, false); err != nil {
+	if _, err := store.CreateLocalUser(t.Context(), "local:bob", "", "bob", hash, false, false); err != nil {
 		t.Fatal(err)
 	}
 

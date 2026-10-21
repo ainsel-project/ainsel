@@ -34,8 +34,8 @@ func gatedTestServer(t *testing.T) (*Server, *fakeAuthzStore) {
 	return s, store
 }
 
-// seedLocalUser creates a local account with an explicit flag state.
-func seedLocalUser(t *testing.T, store *fakeAuthzStore, username string, isAdmin, mustChange bool) {
+// seedFlaggedLocalUser creates a local account with an explicit flag state.
+func seedFlaggedLocalUser(t *testing.T, store *fakeAuthzStore, username string, isAdmin, mustChange bool) {
 	t.Helper()
 	hash, err := localauth.HashPassword("user-password")
 	if err != nil {
@@ -50,7 +50,7 @@ func seedLocalUser(t *testing.T, store *fakeAuthzStore, username string, isAdmin
 
 func TestPasswordGateBlocksFlaggedLocalUser(t *testing.T) {
 	s, store := gatedTestServer(t)
-	seedLocalUser(t, store, "alice", false, true)
+	seedFlaggedLocalUser(t, store, "alice", false, true)
 
 	rec := doJSON(t, s, http.MethodGet, "/api/v1/agents", nil, asUser("local:alice", "alice"))
 	if rec.Code != http.StatusForbidden {
@@ -71,7 +71,7 @@ func TestPasswordGateBlocksFlaggedLocalUser(t *testing.T) {
 
 func TestPasswordGateAllowedEndpoints(t *testing.T) {
 	s, store := gatedTestServer(t)
-	seedLocalUser(t, store, "alice", false, true)
+	seedFlaggedLocalUser(t, store, "alice", false, true)
 	alice := asUser("local:alice", "alice")
 
 	// Identity: reachable, and it reports the flag so the frontend can render
@@ -107,8 +107,8 @@ func TestPasswordGateAllowedEndpoints(t *testing.T) {
 
 func TestPasswordGateSkipsEveryoneElse(t *testing.T) {
 	s, store := gatedTestServer(t)
-	seedLocalUser(t, store, "alice", false, true) // flagged
-	seedLocalUser(t, store, "bob", false, false)  // chose their own password
+	seedFlaggedLocalUser(t, store, "alice", false, true) // flagged
+	seedFlaggedLocalUser(t, store, "bob", false, false)  // chose their own password
 	if _, err := store.UpsertUser(context.Background(), "oidc-sub-1", "e@x", "oidcuser"); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestPasswordGateSkipsEveryoneElse(t *testing.T) {
 func TestPasswordGateInertWithoutLocalAuth(t *testing.T) {
 	t.Run("no authz store", func(t *testing.T) {
 		s, store := gatedTestServer(t)
-		seedLocalUser(t, store, "alice", false, true)
+		seedFlaggedLocalUser(t, store, "alice", false, true)
 		s.authzStore = nil
 		rec := doJSON(t, s, http.MethodGet, "/api/v1/agents", nil, asUser("local:alice", "alice"))
 		if rec.Code != http.StatusOK {
@@ -144,7 +144,7 @@ func TestPasswordGateInertWithoutLocalAuth(t *testing.T) {
 	})
 	t.Run("no auth middleware", func(t *testing.T) {
 		s, store := gatedTestServer(t)
-		seedLocalUser(t, store, "alice", false, true)
+		seedFlaggedLocalUser(t, store, "alice", false, true)
 		s.SetAuthMiddleware(nil)
 		rec := doJSON(t, s, http.MethodGet, "/api/v1/agents", nil, asUser("local:alice", "alice"))
 		if rec.Code != http.StatusOK {
@@ -168,7 +168,7 @@ func TestPasswordGateUnknownUserPassesThrough(t *testing.T) {
 
 func TestLoginResponseCarriesMustChangePassword(t *testing.T) {
 	s, store := localAuthTestServer(t)
-	seedLocalUser(t, store, "admin", true, true)
+	seedFlaggedLocalUser(t, store, "admin", true, true)
 
 	rec := doJSON(t, s, http.MethodPost, "/api/v1/auth/login", map[string]string{
 		"username": "admin", "password": "user-password",
@@ -194,7 +194,7 @@ func TestLoginResponseCarriesMustChangePassword(t *testing.T) {
 
 func TestChangePasswordClearsMustChangeFlag(t *testing.T) {
 	s, store := localAuthTestServer(t)
-	seedLocalUser(t, store, "alice", false, true)
+	seedFlaggedLocalUser(t, store, "alice", false, true)
 
 	rec := doJSON(t, s, http.MethodPut, "/api/v1/auth/password", map[string]string{
 		"current": "user-password", "new": "self-chosen-pass",
@@ -233,7 +233,7 @@ func TestCreateUserArmsMustChangeFlag(t *testing.T) {
 func TestAdminResetArmsMustChangeFlag(t *testing.T) {
 	s, store := localAuthTestServer(t)
 	seedAdmin(t, store)
-	seedLocalUser(t, store, "bob", false, false)
+	seedFlaggedLocalUser(t, store, "bob", false, false)
 
 	rec := doJSON(t, s, http.MethodPatch, "/api/v1/users/local:bob", map[string]any{
 		"password": "reset-password-1",
@@ -273,7 +273,7 @@ func TestAdminResetArmsMustChangeFlag(t *testing.T) {
 // fields are a frozen contract; only mustChangePassword is added.
 func TestAuthMeShapeStable(t *testing.T) {
 	s, store := gatedTestServer(t)
-	seedLocalUser(t, store, "alice", false, true)
+	seedFlaggedLocalUser(t, store, "alice", false, true)
 	if _, err := store.UpsertUser(context.Background(), "oidc-sub-1", "oidc@example.com", "oidcuser"); err != nil {
 		t.Fatal(err)
 	}
@@ -322,9 +322,9 @@ func TestAuthMeUnauthorized(t *testing.T) {
 
 func TestForcedChangeEndToEnd(t *testing.T) {
 	s, store := localAuthTestServer(t)
-	seedLocalUser(t, store, "admin", true, true)
+	seedFlaggedLocalUser(t, store, "admin", true, true)
 	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
-		return localauth.NewMiddleware(testLocalSecret)(s.IdentityPersistMiddleware(next))
+		return localauth.NewMiddleware(testLocalSecret, store)(s.IdentityPersistMiddleware(next))
 	})
 	s.mux.HandleFunc("/api/v1/agents", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
@@ -366,9 +366,33 @@ func TestForcedChangeEndToEnd(t *testing.T) {
 		t.Fatalf("password change: status = %d, body %s", rec.Code, rec.Body.String())
 	}
 
-	// Same token, no re-login: the gate reads the flag from the database, so
-	// clearing it takes effect on the very next request.
-	if rec := call("/api/v1/agents"); rec.Code != http.StatusOK {
+	// The password change bumps the token version (issue #112), so the session
+	// issued before the change is dead — changing an issued password also logs
+	// that account out of its old sessions.
+	if rec := call("/api/v1/agents"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("old token after the change: status = %d, want 401 (body %s)", rec.Code, rec.Body.String())
+	}
+
+	// A fresh login with the new password reaches the console: the gate reads
+	// the flag from the database, so it lifts on the first request after the
+	// change.
+	rec = doJSON(t, s, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"username": "admin", "password": "self-chosen-pass",
+	}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-login status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	var relogin struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&relogin); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
+	req.Header.Set("Authorization", "Bearer "+relogin.Token)
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
 		t.Fatalf("after the change: status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
 }

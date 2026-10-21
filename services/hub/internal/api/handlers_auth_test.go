@@ -521,7 +521,7 @@ func TestAdminResetInvalidatesIssuedTokens(t *testing.T) {
 	s, store := localMWServer(t)
 	seedAdmin(t, store)
 	hash, _ := localauth.HashPassword("bob-password")
-	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false); err != nil {
+	if _, err := store.CreateLocalUser(context.Background(), "local:bob", "", "bob", hash, false, false); err != nil {
 		t.Fatal(err)
 	}
 

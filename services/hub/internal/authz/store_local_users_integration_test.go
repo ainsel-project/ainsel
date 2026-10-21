@@ -150,7 +150,7 @@ func TestStoreTokenVersion(t *testing.T) {
 	defer env.cleanup()
 	ctx := context.Background()
 
-	if _, err := env.store.CreateLocalUser(ctx, "local:carol", "", "carol", "$argon2id$first", false); err != nil {
+	if _, err := env.store.CreateLocalUser(ctx, "local:carol", "", "carol", "$argon2id$first", false, false); err != nil {
 		t.Fatalf("CreateLocalUser: %v", err)
 	}
 	v, err := env.store.UserTokenVersion(ctx, "local:carol")
@@ -158,13 +158,13 @@ func TestStoreTokenVersion(t *testing.T) {
 		t.Fatalf("initial UserTokenVersion = %d, %v; want 0", v, err)
 	}
 
-	// SetPassword bumps exactly once per call, atomically with the hash.
-	if err := env.store.SetPassword(ctx, "local:carol", "$argon2id$second"); err != nil {
-		t.Fatalf("SetPassword: %v", err)
+	// SetPasswordWithFlag bumps exactly once per call, atomically with the hash.
+	if err := env.store.SetPasswordWithFlag(ctx, "local:carol", "$argon2id$second", false); err != nil {
+		t.Fatalf("SetPasswordWithFlag: %v", err)
 	}
 	v, err = env.store.UserTokenVersion(ctx, "local:carol")
 	if err != nil || v != 1 {
-		t.Fatalf("after SetPassword UserTokenVersion = %d, %v; want 1", v, err)
+		t.Fatalf("after SetPasswordWithFlag UserTokenVersion = %d, %v; want 1", v, err)
 	}
 	if h, _ := env.store.UserPasswordHash(ctx, "local:carol"); h != "$argon2id$second" {
 		t.Fatalf("hash not written: %q", h)
