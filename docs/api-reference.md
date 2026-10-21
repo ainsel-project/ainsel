@@ -1798,7 +1798,7 @@ registered only in that mode.
 | Endpoint | Notes |
 |----------|-------|
 | `POST /api/v1/auth/login` | `{"username", "password"}` → session JWT (`HS256`, ~12h) plus the user. Unauthenticated. |
-| `GET /api/v1/auth/me` | Current identity: `sub`, `email`, `username`, `roles`, `isAdmin`, `mustChangePassword`. |
+| `GET /api/v1/auth/me` | Current identity: `sub`, `email`, `username`, `roles`, `mustChangePassword`. |
 | `PUT /api/v1/auth/password` | `{"current", "new"}` — requires proving the current password. Clears `mustChangePassword`. |
 | `POST /api/v1/auth/logout` | Best-effort; the JWT is stateless, so the client simply discards it. |
 
