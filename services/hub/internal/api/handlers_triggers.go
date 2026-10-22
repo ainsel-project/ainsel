@@ -207,7 +207,7 @@ func (s *Server) listTriggers(ctx context.Context, w http.ResponseWriter, r *htt
 func (s *Server) getTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	t, err := s.triggerStore.GetTrigger(ctx, id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "trigger not found")
+		writeError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 	writeJSON(w, http.StatusOK, toSimpleTriggerResponse(t))
@@ -310,7 +310,7 @@ func (s *Server) updateTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 
 	t, err := s.triggerStore.UpdateTrigger(ctx, id, displayName, agentRef, connectorRef, filters)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "trigger not found")
+		writeError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 
@@ -329,7 +329,7 @@ func (s *Server) updateTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 
 func (s *Server) deleteTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	if err := s.triggerStore.DeleteTrigger(ctx, id); err != nil {
-		writeError(w, http.StatusNotFound, "trigger not found")
+		writeError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 

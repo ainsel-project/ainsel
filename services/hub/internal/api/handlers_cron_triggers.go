@@ -171,7 +171,7 @@ func (s *Server) listCronTriggers(ctx context.Context, w http.ResponseWriter, r 
 func (s *Server) getCronTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	ct, err := s.triggerStore.GetCronTrigger(ctx, id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "cron trigger not found")
+		writeError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 	writeJSON(w, http.StatusOK, toCronTriggerResponse(ct))
@@ -280,7 +280,7 @@ func (s *Server) updateCronTrigger(ctx context.Context, w http.ResponseWriter, r
 
 	ct, err := s.triggerStore.UpdateCronTrigger(ctx, id, displayName, agentRef, schedule, prompt, enabled)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "cron trigger not found")
+		writeError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 
@@ -300,7 +300,7 @@ func (s *Server) updateCronTrigger(ctx context.Context, w http.ResponseWriter, r
 
 func (s *Server) deleteCronTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	if err := s.triggerStore.DeleteCronTrigger(ctx, id); err != nil {
-		writeError(w, http.StatusNotFound, "cron trigger not found")
+		writeError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 	if s.authzStore != nil {
