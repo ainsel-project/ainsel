@@ -13,10 +13,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -86,7 +89,7 @@ type PluginReconciler struct {
 //+kubebuilder:rbac:groups=ainsel.dev,resources=plugins,verbs=get;list;watch
 //+kubebuilder:rbac:groups=ainsel.dev,resources=plugins/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=services,verbs=get
+//+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 //+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 
 // Reconcile fetches and validates the plugin's manifest and updates the
@@ -383,8 +386,12 @@ func (r *PluginReconciler) canReuseSigResult(p *commonv1alpha1.Plugin) bool {
 		return false
 	}
 
-	// Check if policy hash changed
-	if p.Status.Signature.PolicyHash != r.SigningPolicy.Hash() {
+	// Check if policy hash changed (nil policy is treated as empty policy)
+	policy := r.SigningPolicy
+	if policy == nil {
+		policy = &signing.Policy{}
+	}
+	if p.Status.Signature.PolicyHash != policy.Hash() {
 		return false
 	}
 
@@ -504,10 +511,79 @@ func (r *PluginReconciler) dedup(strs []string) []string {
 	return result
 }
 
+// mapEndpointSliceToPlugin maps an EndpointSlice to the Plugins that reference it.
+// A Plugin references an EndpointSlice if the slice's kubernetes.io/service-name label
+// matches the Plugin's spec.service.name.
+func (r *PluginReconciler) mapEndpointSliceToPlugin(ctx context.Context, obj client.Object) []reconcile.Request {
+	slice := obj.(*discoveryv1.EndpointSlice)
+	serviceName := slice.Labels["kubernetes.io/service-name"]
+	if serviceName == "" {
+		return nil
+	}
+
+	// List all Plugins in the same namespace
+	plugins := &commonv1alpha1.PluginList{}
+	if err := r.List(ctx, plugins, client.InNamespace(slice.Namespace)); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, p := range plugins.Items {
+		if p.Spec.Service.Name == serviceName {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(&p),
+			})
+		}
+	}
+	return requests
+}
+
+// mapPodToPlugin maps a Pod to the Plugins whose Service selector matches the Pod's labels.
+func (r *PluginReconciler) mapPodToPlugin(ctx context.Context, obj client.Object) []reconcile.Request {
+	pod := obj.(*corev1.Pod)
+
+	// List all Services in the same namespace
+	services := &corev1.ServiceList{}
+	if err := r.List(ctx, services, client.InNamespace(pod.Namespace)); err != nil {
+		return nil
+	}
+
+	// Check which services select this pod
+	matchingServiceNames := make(map[string]bool)
+	for _, svc := range services.Items {
+		selector := labels.Set(svc.Spec.Selector)
+		if selector.AsSelector().Matches(labels.Set(pod.Labels)) {
+			matchingServiceNames[svc.Name] = true
+		}
+	}
+
+	if len(matchingServiceNames) == 0 {
+		return nil
+	}
+
+	// List all Plugins in the same namespace
+	plugins := &commonv1alpha1.PluginList{}
+	if err := r.List(ctx, plugins, client.InNamespace(pod.Namespace)); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, p := range plugins.Items {
+		if matchingServiceNames[p.Spec.Service.Name] {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(&p),
+			})
+		}
+	}
+	return requests
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PluginReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&commonv1alpha1.Plugin{}).
+		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(r.mapEndpointSliceToPlugin)).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.mapPodToPlugin)).
 		Named("plugin").
 		Complete(r)
 }

@@ -58,6 +58,57 @@ func (v *fakeVerifier) Verify(ctx context.Context, imageRef string) (signing.Res
 	return signing.Result{Verified: v.verified, Signer: v.signer}, nil
 }
 
+// Test the map functions that convert EndpointSlices and Pods to Plugin requests
+var _ = Describe("Plugin Controller Map Functions", func() {
+	It("maps EndpointSlice to matching Plugin", func() {
+		ctx := context.Background()
+		reconciler := &PluginReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+
+		// Create two Plugins
+		digest := "sha256:" + sha256Hex("test")
+		plugin1 := &commonv1alpha1.Plugin{
+			ObjectMeta: metav1.ObjectMeta{Name: "plugin1", Namespace: "default"},
+			Spec: commonv1alpha1.PluginSpec{
+				Service: commonv1alpha1.PluginServiceRef{Name: "svc1", Port: 8080},
+				Image: commonv1alpha1.PluginImage{
+					Repository: "example.com/img",
+					Digest:     digest,
+				},
+			},
+		}
+		plugin2 := &commonv1alpha1.Plugin{
+			ObjectMeta: metav1.ObjectMeta{Name: "plugin2", Namespace: "default"},
+			Spec: commonv1alpha1.PluginSpec{
+				Service: commonv1alpha1.PluginServiceRef{Name: "svc2", Port: 8080},
+				Image: commonv1alpha1.PluginImage{
+					Repository: "example.com/img",
+					Digest:     digest,
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, plugin1)).To(Succeed())
+		Expect(k8sClient.Create(ctx, plugin2)).To(Succeed())
+
+		// Create EndpointSlice for svc1
+		slice := &discoveryv1.EndpointSlice{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "svc1-slice",
+				Namespace: "default",
+				Labels: map[string]string{
+					"kubernetes.io/service-name": "svc1",
+				},
+			},
+			AddressType: discoveryv1.AddressTypeIPv4,
+		}
+		Expect(k8sClient.Create(ctx, slice)).To(Succeed())
+
+		// Map should return only plugin1
+		requests := reconciler.mapEndpointSliceToPlugin(ctx, slice)
+		Expect(requests).To(HaveLen(1))
+		Expect(requests[0].Name).To(Equal("plugin1"))
+	})
+})
+
 var _ = Describe("Plugin Controller", func() {
 	const (
 		namespace  = "default"
