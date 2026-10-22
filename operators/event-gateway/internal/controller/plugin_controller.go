@@ -158,41 +158,30 @@ func (r *PluginReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"Plugin image signature verification failed")
 			return result, r.updateStatus(ctx, &p, before)
 		}
-	} else if p.Status.Signature != nil {
-		// Update the CheckedAt time even if reusing cached result
-		p.Status.Signature.CheckedAt = metav1.NewTime(r.now())
 	}
+	// Note: DO NOT update CheckedAt when reusing cached result - it breaks 24h re-verification
 
-	// Step 2: Resolve verified endpoints (optional - fallback to default if service not found)
+	// Step 2: Resolve verified endpoints (required - no fallback to DNS)
 	endpoints, err := r.resolveVerifiedEndpoints(ctx, &p)
-
-	// Check if service was found but no endpoints verified
-	var noVerifiedEndpoints bool
-	if epErr, ok := err.(*endpointResolutionError); ok {
-		noVerifiedEndpoints = epErr.serviceFound
-		err = epErr.cause // Extract the underlying error if any
-	}
-
 	if err != nil {
 		logf.FromContext(ctx).Info("endpoint resolution failed", "plugin", p.Name, "error", err.Error())
-		endpoints = []string{}
 	}
 	p.Status.VerifiedEndpoints = endpoints
 
-	// Step 3: Use verified endpoints or fail with NoVerifiedEndpoints if service exists but no endpoints
-	var endpoint string
-	if len(endpoints) > 0 {
-		endpoint = endpoints[0]
-	} else if noVerifiedEndpoints {
-		// Service exists and signature was checked, but no endpoints running the verified digest
-		r.setReady(&p, metav1.ConditionFalse, commonv1alpha1.PluginReasonNoVerifiedEndpoints,
-			"No endpoints are running the verified image digest")
+	// Step 3: Fail if no verified endpoints found
+	if len(endpoints) == 0 {
+		var msg string
+		if err != nil {
+			msg = fmt.Sprintf("No verified endpoints: %v", err)
+		} else {
+			msg = "No endpoints are running the verified image digest"
+		}
+		r.setReady(&p, metav1.ConditionFalse, commonv1alpha1.PluginReasonNoVerifiedEndpoints, msg)
 		return result, r.updateStatus(ctx, &p, before)
 	}
-	// else: use empty endpoint for default service DNS (service not found or signature not checked)
 
-	// Fetch manifest
-	body, err := r.fetchManifest(ctx, &p, endpoint)
+	// Fetch manifest from first verified endpoint
+	body, err := r.fetchManifest(ctx, &p, endpoints[0])
 	if err != nil {
 		logf.FromContext(ctx).Info("plugin manifest unreachable", "plugin", p.Name, "error", err.Error())
 		r.setReady(&p, metav1.ConditionFalse, commonv1alpha1.PluginReasonUnreachable,
@@ -306,14 +295,9 @@ func (r *PluginReconciler) manifestURL(p *commonv1alpha1.Plugin, endpoint string
 	return r.defaultManifestURL(p, endpoint)
 }
 
-// defaultManifestURL returns the in-cluster address of the plugin's manifest:
-// the well-known path on the plugin's own Service, in the Plugin's namespace.
+// defaultManifestURL returns the manifest URL for the given endpoint.
 func (r *PluginReconciler) defaultManifestURL(p *commonv1alpha1.Plugin, endpoint string) string {
-	if endpoint != "" {
-		return fmt.Sprintf("http://%s%s", endpoint, plugin.ManifestPath)
-	}
-	return fmt.Sprintf("http://%s.%s.svc:%d%s",
-		p.Spec.Service.Name, p.Namespace, p.Spec.Service.Port, plugin.ManifestPath)
+	return fmt.Sprintf("http://%s%s", endpoint, plugin.ManifestPath)
 }
 
 func (r *PluginReconciler) httpClient() *http.Client {
@@ -335,19 +319,6 @@ func (r *PluginReconciler) now() time.Time {
 		return r.Now()
 	}
 	return time.Now()
-}
-
-// endpointResolutionError indicates whether service was found but no endpoints were verified.
-type endpointResolutionError struct {
-	serviceFound bool
-	cause        error
-}
-
-func (e *endpointResolutionError) Error() string {
-	if e.cause != nil {
-		return e.cause.Error()
-	}
-	return "no verified endpoints"
 }
 
 // verifySignature checks the plugin's image signature against the signing policy.
@@ -428,17 +399,13 @@ func (r *PluginReconciler) canReuseSigResult(p *commonv1alpha1.Plugin) bool {
 }
 
 // resolveVerifiedEndpoints finds all endpoints (IP:port pairs) that are running
-// the verified image digest. Returns nil error if service not found (fallback to default).
-// Returns an endpointResolutionError if service found but no verified endpoints.
+// the verified image digest. Returns error if service not found or any other issue.
 func (r *PluginReconciler) resolveVerifiedEndpoints(ctx context.Context, p *commonv1alpha1.Plugin) ([]string, error) {
 	// Get the service to find the port
 	svc := &corev1.Service{}
 	svcKey := client.ObjectKey{Namespace: p.Namespace, Name: p.Spec.Service.Name}
 	if err := r.Get(ctx, svcKey, svc); err != nil {
-		if apierrors.IsNotFound(err) {
-			return []string{}, nil // Service not found, caller will fall back to default DNS
-		}
-		return nil, fmt.Errorf("failed to get service: %w", err)
+		return nil, fmt.Errorf("service not found: %w", err)
 	}
 
 	// Find the port matching the spec.service.port
@@ -504,11 +471,6 @@ func (r *PluginReconciler) resolveVerifiedEndpoints(ctx context.Context, p *comm
 	// Sort and deduplicate
 	sort.Strings(verifiedEndpoints)
 	verifiedEndpoints = r.dedup(verifiedEndpoints)
-
-	// If service exists but no verified endpoints, return an error to indicate this
-	if len(verifiedEndpoints) == 0 {
-		return []string{}, &endpointResolutionError{serviceFound: true}
-	}
 
 	return verifiedEndpoints, nil
 }

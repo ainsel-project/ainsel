@@ -228,6 +228,34 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(k8sClient.Create(ctx, eps)).To(Succeed())
 	}
 
+	// Helper to create a complete verified backend (Service, Pod, EndpointSlice)
+	createVerifiedBackend := func(digest string) string {
+		createService()
+		createPodWithImageID("plugin-mem0-pod", digest)
+
+		pod := &corev1.Pod{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "plugin-mem0-pod", Namespace: namespace}, pod)).To(Succeed())
+
+		podIP := "10.0.0.1"
+		pod.Status.PodIP = podIP
+		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+
+		endpoints := []discoveryv1.Endpoint{
+			{
+				Addresses: []string{podIP},
+				TargetRef: &corev1.ObjectReference{
+					Kind:      "Pod",
+					Name:      "plugin-mem0-pod",
+					Namespace: namespace,
+				},
+				Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)},
+			},
+		}
+		createEndpointSlice(endpoints)
+
+		return podIP + ":8080"
+	}
+
 	reconcilePluginWithOptionsErr := func(verifier signing.Verifier, policy *signing.Policy, now func() time.Time) (ctrl.Result, error) {
 		if now == nil {
 			now = time.Now
@@ -236,10 +264,11 @@ var _ = Describe("Plugin Controller", func() {
 			Client: k8sClient,
 			Scheme: k8sClient.Scheme(),
 			ManifestURL: func(p *commonv1alpha1.Plugin, endpoint string) string {
-				if endpoint != "" {
-					return "http://" + endpoint + "/ainsel-plugin.json"
+				// Map the fake endpoint to the test server URL
+				if endpoint == "10.0.0.1:8080" {
+					return manifestSv.URL + "/ainsel-plugin.json"
 				}
-				return manifestSv.URL + "/ainsel-plugin.json"
+				return "http://" + endpoint + "/ainsel-plugin.json"
 			},
 			Verifier: verifier,
 			SigningPolicy: policy,
@@ -270,7 +299,9 @@ var _ = Describe("Plugin Controller", func() {
 
 	It("sets Ready=True and stores the manifest", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 		reconcilePlugin()
 
 		Eventually(func() bool {
@@ -278,18 +309,20 @@ var _ = Describe("Plugin Controller", func() {
 			return c != nil && c.Status == metav1.ConditionTrue && c.Reason == commonv1alpha1.PluginReasonReady
 		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
 
-		plugin := &commonv1alpha1.Plugin{}
-		Expect(k8sClient.Get(ctx, key, plugin)).To(Succeed())
-		Expect(plugin.Status.Version).To(Equal("0.1.0"))
-		Expect(plugin.Status.DeclaredPermissions).To(Equal([]string{"agents:read"}))
-		Expect(plugin.Status.Manifest).NotTo(BeNil())
-		Expect(string(plugin.Status.Manifest.Raw)).To(ContainSubstring(`"version":"0.1.0"`))
-		Expect(plugin.Status.ObservedGeneration).To(Equal(plugin.Generation))
+		p := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p)).To(Succeed())
+		Expect(p.Status.Version).To(Equal("0.1.0"))
+		Expect(p.Status.DeclaredPermissions).To(Equal([]string{"agents:read"}))
+		Expect(p.Status.Manifest).NotTo(BeNil())
+		Expect(string(p.Status.Manifest.Raw)).To(ContainSubstring(`"version":"0.1.0"`))
+		Expect(p.Status.ObservedGeneration).To(Equal(p.Generation))
 	})
 
 	It("reports PermissionsPending when declared permissions widen", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read", "personas:write"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 		reconcilePlugin()
 
 		Eventually(func() bool {
@@ -303,14 +336,16 @@ var _ = Describe("Plugin Controller", func() {
 
 		// Declared permissions are still recorded so the console can show
 		// what is waiting for approval.
-		plugin := &commonv1alpha1.Plugin{}
-		Expect(k8sClient.Get(ctx, key, plugin)).To(Succeed())
-		Expect(plugin.Status.DeclaredPermissions).To(Equal([]string{"agents:read", "personas:write"}))
+		p := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p)).To(Succeed())
+		Expect(p.Status.DeclaredPermissions).To(Equal([]string{"agents:read", "personas:write"}))
 	})
 
 	It("reports Unreachable and keeps the last good manifest", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 		reconcilePlugin()
 
 		Eventually(func() bool {
@@ -326,15 +361,17 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(c.Status).To(Equal(metav1.ConditionFalse))
 		Expect(c.Reason).To(Equal(commonv1alpha1.PluginReasonUnreachable))
 
-		plugin := &commonv1alpha1.Plugin{}
-		Expect(k8sClient.Get(ctx, key, plugin)).To(Succeed())
-		Expect(plugin.Status.Version).To(Equal("0.1.0"))
-		Expect(plugin.Status.Manifest).NotTo(BeNil())
+		p := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p)).To(Succeed())
+		Expect(p.Status.Version).To(Equal("0.1.0"))
+		Expect(p.Status.Manifest).NotTo(BeNil())
 		Expect(res.RequeueAfter).To(Equal(60 * time.Second))
 	})
 
 	It("reports InvalidManifest on bad JSON and on id mismatch", func() {
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 
 		By("serving a body that is not JSON")
 		serveManifest("not json")
@@ -363,7 +400,9 @@ var _ = Describe("Plugin Controller", func() {
 
 	It("reports Incompatible for pluginApi 2.0", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "2.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 		reconcilePlugin()
 
 		Eventually(func() bool {
@@ -394,7 +433,9 @@ var _ = Describe("Plugin Controller", func() {
 
 	It("does not rewrite status when nothing changed", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 		reconcilePlugin()
 
 		Eventually(func() bool {
@@ -402,10 +443,10 @@ var _ = Describe("Plugin Controller", func() {
 			return c != nil && c.Reason == commonv1alpha1.PluginReasonReady
 		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
 
-		plugin := &commonv1alpha1.Plugin{}
-		Expect(k8sClient.Get(ctx, key, plugin)).To(Succeed())
-		rv := plugin.ResourceVersion
-		transitions := findCondition(plugin.Status.Conditions,
+		p := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p)).To(Succeed())
+		rv := p.ResourceVersion
+		transitions := findCondition(p.Status.Conditions,
 			commonv1alpha1.PluginConditionReady).LastTransitionTime
 
 		By("reconciling again with an unchanged manifest")
@@ -418,16 +459,18 @@ var _ = Describe("Plugin Controller", func() {
 			commonv1alpha1.PluginConditionReady).LastTransitionTime).To(Equal(transitions))
 	})
 
-	It("builds the default manifest URL from the plugin service", func() {
+	It("builds the manifest URL from endpoint", func() {
 		r := &PluginReconciler{}
 		p := newPlugin(false)
-		url := r.defaultManifestURL(p, "")
-		Expect(url).To(Equal(fmt.Sprintf("http://plugin-mem0.%s.svc:8080/ainsel-plugin.json", namespace)))
+		url := r.defaultManifestURL(p, "10.0.0.1:8080")
+		Expect(url).To(Equal("http://10.0.0.1:8080/ainsel-plugin.json"))
 	})
 
 	It("rejects an unsigned plugin when signatures are required", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		// Don't create backend - we expect to fail on signature before reaching endpoints
 
 		policy := &signing.Policy{RequireSignature: true}
 		verifier := &fakeVerifier{verified: false}
@@ -445,7 +488,9 @@ var _ = Describe("Plugin Controller", func() {
 
 	It("allows an unsigned plugin when not required and records verified=false", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 
 		// Policy with no trust material and requireSignature=false
 		policy := &signing.Policy{RequireSignature: false}
@@ -459,16 +504,18 @@ var _ = Describe("Plugin Controller", func() {
 				c.Reason == commonv1alpha1.PluginReasonReady
 		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
 
-		plugin := &commonv1alpha1.Plugin{}
-		Expect(k8sClient.Get(ctx, key, plugin)).To(Succeed())
-		Expect(plugin.Status.Signature).NotTo(BeNil())
-		Expect(plugin.Status.Signature.Verified).To(BeFalse())
-		Expect(plugin.Status.Signature.Message).To(ContainSubstring("no signing trust"))
+		p := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p)).To(Succeed())
+		Expect(p.Status.Signature).NotTo(BeNil())
+		Expect(p.Status.Signature.Verified).To(BeFalse())
+		Expect(p.Status.Signature.Message).To(ContainSubstring("no signing trust"))
 	})
 
 	It("fails closed on an invalid policy", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		// Don't create backend - we expect to fail on policy error before reaching endpoints
 
 		policy := &signing.Policy{RequireSignature: true}
 		policyErr := fmt.Errorf("invalid signing policy: bad config")
@@ -498,7 +545,9 @@ var _ = Describe("Plugin Controller", func() {
 
 	It("reuses the signature result until image, policy or 24h changes", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
-		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
 
 		// Policy with trust material so verifier gets called
 		policy := &signing.Policy{
@@ -531,6 +580,36 @@ var _ = Describe("Plugin Controller", func() {
 		nowFunc = func() time.Time { return now.Add(25 * time.Hour) }
 		reconcilePluginWithOptions(verifier, policy, nowFunc)
 		Expect(verifier.callCnt).To(Equal(1))
+	})
+
+	It("re-verifies after 24h", func() {
+		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
+
+		policy := &signing.Policy{RequireSignature: false}
+		verifier := &fakeVerifier{verified: true, signer: "key:xyz"}
+		now := time.Now()
+		nowFunc := func() time.Time { return now }
+
+		// First reconcile
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		Eventually(func() bool {
+			c := getReady()
+			return c != nil && c.Reason == commonv1alpha1.PluginReasonReady
+		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+		Expect(verifier.callCnt).To(Equal(1))
+
+		// Second reconcile within 24h - reuses cache
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		Expect(verifier.callCnt).To(Equal(1), "should not re-verify within 24h")
+
+		// Advance time past 24h - should re-verify
+		verifier.callCnt = 0
+		nowFunc = func() time.Time { return now.Add(25 * time.Hour) }
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		Expect(verifier.callCnt).To(Equal(1), "should re-verify after 24h")
 	})
 
 	It("lists only endpoints running the verified digest", func() {
