@@ -107,14 +107,14 @@ type PluginStatus struct {
 const (
 	PluginConditionReady = "Ready"
 
-	PluginReasonReady              = "Ready"
-	PluginReasonDisabled           = "Disabled"
-	PluginReasonSignatureRejected  = "SignatureRejected"
+	PluginReasonReady               = "Ready"
+	PluginReasonDisabled            = "Disabled"
+	PluginReasonSignatureRejected   = "SignatureRejected"
 	PluginReasonNoVerifiedEndpoints = "NoVerifiedEndpoints"
-	PluginReasonUnreachable        = "Unreachable"
-	PluginReasonInvalidManifest    = "InvalidManifest"
-	PluginReasonIncompatible       = "Incompatible"
-	PluginReasonPermissionsPending = "PermissionsPending"
+	PluginReasonUnreachable         = "Unreachable"
+	PluginReasonInvalidManifest     = "InvalidManifest"
+	PluginReasonIncompatible        = "Incompatible"
+	PluginReasonPermissionsPending  = "PermissionsPending"
 )
 
 // +kubebuilder:object:root=true
