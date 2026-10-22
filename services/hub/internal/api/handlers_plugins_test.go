@@ -701,15 +701,22 @@ func TestGetPlugin_ExposesSignatureToAdminsOnly(t *testing.T) {
 	if adminResp.Signature == nil {
 		t.Errorf("admin response signature = nil, want signature data")
 	} else {
-		if !adminResp.Signature.Verified {
-			t.Errorf("signature.verified = false, want true")
+		if adminResp.Signature.Verified != true {
+			t.Errorf("signature.verified = %v, want true", adminResp.Signature.Verified)
 		}
 		if adminResp.Signature.Signer != "key:abc" {
 			t.Errorf("signature.signer = %q, want key:abc", adminResp.Signature.Signer)
 		}
 	}
-	if len(adminResp.VerifiedEndpoints) != 2 {
-		t.Errorf("verifiedEndpoints = %v, want 2 endpoints", adminResp.VerifiedEndpoints)
+	expectedEndpoints := []string{"10.0.0.1:8080", "10.0.0.2:8080"}
+	if len(adminResp.VerifiedEndpoints) != len(expectedEndpoints) {
+		t.Errorf("verifiedEndpoints length = %d, want %d", len(adminResp.VerifiedEndpoints), len(expectedEndpoints))
+	} else {
+		for i, ep := range expectedEndpoints {
+			if adminResp.VerifiedEndpoints[i] != ep {
+				t.Errorf("verifiedEndpoints[%d] = %q, want %q", i, adminResp.VerifiedEndpoints[i], ep)
+			}
+		}
 	}
 
 	// Non-admin: signature and verifiedEndpoints are not exposed
