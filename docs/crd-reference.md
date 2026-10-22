@@ -296,7 +296,7 @@ the permissions an operator has approved.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `displayName` | string | No | User-facing name |
-| `service.name` | string | Yes | Name of the Kubernetes Service the plugin is reached over (in the Plugin's namespace) |
+| `service.name` | string | Yes | Name of the Kubernetes Service the plugin is reached over (in the Plugin's namespace). Must be a DNS-1123 label (max 63 chars): the reconciler interpolates it into `http://<name>.<namespace>.svc:<port>`, so a name with `.`, `#` or `/` would point the operator at an attacker-chosen host |
 | `service.port` | int32 | Yes | Port the plugin listens on (1–65535) |
 | `image.repository` | string | Yes | Container image repository |
 | `image.digest` | string | Yes | Image digest, pinned to an exact build (`sha256:` + 64 hex chars). Required: plugins are third-party code and must not move on a mutable tag |

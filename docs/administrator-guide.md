@@ -765,9 +765,10 @@ they ask for is granted until **you** approve it.
 **Registering a plugin.** A plugin's Deployment and Service are yours to
 deploy (helm, plain manifests — anything). Once the Service answers, register
 it via the console or `POST /api/v1/plugins` with its `id` (lowercase,
-`^[a-z][a-z0-9-]{1,30}$`), service name and port, image repository and
-`sha256:` digest. Registration grants nothing: the CR is created with an
-empty approved-permission set.
+`^[a-z][a-z0-9-]{0,29}[a-z0-9]$` — 2–31 characters, not ending in `-`), service
+name (a Kubernetes service name: DNS-1123 label, max 63 characters) and port,
+image repository and `sha256:` digest. Registration grants nothing: the CR is
+created with an empty approved-permission set.
 
 The event-gateway operator then fetches the manifest the plugin serves at
 `/ainsel-plugin.json`, checks it (well-formed, its declared `id` matches the
@@ -775,15 +776,34 @@ CR name, its `pluginApi` version is compatible with the platform), and
 records what the plugin declares — permissions, version, the manifest itself
 — on the Plugin's status.
 
-**Approving permissions.** If the manifest declares any permissions
-(`agents:read`, `personas:write`, …), the plugin stays not-Ready with reason
-`PermissionsPending` until you approve them. Approval is all-or-nothing
-against the declared set: `POST /api/v1/plugins/{id}/approve-permissions`
-with `"permissions"` naming exactly what the plugin declared — a subset, a
-superset, or anything the manifest never asked for is rejected with `409`
-and the current declared set in the error. That is deliberate: you approve
-what you have just seen, not what a stale console tab remembers. A declared
-permission you never approve simply is not effective.
+**Approving permissions.** If the manifest declares any permissions, the plugin
+stays not-Ready with reason `PermissionsPending` until you approve them.
+Approval is all-or-nothing against the declared set: `POST
+/api/v1/plugins/{id}/approve-permissions` with `"permissions"` naming exactly
+what the plugin declared — a subset, a superset, or anything the manifest never
+asked for is rejected with `409` and the current declared set in the error.
+That is deliberate: you approve what you have just seen, not what a stale
+console tab remembers. A declared permission you never approve simply is not
+effective.
+
+A plugin can only ever ask for names from this closed vocabulary — anything
+else in a manifest is rejected outright, so a plugin cannot invent a
+permission to widen its own reach:
+
+| Resource | Permissions |
+|---|---|
+| Agents | `agents:read`, `agents:write` |
+| Agent images | `agent-images:read`, `agent-images:write` |
+| Connectors | `connectors:read`, `connectors:write` |
+| Invocations | `invocations:read` |
+| MCP servers | `mcp-servers:read`, `mcp-servers:write` |
+| Observability | `observability:read` |
+| Personas | `personas:read`, `personas:write` |
+| Skills | `skills:read`, `skills:write` |
+| Triggers | `triggers:read`, `triggers:write` |
+
+Read verbs let a plugin look at that resource through the platform API; write
+verbs let it change it. Judge a plugin by the write verbs it asks for.
 
 **Group access.** `PUT /api/v1/plugins/{id}/group-access` records which
 groups' background identity the plugin may act for (the background identity

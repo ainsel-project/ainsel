@@ -7,7 +7,13 @@ import (
 
 // PluginServiceRef identifies the Kubernetes Service a plugin is reached over.
 type PluginServiceRef struct {
-	// Name is the Service name, in the Plugin's namespace.
+	// Name is the Service name, in the Plugin's namespace. It must be a
+	// DNS-1123 label: the reconciler interpolates it into
+	// http://<name>.<namespace>.svc:<port>, so a name carrying '.', '#' or '/'
+	// would point the operator — from inside the cluster — at an attacker-chosen
+	// host.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
 	Name string `json:"name"`
 	// Port is the port the plugin listens on.
 	// +kubebuilder:validation:Minimum=1

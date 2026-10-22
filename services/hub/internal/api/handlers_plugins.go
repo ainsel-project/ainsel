@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	pluginpkg "github.com/ainsel-project/ainsel/shared/api/plugin"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -29,9 +31,19 @@ import (
 // becomes a URL segment and later a tool-name prefix, so it is deliberately
 // strict; the digest is required because a mutable tag would let a
 // compromised registry push new code into the cluster silently.
+//
+// The id must also end alphanumeric: a trailing '-' is a fine URL slug but not
+// a valid Kubernetes object name, and the id becomes the Plugin's name, so
+// letting it through would turn a syntactic input error into a 500 from the
+// API server.
 var (
-	pluginIDPattern     = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
+	pluginIDPattern     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,29}[a-z0-9]$`)
 	pluginDigestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	// pluginServiceNamePattern is a DNS-1123 label. The reconciler interpolates
+	// the name into http://<name>.<namespace>.svc:<port><path>, so a name
+	// carrying '.', '#' or '/' would point the operator — from inside the
+	// cluster — at an attacker-chosen host.
+	pluginServiceNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 )
 
 // PluginInstallRequest installs a plugin whose workload is already deployed
@@ -271,11 +283,15 @@ func (s *Server) installPlugin(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 	if !pluginIDPattern.MatchString(req.ID) {
-		writeError(w, http.StatusBadRequest, "id must match ^[a-z][a-z0-9-]{1,30}$")
+		writeError(w, http.StatusBadRequest, "id must match "+pluginIDPattern.String())
 		return
 	}
 	if req.ServiceName == "" {
 		writeError(w, http.StatusBadRequest, "serviceName is required")
+		return
+	}
+	if len(req.ServiceName) > 63 || !pluginServiceNamePattern.MatchString(req.ServiceName) {
+		writeError(w, http.StatusBadRequest, "serviceName must be a DNS-1123 label ("+pluginServiceNamePattern.String()+", max 63 chars)")
 		return
 	}
 	if req.ServicePort < 1 || req.ServicePort > 65535 {
@@ -416,8 +432,14 @@ func (s *Server) setPluginGroupAccess(ctx context.Context, w http.ResponseWriter
 	if s.authzStore != nil {
 		for _, g := range req.Groups {
 			grp, err := s.authzStore.GetGroup(ctx, g)
-			if err != nil || grp == nil {
+			if errors.Is(err, authz.ErrNotFound) || (err == nil && grp == nil) {
 				writeError(w, http.StatusBadRequest, fmt.Sprintf("group %q does not exist", g))
+				return
+			}
+			if err != nil {
+				// A broken store is not a missing group — reporting it as one
+				// would send the admin to re-create a group that still exists.
+				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}

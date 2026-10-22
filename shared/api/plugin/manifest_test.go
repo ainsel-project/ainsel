@@ -232,6 +232,18 @@ func TestParseRejects(t *testing.T) {
 			want: []string{"id"},
 		},
 		{
+			// A trailing '-' is a usable URL slug but not a valid Kubernetes
+			// object name, and the id doubles as the Plugin name — the hub
+			// rejects it too, so both sides of the check must agree.
+			name: "id with trailing dash",
+			data: marshalManifest(t, func() map[string]any {
+				m := validManifest()
+				m["id"] = "a-"
+				return m
+			}()),
+			want: []string{"invalid id"},
+		},
+		{
 			name: "id with underscore",
 			data: marshalManifest(t, func() map[string]any {
 				m := validManifest()

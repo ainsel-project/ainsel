@@ -15,17 +15,19 @@ import (
 // captureHub is a fake hub that records the last request it received so the
 // tests can assert method + path + body exactly as the tool sent them.
 type captureHub struct {
-	method string
-	path   string
-	query  string
-	body   map[string]any
-	called bool
+	method  string
+	path    string
+	rawPath string
+	query   string
+	body    map[string]any
+	called  bool
 }
 
 func (c *captureHub) handler(status int, resp map[string]any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c.method = r.Method
 		c.path = r.URL.Path
+		c.rawPath = r.URL.EscapedPath()
 		c.query = r.URL.RawQuery
 		c.called = true
 		if b, _ := io.ReadAll(r.Body); len(b) > 0 {
@@ -393,6 +395,65 @@ func TestSetPluginGroupAccessMissing(t *testing.T) {
 	}
 	if !result.IsError || pluginToolText(t, result) != "groups is required" {
 		t.Errorf("expected groups-required error; got: %v / %s", result.IsError, pluginToolText(t, result))
+	}
+}
+
+// A crafted id must stay a single path segment: unescaped, an id like "x/../y"
+// would make the MCP server issue a path-traversal request to the hub carrying
+// the caller's bearer token. channels.go established the escaping convention;
+// the plugin tools follow it.
+func TestPluginToolsEscapeIDInPath(t *testing.T) {
+	idRequest := func(extra map[string]any) mcp.CallToolRequest {
+		args := map[string]any{"id": "x/../y"}
+		for k, v := range extra {
+			args[k] = v
+		}
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = args
+		return req
+	}
+
+	tests := []struct {
+		name string
+		call func(*PluginTools) (*mcp.CallToolResult, error)
+	}{
+		{"get", func(pt *PluginTools) (*mcp.CallToolResult, error) {
+			return pt.GetPlugin(context.Background(), idRequest(nil))
+		}},
+		{"uninstall", func(pt *PluginTools) (*mcp.CallToolResult, error) {
+			return pt.UninstallPlugin(context.Background(), idRequest(nil))
+		}},
+		{"enable", func(pt *PluginTools) (*mcp.CallToolResult, error) {
+			return pt.EnablePlugin(context.Background(), idRequest(nil))
+		}},
+		{"approve-permissions", func(pt *PluginTools) (*mcp.CallToolResult, error) {
+			return pt.ApprovePluginPermissions(context.Background(), idRequest(map[string]any{"permissions": []any{"agents:read"}}))
+		}},
+		{"group-access", func(pt *PluginTools) (*mcp.CallToolResult, error) {
+			return pt.SetPluginGroupAccess(context.Background(), idRequest(map[string]any{"groups": []any{"platform"}}))
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := &captureHub{}
+			srv := httptest.NewServer(hub.handler(http.StatusOK, map[string]any{"id": "x/../y"}))
+			defer srv.Close()
+
+			pt := &PluginTools{HubURL: srv.URL, HTTPClient: srv.Client()}
+			result, err := tc.call(pt)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.IsError {
+				t.Fatalf("tool returned error: %s", pluginToolText(t, result))
+			}
+			// The id must arrive as one escaped segment, not as extra path
+			// segments the hub's router would resolve elsewhere.
+			if !strings.Contains(hub.rawPath, "x%2F..%2Fy") {
+				t.Errorf("escaped path = %q, want the id escaped as x%%2F..%%2Fy (path %q)", hub.rawPath, hub.path)
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -74,14 +75,30 @@ func pluginTestServer(t *testing.T, objects ...runtime.Object) (*Server, *fakeAu
 // everything else.
 type pluginAuthzStore struct {
 	*fakeAuthzStore
-	groups map[string]struct{}
+	groups   map[string]struct{}
+	groupErr error
 }
 
 func (p *pluginAuthzStore) GetGroup(_ context.Context, id string) (*authz.Group, error) {
+	// groupErr simulates a broken store (a Postgres hiccup): every lookup fails
+	// with a non-ErrNotFound error, which the API must report as 500 rather
+	// than telling the admin their group does not exist.
+	if p.groupErr != nil {
+		return nil, p.groupErr
+	}
 	if _, ok := p.groups[id]; ok {
 		return &authz.Group{ID: id, Name: id}, nil
 	}
 	return nil, authz.ErrNotFound
+}
+
+// pluginBrokenGroupStoreServer is pluginAuthzTestServer with a store whose
+// GetGroup always fails with a non-ErrNotFound error.
+func pluginBrokenGroupStoreServer(t *testing.T, objects ...runtime.Object) *Server {
+	t.Helper()
+	s, _ := pluginAuthzTestServer(t, map[string]struct{}{"g1": {}}, objects...)
+	s.authzStore.(*pluginAuthzStore).groupErr = errors.New("connection reset by peer")
+	return s
 }
 
 // pluginAuthzTestServer wires the plugin routes with a real checker backed by
@@ -183,6 +200,19 @@ func TestInstallPlugin_Validation(t *testing.T) {
 		{"port above range", map[string]any{"servicePort": 65536}, http.StatusBadRequest},
 		{"missing service name", map[string]any{"serviceName": ""}, http.StatusBadRequest},
 		{"missing image repository", map[string]any{"imageRepository": ""}, http.StatusBadRequest},
+		// The service name is interpolated into an in-cluster URL by the
+		// operator, so anything that is not a DNS label could redirect the
+		// operator at an attacker-chosen host.
+		{"service name with dot and hash", map[string]any{"serviceName": "evil.com#"}, http.StatusBadRequest},
+		{"service name with uppercase and underscore", map[string]any{"serviceName": "Bad_Name"}, http.StatusBadRequest},
+		{"service name with slash", map[string]any{"serviceName": "a/b"}, http.StatusBadRequest},
+		{"service name too long", map[string]any{"serviceName": strings.Repeat("a", 64)}, http.StatusBadRequest},
+		// A trailing '-' is a valid slug for a URL segment but not a valid
+		// Kubernetes object name, so the API server would reject it and the
+		// install would surface as a 500.
+		{"id with trailing dash", map[string]any{"id": "a-"}, http.StatusBadRequest},
+		{"id too short", map[string]any{"id": "a"}, http.StatusBadRequest},
+		{"id too long", map[string]any{"id": "a" + strings.Repeat("b", 31)}, http.StatusBadRequest},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -563,6 +593,23 @@ func TestGroupAccess(t *testing.T) {
 
 	if len(audit.inserted) != 1 || audit.inserted[0].EventType != "plugin_group_access_changed" || audit.inserted[0].Target != "mem0" {
 		t.Errorf("audit rows = %+v, want one plugin_group_access_changed/mem0", audit.inserted)
+	}
+}
+
+// A store failure must not be reported as "group does not exist": an admin whose
+// database hiccupped during a group-access update would go re-create a group
+// that is still there.
+func TestGroupAccess_StoreErrorIs500(t *testing.T) {
+	seed := pluginCRReady(pluginCR("mem0", false), true, "Ready", "ok", nil)
+	s := pluginBrokenGroupStoreServer(t, seed)
+
+	rec := doJSON(t, s, http.MethodPut, "/api/v1/plugins/mem0/group-access",
+		map[string]any{"groups": []string{"g1"}}, asUser("admin", "admin"))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500, body = %s", rec.Code, rec.Body.String())
+	}
+	if p := getPluginCR(t, s, "mem0"); len(p.Spec.GroupAccess) != 0 {
+		t.Errorf("spec.groupAccess = %v after failed update, want unchanged", p.Spec.GroupAccess)
 	}
 }
 

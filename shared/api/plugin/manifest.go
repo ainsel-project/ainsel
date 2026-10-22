@@ -72,8 +72,10 @@ var Slots = []string{
 }
 
 // idPattern is the plugin id shape: a lowercase slug that is safe to use as a
-// URL segment and as a tool-name prefix.
-var idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
+// URL segment and as a tool-name prefix. It must end alphanumeric — the id is
+// also the Plugin object's name, and a Kubernetes name may not end in '-'
+// (the hub's install validation uses the same pattern).
+var idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,29}[a-z0-9]$`)
 
 // Manifest is a parsed plugin manifest. Only identity fields and pluginApi are
 // required; the ui, api and mcp specs are each optional and nil when absent.

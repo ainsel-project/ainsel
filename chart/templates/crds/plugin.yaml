@@ -96,7 +96,14 @@ spec:
                   calls to.
                 properties:
                   name:
-                    description: Name is the Service name, in the Plugin's namespace.
+                    description: |-
+                      Name is the Service name, in the Plugin's namespace. It must be a
+                      DNS-1123 label: the reconciler interpolates it into
+                      http://<name>.<namespace>.svc:<port>, so a name carrying '.', '#' or '/'
+                      would point the operator — from inside the cluster — at an attacker-chosen
+                      host.
+                    maxLength: 63
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                     type: string
                   port:
                     description: Port is the port the plugin listens on.

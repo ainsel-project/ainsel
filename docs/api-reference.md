@@ -437,9 +437,13 @@ an audit row (`plugin_installed`, `plugin_uninstalled`, `plugin_enabled`,
 `plugin_disabled`, `plugin_permissions_approved`,
 `plugin_group_access_changed`).
 
-The plugin `id` must match `^[a-z][a-z0-9-]{1,30}$` (it becomes a URL segment
-and a tool-name prefix), and `imageDigest` must match `^sha256:[a-f0-9]{64}$`
-— a mutable tag would let a compromised registry push new code silently.
+The plugin `id` must match `^[a-z][a-z0-9-]{0,29}[a-z0-9]$` — 2–31 characters,
+not ending in `-` (it becomes a URL segment, a tool-name prefix and the Plugin
+object's name, and a Kubernetes name may not end in `-`), `serviceName` must be
+a DNS-1123 label (`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`, max 63 characters — the
+operator interpolates it into an in-cluster URL), and `imageDigest` must match
+`^sha256:[a-f0-9]{64}$` — a mutable tag would let a compromised registry push
+new code silently.
 
 ### GET /api/v1/plugins
 
@@ -462,7 +466,6 @@ List plugins, sorted by id. Supports `page`/`pageSize`.
       "reason": "PermissionsPending",
       "message": "Declared permissions awaiting approval: agents:read",
       "declaredPermissions": ["agents:read"],
-      "approvedPermissions": [],
       "groupAccess": ["platform"],
       "manifest": {"id": "mem0", "pluginApi": "1.0", "version": "1.2.3"}
     }
@@ -495,7 +498,9 @@ the set the manifest turns out to declare.
 ```
 
 `id`, `serviceName`, `servicePort` (1–65535), `imageRepository` and
-`imageDigest` are required.
+`imageDigest` are required, and each is validated against the rules above —
+an `id` or `serviceName` that fails its pattern is a `400`, never a write the
+API server or the operator would later reject.
 
 **Response:** `201 Created` with the plugin record. `400` on validation
 errors, `409` if the id is already taken.

@@ -102,7 +102,7 @@ func (t *PluginTools) GetPlugin(ctx context.Context, req mcp.CallToolRequest) (*
 	if fail != nil {
 		return fail, nil
 	}
-	body, err := hubGet(ctx, t.HTTPClient, t.HubURL, "/api/v1/plugins/"+id)
+	body, err := hubGet(ctx, t.HTTPClient, t.HubURL, "/api/v1/plugins/"+url.PathEscape(id))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get plugin %s: %v", id, err)), nil
 	}
@@ -114,7 +114,7 @@ func (t *PluginTools) GetPlugin(ctx context.Context, req mcp.CallToolRequest) (*
 func (t *PluginTools) InstallPluginTool() mcp.Tool {
 	return mcp.NewTool("install_plugin",
 		mcp.WithDescription("Register an already deployed plugin with the platform so events can be routed to it. Admin-only. This does NOT deploy anything: the plugin's Deployment and Service must already exist in the platform namespace, and the image is pinned by digest. Uninstalling later also leaves the workload running."),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Plugin id (^[a-z][a-z0-9-]{1,30}$)")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Plugin id (^[a-z][a-z0-9-]{0,29}[a-z0-9]$)")),
 		mcp.WithString("serviceName", mcp.Required(), mcp.Description("Name of the plugin's existing in-cluster Service")),
 		mcp.WithNumber("servicePort", mcp.Required(), mcp.Description("Port the plugin's Service listens on (1-65535)")),
 		mcp.WithString("imageRepository", mcp.Required(), mcp.Description("Image repository the plugin was deployed from")),
@@ -179,7 +179,7 @@ func (t *PluginTools) UninstallPlugin(ctx context.Context, req mcp.CallToolReque
 	if fail != nil {
 		return fail, nil
 	}
-	if _, err := hubDelete(ctx, t.HTTPClient, t.HubURL, "/api/v1/plugins/"+id); err != nil {
+	if _, err := hubDelete(ctx, t.HTTPClient, t.HubURL, "/api/v1/plugins/"+url.PathEscape(id)); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to uninstall plugin %s: %v", id, err)), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("plugin %s uninstalled; its Deployment and Service are still running", id)), nil
@@ -216,7 +216,7 @@ func (t *PluginTools) togglePlugin(ctx context.Context, req mcp.CallToolRequest,
 	if fail != nil {
 		return fail, nil
 	}
-	body, err := hubPost(ctx, t.HTTPClient, t.HubURL, "/api/v1/plugins/"+id+"/"+action, nil)
+	body, err := hubPost(ctx, t.HTTPClient, t.HubURL, "/api/v1/plugins/"+url.PathEscape(id)+"/"+action, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to %s plugin %s: %v", action, id, err)), nil
 	}
@@ -279,7 +279,7 @@ func (t *PluginTools) pluginArrayRequest(ctx context.Context, method, id, subres
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to encode request: %v", err)), nil
 	}
-	body, err := hubRequestWithCodes(ctx, t.HTTPClient, method, t.HubURL, "/api/v1/plugins/"+id+"/"+subresource, bytes.NewReader(payload), http.StatusOK)
+	body, err := hubRequestWithCodes(ctx, t.HTTPClient, method, t.HubURL, "/api/v1/plugins/"+url.PathEscape(id)+"/"+subresource, bytes.NewReader(payload), http.StatusOK)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to %s: %v", what, err)), nil
 	}
