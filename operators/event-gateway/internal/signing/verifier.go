@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v3/pkg/cosign"
@@ -204,23 +206,29 @@ func (v *cosignVerifier) verifyKeyless(ctx context.Context, ref name.Reference) 
 		}
 
 		if ok && len(sigs) > 0 {
-			// Verification succeeded. Extract the signer subject from the certificate.
-			// If we can't extract it, use the SubjectRegExp string.
-			issuer := v.policy.Keyless[0].Issuer
-			subject := ""
-
-			if len(sigs) > 0 {
-				cert, err := sigs[0].Cert()
-				if err == nil && cert != nil {
-					subject = cert.Subject.String()
-				}
+			// Verification succeeded. Extract issuer and subject from the certificate.
+			cert, err := sigs[0].Cert()
+			if err != nil || cert == nil {
+				// No certificate available; cannot determine signer.
+				return Result{
+					Verified: true,
+					Signer:   "keyless:unknown",
+				}, nil
 			}
 
-			if subject == "" {
-				// Fall back to the SubjectRegExp if present.
-				if v.policy.Keyless[0].SubjectRegExp != "" {
-					subject = v.policy.Keyless[0].SubjectRegExp
-				}
+			// Extract issuer from certificate extensions (Fulcio issuer OID).
+			issuer := "unknown"
+			certExt := &cosign.CertExtensions{Cert: cert}
+			if issuerExt := certExt.GetIssuer(); issuerExt != "" {
+				issuer = issuerExt
+			}
+
+			// Extract subject from certificate SAN (URIs or EmailAddresses).
+			subject := "unknown"
+			if len(cert.URIs) > 0 {
+				subject = cert.URIs[0].String()
+			} else if len(cert.EmailAddresses) > 0 {
+				subject = cert.EmailAddresses[0]
 			}
 
 			return Result{
@@ -238,23 +246,17 @@ func isNoSignaturesError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check if the error message contains "no matching signatures" or similar patterns.
-	// This is a simple heuristic that matches cosign's error messages.
-	errStr := err.Error()
-	return contains(errStr, "no matching signatures") || contains(errStr, "no signatures found")
-}
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && indexOf(s, substr) >= 0
-}
-
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
+	// Check for cosign-specific error types.
+	var noMatchingErr *cosign.ErrNoMatchingSignatures
+	var noSignaturesErr *cosign.ErrNoSignaturesFound
+	if errors.As(err, &noMatchingErr) || errors.As(err, &noSignaturesErr) {
+		return true
 	}
-	return -1
+
+	// Fall back to string matching for wrapped or other errors.
+	errStr := err.Error()
+	return strings.Contains(errStr, "no matching signatures") || strings.Contains(errStr, "no signatures found")
 }
 
 // fingerprintFromKey returns the sha256 fingerprint of a public key (first 16 hex characters of DER encoding).
