@@ -908,4 +908,102 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(c.Message).To(ContainSubstring("network error"))
 		Expect(res.RequeueAfter).To(Equal(60 * time.Second))
 	})
+
+	It("keeps rejecting an unsigned plugin on later reconciles (cached result)", func() {
+		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
+
+		policy := &signing.Policy{RequireSignature: true, Keys: []string{"dummy-key"}}
+		verifier := &fakeVerifier{verified: false}
+		now := time.Now()
+		nowFunc := func() time.Time { return now }
+
+		// First reconcile: unsigned plugin, should be rejected
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		Eventually(func() bool {
+			c := getReady()
+			return c != nil && c.Status == metav1.ConditionFalse &&
+				c.Reason == commonv1alpha1.PluginReasonSignatureRejected
+		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+		Expect(verifier.callCnt).To(Equal(1), "verifier should be called once")
+		Expect(hitCount.Load()).To(BeZero(), "manifest should not be fetched for rejected signature")
+
+		// Second reconcile with same state: should still be rejected via cache, manifest not fetched
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		c := getReady()
+		Expect(c.Status).To(Equal(metav1.ConditionFalse))
+		Expect(c.Reason).To(Equal(commonv1alpha1.PluginReasonSignatureRejected))
+		Expect(verifier.callCnt).To(Equal(1), "verifier should not be called again (cache reuse)")
+		Expect(hitCount.Load()).To(BeZero(), "manifest server should not be hit")
+	})
+
+	It("does not rewrite signature status on cache reuse", func() {
+		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
+
+		policy := &signing.Policy{RequireSignature: false, Keys: []string{"dummy-key"}}
+		verifier := &fakeVerifier{verified: true, signer: "key:test123"}
+		now := time.Now()
+		nowFunc := func() time.Time { return now }
+
+		// First reconcile
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		Eventually(func() bool {
+			c := getReady()
+			return c != nil && c.Reason == commonv1alpha1.PluginReasonReady
+		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+		p1 := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p1)).To(Succeed())
+		Expect(p1.Status.Signature).NotTo(BeNil())
+		originalCheckedAt := p1.Status.Signature.CheckedAt
+
+		// Second reconcile with same state
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+
+		p2 := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p2)).To(Succeed())
+		Expect(p2.Status.Signature.CheckedAt).To(Equal(originalCheckedAt),
+			"CheckedAt should not be rewritten on cache reuse")
+	})
+
+	It("no-trust path does not churn status", func() {
+		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+		createVerifiedBackend(plugin.Spec.Image.Digest)
+
+		// No trust material, signatures not required
+		policy := &signing.Policy{RequireSignature: false}
+		verifier := &fakeVerifier{}
+		now := time.Now()
+		nowFunc := func() time.Time { return now }
+
+		// First reconcile
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		Eventually(func() bool {
+			c := getReady()
+			return c != nil && c.Reason == commonv1alpha1.PluginReasonReady
+		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+		p1 := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p1)).To(Succeed())
+		Expect(p1.Status.Signature).NotTo(BeNil())
+		originalCheckedAt := p1.Status.Signature.CheckedAt
+		rv1 := p1.ResourceVersion
+
+		// Second reconcile with same state - should not update status
+		reconcilePluginWithOptions(verifier, policy, nowFunc)
+
+		p2 := &commonv1alpha1.Plugin{}
+		Expect(k8sClient.Get(ctx, key, p2)).To(Succeed())
+		Expect(p2.Status.Signature.CheckedAt).To(Equal(originalCheckedAt),
+			"CheckedAt should not change on no-trust path")
+		Expect(p2.ResourceVersion).To(Equal(rv1),
+			"status should not be updated on no-trust path reuse")
+	})
 })

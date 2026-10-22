@@ -127,7 +127,7 @@ func (r *PluginReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Step 1: Verify signature if needed
-	sigResult, err := r.verifySignature(ctx, &p)
+	sigResult, reused, err := r.verifySignature(ctx, &p)
 	if err != nil {
 		// Signature verification error when required means fail closed
 		if policy.RequireSignature {
@@ -139,7 +139,7 @@ func (r *PluginReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logf.FromContext(ctx).Info("plugin signature verification failed (non-fatal)", "plugin", p.Name, "error", err.Error())
 	}
 
-	// Record signature result
+	// Record signature result (but don't rewrite CheckedAt on cache reuse)
 	if sigResult != nil {
 		var message string
 		if sigResult.Verified {
@@ -150,22 +150,31 @@ func (r *PluginReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			message = "signature verification failed"
 		}
 
+		var checkedAt metav1.Time
+		if reused && p.Status.Signature != nil {
+			// Preserve the original CheckedAt on cache reuse
+			checkedAt = p.Status.Signature.CheckedAt
+		} else {
+			// Fresh verification, set new CheckedAt
+			checkedAt = metav1.NewTime(r.now())
+		}
+
 		p.Status.Signature = &commonv1alpha1.PluginSignatureStatus{
 			Verified:   sigResult.Verified,
 			Signer:     sigResult.Signer,
 			Digest:     p.Spec.Image.Digest,
 			PolicyHash: policy.Hash(),
-			CheckedAt:  metav1.NewTime(r.now()),
+			CheckedAt:  checkedAt,
 			Message:    message,
 		}
-		// If not verified and required, reject
+
+		// If not verified and required, reject (applies to both fresh and cached results)
 		if !sigResult.Verified && policy.RequireSignature {
 			r.setReady(&p, metav1.ConditionFalse, commonv1alpha1.PluginReasonSignatureRejected,
 				"Plugin image signature verification failed")
 			return result, r.updateStatus(ctx, &p, before)
 		}
 	}
-	// Note: DO NOT update CheckedAt when reusing cached result - it breaks 24h re-verification
 
 	// Step 2: Resolve verified endpoints (required - no fallback to DNS)
 	endpoints, err := r.resolveVerifiedEndpoints(ctx, &p)
@@ -328,12 +337,12 @@ func (r *PluginReconciler) now() time.Time {
 }
 
 // verifySignature checks the plugin's image signature against the signing policy.
-// It returns nil if no verification is needed or can be skipped, otherwise returns
-// the verification result or an error.
-func (r *PluginReconciler) verifySignature(ctx context.Context, p *commonv1alpha1.Plugin) (*signing.Result, error) {
+// It returns the verification result (if any), a flag indicating if the result was
+// reused from cache, and an error if verification failed.
+func (r *PluginReconciler) verifySignature(ctx context.Context, p *commonv1alpha1.Plugin) (*signing.Result, bool, error) {
 	// If there's a policy loading error, fail closed
 	if r.SigningPolicyErr != nil {
-		return nil, r.SigningPolicyErr
+		return nil, false, r.SigningPolicyErr
 	}
 
 	// Default to empty policy if none provided
@@ -344,34 +353,38 @@ func (r *PluginReconciler) verifySignature(ctx context.Context, p *commonv1alpha
 
 	// If no trust material and signatures not required, record as verified=false
 	if !policy.HasTrust() && !policy.RequireSignature {
-		return &signing.Result{Verified: false}, nil
+		return &signing.Result{Verified: false}, false, nil
 	}
 
 	// If no verifier, can't verify
 	if r.Verifier == nil {
 		if policy.RequireSignature {
-			return nil, fmt.Errorf("no verifier configured but signatures required")
+			return nil, false, fmt.Errorf("no verifier configured but signatures required")
 		}
-		return &signing.Result{Verified: false}, nil
+		return &signing.Result{Verified: false}, false, nil
 	}
 
 	// Check if we can reuse the cached signature result
 	if r.canReuseSigResult(p) {
-		return nil, nil // Reuse cached, no new verification needed
+		// Return cached result with reused=true
+		return &signing.Result{
+			Verified: p.Status.Signature.Verified,
+			Signer:   p.Status.Signature.Signer,
+		}, true, nil
 	}
 
 	// Verify the signature
 	result, err := r.Verifier.Verify(ctx, p.Spec.Image.Repository+"@"+p.Spec.Image.Digest)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// If signature is not verified and it's required, return error
 	if !result.Verified && policy.RequireSignature {
-		return &result, nil
+		return &result, false, nil
 	}
 
-	return &result, nil
+	return &result, false, nil
 }
 
 // canReuseSigResult checks if the cached signature result in status can be reused
