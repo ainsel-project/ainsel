@@ -12,10 +12,10 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v3/pkg/cosign"
+	"github.com/sigstore/cosign/v3/pkg/oci"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/sigstore/sigstore/pkg/signature"
-	"github.com/sigstore/cosign/v3/pkg/oci"
 )
 
 // Result is the output of a signature verification.
@@ -50,9 +50,9 @@ func NewCosignVerifier(p *Policy) (Verifier, error) {
 	}
 
 	cv := &cosignVerifier{
-		policy:         p,
-		trustedRoot:    trustedRoot,
-		verifyImage:    cosign.VerifyImageSignatures,
+		policy:      p,
+		trustedRoot: trustedRoot,
+		verifyImage: cosign.VerifyImageSignatures,
 	}
 	return cv, nil
 }
@@ -188,12 +188,12 @@ func (v *cosignVerifier) verifyKeyless(ctx context.Context, ref name.Reference) 
 	// Try legacy .sig layout first, then NewBundleFormat.
 	for _, useNewBundle := range []bool{false, true} {
 		co := &cosign.CheckOpts{
-			TrustedMaterial:     tm,
-			Identities:          identities,
-			IgnoreTlog:          false, // tlog not ignored for keyless
-			IgnoreSCT:           false,
-			NewBundleFormat:     useNewBundle,
-			RegistryClientOpts:  nil,
+			TrustedMaterial:    tm,
+			Identities:         identities,
+			IgnoreTlog:         false, // tlog not ignored for keyless
+			IgnoreSCT:          false,
+			NewBundleFormat:    useNewBundle,
+			RegistryClientOpts: nil,
 		}
 
 		sigs, ok, err := v.verifyImage(ctx, ref, co)
