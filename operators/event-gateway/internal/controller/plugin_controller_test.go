@@ -194,10 +194,11 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
 
 		// Set the pod status with containerStatuses[].imageID
+		// The imageID should include the repository and @ separator as kubelet reports it
 		pod.Status.ContainerStatuses = []corev1.ContainerStatus{
 			{
 				Name:    "plugin",
-				ImageID: imageID,
+				ImageID: "example.com/plugin-mem0@" + imageID,
 			},
 		}
 		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
@@ -270,9 +271,9 @@ var _ = Describe("Plugin Controller", func() {
 				}
 				return "http://" + endpoint + "/ainsel-plugin.json"
 			},
-			Verifier: verifier,
+			Verifier:      verifier,
 			SigningPolicy: policy,
-			Now: now,
+			Now:           now,
 		}
 		return r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 	}
@@ -526,9 +527,9 @@ var _ = Describe("Plugin Controller", func() {
 			ManifestURL: func(p *commonv1alpha1.Plugin, endpoint string) string {
 				return manifestSv.URL + "/ainsel-plugin.json"
 			},
-			SigningPolicy: policy,
+			SigningPolicy:    policy,
 			SigningPolicyErr: policyErr,
-			Now: time.Now,
+			Now:              time.Now,
 		}
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 		Expect(err).NotTo(HaveOccurred())
@@ -588,7 +589,11 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
 		createVerifiedBackend(plugin.Spec.Image.Digest)
 
-		policy := &signing.Policy{RequireSignature: false}
+		// Policy with trust material so verifier gets called
+		policy := &signing.Policy{
+			RequireSignature: false,
+			Keys:             []string{"dummy-key"},
+		}
 		verifier := &fakeVerifier{verified: true, signer: "key:xyz"}
 		now := time.Now()
 		nowFunc := func() time.Time { return now }

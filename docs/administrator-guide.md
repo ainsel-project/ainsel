@@ -912,6 +912,8 @@ condition with a reason; the first failing check wins:
 |---|---|---|
 | `Ready` | Manifest valid and compatible, every declared permission approved. | Nothing — the plugin is live. |
 | `Disabled` | `spec.disabled` is set; the manifest is not even fetched. | Enable it when you want it back. |
+| `SignatureRejected` | The plugin image signature verification failed; required by policy. | Verify the image is signed correctly and matches the policy's trust material. |
+| `NoVerifiedEndpoints` | No pod endpoints are running the verified image digest. | Check that pod(s) running the plugin have the correct image digest. |
 | `Unreachable` | The service at `serviceName:servicePort` didn't answer `/ainsel-plugin.json` in 5 s. | Check the plugin's Deployment/Service actually run and the name/port are right. |
 | `InvalidManifest` | The served JSON doesn't parse, or its declared `id` isn't the plugin's name. | Report it to the plugin's author; a plugin cannot claim to be someone else. |
 | `Incompatible` | The manifest's `pluginApi` major version doesn't match the platform's. | Get a plugin version built for this platform, or hold the platform back. |
