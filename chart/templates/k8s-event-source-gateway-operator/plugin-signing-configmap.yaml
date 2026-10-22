@@ -1,0 +1,33 @@
+{{- /*
+Plugin signing policy for the event gateway operator. The operator reads this
+once at startup (--plugin-signing-policy); a file it cannot parse or validate
+makes it fail closed rather than run with no trust material. The deployment
+mounts it read-only and stamps its checksum on the pod template, so changing
+the policy rolls the operator.
+*/ -}}
+{{- if .Values.connectorOperator.enabled }}
+{{- $plugins := default (dict) .Values.plugins -}}
+{{- $signing := default (dict) $plugins.signing -}}
+{{- /* false is a meaningful value here, so `default` cannot be used. */ -}}
+{{- $requireSignature := true -}}
+{{- if hasKey $plugins "requireSignature" -}}
+{{- $requireSignature = $plugins.requireSignature -}}
+{{- end -}}
+{{- $policy := dict
+  "requireSignature" $requireSignature
+  "keys" (default (list) $signing.keys)
+  "keyless" (default (list) $signing.keyless)
+  "trustedRootFile" (default "" $signing.trustedRootFile)
+-}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-plugin-signing
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-event-source-gateway-operator
+data:
+  policy.yaml: |
+    {{- toYaml $policy | nindent 4 }}
+{{- end }}

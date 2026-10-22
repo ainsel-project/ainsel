@@ -776,6 +776,90 @@ CR name, its `pluginApi` version is compatible with the platform), and
 records what the plugin declares — permissions, version, the manifest itself
 — on the Plugin's status.
 
+**Signing.** The digest in `spec.image` says *which* bytes run; a signature says
+*who published them*. Without the second check, a compromised registry hands
+new code to your cluster and every digest still matches itself. The
+event-gateway operator verifies each plugin image's [cosign](https://github.com/sigstore/cosign)
+signature against one cluster-wide policy before it accepts the image, and a
+plugin whose image does not verify is not let through.
+
+The policy is a Helm value, not a per-plugin setting — trust in a publisher is a
+platform decision, and one place to audit beats one place per plugin. It renders
+into a ConfigMap the operator mounts read-only at
+`/etc/ainsel/plugin-signing/policy.yaml` (keys in
+[chart/docs/configuration.md](../chart/docs/configuration.md#plugin-signing)):
+
+```yaml
+plugins:
+  requireSignature: true        # default: an unsigned image is rejected
+  signing:
+    keys:                       # PEM public keys — cosign's --key form
+      - |
+        -----BEGIN PUBLIC KEY-----
+        ...base64 DER, one line per 64 chars...
+        -----END PUBLIC KEY-----
+    keyless:                    # issuer + exactly one of subject / subjectRegExp
+      - issuer: https://token.actions.githubusercontent.com
+        subjectRegExp: ^https://github\.com/acme/.+/\.github/workflows/release\.yml@refs/tags/v.+$
+    trustedRootFile: ""         # empty = the public-good sigstore root
+```
+
+`requireSignature: false` accepts unsigned images; it does not make a
+signature that *is* present any less required to verify. Turning it off is a
+per-install choice about how much you trust your registry, not a way to
+install a plugin whose signature is broken.
+
+*Keyed vs keyless.* Pick by who holds the secret:
+
+- **Keyed** — the publisher gives you a public key and signs with the private
+  half. Put the PEM in `keys`. No network, no identity provider, and
+  verification is exactly as strong as that key. The cost is yours: rotation,
+  revocation, and "which build produced this" all live outside the policy.
+- **Keyless** — the publisher's CI signs with its OIDC job identity, so there is
+  no key to exchange. You name the issuer and what was running. For a plugin
+  released from GitHub Actions by a `release.yml` workflow:
+
+  ```yaml
+  keyless:
+    # Every v* release out of any acme repo, as long as release.yml tagged it:
+    - issuer: https://token.actions.githubusercontent.com
+      subjectRegExp: ^https://github\.com/acme/.+/\.github/workflows/release\.yml@refs/tags/v.+$
+    # ...or one exact release, no regexp:
+    - issuer: https://token.actions.githubusercontent.com
+      subject: https://github.com/acme/plugin-mem0/.github/workflows/release.yml@refs/tags/v1.4.2
+  ```
+
+  Anchor the regexp and keep the `@refs/tags/v` suffix: a subject that matches a
+  branch push lets any commit that workflow built pass as a release. An
+  identity with neither `subject` nor `subjectRegExp`, or with both, is rejected
+  when the policy loads — so is a regexp that doesn't compile.
+
+*Air-gapped.* Verification normally fetches sigstore's certificate authority
+and revocation data from the public TUF root. Where there is no path to it,
+stage sigstore's trusted root as a file in the cluster and point at it:
+
+```yaml
+plugins:
+  signing:
+    trustedRootFile: /etc/sigstore/trusted_root.json
+connectorOperator:
+  extraVolumes:
+    - name: sigstore-root
+      secret:
+        secretName: sigstore-trusted-root
+  extraVolumeMounts:
+    - name: sigstore-root
+      mountPath: /etc/sigstore
+      readOnly: true
+```
+
+The operator reads the policy once, at startup, and the pod template carries a
+checksum of it — so `helm upgrade` with a changed policy rolls the operator.
+A policy file it cannot parse or validate is a startup error, and the operator
+then runs requiring a signature it can never verify rather than treating
+signing as off: a typo in trust configuration breaks plugins instead of
+opening a door.
+
 **Approving permissions.** If the manifest declares any permissions, the plugin
 stays not-Ready with reason `PermissionsPending` until you approve them.
 Approval is all-or-nothing against the declared set: `POST

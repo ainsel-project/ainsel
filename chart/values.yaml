@@ -159,6 +159,37 @@ connectorOperator:
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
+# Plugin signing decides whether the event gateway operator accepts a plugin
+# image as the image its publisher released. These values render into the
+# ConfigMap mounted at /etc/ainsel/plugin-signing/ in the operator, which reads
+# it once at startup — changing it rolls the operator pod (the pod template
+# carries a checksum of the ConfigMap).
+#
+# requireSignature true means a plugin image must carry a signature that
+# verifies against the trust material below; nothing is installed unsigned.
+# With false, a signature that is present must still verify, but an unsigned
+# plugin gets through.
+#
+# keys takes PEM-encoded public keys (cosign's --key form). keyless takes
+# sigstore identities — an issuer plus exactly one of subject / subjectRegExp —
+# for trusting a project's CI pipeline without handing it a key of its own:
+#
+#   plugins:
+#     requireSignature: true
+#     signing:
+#       keyless:
+#         - issuer: https://token.actions.githubusercontent.com
+#           subjectRegExp: ^https://github\.com/ainsel-project/.+/\.github/workflows/release\.yml@refs/tags/v.+$
+#
+# trustedRootFile is the in-cluster path to a sigstore trusted_root.json, for
+# installs with no path to the public TUF mirror; leave empty to use public good.
+# Mount the file yourself (see connectorOperator.extraVolumes) and point here.
+plugins:
+  requireSignature: true
+  signing:
+    keys: []
+    keyless: []
+    trustedRootFile: ""
 hub:
   replicas: 1
   image:

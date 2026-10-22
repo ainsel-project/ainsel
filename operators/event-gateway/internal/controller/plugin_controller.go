@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/ainsel-project/ainsel/operators/event-gateway/internal/signing"
 	commonv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/api/plugin"
 )
@@ -58,6 +59,17 @@ type PluginReconciler struct {
 
 	// Resync is the period between manifest re-fetches. Defaults to 60s.
 	Resync time.Duration
+
+	// SigningPolicy is the operator-wide trust material used to verify a
+	// plugin image's signature. The reconciler treats it as read-only. When
+	// main could not load the policy it passes a policy that requires a
+	// signature and trusts nothing, alongside SigningPolicyErr, so the failure
+	// is visible in plugin status instead of looking like "unsigned is fine".
+	SigningPolicy *signing.Policy
+
+	// SigningPolicyErr is the error from loading SigningPolicy at startup, if
+	// any. Nil in the normal case.
+	SigningPolicyErr error
 }
 
 //+kubebuilder:rbac:groups=ainsel.dev,resources=plugins,verbs=get;list;watch

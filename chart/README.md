@@ -171,6 +171,7 @@ listed:
 | [`networkPolicy.allowAcmeSolver`](docs/configuration.md#networkpolicy) | `true` | Let ingress reach cert-manager HTTP-01 solver pods |
 | [`createNamespace`](docs/configuration.md#global) | `false` | Render a `Namespace` object; prefer `--create-namespace` |
 | [`connectorOperator.clusterWideRbac`](docs/configuration.md#connector-operator) | `true` | ClusterRole/CRB required by released operator images; one gateway operator per cluster while enabled |
+| [`plugins.requireSignature`](docs/configuration.md#plugin-signing) | `true` | Plugin images must carry a signature the operator verifies; set `false` only if you trust your registry outright |
 | [`postgres.auth.existingSecret`](docs/configuration.md#postgres) | `""` (auto-generated) | Bring your own DB credentials (keys `username`, `password`, `database`, `dsn`) |
 | [`hub.platformExternalUrl`](docs/configuration.md#hub) | `""` (derived) | Externally-reachable platform URL used in generated links |
 
