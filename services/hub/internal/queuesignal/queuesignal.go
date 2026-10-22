@@ -379,8 +379,7 @@ func (p *Publisher) publishOne(ctx context.Context, name string, force bool) (bo
 	return true, nil
 }
 
-// Published reports the last signal written for an agent. Exposed for tests and
-// for the hub's own diagnostics.
+// Published reports the last signal written for an agent. Exposed for tests.
 func (p *Publisher) Published(name string) (Signal, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -427,18 +426,11 @@ func mergePatchBody(sig Signal) ([]byte, error) {
 type K8sPatcher struct {
 	client    client.Client
 	namespace string
-	log       *slog.Logger
 }
 
 // NewK8sPatcher builds a patcher writing to agents in the given namespace.
 func NewK8sPatcher(c client.Client, namespace string) *K8sPatcher {
-	return &K8sPatcher{client: c, namespace: namespace, log: slog.Default()}
-}
-
-// WithLogger returns the patcher, logging to l.
-func (k *K8sPatcher) WithLogger(l *slog.Logger) *K8sPatcher {
-	k.log = l
-	return k
+	return &K8sPatcher{client: c, namespace: namespace}
 }
 
 // Patch writes sig to the named agent's status.
@@ -470,18 +462,11 @@ func (k *K8sPatcher) Patch(ctx context.Context, agentName string, sig Signal) er
 type K8sAgentLister struct {
 	client    client.Client
 	namespace string
-	log       *slog.Logger
 }
 
 // NewK8sAgentLister builds a lister reading Agents in the given namespace.
 func NewK8sAgentLister(c client.Client, namespace string) *K8sAgentLister {
-	return &K8sAgentLister{client: c, namespace: namespace, log: slog.Default()}
-}
-
-// WithLogger returns the lister, logging to l.
-func (k *K8sAgentLister) WithLogger(l *slog.Logger) *K8sAgentLister {
-	k.log = l
-	return k
+	return &K8sAgentLister{client: c, namespace: namespace}
 }
 
 // QueueWatchedAgents names every agent in the namespace: each one's runs are
