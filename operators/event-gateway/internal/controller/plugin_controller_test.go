@@ -107,6 +107,113 @@ var _ = Describe("Plugin Controller Map Functions", func() {
 		Expect(requests).To(HaveLen(1))
 		Expect(requests[0].Name).To(Equal("plugin1"))
 	})
+
+	It("maps Pod to matching Plugin", func() {
+		ctx := context.Background()
+		reconciler := &PluginReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+
+		// Create two Services with different selectors
+		svc1 := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "plugin-mem0", Namespace: "default"},
+			Spec: corev1.ServiceSpec{
+				Selector: map[string]string{"app": "plugin-mem0"},
+				Ports: []corev1.ServicePort{
+					{
+						Name:       "http",
+						Port:       8080,
+						Protocol:   corev1.ProtocolTCP,
+						TargetPort: intstr.FromInt(8080),
+					},
+				},
+			},
+		}
+		svc2 := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "default"},
+			Spec: corev1.ServiceSpec{
+				Selector: map[string]string{"app": "other"},
+				Ports: []corev1.ServicePort{
+					{
+						Name:       "http",
+						Port:       8080,
+						Protocol:   corev1.ProtocolTCP,
+						TargetPort: intstr.FromInt(8080),
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, svc1)).To(Succeed())
+		Expect(k8sClient.Create(ctx, svc2)).To(Succeed())
+
+		// Create two Plugins referencing the two services
+		digest := "sha256:" + sha256Hex("test")
+		plugin1 := &commonv1alpha1.Plugin{
+			ObjectMeta: metav1.ObjectMeta{Name: "plugin-mem0", Namespace: "default"},
+			Spec: commonv1alpha1.PluginSpec{
+				Service: commonv1alpha1.PluginServiceRef{Name: "plugin-mem0", Port: 8080},
+				Image: commonv1alpha1.PluginImage{
+					Repository: "example.com/img",
+					Digest:     digest,
+				},
+			},
+		}
+		plugin2 := &commonv1alpha1.Plugin{
+			ObjectMeta: metav1.ObjectMeta{Name: "plugin-other", Namespace: "default"},
+			Spec: commonv1alpha1.PluginSpec{
+				Service: commonv1alpha1.PluginServiceRef{Name: "other", Port: 8080},
+				Image: commonv1alpha1.PluginImage{
+					Repository: "example.com/img",
+					Digest:     digest,
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, plugin1)).To(Succeed())
+		Expect(k8sClient.Create(ctx, plugin2)).To(Succeed())
+
+		// Create a Pod labeled with the first service's selector
+		pod1 := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pod-matching",
+				Namespace: "default",
+				Labels:    map[string]string{"app": "plugin-mem0"},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "app",
+						Image: "example.com/app:latest",
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, pod1)).To(Succeed())
+
+		// Map should return only plugin-mem0
+		requests := reconciler.mapPodToPlugin(ctx, pod1)
+		Expect(requests).To(HaveLen(1))
+		Expect(requests[0].Name).To(Equal("plugin-mem0"))
+
+		// Create a Pod with unrelated labels
+		pod2 := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pod-unrelated",
+				Namespace: "default",
+				Labels:    map[string]string{"app": "unrelated"},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "app",
+						Image: "example.com/app:latest",
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, pod2)).To(Succeed())
+
+		// Map should return no requests for unrelated pod
+		requests = reconciler.mapPodToPlugin(ctx, pod2)
+		Expect(requests).To(HaveLen(0))
+	})
 })
 
 var _ = Describe("Plugin Controller", func() {
