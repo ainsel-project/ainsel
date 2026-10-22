@@ -49,6 +49,11 @@ registered in [`internal/mcp/server.go`](internal/mcp/server.go):
   `update_skill`, `delete_skill`.
 - **MCP servers / GitHub apps:** `list_mcp_servers`, `get_mcp_server`,
   `list_github_apps`, `get_github_app`.
+- **Plugins:** `list_plugins`, `get_plugin`, `install_plugin`,
+  `uninstall_plugin`, `enable_plugin`, `disable_plugin`,
+  `approve_plugin_permissions`, `set_plugin_group_access`. Registration is
+  separate from deployment — installing registers an already deployed plugin
+  and uninstalling leaves the workload running; all writes are admin-only.
 - **Cost / errors:** `get_token_usage`, `get_stats`, `get_recent_errors`.
 - **Events (via hub):** `get_stream_info`, `list_recent_events`.
 - **Observability (via hub):** `get_agent_logs`, `query_logs`,

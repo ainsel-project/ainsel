@@ -265,6 +265,24 @@ as ambiguous with the candidate ids listed rather than guessed.
 | `list_mcp_servers` | read | MCP servers in the registry: URLs and the tools each exposes. |
 | `get_mcp_server` | read | One MCP server entry: URL, transport, tool names, non-secret auth config. |
 
+### Plugins
+
+A plugin is third-party code the platform routes events to. It is **deployed
+out of band** — registering one here never creates a workload, and
+unregistering one never removes it. Use is gated by two explicit admin
+decisions: a permission approval and a group-access grant.
+
+| Tool | Mode | What it answers |
+|------|------|-----------------|
+| `list_plugins` | read | Registered plugins: readiness, declared vs. approved permissions, group access (admin view). |
+| `get_plugin` | read | One plugin: service endpoint, pinned image digest, Ready condition with reason, permissions, group access. |
+| `install_plugin` | write | Register an **already deployed** plugin (id, serviceName, servicePort, imageRepository, imageDigest; optional displayName). Does not deploy it. Admin-only. |
+| `uninstall_plugin` | write | Unregister a plugin. Leaves the Deployment and Service running. Admin-only. |
+| `enable_plugin` | write | Resume event routing to a disabled plugin. Admin-only. |
+| `disable_plugin` | write | Stop event routing without touching the workload. Admin-only. |
+| `approve_plugin_permissions` | write | Approve exactly the permission set the manifest declares — anything else is rejected with the declared set. Admin-only. |
+| `set_plugin_group_access` | write | Set which groups the plugin may act on behalf of; an empty array revokes all. Admin-only. |
+
 ### Invocations & activity
 
 | Tool | Mode | What it answers |
@@ -317,6 +335,7 @@ limits** when the caller does not pass an explicit parameter:
 | `list_personas` | `pageSize=50` | `page`, `pageSize` |
 | `list_skills` | `pageSize=50` | `page`, `pageSize` |
 | `list_mcp_servers` | `pageSize=50` | `page`, `pageSize` |
+| `list_plugins` | `pageSize=50` | `page`, `pageSize` |
 | `list_invocations` | `limit=50` | `limit` |
 | `get_recent_errors` | `limit=50` | `limit` |
 | `get_token_usage` | 50 rows (local cap) | Narrow filters (`agent`, `repository`, `since`/`until`) |

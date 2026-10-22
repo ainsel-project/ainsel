@@ -82,6 +82,20 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	s.AddTool(mcpServers.ListMCPServersTool(), mcpServers.ListMCPServers)
 	s.AddTool(mcpServers.GetMCPServerTool(), mcpServers.GetMCPServer)
 
+	// Plugins are third-party code the platform routes to. Registration is
+	// separate from deployment (the operator ships the workload), and use is
+	// gated by two explicit admin decisions: a permission approval and a
+	// group-access grant.
+	plugins := tools.NewPluginTools(b.HubURL)
+	s.AddTool(plugins.ListPluginsTool(), plugins.ListPlugins)
+	s.AddTool(plugins.GetPluginTool(), plugins.GetPlugin)
+	s.AddTool(plugins.InstallPluginTool(), plugins.InstallPlugin)
+	s.AddTool(plugins.UninstallPluginTool(), plugins.UninstallPlugin)
+	s.AddTool(plugins.EnablePluginTool(), plugins.EnablePlugin)
+	s.AddTool(plugins.DisablePluginTool(), plugins.DisablePlugin)
+	s.AddTool(plugins.ApprovePluginPermissionsTool(), plugins.ApprovePluginPermissions)
+	s.AddTool(plugins.SetPluginGroupAccessTool(), plugins.SetPluginGroupAccess)
+
 	personas := tools.NewPersonaTools(b.HubURL)
 	s.AddTool(personas.ListPersonasTool(), personas.ListPersonas)
 	s.AddTool(personas.GetPersonaTool(), personas.GetPersona)
