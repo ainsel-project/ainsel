@@ -104,6 +104,11 @@ func TestVerifierTwoKeysSecondMatches(t *testing.T) {
 	// Stub the verifyImage function to succeed only for the 2nd key.
 	attemptCount := 0
 	cv.verifyImage = func(ctx context.Context, ref name.Reference, co *cosign.CheckOpts) ([]oci.Signature, bool, error) {
+		// Verify that SigVerifier is set (non-nil) for key mode.
+		if co.SigVerifier == nil {
+			t.Error("SigVerifier is nil, want non-nil verifier")
+		}
+
 		attemptCount++
 		if attemptCount == 2 {
 			// Succeed on the second key's verifier.
@@ -122,6 +127,11 @@ func TestVerifierTwoKeysSecondMatches(t *testing.T) {
 	}
 	if len(result.Signer) == 0 || result.Signer[:4] != "key:" {
 		t.Errorf("Signer = %q, want key:<fingerprint>", result.Signer)
+	}
+
+	// Verify fingerprint is 16 hex characters
+	if len(result.Signer) != 20 {
+		t.Errorf("Signer length = %d, want 20 (key: + 16 hex chars)", len(result.Signer))
 	}
 }
 
@@ -271,5 +281,18 @@ func TestVerifierEmptyPolicy(t *testing.T) {
 	}
 	if stubCalled {
 		t.Error("verifyImage was called, want it to not be called")
+	}
+}
+
+func TestNewCosignVerifierTrustedRootFileMissing(t *testing.T) {
+	// NewCosignVerifier should fail when TrustedRootFile is set to a non-existent path.
+	p := &Policy{
+		RequireSignature: true,
+		TrustedRootFile:  "/nonexistent/trusted-root.json",
+	}
+
+	_, err := NewCosignVerifier(p)
+	if err == nil {
+		t.Fatal("NewCosignVerifier error = nil, want error for missing file")
 	}
 }

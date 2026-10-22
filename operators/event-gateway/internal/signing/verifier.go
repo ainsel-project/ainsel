@@ -2,13 +2,17 @@ package signing
 
 import (
 	"context"
+	"crypto"
+	"crypto/sha256"
 	"crypto/x509"
-	"encoding/pem"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v3/pkg/cosign"
 	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
+	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/cosign/v3/pkg/oci"
 )
 
@@ -28,16 +32,32 @@ type Verifier interface {
 //
 // If the policy carries no trust material (empty Keys and Keyless),
 // Verify returns Result{}, nil (nothing to verify against).
+//
+// If the policy specifies a TrustedRootFile, it is loaded and validated now.
+// A missing or invalid file returns an error.
 func NewCosignVerifier(p *Policy) (Verifier, error) {
+	var trustedRoot root.TrustedMaterial
+
+	// Load trusted root file if specified, so errors are caught early.
+	if p.TrustedRootFile != "" {
+		tm, err := root.NewTrustedRootFromPath(p.TrustedRootFile)
+		if err != nil {
+			return nil, fmt.Errorf("load trusted root file %s: %w", p.TrustedRootFile, err)
+		}
+		trustedRoot = tm
+	}
+
 	cv := &cosignVerifier{
-		policy:      p,
-		verifyImage: cosign.VerifyImageSignatures,
+		policy:         p,
+		trustedRoot:    trustedRoot,
+		verifyImage:    cosign.VerifyImageSignatures,
 	}
 	return cv, nil
 }
 
 type cosignVerifier struct {
 	policy      *Policy
+	trustedRoot root.TrustedMaterial
 	verifyImage func(ctx context.Context, signedImgRef name.Reference, co *cosign.CheckOpts) ([]oci.Signature, bool, error)
 }
 
@@ -88,27 +108,25 @@ func (v *cosignVerifier) Verify(ctx context.Context, imageRef string) (Result, e
 }
 
 func (v *cosignVerifier) verifyWithKey(ctx context.Context, ref name.Reference, keyPEM string) (Result, error) {
-	// Parse the public key from PEM.
-	block, _ := pem.Decode([]byte(keyPEM))
-	if block == nil {
-		return Result{}, fmt.Errorf("invalid PEM block")
-	}
-
-	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	// Parse the public key from PEM using cryptoutils.
+	pub, err := cryptoutils.UnmarshalPEMToPublicKey([]byte(keyPEM))
 	if err != nil {
 		return Result{}, fmt.Errorf("parse public key: %w", err)
 	}
 
 	// Create a signature.Verifier from the public key.
-	// TODO: implement key fingerprinting and signature verification setup.
+	sigVerifier, err := signature.LoadVerifier(pub, crypto.SHA256)
+	if err != nil {
+		return Result{}, fmt.Errorf("load signature verifier: %w", err)
+	}
 
 	// Try legacy .sig layout first, then NewBundleFormat.
 	for _, useNewBundle := range []bool{false, true} {
 		co := &cosign.CheckOpts{
-			SigVerifier:      nil, // TODO: set from pub
-			IgnoreTlog:       true,
-			IgnoreSCT:        true,
-			NewBundleFormat:  useNewBundle,
+			SigVerifier:        sigVerifier,
+			IgnoreTlog:         true,
+			IgnoreSCT:          true,
+			NewBundleFormat:    useNewBundle,
 			RegistryClientOpts: nil,
 		}
 
@@ -123,7 +141,10 @@ func (v *cosignVerifier) verifyWithKey(ctx context.Context, ref name.Reference, 
 
 		if ok && len(sigs) > 0 {
 			// Verification succeeded. Extract the signer fingerprint.
-			fingerprint := fingerprintFromKey(pub)
+			fingerprint, err := fingerprintFromKey(pub)
+			if err != nil {
+				return Result{}, fmt.Errorf("compute fingerprint: %w", err)
+			}
 			return Result{
 				Verified: true,
 				Signer:   "key:" + fingerprint,
@@ -135,13 +156,12 @@ func (v *cosignVerifier) verifyWithKey(ctx context.Context, ref name.Reference, 
 }
 
 func (v *cosignVerifier) verifyKeyless(ctx context.Context, ref name.Reference) (Result, error) {
-	// Load the trusted root (public good or from file).
+	// Get the trusted root (either preloaded from file or load public good TUF now).
 	var tm root.TrustedMaterial
 	var err error
 
-	if v.policy.TrustedRootFile != "" {
-		// TODO: load from file.
-		_ = v.policy.TrustedRootFile
+	if v.trustedRoot != nil {
+		tm = v.trustedRoot
 	} else {
 		tm, err = cosign.TrustedRoot()
 		if err != nil {
@@ -237,8 +257,17 @@ func indexOf(s, substr string) int {
 	return -1
 }
 
-// fingerprintFromKey returns the sha256 fingerprint of a public key (first 16 hex characters).
-func fingerprintFromKey(pub any) string {
-	// For now, return a placeholder. TODO: implement proper fingerprinting.
-	return "0000000000000000"
+// fingerprintFromKey returns the sha256 fingerprint of a public key (first 16 hex characters of DER encoding).
+func fingerprintFromKey(pub any) (string, error) {
+	// Marshal the public key to DER format.
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", fmt.Errorf("marshal public key: %w", err)
+	}
+
+	// Compute SHA256 of the DER bytes.
+	sum := sha256.Sum256(der)
+
+	// Return first 16 hex characters (64 bits).
+	return hex.EncodeToString(sum[:])[:16], nil
 }
