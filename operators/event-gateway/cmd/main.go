@@ -101,6 +101,18 @@ func main() {
 			"hash", signingPolicy.Hash())
 	}
 
+	// Create the verifier from the signing policy
+	var verifier signing.Verifier
+	var verifierErr error
+	if signingPolicy != nil {
+		verifier, verifierErr = signing.NewCosignVerifier(signingPolicy)
+		if verifierErr != nil {
+			setupLog.Error(verifierErr, "Failed to create cosign verifier; failing closed",
+				"path", pluginSigningPolicyPath)
+			signingPolicyErr = verifierErr
+		}
+	}
+
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
 	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
@@ -221,6 +233,7 @@ func main() {
 		Scheme:           mgr.GetScheme(),
 		SigningPolicy:    signingPolicy,
 		SigningPolicyErr: signingPolicyErr,
+		Verifier:         verifier,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Plugin")
 		os.Exit(1)

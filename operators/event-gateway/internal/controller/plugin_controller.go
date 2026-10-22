@@ -85,13 +85,16 @@ type PluginReconciler struct {
 
 //+kubebuilder:rbac:groups=ainsel.dev,resources=plugins,verbs=get;list;watch
 //+kubebuilder:rbac:groups=ainsel.dev,resources=plugins/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=services,verbs=get
+//+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 
 // Reconcile fetches and validates the plugin's manifest and updates the
 // Plugin's status with the result. Checks are evaluated in order and the
 // first failure sets the Ready condition's reason:
 //
-//	Disabled → Unreachable → InvalidManifest (parse) → InvalidManifest (id
-//	mismatch) → Incompatible → PermissionsPending → Ready
+//	Disabled → Signature → VerifiedEndpoints → Unreachable → InvalidManifest (parse) →
+//	InvalidManifest (id mismatch) → Incompatible → PermissionsPending → Ready
 func (r *PluginReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var p commonv1alpha1.Plugin
 	if err := r.Get(ctx, req.NamespacedName, &p); err != nil {
