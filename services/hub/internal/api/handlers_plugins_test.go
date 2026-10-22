@@ -678,3 +678,55 @@ func TestUninstallPlugin(t *testing.T) {
 		t.Errorf("audit rows = %d, want still 1", len(audit.inserted))
 	}
 }
+
+// TestGetPlugin_ExposesSignatureToAdminsOnly verifies that signature state
+// appears in the admin response but not in the public response.
+func TestGetPlugin_ExposesSignatureToAdminsOnly(t *testing.T) {
+	seed := pluginCRReady(pluginCR("mem0", false), true, "Ready", "ok", nil)
+	seed.Status.Signature = &connectorv1alpha1.PluginSignatureStatus{
+		Verified:  true,
+		Signer:    "key:abc",
+		CheckedAt: metav1.Time{Time: time.Now()},
+	}
+	seed.Status.VerifiedEndpoints = []string{"10.0.0.1:8080", "10.0.0.2:8080"}
+	s, _ := pluginAuthzTestServer(t, nil, seed)
+
+	// Admin: signature and verifiedEndpoints are exposed
+	adminRec := doJSON(t, s, http.MethodGet, "/api/v1/plugins/mem0", nil, asUser("admin", "admin"))
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("admin GET: status = %d, body = %s", adminRec.Code, adminRec.Body.String())
+	}
+	var adminResp PluginResponse
+	decodeJSON(t, adminRec.Body.Bytes(), &adminResp)
+	if adminResp.Signature == nil {
+		t.Errorf("admin response signature = nil, want signature data")
+	} else {
+		if !adminResp.Signature.Verified {
+			t.Errorf("signature.verified = false, want true")
+		}
+		if adminResp.Signature.Signer != "key:abc" {
+			t.Errorf("signature.signer = %q, want key:abc", adminResp.Signature.Signer)
+		}
+	}
+	if len(adminResp.VerifiedEndpoints) != 2 {
+		t.Errorf("verifiedEndpoints = %v, want 2 endpoints", adminResp.VerifiedEndpoints)
+	}
+
+	// Non-admin: signature and verifiedEndpoints are not exposed
+	memberRec := doJSON(t, s, http.MethodGet, "/api/v1/plugins/mem0", nil, asUser("member", "member"))
+	if memberRec.Code != http.StatusOK {
+		t.Fatalf("member GET: status = %d, body = %s", memberRec.Code, memberRec.Body.String())
+	}
+	var memberResp PluginPublicResponse
+	decodeJSON(t, memberRec.Body.Bytes(), &memberResp)
+	// PluginPublicResponse should not have signature or verifiedEndpoints fields
+	// We verify this by decoding into a map and checking the keys
+	var memberMap map[string]any
+	json.Unmarshal(memberRec.Body.Bytes(), &memberMap)
+	if _, hasSignature := memberMap["signature"]; hasSignature {
+		t.Errorf("public response exposes signature field")
+	}
+	if _, hasEndpoints := memberMap["verifiedEndpoints"]; hasEndpoints {
+		t.Errorf("public response exposes verifiedEndpoints field")
+	}
+}

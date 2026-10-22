@@ -467,6 +467,13 @@ List plugins, sorted by id. Supports `page`/`pageSize`.
       "message": "Declared permissions awaiting approval: agents:read",
       "declaredPermissions": ["agents:read"],
       "groupAccess": ["platform"],
+      "signature": {
+        "verified": true,
+        "signer": "key:abc123",
+        "checkedAt": "2026-10-22T10:00:00Z",
+        "message": ""
+      },
+      "verifiedEndpoints": ["10.0.0.1:8080", "10.0.0.2:8080"],
       "manifest": {"id": "mem0", "pluginApi": "1.0", "version": "1.2.3"}
     }
   ],
@@ -478,6 +485,9 @@ Non-admin callers receive the same envelope with only enabled + Ready
 plugins, each as `{"id", "displayName", "version", "manifest"}`.
 `ready`/`reason`/`message` mirror the status `Ready` condition; a plugin the
 reconciler has not processed yet reports `ready: false` with an empty reason.
+Admin responses additionally include `signature` (with fields `verified`, `signer`,
+`checkedAt`, `message`) and `verifiedEndpoints` (a list of endpoints running the
+verified image digest).
 
 ### POST /api/v1/plugins
 

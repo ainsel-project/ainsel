@@ -58,24 +58,34 @@ type PluginInstallRequest struct {
 	ImageDigest     string `json:"imageDigest"`
 }
 
+// PluginSignatureResponse represents the signature verification state of a plugin.
+type PluginSignatureResponse struct {
+	Verified  bool         `json:"verified"`
+	Signer    string       `json:"signer,omitempty"`
+	CheckedAt *metav1.Time `json:"checkedAt,omitempty"`
+	Message   string       `json:"message,omitempty"`
+}
+
 // PluginResponse is the admin-facing view of a plugin: everything the CR
 // carries plus the flattened Ready condition.
 type PluginResponse struct {
-	ID                  string          `json:"id"`
-	DisplayName         string          `json:"displayName,omitempty"`
-	Version             string          `json:"version,omitempty"`
-	ServiceName         string          `json:"serviceName"`
-	ServicePort         int32           `json:"servicePort"`
-	ImageRepository     string          `json:"imageRepository"`
-	ImageDigest         string          `json:"imageDigest"`
-	Disabled            bool            `json:"disabled"`
-	Ready               bool            `json:"ready"`
-	Reason              string          `json:"reason,omitempty"`
-	Message             string          `json:"message,omitempty"`
-	DeclaredPermissions []string        `json:"declaredPermissions,omitempty"`
-	ApprovedPermissions []string        `json:"approvedPermissions,omitempty"`
-	GroupAccess         []string        `json:"groupAccess,omitempty"`
-	Manifest            json.RawMessage `json:"manifest,omitempty"`
+	ID                  string                   `json:"id"`
+	DisplayName         string                   `json:"displayName,omitempty"`
+	Version             string                   `json:"version,omitempty"`
+	ServiceName         string                   `json:"serviceName"`
+	ServicePort         int32                    `json:"servicePort"`
+	ImageRepository     string                   `json:"imageRepository"`
+	ImageDigest         string                   `json:"imageDigest"`
+	Disabled            bool                     `json:"disabled"`
+	Ready               bool                     `json:"ready"`
+	Reason              string                   `json:"reason,omitempty"`
+	Message             string                   `json:"message,omitempty"`
+	DeclaredPermissions []string                 `json:"declaredPermissions,omitempty"`
+	ApprovedPermissions []string                 `json:"approvedPermissions,omitempty"`
+	GroupAccess         []string                 `json:"groupAccess,omitempty"`
+	Signature           *PluginSignatureResponse `json:"signature,omitempty"`
+	VerifiedEndpoints   []string                 `json:"verifiedEndpoints,omitempty"`
+	Manifest            json.RawMessage          `json:"manifest,omitempty"`
 }
 
 // PluginPublicResponse is what non-admin callers see: enough to know a plugin
@@ -485,12 +495,22 @@ func toPluginResponse(p connectorv1alpha1.Plugin) PluginResponse {
 		DeclaredPermissions: p.Status.DeclaredPermissions,
 		ApprovedPermissions: p.Spec.ApprovedPermissions,
 		GroupAccess:         p.Spec.GroupAccess,
+		VerifiedEndpoints:   p.Status.VerifiedEndpoints,
 	}
 	// Absent condition means "not ready, no reason yet" rather than a lie.
 	if c := pluginReadyCondition(p); c != nil {
 		resp.Ready = c.Status == metav1.ConditionTrue
 		resp.Reason = c.Reason
 		resp.Message = c.Message
+	}
+	// Map signature status to the response struct.
+	if p.Status.Signature != nil {
+		resp.Signature = &PluginSignatureResponse{
+			Verified:  p.Status.Signature.Verified,
+			Signer:    p.Status.Signature.Signer,
+			CheckedAt: &p.Status.Signature.CheckedAt,
+			Message:   p.Status.Signature.Message,
+		}
 	}
 	if p.Status.Manifest != nil && len(p.Status.Manifest.Raw) > 0 {
 		resp.Manifest = json.RawMessage(p.Status.Manifest.Raw)
