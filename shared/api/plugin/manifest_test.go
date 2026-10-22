@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -59,11 +60,68 @@ func TestConstants(t *testing.T) {
 	if MaxManifestBytes != 256<<10 {
 		t.Errorf("MaxManifestBytes = %d, want %d", MaxManifestBytes, 256<<10)
 	}
-	if len(Permissions) != 9 {
-		t.Errorf("len(Permissions) = %d, want 9", len(Permissions))
+	if len(Permissions) != 16 {
+		t.Errorf("len(Permissions) = %d, want 16", len(Permissions))
 	}
 	if len(Slots) != 4 {
 		t.Errorf("len(Slots) = %d, want 4", len(Slots))
+	}
+}
+
+// TestPermissionsVocabulary pins the closed permission vocabulary: the exact
+// entries and their order (grouped by resource, read before write within each
+// resource). Pinning the full list keeps a widening of the vocabulary a
+// deliberate change instead of a silent one.
+func TestPermissionsVocabulary(t *testing.T) {
+	want := []string{
+		"agents:read",
+		"agents:write",
+		"agent-images:read",
+		"agent-images:write",
+		"connectors:read",
+		"connectors:write",
+		"invocations:read",
+		"mcp-servers:read",
+		"mcp-servers:write",
+		"observability:read",
+		"personas:read",
+		"personas:write",
+		"skills:read",
+		"skills:write",
+		"triggers:read",
+		"triggers:write",
+	}
+	if !slices.Equal(Permissions, want) {
+		t.Errorf("Permissions = %v, want %v", Permissions, want)
+	}
+
+	// The newly widened entries must be declareable: a manifest asking for
+	// them parses without error.
+	m, err := Parse(marshalManifest(t, func() map[string]any {
+		m := validManifest()
+		m["permissions"] = []string{"connectors:write", "triggers:read", "mcp-servers:write", "agent-images:write"}
+		return m
+	}()))
+	if err != nil {
+		t.Fatalf("Parse with widened permissions: unexpected error: %v", err)
+	}
+	if len(m.Permissions) != 4 {
+		t.Errorf("Permissions = %v, want 4 entries", m.Permissions)
+	}
+
+	// The set stays closed: a permission outside the vocabulary — including
+	// one that looks like a valid resource with an invented verb — is still
+	// rejected.
+	_, err = Parse(marshalManifest(t, func() map[string]any {
+		m := validManifest()
+		m["permissions"] = []string{"connectors:admin"}
+		return m
+	}()))
+	if err == nil {
+		t.Fatalf("Parse with permission %q: expected error, got nil", "connectors:admin")
+	}
+	if !strings.Contains(err.Error(), "connectors:admin") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "connectors:admin")
 	}
 }
 

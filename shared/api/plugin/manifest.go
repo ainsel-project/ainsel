@@ -41,17 +41,25 @@ const MaxManifestBytes = 256 << 10
 
 // Permissions is the closed v1 vocabulary of AInsel permissions a manifest may
 // declare. Anything else is rejected, so a plugin cannot silently widen what it
-// asks for by inventing a name.
+// asks for by inventing a name. Entries are grouped by resource, read before
+// write within each resource.
 var Permissions = []string{
-	"agent-images:read",
 	"agents:read",
 	"agents:write",
+	"agent-images:read",
+	"agent-images:write",
+	"connectors:read",
+	"connectors:write",
 	"invocations:read",
+	"mcp-servers:read",
+	"mcp-servers:write",
 	"observability:read",
 	"personas:read",
 	"personas:write",
 	"skills:read",
 	"skills:write",
+	"triggers:read",
+	"triggers:write",
 }
 
 // Slots is the closed v1 vocabulary of console extension points a manifest may
