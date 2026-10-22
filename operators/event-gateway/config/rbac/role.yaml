@@ -27,6 +27,23 @@ rules:
 - apiGroups:
   - ainsel.dev
   resources:
+  - plugins
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ainsel.dev
+  resources:
+  - plugins/status
+  - webhookconnectors/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ainsel.dev
+  resources:
   - webhookconnectors
   verbs:
   - create
@@ -36,14 +53,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - ainsel.dev
-  resources:
-  - webhookconnectors/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - apps
   resources:

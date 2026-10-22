@@ -13,6 +13,13 @@ For each `WebhookConnector` the operator creates a `Deployment` running
 instance via the Forgejo admin API and manages its lifecycle on update
 and delete.
 
+The operator also reconciles the `Plugin` custom resource: it fetches each
+plugin's manifest from its in-cluster Service at the well-known path
+(`/ainsel-plugin.json`), validates it (schema, identity, plugin API
+compatibility, permission approvals), and records the result — including the
+last good manifest — on the Plugin's status. It does not deploy plugin
+workloads; it only observes and reports.
+
 ## Local development
 
 ```bash

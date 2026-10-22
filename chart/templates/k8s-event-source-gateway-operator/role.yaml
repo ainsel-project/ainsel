@@ -11,6 +11,15 @@ rules:
   - apiGroups: ["ainsel.dev"]
     resources: ["webhookconnectors", "webhookconnectors/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The operator reconciles Plugin resources: it fetches and validates each
+  # plugin's manifest and records the result on plugins/status. It never
+  # creates or deletes Plugin objects — the hub owns those writes.
+  - apiGroups: ["ainsel.dev"]
+    resources: ["plugins"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["ainsel.dev"]
+    resources: ["plugins/status"]
+    verbs: ["get", "update", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
