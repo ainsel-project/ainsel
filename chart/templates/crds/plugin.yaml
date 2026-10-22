@@ -1,0 +1,199 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
+  name: plugins.ainsel.dev
+spec:
+  group: ainsel.dev
+  names:
+    kind: Plugin
+    listKind: PluginList
+    plural: plugins
+    singular: plugin
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.version
+      name: Version
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Ready
+      type: string
+    - jsonPath: .spec.disabled
+      name: Disabled
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Plugin is the Schema for the plugins API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PluginSpec defines the desired state of a Plugin.
+            properties:
+              approvedPermissions:
+                description: |-
+                  ApprovedPermissions are the declared permissions an operator has
+                  granted. A declared permission that is not listed here is not
+                  effective — the plugin runs without it.
+                items:
+                  type: string
+                type: array
+              disabled:
+                description: Disabled stops the plugin from being routed to when true.
+                type: boolean
+              displayName:
+                description: DisplayName is the user-facing name.
+                type: string
+              groupAccess:
+                description: |-
+                  GroupAccess lists the group ids the plugin's background identity may
+                  act for (phase 3).
+                items:
+                  type: string
+                type: array
+              image:
+                description: Image for the plugin container.
+                properties:
+                  digest:
+                    description: |-
+                      Digest pins the plugin to an exact build. Plugins are third-party code,
+                      so this is required rather than optional: a mutable tag would let a
+                      compromised registry push new code into the cluster silently.
+                    pattern: ^sha256:[a-f0-9]{64}$
+                    type: string
+                  repository:
+                    description: Repository is the image repository (e.g. "ghcr.io/acme/plugin").
+                    type: string
+                required:
+                - digest
+                - repository
+                type: object
+              service:
+                description: Service is the in-cluster address the hub proxies tool
+                  calls to.
+                properties:
+                  name:
+                    description: Name is the Service name, in the Plugin's namespace.
+                    type: string
+                  port:
+                    description: Port is the port the plugin listens on.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                required:
+                - name
+                - port
+                type: object
+            required:
+            - image
+            - service
+            type: object
+          status:
+            description: PluginStatus defines the observed state of a Plugin.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              declaredPermissions:
+                description: |-
+                  DeclaredPermissions are the permissions the manifest asks for, whether
+                  or not they have been approved.
+                items:
+                  type: string
+                type: array
+              manifest:
+                description: |-
+                  Manifest is the validated manifest JSON the plugin served, kept as the
+                  raw document so the console and hub can render it without the operator
+                  having to model every manifest field in Go.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              observedGeneration:
+                format: int64
+                type: integer
+              version:
+                description: Version is the plugin version reported by the manifest.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
