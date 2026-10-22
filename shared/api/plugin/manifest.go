@@ -203,7 +203,11 @@ func (m *Manifest) Validate() error {
 			seen[page.Path] = true
 		}
 
-		for slot := range m.UI.Slots {
+		// Slots is a map, so iterate its keys in sorted order: Validate's
+		// error is stored verbatim on the Plugin status by the reconciler,
+		// and a message whose parts flap between reconciles because Go
+		// randomised map order would look like the plugin kept changing.
+		for _, slot := range sortedKeys(m.UI.Slots) {
 			if !slices.Contains(Slots, slot) {
 				errs = append(errs, fmt.Errorf("plugin: unknown slot %q: not in the v1 slot vocabulary", slot))
 			}
@@ -259,6 +263,17 @@ func MissingApprovals(declared, approved []string) []string {
 	}
 	sort.Strings(missing)
 	return missing
+}
+
+// sortedKeys returns the keys of m in ascending order, for deterministic
+// iteration over a map.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // parseAPIVersion splits a "MAJOR.MINOR" version into its parts. Both parts

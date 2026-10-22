@@ -340,6 +340,45 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// TestValidateSlotErrorOrderIsDeterministic guards the reconciler's condition
+// message: Validate's error is stored verbatim on the Plugin status, so its
+// text must not flap between reconciles. Slot errors in particular come from
+// a map and must be emitted in a stable (sorted) order.
+func TestValidateSlotErrorOrderIsDeterministic(t *testing.T) {
+	data := marshalManifest(t, func() map[string]any {
+		m := validManifest()
+		m["ui"] = map[string]any{
+			"entry": "/plugins/mem0/index.js",
+			"slots": map[string]any{
+				"zzz.unknown": "A",
+				"aaa.unknown": "B",
+			},
+		}
+		return m
+	}())
+
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	first := m.Validate()
+	if first == nil {
+		t.Fatalf("Validate: expected error, got nil")
+	}
+	want := first.Error()
+	if !strings.Contains(want, "aaa.unknown") || !strings.Contains(want, "zzz.unknown") {
+		t.Fatalf("Validate error = %q, want both unknown slots reported", want)
+	}
+	if strings.Index(want, "aaa.unknown") > strings.Index(want, "zzz.unknown") {
+		t.Errorf("Validate error not sorted: %q", want)
+	}
+	for i := 0; i < 50; i++ {
+		if got := m.Validate().Error(); got != want {
+			t.Fatalf("Validate call %d differs:\n got: %q\nwant: %q", i+2, got, want)
+		}
+	}
+}
+
 func TestCompatible(t *testing.T) {
 	cases := []struct {
 		pluginAPI string
