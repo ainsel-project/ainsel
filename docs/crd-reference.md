@@ -308,8 +308,16 @@ the permissions an operator has approved.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `conditions` | []Condition | `Ready`; reasons: `Ready`, `Disabled`, `Unreachable`, `InvalidManifest`, `Incompatible`, `PermissionsPending` |
+| `conditions` | []Condition | `Ready`; reasons: `Ready`, `Disabled`, `SignatureRejected`, `NoVerifiedEndpoints`, `Unreachable`, `InvalidManifest`, `Incompatible`, `PermissionsPending` |
 | `observedGeneration` | int64 | Last observed generation |
+| `signature` | PluginSignatureStatus | Image signature verification state (omitted if not verified yet) |
+| `signature.verified` | bool | Whether the plugin image signature was successfully verified |
+| `signature.signer` | string | Identity that signed the image (from the signing certificate or keyless identity) |
+| `signature.digest` | string | Image digest that was verified |
+| `signature.policyHash` | string | Hash of the signing policy used for verification |
+| `signature.checkedAt` | Time | When the signature was last verified |
+| `signature.message` | string | Last verification error, if any |
+| `verifiedEndpoints` | []string | Sorted list of "ip:port" endpoints verified to be running the exact image digest specified in `spec.image.digest` |
 | `manifest` | object | Validated manifest JSON as the raw document (unknown fields are preserved) |
 | `declaredPermissions` | []string | Permissions the manifest asks for, approved or not |
 | `version` | string | Plugin version reported by the manifest |

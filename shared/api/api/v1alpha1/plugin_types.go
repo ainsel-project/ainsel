@@ -55,6 +55,27 @@ type PluginSpec struct {
 	GroupAccess []string `json:"groupAccess,omitempty"`
 }
 
+// PluginSignatureStatus describes the signature verification state of a plugin image.
+type PluginSignatureStatus struct {
+	// Verified indicates whether the plugin image signature was successfully verified.
+	Verified bool `json:"verified"`
+	// Signer is the identity that signed the image (from the signing certificate or keyless identity).
+	// +optional
+	Signer string `json:"signer,omitempty"`
+	// Digest is the image digest that was verified.
+	// +optional
+	Digest string `json:"digest,omitempty"`
+	// PolicyHash is the hash of the signing policy that was used for verification.
+	// +optional
+	PolicyHash string `json:"policyHash,omitempty"`
+	// CheckedAt is when the signature was last verified.
+	// +optional
+	CheckedAt metav1.Time `json:"checkedAt,omitempty"`
+	// Message is the last verification error, if any.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // PluginStatus defines the observed state of a Plugin.
 type PluginStatus struct {
 	// +optional
@@ -74,6 +95,13 @@ type PluginStatus struct {
 	// Version is the plugin version reported by the manifest.
 	// +optional
 	Version string `json:"version,omitempty"`
+	// Signature tracks the image signature verification state.
+	// +optional
+	Signature *PluginSignatureStatus `json:"signature,omitempty"`
+	// VerifiedEndpoints is a sorted list of "ip:port" endpoints that have been
+	// verified to be running the exact image digest specified in spec.image.digest.
+	// +optional
+	VerifiedEndpoints []string `json:"verifiedEndpoints,omitempty"`
 }
 
 const (
@@ -81,6 +109,8 @@ const (
 
 	PluginReasonReady              = "Ready"
 	PluginReasonDisabled           = "Disabled"
+	PluginReasonSignatureRejected  = "SignatureRejected"
+	PluginReasonNoVerifiedEndpoints = "NoVerifiedEndpoints"
 	PluginReasonUnreachable        = "Unreachable"
 	PluginReasonInvalidManifest    = "InvalidManifest"
 	PluginReasonIncompatible       = "Incompatible"
@@ -91,6 +121,7 @@ const (
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.version`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
+// +kubebuilder:printcolumn:name="Signed",type=boolean,JSONPath=`.status.signature.verified`
 // +kubebuilder:printcolumn:name="Disabled",type=boolean,JSONPath=`.spec.disabled`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

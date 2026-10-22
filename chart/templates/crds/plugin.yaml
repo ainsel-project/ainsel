@@ -22,6 +22,9 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="Ready")].reason
       name: Ready
       type: string
+    - jsonPath: .status.signature.verified
+      name: Signed
+      type: boolean
     - jsonPath: .spec.disabled
       name: Disabled
       type: boolean
@@ -195,6 +198,41 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              signature:
+                description: Signature tracks the image signature verification state.
+                properties:
+                  checkedAt:
+                    description: CheckedAt is when the signature was last verified.
+                    format: date-time
+                    type: string
+                  digest:
+                    description: Digest is the image digest that was verified.
+                    type: string
+                  message:
+                    description: Message is the last verification error, if any.
+                    type: string
+                  policyHash:
+                    description: PolicyHash is the hash of the signing policy that
+                      was used for verification.
+                    type: string
+                  signer:
+                    description: Signer is the identity that signed the image (from
+                      the signing certificate or keyless identity).
+                    type: string
+                  verified:
+                    description: Verified indicates whether the plugin image signature
+                      was successfully verified.
+                    type: boolean
+                required:
+                - verified
+                type: object
+              verifiedEndpoints:
+                description: |-
+                  VerifiedEndpoints is a sorted list of "ip:port" endpoints that have been
+                  verified to be running the exact image digest specified in spec.image.digest.
+                items:
+                  type: string
+                type: array
               version:
                 description: Version is the plugin version reported by the manifest.
                 type: string

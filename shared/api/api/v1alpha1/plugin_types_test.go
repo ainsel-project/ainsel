@@ -69,3 +69,44 @@ func TestPluginDeepCopyIndependence(t *testing.T) {
 			original.Spec.GroupAccess[0], "staff")
 	}
 }
+
+func TestPluginStatusDeepCopyIndependence(t *testing.T) {
+	original := &Plugin{
+		Status: PluginStatus{
+			VerifiedEndpoints: []string{"192.168.1.1:8080", "192.168.1.2:8080"},
+			Signature: &PluginSignatureStatus{
+				Verified: true,
+				Signer:   "test-signer",
+				Digest:   "sha256:abcdef1234567890",
+				Message:  "signature verified",
+			},
+		},
+	}
+
+	deepCopy := original.DeepCopy()
+	if len(deepCopy.Status.VerifiedEndpoints) != 2 {
+		t.Fatalf("DeepCopy lost Status.VerifiedEndpoints: %+v", deepCopy.Status.VerifiedEndpoints)
+	}
+	if deepCopy.Status.Signature == nil {
+		t.Fatalf("DeepCopy lost Status.Signature")
+	}
+
+	// Mutating the copy's VerifiedEndpoints must not reach back into the original
+	deepCopy.Status.VerifiedEndpoints[0] = "192.168.2.1:8080"
+	if original.Status.VerifiedEndpoints[0] != "192.168.1.1:8080" {
+		t.Fatalf("mutating the copy changed the original: VerifiedEndpoints[0] = %q, want %q",
+			original.Status.VerifiedEndpoints[0], "192.168.1.1:8080")
+	}
+
+	// Mutating the copy's Signature must not reach back into the original
+	deepCopy.Status.Signature.Signer = "modified-signer"
+	deepCopy.Status.Signature.Verified = false
+	if original.Status.Signature.Signer != "test-signer" {
+		t.Fatalf("mutating the copy changed the original: Signature.Signer = %q, want %q",
+			original.Status.Signature.Signer, "test-signer")
+	}
+	if !original.Status.Signature.Verified {
+		t.Fatalf("mutating the copy changed the original: Signature.Verified = %v, want %v",
+			original.Status.Signature.Verified, true)
+	}
+}
