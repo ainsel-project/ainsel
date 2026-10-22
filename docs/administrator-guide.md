@@ -753,6 +753,66 @@ Three escalating options, fastest to most thorough:
 For incidents, prefer (1) — reversible, leaves config in place for
 analysis.
 
+### Plugins
+
+Plugins are third-party extensions: HTTP workloads that add tools and UI
+slots to the platform, reached over a Kubernetes Service in the same
+namespace. Because they are third-party code, everything about them leans on
+two anchors — the image is **pinned to a digest** (a mutable tag would let a
+compromised registry push new code into your cluster silently), and nothing
+they ask for is granted until **you** approve it.
+
+**Registering a plugin.** A plugin's Deployment and Service are yours to
+deploy (helm, plain manifests — anything). Once the Service answers, register
+it via the console or `POST /api/v1/plugins` with its `id` (lowercase,
+`^[a-z][a-z0-9-]{1,30}$`), service name and port, image repository and
+`sha256:` digest. Registration grants nothing: the CR is created with an
+empty approved-permission set.
+
+The event-gateway operator then fetches the manifest the plugin serves at
+`/ainsel-plugin.json`, checks it (well-formed, its declared `id` matches the
+CR name, its `pluginApi` version is compatible with the platform), and
+records what the plugin declares — permissions, version, the manifest itself
+— on the Plugin's status.
+
+**Approving permissions.** If the manifest declares any permissions
+(`agents:read`, `personas:write`, …), the plugin stays not-Ready with reason
+`PermissionsPending` until you approve them. Approval is all-or-nothing
+against the declared set: `POST /api/v1/plugins/{id}/approve-permissions`
+with `"permissions"` naming exactly what the plugin declared — a subset, a
+superset, or anything the manifest never asked for is rejected with `409`
+and the current declared set in the error. That is deliberate: you approve
+what you have just seen, not what a stale console tab remembers. A declared
+permission you never approve simply is not effective.
+
+**Group access.** `PUT /api/v1/plugins/{id}/group-access` records which
+groups' background identity the plugin may act for (the background identity
+itself lands with a later phase; the hub validates and stores the list now).
+Unknown group ids are rejected; an empty list means the plugin acts for no
+group.
+
+**Disabling.** `POST /api/v1/plugins/{id}/disable` (or the console switch)
+stops routing to the plugin, makes it vanish from non-admin listings, and
+pauses manifest fetching — the registration and your approvals stay put, so
+re-enabling is instant. Uninstalling (`DELETE /api/v1/plugins/{id}`) removes
+the CR; the plugin's own Deployment/Service are yours to delete separately.
+
+Every plugin change you make — install, uninstall, enable, disable,
+approval, group-access — lands a row in the audit trail (auth events) with
+your identity and the plugin id.
+
+**What each status means.** The console and the API surface one `Ready`
+condition with a reason; the first failing check wins:
+
+| Reason | Meaning | What you do |
+|---|---|---|
+| `Ready` | Manifest valid and compatible, every declared permission approved. | Nothing — the plugin is live. |
+| `Disabled` | `spec.disabled` is set; the manifest is not even fetched. | Enable it when you want it back. |
+| `Unreachable` | The service at `serviceName:servicePort` didn't answer `/ainsel-plugin.json` in 5 s. | Check the plugin's Deployment/Service actually run and the name/port are right. |
+| `InvalidManifest` | The served JSON doesn't parse, or its declared `id` isn't the plugin's name. | Report it to the plugin's author; a plugin cannot claim to be someone else. |
+| `Incompatible` | The manifest's `pluginApi` major version doesn't match the platform's. | Get a plugin version built for this platform, or hold the platform back. |
+| `PermissionsPending` | Manifest is fine; declared permissions await you. | Review the manifest in the plugin detail view, then approve the full declared set. |
+
 ## 6. What you do NOT manage
 
 The whole point of AInsel is to hide AI specifics from end users.

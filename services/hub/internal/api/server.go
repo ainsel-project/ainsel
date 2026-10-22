@@ -259,6 +259,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/agent-images/", s.handleAgentImagePath)
 	s.mux.HandleFunc("/api/v1/connectors", s.handleConnectors)
 	s.mux.HandleFunc("/api/v1/connectors/", s.handleConnector)
+	registerPluginRoutes(s)
 	s.mux.HandleFunc("/api/v1/triggers", s.handleTriggers)
 	s.mux.HandleFunc("/api/v1/triggers/", s.handleTrigger)
 	s.mux.HandleFunc("/api/v1/cron-triggers", s.handleCronTriggers)

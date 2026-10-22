@@ -419,6 +419,138 @@ Delete a connector. The associated webhook secret is deleted as well.
 
 ---
 
+## Plugins
+
+A plugin is a `Plugin` CR declaring third-party code the platform routes to:
+an HTTP workload already deployed in the hub's namespace, reachable through a
+Kubernetes Service and pinned to an exact image digest. The event-gateway
+operator fetches the manifest the plugin serves at `/ainsel-plugin.json`,
+validates it, and records the result in the Plugin's status (see
+[`crd-reference.md`](crd-reference.md)); the hub API below is the admin
+surface for registering and governing plugins.
+
+Reads are open to any authenticated caller: admins get the full record, and
+non-admins see only plugins that are **enabled and Ready**, in a reduced
+public shape (`id`, `displayName`, `version`, `manifest` — no permission or
+group data). Every write is **admin-only** and each successful write inserts
+an audit row (`plugin_installed`, `plugin_uninstalled`, `plugin_enabled`,
+`plugin_disabled`, `plugin_permissions_approved`,
+`plugin_group_access_changed`).
+
+The plugin `id` must match `^[a-z][a-z0-9-]{1,30}$` (it becomes a URL segment
+and a tool-name prefix), and `imageDigest` must match `^sha256:[a-f0-9]{64}$`
+— a mutable tag would let a compromised registry push new code silently.
+
+### GET /api/v1/plugins
+
+List plugins, sorted by id. Supports `page`/`pageSize`.
+
+**Response (admin):** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "mem0",
+      "displayName": "Mem0",
+      "version": "1.2.3",
+      "serviceName": "mem0-svc",
+      "servicePort": 8081,
+      "imageRepository": "ghcr.io/acme/mem0-plugin",
+      "imageDigest": "sha256:…",
+      "disabled": false,
+      "ready": false,
+      "reason": "PermissionsPending",
+      "message": "Declared permissions awaiting approval: agents:read",
+      "declaredPermissions": ["agents:read"],
+      "approvedPermissions": [],
+      "groupAccess": ["platform"],
+      "manifest": {"id": "mem0", "pluginApi": "1.0", "version": "1.2.3"}
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+Non-admin callers receive the same envelope with only enabled + Ready
+plugins, each as `{"id", "displayName", "version", "manifest"}`.
+`ready`/`reason`/`message` mirror the status `Ready` condition; a plugin the
+reconciler has not processed yet reports `ready: false` with an empty reason.
+
+### POST /api/v1/plugins
+
+Register a plugin whose workload is already deployed. The CR is created with
+**no approved permissions** — approvals are a separate admin action against
+the set the manifest turns out to declare.
+
+**Request body:**
+```json
+{
+  "id": "mem0",
+  "displayName": "Mem0",
+  "serviceName": "mem0-svc",
+  "servicePort": 8081,
+  "imageRepository": "ghcr.io/acme/mem0-plugin",
+  "imageDigest": "sha256:0123…"
+}
+```
+
+`id`, `serviceName`, `servicePort` (1–65535), `imageRepository` and
+`imageDigest` are required.
+
+**Response:** `201 Created` with the plugin record. `400` on validation
+errors, `409` if the id is already taken.
+
+### GET /api/v1/plugins/{id}
+
+Fetch one plugin. Admins get the full record; non-admin callers get the
+public shape and only when the plugin is enabled and Ready — otherwise
+`404`, indistinguishable from "does not exist".
+
+**Response:** `200 OK` or `404 Not Found`.
+
+### DELETE /api/v1/plugins/{id}
+Unregister a plugin (deletes the CR; the plugin's own workload is not
+touched).
+
+**Response:** `204 No Content` or `404 Not Found`.
+
+### POST /api/v1/plugins/{id}/enable · POST /api/v1/plugins/{id}/disable
+
+Toggle `spec.disabled`. A disabled plugin is not routed to, the reconciler
+stops fetching its manifest (`reason: Disabled`), and it disappears from
+non-admin listings.
+
+**Response:** `200 OK` with the plugin record, or `404 Not Found`.
+
+### POST /api/v1/plugins/{id}/approve-permissions
+
+Grant the plugin its declared permissions. The request must name **exactly**
+the set in `status.declaredPermissions` (order and duplicates are ignored);
+this guards against approving from a stale console view.
+
+**Request body:**
+```json
+{"permissions": ["agents:read", "personas:write"]}
+```
+
+**Response:** `200 OK` with the plugin record when the sets match (the set is
+copied to `spec.approvedPermissions`); `409 Conflict` otherwise, with the
+current declared set named in the error body; `404 Not Found`.
+
+### PUT /api/v1/plugins/{id}/group-access
+
+Set which groups' background identity the plugin may act for.
+
+**Request body:**
+```json
+{"groups": ["platform"]}
+```
+
+**Response:** `200 OK` with the plugin record, `400` if any group id does not
+exist (spec unchanged), or `404 Not Found`.
+
+---
+
 ## Triggers
 
 ### GET /api/v1/triggers

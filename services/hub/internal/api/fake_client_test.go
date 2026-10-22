@@ -60,6 +60,10 @@ func kindOf(obj runtime.Object) string {
 		return "AgentImage"
 	case *connectorv1alpha1.AgentImageList:
 		return "AgentImageList"
+	case *connectorv1alpha1.Plugin:
+		return "Plugin"
+	case *connectorv1alpha1.PluginList:
+		return "PluginList"
 	default:
 		return fmt.Sprintf("%T", obj)
 	}
@@ -150,6 +154,20 @@ func (fc *fakeClient) List(ctx context.Context, list client.ObjectList, opts ...
 				continue
 			}
 			items = append(items, *img)
+		}
+		l.Items = items
+	case *connectorv1alpha1.PluginList:
+		m := fc.objects["Plugin"]
+		var items []connectorv1alpha1.Plugin
+		for nn, obj := range m {
+			if lo.Namespace != "" && nn.Namespace != lo.Namespace {
+				continue
+			}
+			p := obj.(*connectorv1alpha1.Plugin)
+			if lo.LabelSelector != nil && !lo.LabelSelector.Matches(labels.Set(p.Labels)) {
+				continue
+			}
+			items = append(items, *p)
 		}
 		l.Items = items
 	case *batchv1.JobList:
