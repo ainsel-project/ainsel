@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -445,13 +447,15 @@ func (r *PluginReconciler) resolveVerifiedEndpoints(ctx context.Context, p *comm
 				continue
 			}
 
-			// Get the Pod referenced by this endpoint
-			if endpoint.TargetRef == nil {
+			// Get the Pod referenced by this endpoint. Only a Pod in the
+			// plugin's own namespace counts.
+			if endpoint.TargetRef == nil || endpoint.TargetRef.Kind != "Pod" ||
+				endpoint.TargetRef.Namespace != p.Namespace {
 				continue
 			}
 
 			pod := &corev1.Pod{}
-			podKey := client.ObjectKey{Namespace: endpoint.TargetRef.Namespace, Name: endpoint.TargetRef.Name}
+			podKey := client.ObjectKey{Namespace: p.Namespace, Name: endpoint.TargetRef.Name}
 			if err := r.Get(ctx, podKey, pod); err != nil {
 				continue // Skip this endpoint if pod is not found
 			}
@@ -472,9 +476,15 @@ func (r *PluginReconciler) resolveVerifiedEndpoints(ctx context.Context, p *comm
 				}
 			}
 
-			// Add the endpoint
+			// Add the endpoint, but only addresses that really are this pod's
+			// IPs: an EndpointSlice can name a verified pod and list any
+			// address, and the hub sends traffic and credentials there.
+			podIPs := podIPSet(pod)
 			for _, addr := range endpoint.Addresses {
-				verifiedEndpoints = append(verifiedEndpoints, fmt.Sprintf("%s:%d", addr, port))
+				if !podIPs[addr] {
+					continue
+				}
+				verifiedEndpoints = append(verifiedEndpoints, net.JoinHostPort(addr, strconv.Itoa(int(port))))
 			}
 		}
 	}
@@ -487,6 +497,20 @@ func (r *PluginReconciler) resolveVerifiedEndpoints(ctx context.Context, p *comm
 }
 
 // podHasDigest checks if a pod is running a container with the specified digest.
+// podIPSet returns the pod's assigned IPs (status.podIP and status.podIPs).
+func podIPSet(pod *corev1.Pod) map[string]bool {
+	ips := make(map[string]bool, len(pod.Status.PodIPs)+1)
+	if pod.Status.PodIP != "" {
+		ips[pod.Status.PodIP] = true
+	}
+	for _, ip := range pod.Status.PodIPs {
+		if ip.IP != "" {
+			ips[ip.IP] = true
+		}
+	}
+	return ips
+}
+
 func (r *PluginReconciler) podHasDigest(pod *corev1.Pod, digest string) bool {
 	for _, cs := range pod.Status.ContainerStatuses {
 		if strings.HasSuffix(cs.ImageID, "@"+digest) {

@@ -889,6 +889,33 @@ var _ = Describe("Plugin Controller", func() {
 		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
 	})
 
+	It("ignores endpoint addresses that are not the referenced pod's IP", func() {
+		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
+		plugin := newPlugin(false, "agents:read")
+		Expect(k8sClient.Create(ctx, plugin)).To(Succeed())
+
+		createService()
+		createPodWithImageID("plugin-pod-1", plugin.Spec.Image.Digest)
+		pod1 := &corev1.Pod{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "plugin-pod-1", Namespace: namespace}, pod1)).To(Succeed())
+		pod1.Status.PodIP = "10.0.0.1"
+		Expect(k8sClient.Status().Update(ctx, pod1)).To(Succeed())
+
+		// The slice names the signed pod but lists somebody else's address.
+		createEndpointSlice([]discoveryv1.Endpoint{{
+			Addresses:  []string{"10.9.9.9"},
+			TargetRef:  &corev1.ObjectReference{Kind: "Pod", Name: "plugin-pod-1", Namespace: namespace},
+			Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)},
+		}})
+
+		reconcilePluginWithOptions(&fakeVerifier{verified: true, signer: "key:abc123"}, &signing.Policy{RequireSignature: false}, time.Now)
+
+		Eventually(func() bool {
+			c := getReady()
+			return c != nil && c.Reason == commonv1alpha1.PluginReasonNoVerifiedEndpoints
+		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+	})
+
 	It("surfaces verifier network errors as SignatureRejected when required and retries at resync", func() {
 		serveManifest(manifestJSON(pluginName, "0.1.0", "1.0", "agents:read"))
 		Expect(k8sClient.Create(ctx, newPlugin(false, "agents:read"))).To(Succeed())

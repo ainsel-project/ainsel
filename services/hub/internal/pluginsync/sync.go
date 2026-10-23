@@ -222,6 +222,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 // desiredSkill is one skill a plugin declares: the row to write (minus the
 // body, which only a fetch can produce) and where to fetch the body from.
 type desiredSkill struct {
+	owner     string // plugin id that declares the skill
 	row       ManagedSkill
 	endpoint  string
 	path      string
@@ -242,6 +243,11 @@ func (s *Syncer) reconcileSkills(ctx context.Context, plugins []connectorv1alpha
 	}
 
 	desired := make(map[string]desiredSkill)
+	// Ids are <plugin>-<skill> and both halves may contain dashes, so plugin
+	// "a" skill "b-c" and plugin "a-b" skill "c" both produce "a-b-c". Such an
+	// id is registered for neither: one plugin must never be able to replace
+	// another plugin's skill text, which agents read as instructions.
+	contested := make(map[string]bool)
 	for i := range plugins {
 		plugin := &plugins[i]
 		manifest, ok := manifestOf(plugin)
@@ -253,7 +259,14 @@ func (s *Syncer) reconcileSkills(ctx context.Context, plugins []connectorv1alpha
 			// The id doubles as the name and carries the plugin id, so a plugin
 			// skill is recognisable — and its owner readable — without a join.
 			id := plugin.Name + "-" + spec.Name
+			if prev, taken := desired[id]; taken && prev.owner != plugin.Name {
+				contested[id] = true
+				slog.Warn("plugin skill id claimed by two plugins; registering neither",
+					"skill", id, "plugins", prev.owner+","+plugin.Name)
+				continue
+			}
 			desired[id] = desiredSkill{
+				owner: plugin.Name,
 				row: ManagedSkill{
 					ID:          id,
 					Name:        id,
@@ -265,6 +278,10 @@ func (s *Syncer) reconcileSkills(ctx context.Context, plugins []connectorv1alpha
 				hasTarget: hasEndpoint,
 			}
 		}
+	}
+
+	for id := range contested {
+		delete(desired, id)
 	}
 
 	existing, err := s.skills.ListManaged(ctx)
@@ -293,7 +310,15 @@ func (s *Syncer) reconcileSkills(ctx context.Context, plugins []connectorv1alpha
 			continue
 		}
 		want.row.Body = body
-		if cur, ok := current[id]; ok && sameSkill(cur, want.row) {
+		cur, ok := current[id]
+		if ok && skillOwner(cur) != want.owner {
+			// The row belongs to another plugin (renamed ids can line up
+			// later): leave it alone.
+			slog.Warn("plugin skill id owned by another plugin; not registering",
+				"skill", id, "owner", skillOwner(cur), "plugin", want.owner)
+			continue
+		}
+		if ok && sameSkill(cur, want.row) {
 			continue
 		}
 		if err := s.skills.Upsert(ctx, want.row); err != nil {
@@ -303,8 +328,15 @@ func (s *Syncer) reconcileSkills(ctx context.Context, plugins []connectorv1alpha
 		s.makeReadable(ctx, skillResourceType, id)
 	}
 	for _, id := range slices.Sorted(maps.Keys(current)) {
-		if _, wanted := desired[id]; wanted {
+		if want, wanted := desired[id]; wanted && skillOwner(current[id]) == want.owner {
 			continue
+		}
+		if contested[id] {
+			// Keep whatever is stored until the conflict is resolved.
+			continue
+		}
+		if _, wanted := desired[id]; wanted {
+			continue // owned by another plugin; see above
 		}
 		if err := s.skills.Delete(ctx, id); err != nil {
 			errs = append(errs, fmt.Errorf("pluginsync: delete skill %s: %w", id, err))
@@ -363,6 +395,16 @@ func (s *Syncer) mcpServerRow(plugin *connectorv1alpha1.Plugin, manifest *plugin
 		TokenFromEnv: MCPServerTokenFromEnv,
 		ManagedBy:    mcpservers.ManagedByPlugin,
 	}
+}
+
+// skillOwner reads the owning plugin id from a managed skill's plugin:<id> tag.
+func skillOwner(sk ManagedSkill) string {
+	for _, tag := range sk.Tags {
+		if id, ok := strings.CutPrefix(tag, "plugin:"); ok {
+			return id
+		}
+	}
+	return ""
 }
 
 // sameRegistration compares the fields the syncer owns. Timestamps are not

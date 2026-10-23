@@ -592,3 +592,44 @@ func TestSync_NeverTakesOverUserRowWithPluginName(t *testing.T) {
 		t.Fatalf("user row touched: upserted=%+v deleted=%v", reg.upserted, reg.deleted)
 	}
 }
+
+// TestSync_ContestedSkillIDRegistersNeither: plugin "a" skill "b-c" and plugin
+// "a-b" skill "c" both map to "a-b-c"; neither may own it.
+func TestSync_ContestedSkillIDRegistersNeither(t *testing.T) {
+	ma := `{"id":"a","displayName":"A","version":"1","pluginApi":"1.1","skills":[{"name":"b-c","description":"x","path":"/s.md"}]}`
+	mab := `{"id":"a-b","displayName":"AB","version":"1","pluginApi":"1.1","skills":[{"name":"c","description":"y","path":"/s.md"}]}`
+	c := syncClient(t,
+		pluginWithManifestAndEndpoints(t, "a", ma, []string{"10.0.0.1:8080"}),
+		pluginWithManifestAndEndpoints(t, "a-b", mab, []string{"10.0.0.2:8080"}))
+	skillReg := newFakeSkillRegistry()
+	fetch := func(context.Context, string, string) (string, error) { return "body", nil }
+	s := pluginsync.New(c, testNS, newFakeMCPRegistry(), skillReg, testSelfURL, fetch)
+	s.SetResourceVisibility(&fakeVisibility{})
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if _, ok := skillReg.rows["a-b-c"]; ok {
+		t.Fatalf("contested skill id was registered: %+v", skillReg.rows["a-b-c"])
+	}
+}
+
+// TestSync_NeverOverwritesAnotherPluginsSkill: a stored skill tagged for plugin
+// "a" is not replaced by plugin "a-b" producing the same id.
+func TestSync_NeverOverwritesAnotherPluginsSkill(t *testing.T) {
+	mab := `{"id":"a-b","displayName":"AB","version":"1","pluginApi":"1.1","skills":[{"name":"c","description":"y","path":"/s.md"}]}`
+	c := syncClient(t, pluginWithManifestAndEndpoints(t, "a-b", mab, []string{"10.0.0.2:8080"}))
+	skillReg := newFakeSkillRegistry()
+	owned := managedPluginSkill("a-b-c", "plugin a's body")
+	owned.Tags = []string{"plugin:a"}
+	skillReg.rows["a-b-c"] = owned
+	fetch := func(context.Context, string, string) (string, error) { return "plugin a-b's body", nil }
+	s := pluginsync.New(c, testNS, newFakeMCPRegistry(), skillReg, testSelfURL, fetch)
+	s.SetResourceVisibility(&fakeVisibility{})
+
+	_ = s.SyncOnce(context.Background())
+	got := skillReg.rows["a-b-c"]
+	if got.Body != "plugin a's body" || !slices.Equal(got.Tags, []string{"plugin:a"}) {
+		t.Fatalf("another plugin's skill was modified: %+v", got)
+	}
+}
