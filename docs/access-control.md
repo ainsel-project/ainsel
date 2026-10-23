@@ -261,6 +261,9 @@ the `exp` claim is always present.
   `POST /api/internal/plugins/<id>/credentials`, which only answers callers
   whose pod IP is one of the plugin's verified endpoints (pods running the
   signed image digest).
+  Pod IPs are recycled, so the match is as fresh as the operator's last
+  reconcile of the plugin: endpoint and pod changes trigger one immediately,
+  and the 60-second resync bounds the window otherwise.
 
 Agent and plugin kinds never carry the admin bypass — they are always
 constrained by the permissions table.

@@ -832,7 +832,9 @@ install a plugin whose signature is broken.
   Anchor the regexp and keep the `@refs/tags/v` suffix: a subject that matches a
   branch push lets any commit that workflow built pass as a release. An
   identity with neither `subject` nor `subjectRegExp`, or with both, is rejected
-  when the policy loads — so is a regexp that doesn't compile.
+  when the policy loads — so is a regexp that doesn't compile, and one that is
+  not anchored with `^` and `$` (cosign matches it anywhere in the identity, so
+  an unanchored `github\.com/acme` would also accept `github.com/acme-evil`).
 
 *Air-gapped.* Verification normally fetches sigstore's certificate authority
 and revocation data from the public TUF root. Where there is no path to it,

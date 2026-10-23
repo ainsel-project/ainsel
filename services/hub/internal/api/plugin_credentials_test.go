@@ -112,7 +112,7 @@ func TestPluginCredential_UserAllowedRoute(t *testing.T) {
 	// Wire the middleware: a simple handler that returns the current auth info
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 	disabledGuard := authz.NewDisabledGuard(s.authzStore)
 	fallbackChain := func(next http.Handler) http.Handler { return next }
@@ -154,7 +154,9 @@ func TestPluginCredential_RouteNotGranted(t *testing.T) {
 		t.Errorf("expected 403 for personas:read, got %d", rec.Code)
 	}
 	var errResp map[string]interface{}
-	json.Unmarshal(rec.Body.Bytes(), &errResp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
 	if msg, ok := errResp["error"].(string); !ok || msg != "plugin lacks permission personas:read" {
 		t.Errorf("expected permission error, got: %v", errResp)
 	}
@@ -170,7 +172,9 @@ func TestPluginCredential_RouteNotGranted(t *testing.T) {
 		t.Errorf("expected 403 for /api/v1/users, got %d", rec.Code)
 	}
 	errResp = make(map[string]interface{})
-	json.Unmarshal(rec.Body.Bytes(), &errResp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
 	if msg, ok := errResp["error"].(string); !ok || msg != "route not available to plugin credentials" {
 		t.Errorf("expected route unavailable error, got: %v", errResp)
 	}
@@ -631,4 +635,25 @@ func TestMintCredentials(t *testing.T) {
 			t.Errorf("expected ErrDisabled, got %v", err)
 		}
 	})
+}
+
+func TestStatusCaptureWriter_PassesThroughFlushAndUnwrap(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := &statusCaptureWriter{ResponseWriter: rec}
+
+	var hw http.ResponseWriter = w
+	f, ok := hw.(http.Flusher)
+	if !ok {
+		t.Fatal("statusCaptureWriter does not implement http.Flusher")
+	}
+	f.Flush()
+	if !rec.Flushed {
+		t.Error("Flush was not passed through to the wrapped writer")
+	}
+	if err := http.NewResponseController(hw).Flush(); err != nil {
+		t.Errorf("ResponseController.Flush: %v", err)
+	}
+	if w.Unwrap() != rec {
+		t.Error("Unwrap does not return the wrapped writer")
+	}
 }

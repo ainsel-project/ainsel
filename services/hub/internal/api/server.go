@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
@@ -97,6 +98,8 @@ type Server struct {
 	internalValidateSecret string
 	pluginCreds            *plugincreds.Issuer
 	pluginProxyTransport   http.RoundTripper
+	pluginProxyOnce        sync.Once
+	pluginMCPOnce          sync.Once
 	// pluginMCP is the MCP client the plugin tool endpoints use to list and call
 	// tools on a plugin's own MCP server. Wired by SetPluginMCPClient; see
 	// getPluginMCPClient for the default.
@@ -193,9 +196,12 @@ func (s *Server) SetPluginMCPClient(c *pluginmcp.Client) {
 // first use: plugin tool calls are in-cluster HTTP with a bounded dial, in the
 // same shape as the plugin proxy transport.
 func (s *Server) getPluginMCPClient() *pluginmcp.Client {
-	if s.pluginMCP == nil {
-		s.pluginMCP = pluginmcp.New(&http.Client{Timeout: 30 * time.Second})
-	}
+	// Once: concurrent first requests must share one client (and its tool cache).
+	s.pluginMCPOnce.Do(func() {
+		if s.pluginMCP == nil {
+			s.pluginMCP = pluginmcp.New(&http.Client{Timeout: 30 * time.Second})
+		}
+	})
 	return s.pluginMCP
 }
 

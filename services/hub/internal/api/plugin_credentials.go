@@ -33,6 +33,20 @@ func (w *statusCaptureWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
+// Flush passes through to the wrapped writer so streaming handlers keep
+// working behind the audit wrapper.
+func (w *statusCaptureWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap exposes the wrapped writer to http.ResponseController, which then
+// reaches Hijack, deadlines and the rest without this type re-implementing them.
+func (w *statusCaptureWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // PluginCaller describes the authenticated plugin caller and their effective permissions/groups.
 type PluginCaller struct {
 	PluginID     string

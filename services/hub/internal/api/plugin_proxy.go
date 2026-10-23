@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -58,7 +57,7 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 	}
 
 	// Pick an endpoint
-	endpoint, ok := pluginproxy.PickEndpoint(plugin.Status.VerifiedEndpoints, func(n int) int { return rand.IntN(n) })
+	endpoint, ok := pluginproxy.PickEndpoint(plugin.Status.VerifiedEndpoints, nil)
 	if !ok {
 		writeError(w, http.StatusServiceUnavailable, "plugin has no verified endpoints")
 		return
@@ -180,7 +179,11 @@ func (s *Server) userPluginContext(r *http.Request, u *oidc.User) (pluginContext
 
 // getPluginProxyTransport returns the lazily-initialized plugin proxy transport.
 func (s *Server) getPluginProxyTransport() http.RoundTripper {
-	if s.pluginProxyTransport == nil {
+	// Once: concurrent first proxy requests must not race on the field.
+	s.pluginProxyOnce.Do(func() {
+		if s.pluginProxyTransport != nil {
+			return // set by SetPluginProxyTransport
+		}
 		s.pluginProxyTransport = &http.Transport{
 			Proxy: nil,
 			DialContext: (&net.Dialer{
@@ -189,7 +192,7 @@ func (s *Server) getPluginProxyTransport() http.RoundTripper {
 			ResponseHeaderTimeout: 30 * time.Second,
 			MaxIdleConnsPerHost:   16,
 		}
-	}
+	})
 	return s.pluginProxyTransport
 }
 

@@ -125,7 +125,10 @@ func (v *cosignVerifier) verifyWithKey(ctx context.Context, ref name.Reference, 
 	// Try legacy .sig layout first, then NewBundleFormat.
 	for _, useNewBundle := range []bool{false, true} {
 		co := &cosign.CheckOpts{
-			SigVerifier:        sigVerifier,
+			SigVerifier: sigVerifier,
+			// Key-based trust: the configured public key is the anchor, so a
+			// transparency-log inclusion proof is not required (signatures
+			// made with `cosign sign --tlog-upload=false` must verify too).
 			IgnoreTlog:         true,
 			IgnoreSCT:          true,
 			NewBundleFormat:    useNewBundle,

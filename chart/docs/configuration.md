@@ -110,7 +110,7 @@ the operator pod (the pod template carries a checksum of the ConfigMap).
 |-------|------|---------|-------------|
 | `plugins.requireSignature` | bool | `true` | Require every plugin image to carry a signature that verifies against the trust material below. With `false`, a signature that is present must still verify, but an unsigned plugin is accepted |
 | `plugins.signing.keys` | list | `[]` | PEM-encoded public keys (cosign `--key` form). RSA keys below 2048 bits are rejected when the policy loads |
-| `plugins.signing.keyless` | list | `[]` | Sigstore identities: `issuer` plus **exactly one** of `subject` (exact) or `subjectRegExp` (Go regexp) |
+| `plugins.signing.keyless` | list | `[]` | Sigstore identities: `issuer` plus **exactly one** of `subject` (exact) or `subjectRegExp` (Go regexp, must be anchored with `^` and `$`) |
 | `plugins.signing.trustedRootFile` | string | `""` | In-cluster path to a sigstore `trusted_root.json`, for installs that cannot reach the public TUF mirror. Empty means public good — mount the file yourself via `connectorOperator.extraVolumes` and point here |
 
 A file the operator cannot parse or validate (unknown key, bad PEM, a keyless

@@ -31,7 +31,7 @@ const DefaultPolicyPath = "/etc/ainsel/plugin-signing/policy.yaml"
 
 // KeylessIdentity is a sigstore keyless identity: certificates issued by
 // Issuer are trusted when their subject matches Subject (exact) or
-// SubjectRegExp (anchored regexp). Exactly one of the two must be set —
+// SubjectRegExp (a regexp that must be anchored with ^ and $; Validate rejects it otherwise). Exactly one of the two must be set —
 // a regexp that was meant to be an exact string, or vice versa, is a
 // misconfiguration, not a refinement.
 type KeylessIdentity struct {
@@ -114,6 +114,12 @@ func (p *Policy) Validate() error {
 		case hasRegExp:
 			if _, err := regexp.Compile(id.SubjectRegExp); err != nil {
 				errs = append(errs, fmt.Errorf("%s: subjectRegExp: %w", prefix, err))
+			} else if !isAnchored(id.SubjectRegExp) {
+				// cosign matches the regexp anywhere in the certificate
+				// identity: an unanchored github\.com/acme would also accept
+				// github.com/acme-evil. Require the anchors instead of adding
+				// them silently, so the file says what it enforces.
+				errs = append(errs, fmt.Errorf("%s: subjectRegExp must be anchored with ^ and $", prefix))
 			}
 		}
 	}
@@ -175,6 +181,19 @@ type canonicalKeyless struct {
 	Issuer        string `json:"issuer"`
 	Subject       string `json:"subject"`
 	SubjectRegExp string `json:"subjectRegExp"`
+}
+
+// isAnchored reports whether re starts with ^ and ends with an unescaped $.
+func isAnchored(re string) bool {
+	if !strings.HasPrefix(re, "^") || !strings.HasSuffix(re, "$") {
+		return false
+	}
+	// Count the backslashes before the final $: an odd number escapes it.
+	n := 0
+	for i := len(re) - 2; i >= 0 && re[i] == '\\'; i-- {
+		n++
+	}
+	return n%2 == 0
 }
 
 // validateKeyPEM checks that pemBytes is a PEM block holding a usable public

@@ -334,3 +334,27 @@ func TestPolicyHasTrust(t *testing.T) {
 		t.Error("policy with a keyless identity HasTrust() = false, want true")
 	}
 }
+
+func TestPolicyValidateRequiresAnchoredSubjectRegExp(t *testing.T) {
+	cases := []struct {
+		re   string
+		want bool // valid
+	}{
+		{`^https://github\.com/acme/.+/\.github/workflows/release\.yml@refs/tags/v.+$`, true},
+		{`github\.com/acme`, false},
+		{`^https://github\.com/acme/.+`, false},
+		{`https://github\.com/acme/.+$`, false},
+		{`^https://github\.com/acme\$`, false}, // escaped $ is a literal, not an anchor
+		{`^https://github\.com/acme\\$`, true}, // escaped backslash, then a real anchor
+	}
+	for _, c := range cases {
+		p := &Policy{Keyless: []KeylessIdentity{{Issuer: "https://token.actions.githubusercontent.com", SubjectRegExp: c.re}}}
+		err := p.Validate()
+		if c.want && err != nil {
+			t.Errorf("%q: Validate() = %v, want nil", c.re, err)
+		}
+		if !c.want && (err == nil || !strings.Contains(err.Error(), "must be anchored")) {
+			t.Errorf("%q: Validate() = %v, want anchoring error", c.re, err)
+		}
+	}
+}

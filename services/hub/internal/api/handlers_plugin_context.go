@@ -246,7 +246,13 @@ func (s *Server) handleInternalPluginCredentials(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Verify request source IP matches a verified endpoint
+	// Verify request source IP matches a verified endpoint.
+	//
+	// Residual risk, accepted: pod IPs are recycled. Between a plugin pod's
+	// deletion and the next reconcile (EndpointSlice/Pod watches trigger it
+	// immediately; the 60 s resync is the worst case) a new pod that inherited
+	// the IP could still match. It would also have to reach the hub from inside
+	// the namespace, and the plugin must still be enabled and Ready.
 	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
