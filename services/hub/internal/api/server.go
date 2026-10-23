@@ -95,6 +95,7 @@ type Server struct {
 	userTokens             *usertokens.Store
 	internalValidateSecret string
 	pluginCreds            *plugincreds.Issuer
+	pluginProxyTransport   http.RoundTripper
 
 	// skillMCPHandler is the read-only skill catalogue MCP, gated by
 	// skillsMCPToken below and built once in SetSkillDiscovery. nil until a
@@ -348,7 +349,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
-	if s.authMW != nil && strings.HasPrefix(r.URL.Path, "/api/v1/") && !isAuthExempt(r.URL.Path) {
+	if s.authMW != nil && strings.HasPrefix(r.URL.Path, "/api/v1/") && !isAuthExempt(r) {
 		// The forced-change gate sits inside the auth chain because it decides on
 		// the context user, and in front of the mux because a gate the handlers
 		// have to opt into is a gate new endpoints forget.
@@ -358,13 +359,43 @@ func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// isAuthExempt lists /api/v1/* paths that must stay reachable without a
-// session. Only the login endpoint qualifies: it validates credentials
-// itself and is still protected by the global per-IP rate limiter plus a
-// per-username throttle. Login stays exempt even for a flagged user — they
-// need it to reach the forced change screen.
-func isAuthExempt(path string) bool {
-	return path == "/api/v1/auth/login"
+// isAuthExempt lists /api/v1/* requests that must stay reachable without a
+// session. The login endpoint qualifies: it validates credentials itself and
+// is still protected by the global per-IP rate limiter plus a per-username
+// throttle. Login stays exempt even for a flagged user — they need it to
+// reach the forced change screen. Plugin UI requests are also exempt
+// (the handler will return 405 for non-GET/HEAD methods).
+func isAuthExempt(r *http.Request) bool {
+	if r.URL.Path == "/api/v1/auth/login" {
+		return true
+	}
+
+	// Plugin UI requests are auth-exempt
+	// Pattern: /api/v1/plugins/<id>/ui/<non-empty>
+	escapedPath := r.URL.EscapedPath()
+	if !strings.HasPrefix(escapedPath, "/api/v1/plugins/") {
+		return false
+	}
+
+	// Parse the path: /api/v1/plugins/<id>/ui/<rest>
+	rest := strings.TrimPrefix(escapedPath, "/api/v1/plugins/")
+	parts := strings.SplitN(rest, "/", 3)
+
+	// Need at least 3 parts: id, "ui", rest
+	if len(parts) < 3 {
+		return false
+	}
+
+	if parts[1] != "ui" {
+		return false
+	}
+
+	// rest must be non-empty (UI with no rest is invalid)
+	if parts[2] == "" {
+		return false
+	}
+
+	return true
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

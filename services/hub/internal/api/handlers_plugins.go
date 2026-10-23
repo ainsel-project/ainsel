@@ -12,6 +12,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pluginproxy"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	pluginpkg "github.com/ainsel-project/ainsel/shared/api/plugin"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -170,14 +171,41 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/plugins/")
+	escapedPath := r.URL.EscapedPath()
+	path := strings.TrimPrefix(escapedPath, "/api/v1/plugins/")
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "missing plugin id")
 		return
 	}
 
-	if parts := strings.SplitN(path, "/", 2); len(parts) == 2 {
-		name, action := parts[0], parts[1]
+	if parts := strings.SplitN(path, "/", 3); len(parts) >= 2 {
+		name := parts[0]
+		second := parts[1]
+
+		// Check if this is a plugin proxy request (ui, api, or mcp surface)
+		if second == "ui" || second == "api" || second == "mcp" {
+			// This is a proxy request
+			var surface pluginproxy.Surface
+			switch second {
+			case "ui":
+				surface = pluginproxy.SurfaceUI
+			case "api":
+				surface = pluginproxy.SurfaceAPI
+			case "mcp":
+				surface = pluginproxy.SurfaceMCP
+			}
+
+			var escapedRest string
+			if len(parts) >= 3 {
+				escapedRest = parts[2]
+			}
+
+			s.servePluginProxy(w, r, name, surface, escapedRest)
+			return
+		}
+
+		// Management routes
+		action := second
 		switch {
 		case action == "enable" && r.Method == http.MethodPost:
 			if !s.requirePluginAdmin(w, r) {
