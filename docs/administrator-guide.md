@@ -928,11 +928,12 @@ with your own bearer, so the plugin sees your credential. See
 [`mcp.md`](mcp.md#plugin-tools).
 
 **Plugin tools for AInsel's agents.** A plugin whose manifest declares an `mcp`
-endpoint gets a row in the MCP registry: name `plugin-<id>`, display name the
-plugin's display name, URL `<HUB_SELF_URL>/api/internal/plugins/<id>/agent-mcp`,
-bearer taken from `HUB_INTERNAL_VALIDATE_SECRET`, `managedBy: plugin`. Attach it
-to an agent image like any other MCP server — the row points at the hub, not at
-the plugin, which is the whole point:
+endpoint gets a row in the MCP registry: name `plugin-<id>`, display name the one
+the manifest gives (the plugin id when it omits one), URL
+`<HUB_SELF_URL>/api/internal/plugins/<id>/agent-mcp`, bearer taken from
+`HUB_INTERNAL_VALIDATE_SECRET`, `managedBy: plugin`. Attach it to an agent image
+like any other MCP server — the row points at the hub, not at the plugin, which is
+the whole point:
 
 ```yaml
 spec:
