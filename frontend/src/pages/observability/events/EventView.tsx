@@ -145,7 +145,7 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
       <div style={{ marginTop: 16 }}>
         <PluginSlot
           slot="invocation.panel"
-          props={{ invocationId: invocation.id, agentName: invocation.agentName ?? invocation.agent }}
+          props={{ invocationId: invocation.id, agentName: invocation.agent }}
         />
       </div>
     </Panel>
