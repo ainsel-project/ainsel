@@ -45,6 +45,8 @@ import { SkillList } from './pages/skills/SkillList'
 import { SkillForm } from './pages/skills/SkillForm'
 import { SkillDetail } from './pages/skills/SkillDetail'
 import { PluginPage } from './plugins/PluginPage'
+import { PluginList } from './pages/plugins/PluginList'
+import { PluginDetail } from './pages/plugins/PluginDetail'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -113,6 +115,8 @@ export default function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/users" element={<UserList />} />
               <Route path="/audit" element={<AuditEvents />} />
+              <Route path="/plugins" element={<PluginList />} />
+              <Route path="/plugins/:id" element={<PluginDetail />} />
               <Route path="/groups" element={<GroupList />} />
               <Route path="/groups/new" element={<GroupForm />} />
               <Route path="/groups/:id" element={<GroupDetail />} />
