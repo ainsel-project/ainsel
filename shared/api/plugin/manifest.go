@@ -1,8 +1,8 @@
 // Package plugin parses and validates the AInsel plugin manifest — the
 // well-known document (`GET /ainsel-plugin.json`) a plugin image serves to
 // describe itself: identity, the plugin API version it targets, its UI bundle,
-// its backend base path, its MCP endpoint, and the AInsel permissions it asks
-// for.
+// its backend base path, its MCP endpoint and the audience of its tools, the
+// skills it contributes, and the AInsel permissions it asks for.
 //
 // The reconciler that installs a Plugin resource and the hub that serves the
 // console both need the exact same reading of this document, so the schema,
@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // HostAPIVersion is the plugin API version this build of AInsel implements.
@@ -34,6 +35,26 @@ const HostAPIVersion = "1.1"
 // PageVisibilityAdmin is the visibility value for pages that should only be
 // accessible to administrators.
 const PageVisibilityAdmin = "admin"
+
+// Tool audiences. A plugin declares the audience of each of its MCP tools so
+// the host knows where the tool may be exposed: agent tools are reachable only
+// through the agent runtime's MCP endpoint, operator tools only through
+// AInsel's own MCP server, and both tools through either. A tool the manifest
+// does not list is treated as AudienceBoth.
+const (
+	AudienceAgent    = "agent"
+	AudienceOperator = "operator"
+	AudienceBoth     = "both"
+)
+
+// MaxSkills caps how many skills a manifest may declare, and
+// MaxSkillDescriptionLength caps one skill's description. Both are bounds on
+// untrusted input: the rows these produce are rendered in the console and the
+// agent runtime, so a plugin cannot inflate either.
+const (
+	MaxSkills                 = 20
+	MaxSkillDescriptionLength = 500
+)
 
 // ManifestPath is the path a plugin serves its manifest at, relative to the
 // root of its in-cluster Service.
@@ -86,8 +107,16 @@ var idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,29}[a-z0-9]$`)
 // underscores, or dollar signs.
 var componentNamePattern = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
 
+// skillNamePattern is the skill name shape: a lowercase slug, safe to embed in
+// the registry row id (<plugin id>-<skill name>) and in a URL segment.
+var skillNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,48}[a-z0-9]$`)
+
+// audiences is the closed vocabulary of mcp.audience values.
+var audiences = []string{AudienceAgent, AudienceOperator, AudienceBoth}
+
 // Manifest is a parsed plugin manifest. Only identity fields and pluginApi are
-// required; the ui, api and mcp specs are each optional and nil when absent.
+// required; the ui, api and mcp specs and the skills list are each optional and
+// nil when absent.
 type Manifest struct {
 	ID          string   `json:"id"`
 	DisplayName string   `json:"displayName"`
@@ -97,6 +126,11 @@ type Manifest struct {
 	UI          *UISpec  `json:"ui,omitempty"`
 	API         *APISpec `json:"api,omitempty"`
 	MCP         *MCPSpec `json:"mcp,omitempty"`
+
+	// Skills are the skill documents the plugin contributes to the platform
+	// skill registry. Names are unique slugs and their paths follow the same
+	// rules as every other manifest path.
+	Skills []SkillSpec `json:"skills,omitempty"`
 
 	// Permissions are the AInsel permissions the plugin needs. Every entry
 	// must be in Permissions; the admin grants them on install.
@@ -151,6 +185,24 @@ type APISpec struct {
 // MCPSpec marks that a plugin exposes an MCP endpoint over streamable HTTP.
 type MCPSpec struct {
 	// Path is the plugin-relative path of the MCP endpoint.
+	Path string `json:"path"`
+
+	// Audience maps a tool name to the audience allowed to see and call it:
+	// "agent", "operator" or "both". Tools absent from the map are "both".
+	Audience map[string]string `json:"audience,omitempty"`
+}
+
+// SkillSpec is one skill document a plugin contributes, served by the plugin
+// itself and registered as a platform skill owned by that plugin.
+type SkillSpec struct {
+	// Name is the skill's slug, unique within the manifest.
+	Name string `json:"name"`
+
+	// Description is the one-line summary shown in the skill list, at most
+	// MaxSkillDescriptionLength characters.
+	Description string `json:"description"`
+
+	// Path is the plugin-relative path the skill body is served at.
 	Path string `json:"path"`
 }
 
@@ -256,9 +308,62 @@ func (m *Manifest) Validate() error {
 	}
 	if m.MCP != nil {
 		errs = append(errs, validatePath("mcp.path", m.MCP.Path))
+
+		// Audience is a map, so iterate its keys in sorted order for the same
+		// reason as Slots: the message is stored verbatim on the Plugin status.
+		for _, tool := range sortedKeys(m.MCP.Audience) {
+			if tool == "" {
+				errs = append(errs, fmt.Errorf("plugin: invalid %s: tool name is required", audienceField(tool)))
+				continue
+			}
+			if !slices.Contains(audiences, m.MCP.Audience[tool]) {
+				errs = append(errs, fmt.Errorf("plugin: invalid %s value %q: must be %q, %q, or %q",
+					audienceField(tool), m.MCP.Audience[tool], AudienceAgent, AudienceOperator, AudienceBoth))
+			}
+		}
+	}
+
+	if len(m.Skills) > MaxSkills {
+		errs = append(errs, fmt.Errorf("plugin: too many skills: %d, maximum is %d", len(m.Skills), MaxSkills))
+	}
+	seenSkills := make(map[string]bool, len(m.Skills))
+	for i, sk := range m.Skills {
+		if !skillNamePattern.MatchString(sk.Name) {
+			errs = append(errs, fmt.Errorf("plugin: invalid skills[%d].name %q: must match %s", i, sk.Name, skillNamePattern))
+		} else if seenSkills[sk.Name] {
+			errs = append(errs, fmt.Errorf("plugin: duplicate skill name %q: skill names must be unique", sk.Name))
+		}
+		seenSkills[sk.Name] = true
+
+		if n := utf8.RuneCountInString(sk.Description); n > MaxSkillDescriptionLength {
+			errs = append(errs, fmt.Errorf("plugin: invalid skills[%d].description: must be at most %d characters, got %d",
+				i, MaxSkillDescriptionLength, n))
+		}
+
+		errs = append(errs, validatePath(fmt.Sprintf("skills[%d].path", i), sk.Path))
 	}
 
 	return errors.Join(errs...)
+}
+
+// audienceField names the manifest field declaring one tool's audience, in the
+// shape used by every other validation message.
+func audienceField(tool string) string {
+	return fmt.Sprintf("mcp.audience[%q]", tool)
+}
+
+// ToolAudience returns the audience declared for tool: the value from
+// mcp.audience when the manifest lists it, and AudienceBoth otherwise —
+// including for a manifest with no MCP spec at all, so callers never have to
+// branch on it.
+func (m *Manifest) ToolAudience(tool string) string {
+	if m == nil || m.MCP == nil {
+		return AudienceBoth
+	}
+	if audience, ok := m.MCP.Audience[tool]; ok {
+		return audience
+	}
+	return AudienceBoth
 }
 
 // Compatible reports whether a manifest targeting pluginAPI can run against a

@@ -16,7 +16,19 @@ export interface PluginManifest {
   }
   mcp?: {
     path: string
+    /**
+     * Per-tool audience. Tools not listed here are available to both
+     * audiences. `agent` tools are only reachable through the agent runtime,
+     * `operator` tools only through AInsel's own MCP server.
+     */
+    audience?: Record<string, 'agent' | 'operator' | 'both'>
   }
+  /** Skills this plugin contributes to the platform skill registry. */
+  skills?: {
+    name: string
+    description: string
+    path: string
+  }[]
   permissions?: string[]
 }
 
