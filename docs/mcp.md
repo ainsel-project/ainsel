@@ -173,7 +173,7 @@ and should be used deliberately.
 | `get_trigger` | read | One trigger: filters and routing. |
 | `create_trigger` | write | Create a trigger binding a connector + agent with optional event filters. |
 | `update_trigger` | write | Update a trigger (name, agentRef, connectorRef, filters). Pass `[]` to clear filters. |
-| `delete_trigger` | write | Delete a trigger by name. |
+| `delete_trigger` | write | Delete a trigger by ID (display names are not resolved). |
 
 Filters are a JSON array of `{field, op, value}` objects. The `type`
 field is derived from the `X-Forgejo-Event` / `X-Github-Event` header,
@@ -187,7 +187,7 @@ e.g. `[{"field":"type","op":"eq","value":"issues"},{"field":"action","op":"eq","
 | `get_cron_trigger` | read | One cron trigger: schedule, prompt, agent binding, validation status. |
 | `create_cron_trigger` | write | Create a cron trigger (5-field cron expression, prompt delivered verbatim to the agent on each fire). |
 | `update_cron_trigger` | write | Update a cron trigger (empty string clears `prompt`/`agentRef`). |
-| `delete_cron_trigger` | write | Delete a cron trigger by name. |
+| `delete_cron_trigger` | write | Delete a cron trigger by ID (display names are not resolved). |
 
 Schedule is a standard 5-field cron expression in the hub's local time
 (default UTC). Numbers only — named days (`sun`/`mon`) are not

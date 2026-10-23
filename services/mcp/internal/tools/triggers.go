@@ -37,14 +37,14 @@ func (t *TriggerTools) ListTriggersTool() mcp.Tool {
 func (t *TriggerTools) GetTriggerTool() mcp.Tool {
 	return mcp.NewTool("get_trigger",
 		mcp.WithDescription("Get detailed trigger configuration: filters and routing"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Trigger name")),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Trigger ID (from list_triggers; display names are not resolved)")),
 	)
 }
 
 func (t *TriggerTools) DeleteTriggerTool() mcp.Tool {
 	return mcp.NewTool("delete_trigger",
-		mcp.WithDescription("Delete a trigger by name"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Trigger name or ID to delete")),
+		mcp.WithDescription("Delete a trigger by ID"),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Trigger ID (from list_triggers; display names are not resolved)")),
 	)
 }
 

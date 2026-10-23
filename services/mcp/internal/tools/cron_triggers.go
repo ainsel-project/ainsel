@@ -36,7 +36,7 @@ func (t *CronTriggerTools) ListCronTriggersTool() mcp.Tool {
 func (t *CronTriggerTools) GetCronTriggerTool() mcp.Tool {
 	return mcp.NewTool("get_cron_trigger",
 		mcp.WithDescription("Get detailed cron trigger configuration: schedule, prompt, agent binding, and validation status"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Cron trigger name or ID")),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Cron trigger ID (from list_cron_triggers; display names are not resolved)")),
 	)
 }
 
@@ -66,8 +66,8 @@ func (t *CronTriggerTools) UpdateCronTriggerTool() mcp.Tool {
 
 func (t *CronTriggerTools) DeleteCronTriggerTool() mcp.Tool {
 	return mcp.NewTool("delete_cron_trigger",
-		mcp.WithDescription("Delete a cron trigger by name"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Cron trigger name or ID to delete")),
+		mcp.WithDescription("Delete a cron trigger by ID"),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Cron trigger ID (from list_cron_triggers; display names are not resolved)")),
 	)
 }
 
