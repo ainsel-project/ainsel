@@ -1,6 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { ServerRef } from "./parse.js";
+import { pluginHeaders } from "./headers.js";
 
 const PREFIX = "mcp__";
 
@@ -96,12 +98,28 @@ export class Catalog {
 			{ name: "pi-ainsel-mcp", version: "0.1.0" },
 			{ capabilities: {} },
 		);
-		const transport = new StreamableHTTPClientTransport(
-			new URL(ref.url),
-			ref.token
-				? { requestInit: { headers: { Authorization: `Bearer ${ref.token}` } } }
-				: undefined,
-		);
+		// For hub plugin proxy endpoints, attribute every request to the
+		// running agent/task. Env is read per request, not once at connect
+		// time, because the invocation id changes with each task.
+		const fetchWithPluginHeaders: FetchLike = (input, init) => {
+			const headers = new Headers(init?.headers);
+			for (const [name, value] of Object.entries(
+				pluginHeaders(ref.url, process.env),
+			)) {
+				headers.set(name, value);
+			}
+			return fetch(input, { ...init, headers });
+		};
+		const transport = new StreamableHTTPClientTransport(new URL(ref.url), {
+			...(ref.token
+				? {
+						requestInit: {
+							headers: { Authorization: `Bearer ${ref.token}` },
+						},
+					}
+					: {}),
+			fetch: fetchWithPluginHeaders,
+		});
 		await client.connect(transport);
 		const { tools } = await client.listTools(undefined, {
 			signal: deadline,
