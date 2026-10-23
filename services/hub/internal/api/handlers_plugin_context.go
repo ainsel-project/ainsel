@@ -183,6 +183,33 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+// handleInternalPluginRoutes is the single dispatcher for the per-plugin
+// internal endpoints, /api/internal/plugins/<id>/<action>. Each action is a
+// different surface with its own auth rule, so they are routed here rather than
+// sniffed inside one handler:
+//
+//   - "credentials" — a plugin mints its own background credential
+//   - "agent-mcp"   — an agent runtime reaches one plugin's tools through the hub
+//
+// Anything else, including a missing id or extra path segments, is 404.
+func (s *Server) handleInternalPluginRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/internal/plugins/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[0] == "" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	switch parts[1] {
+	case "credentials":
+		s.handleInternalPluginCredentials(w, r)
+	case "agent-mcp":
+		s.handlePluginAgentMCP(w, r, parts[0])
+	default:
+		writeError(w, http.StatusNotFound, "not found")
+	}
+}
+
 // handleInternalPluginCredentials issues a background credential token for a plugin
 // POST /api/internal/plugins/<id>/credentials
 // Requires the request to come from a verified endpoint

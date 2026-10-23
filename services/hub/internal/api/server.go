@@ -303,7 +303,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
 	s.mux.HandleFunc("/api/v1/plugin-context", s.handlePluginContext)
 	s.mux.HandleFunc("/api/v1/plugin-context/visible", s.handlePluginContextVisible)
-	s.mux.HandleFunc("/api/internal/plugins/", s.handleInternalPluginCredentials)
+	s.mux.HandleFunc("/api/internal/plugins/", s.handleInternalPluginRoutes)
 	s.mux.HandleFunc("/api/internal/plugin-tools", s.handleInternalPluginTools)
 	s.mux.HandleFunc("/api/v1/plugin-tools/call", s.handlePluginToolCall)
 	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
