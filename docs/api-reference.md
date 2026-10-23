@@ -564,6 +564,85 @@ Set which groups' background identity the plugin may act for.
 **Response:** `200 OK` with the plugin record, `400` if any group id does not
 exist (spec unchanged), or `404 Not Found`.
 
+### GET /api/v1/plugin-context
+
+Returns the authenticated caller's context: their identity, effective permissions,
+and group memberships. For plugin credentials, groups and permissions are the
+effective ones after intersection with the plugin's current grants.
+
+**Response:** `200 OK`
+```json
+{
+  "pluginId": "mem0",
+  "kind": "plugin",
+  "sub": "plugin:mem0",
+  "username": "",
+  "isAdmin": false,
+  "permissions": ["agents:read"],
+  "groups": [
+    {"id": "g1", "name": "Team A", "role": "writer"}
+  ],
+  "invocationId": ""
+}
+```
+
+For regular users, `kind` is `user`, `pluginId` is empty, `permissions` is null,
+and `groups` contains the user's memberships. For agent and plugin kinds,
+`isAdmin` is always false.
+
+### POST /api/v1/plugin-context/visible
+
+Checks which resources in a named set are visible to the caller. Returns them
+deduplicated in the order they appeared in the input.
+
+**Request body:**
+```json
+{
+  "resourceType": "agent",
+  "names": ["a1", "a2", "a3"]
+}
+```
+
+Valid `resourceType` values: `agent`, `agent-image`, `connector`, `trigger`,
+`mcp-server`, `persona`, `skill`. Each maps to a permission (e.g. `agent`
+→ `agents:read`). For plugin credentials without the required permission, the
+endpoint returns `403`.
+
+`names` must contain 1–500 items; fewer or more returns `400`.
+
+**Response:** `200 OK`
+```json
+{
+  "visible": ["a1", "a3"]
+}
+```
+
+Each name is checked against the caller's authorization (group membership,
+public/private visibility). Unknown resources are not included.
+
+### POST /api/internal/plugins/<id>/credentials
+
+Issues a background credential token valid for 5 minutes. The request must
+originate from an IP listed in the plugin's `status.verifiedEndpoints` (the IP
+of a pod running the verified image digest). `X-Forwarded-For` and `X-Real-IP`
+headers are ignored; only `RemoteAddr` is checked.
+
+Allowed only when the plugin is enabled and ready (`Ready=True`).
+
+**Request:** Empty body, POST only.
+
+**Response:** `200 OK`
+```json
+{
+  "token": "ainselp_...",
+  "expiresAt": "2026-10-23T12:30:00Z"
+}
+```
+
+On error: `403` if the request source IP is not verified, `404` if the plugin
+does not exist or is not ready, `503` if the credential issuer is not
+configured (no `HUB_PLUGIN_CREDENTIAL_SECRET`).
+
 ---
 
 ## Triggers

@@ -21,6 +21,7 @@ type fakeAuthzStore struct {
 	versionErr    error // when set, UserTokenVersion/BumpTokenVersion fail with it
 	groups        map[string]authz.Group
 	resources     map[string]string // key: resourceType:resourceName, value: groupID
+	userGroups    map[string]map[string]authz.GroupRole // user ID -> (group ID -> role)
 }
 
 func newFakeAuthzStore() *fakeAuthzStore {
@@ -30,6 +31,7 @@ func newFakeAuthzStore() *fakeAuthzStore {
 		tokenVersions: make(map[string]int64),
 		groups:        make(map[string]authz.Group),
 		resources:     make(map[string]string),
+		userGroups:    make(map[string]map[string]authz.GroupRole),
 	}
 }
 
@@ -148,7 +150,10 @@ func (f *fakeAuthzStore) ClearUsername(_ context.Context, id string) error {
 	return nil
 }
 func (f *fakeAuthzStore) UserGroupIDs(_ context.Context, _ string) ([]string, error) { return nil, nil }
-func (f *fakeAuthzStore) UserGroupRoles(_ context.Context, _ string) (map[string]authz.GroupRole, error) {
+func (f *fakeAuthzStore) UserGroupRoles(_ context.Context, userID string) (map[string]authz.GroupRole, error) {
+	if groups, ok := f.userGroups[userID]; ok {
+		return groups, nil
+	}
 	return nil, nil
 }
 func (f *fakeAuthzStore) SetResourceGroup(_ context.Context, resourceType, resourceName, groupID string, _ bool) error {
@@ -207,7 +212,11 @@ func (f *fakeAuthzStore) DeleteGroup(_ context.Context, id string) error {
 	delete(f.groups, id)
 	return nil
 }
-func (f *fakeAuthzStore) AddGroupMember(_ context.Context, _, _ string, _ authz.GroupRole) error {
+func (f *fakeAuthzStore) AddGroupMember(_ context.Context, groupID, userID string, role authz.GroupRole) error {
+	if f.userGroups[userID] == nil {
+		f.userGroups[userID] = make(map[string]authz.GroupRole)
+	}
+	f.userGroups[userID][groupID] = role
 	return nil
 }
 func (f *fakeAuthzStore) RemoveGroupMember(_ context.Context, _, _ string) error { return nil }

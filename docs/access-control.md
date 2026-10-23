@@ -233,6 +233,72 @@ curl -X PATCH https://ainsel.example.com/api/v1/users/<user-id> \
   -d '{"disabled": true}'
 ```
 
+## Plugin Credentials
+
+Third-party plugins running in the cluster can authenticate as themselves or
+on behalf of users and agents to call the hub API. Plugin credentials are
+short-lived (5 minutes) and scoped to the permissions and group accesses the
+admin has granted the plugin.
+
+### Token Format and Lifetime
+
+Plugin credential tokens are prefixed `ainselp_` and use HS256 JWT signing.
+Each token carries claims for `kind` (user, agent, or plugin), `sub` (the
+caller's subject), `permissions`, and `groups`. Tokens expire in 5 minutes and
+the `exp` claim is always present.
+
+### Caller Kinds
+
+- **user**: Minted on behalf of an authenticated end-user. Inherits the user's
+  admin status (if any) and effective permissions = user's permissions ∩
+  plugin's approved permissions.
+- **agent**: Issued during an agent run. Carries the agent's owning group
+  (if mapped) with reader role, and the plugin's approved permissions.
+- **plugin**: Issued for the plugin's own background operations. Effective
+  permissions = plugin's approved permissions, effective groups = token groups
+  ∩ plugin's current `spec.groupAccess`.
+
+Agent and plugin kinds never carry the admin bypass — they are always
+constrained by the permissions table.
+
+### Effective Permissions and Groups
+
+Every request is gated by the intersection of:
+- The credential's token permissions
+- The plugin's current `spec.approvedPermissions`
+
+Similarly, for plugin kind:
+- The token's group grants
+- The plugin's current `spec.groupAccess`
+
+This means admins can immediately revoke access by narrowing approvals or
+removing groups, even if credentials are already issued.
+
+### Route Access
+
+Plugin credentials access the hub API via specific `/api/v1/*` routes only.
+Each route requires a permission (e.g. `agents:read`). A plugin without the
+required permission receives `403` with `{"error":"plugin lacks permission
+<perm>"}`. Routes not in the allowlist return `403` with `{"error":"route not
+available to plugin credentials"}`.
+
+### Audit Trail
+
+Non-GET/HEAD requests from plugin credentials are audited as `plugin_api_write`
+events, recording:
+- **ActorSub**: The credential's subject (user/agent/plugin identity)
+- **Target**: `<pluginId> <METHOD> <path>`
+- **Outcome**: `success` (status < 400) or `failure`
+
+### Configuration
+
+Plugin credentials are enabled via the `HUB_PLUGIN_CREDENTIAL_SECRET`
+environment variable (or `plugins.credentialSecretName` in the Helm chart).
+When unset or shorter than 32 bytes:
+- The middleware is not installed
+- Minting returns error
+- The `/api/internal/plugins/<id>/credentials` endpoint answers 503
+
 ## Internal Service Authentication
 
 Service-to-service communication (webhook-receiver → hub, agent runtimes →
