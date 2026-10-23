@@ -21,7 +21,7 @@ export function PluginContextProvider({
   children,
 }: PluginContextProviderProps): JSX.Element {
   const { data: callerContext } = usePluginCallerContext()
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   const navigate = useNavigate()
 
   // Get current theme from document

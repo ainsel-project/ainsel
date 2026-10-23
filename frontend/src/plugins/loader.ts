@@ -20,6 +20,10 @@ export async function loadPluginModule(
   const url = moduleUrl(plugin)
   const promise = (importer ?? ((u: string) => import(/* @vite-ignore */ u)))(url)
   moduleCache.set(plugin.id, promise)
+  // A failed import is not cached, so a later render can retry it.
+  promise.catch(() => {
+    if (moduleCache.get(plugin.id) === promise) moduleCache.delete(plugin.id)
+  })
   return promise
 }
 

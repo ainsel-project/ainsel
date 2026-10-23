@@ -1,9 +1,10 @@
-import { Suspense, lazy, useMemo, type ComponentType } from 'react'
+import { useMemo } from 'react'
+import type { PluginPage as PluginPageSpec } from '@ainsel/plugin-sdk'
 import type { JSX } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { usePlugins, usePluginCallerContext } from '../api/plugins'
-import { activePlugins, findPage } from './registry'
-import { loadPluginModule } from './loader'
+import { activePlugins, findPage, type ActivePlugin } from './registry'
+import { PluginExport } from './PluginExport'
 import { PluginBoundary } from './PluginBoundary'
 import { PluginContextProvider } from './PluginContextProvider'
 
@@ -13,8 +14,8 @@ import { PluginContextProvider } from './PluginContextProvider'
  */
 export function PluginPage(): JSX.Element {
   const { pluginId, '*': splat = '' } = useParams()
-  const { data: pluginItems } = usePlugins()
-  const { data: callerContext } = usePluginCallerContext()
+  const { data: pluginItems, isPending: pluginsPending } = usePlugins()
+  const { data: callerContext, isPending: callerPending } = usePluginCallerContext()
 
   const available = useMemo(() => activePlugins(pluginItems ?? []), [pluginItems])
   const plugin = useMemo(
@@ -25,6 +26,11 @@ export function PluginPage(): JSX.Element {
     if (!plugin) return undefined
     return findPage(plugin, splat ?? '')
   }, [plugin, splat])
+
+  // Wait for the plugin list before deciding a deep link is unknown.
+  if (pluginsPending) {
+    return <div>Loading plugin…</div>
+  }
 
   // Redirect if plugin not found
   if (!plugin) {
@@ -37,6 +43,9 @@ export function PluginPage(): JSX.Element {
   }
 
   // Redirect if page is admin-only and caller is not admin
+  if (page.visibility === 'admin' && callerPending) {
+    return <div>Loading plugin…</div>
+  }
   if (page.visibility === 'admin' && !callerContext?.isAdmin) {
     return <Navigate to="/dashboard" replace />
   }
@@ -47,52 +56,16 @@ export function PluginPage(): JSX.Element {
 }
 
 interface PluginPageContentProps {
-  plugin: Parameters<typeof PluginContextProvider>[0]['plugin']
-  page: ReturnType<typeof findPage>
+  plugin: ActivePlugin
+  page: PluginPageSpec
 }
 
-function PluginPageContent({
-  plugin,
-  page,
-}: PluginPageContentProps): JSX.Element {
-  if (!page) {
-    // This shouldn't happen but TypeScript needs it
-    return <Navigate to="/dashboard" replace />
-  }
-
-  const Component = useMemo(() => {
-    // Create the lazy component factory
-    // NOTE: This pattern is required for dynamic plugin loading - ESLint will flag
-    // this as "Cannot create components during render", but it's correct because
-    // the component is memoized and only recreated when plugin/page change
-    const createComponent = async (): Promise<{ default: ComponentType }> => {
-      try {
-        const module = await loadPluginModule(plugin)
-        const exportName = page.component || 'default'
-        const component = (module[exportName] ?? module.default) as ComponentType | undefined
-        if (!component) {
-          throw new Error(`Export ${exportName} not found in plugin ${plugin.id}`)
-        }
-        return { default: component }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        const err = new Error(message)
-        // Preserve the original error as cause
-        Object.defineProperty(err, 'cause', { value: error })
-        throw err
-      }
-    }
-    // eslint-disable-next-line react-hooks/static-components
-    return lazy(createComponent)
-  }, [plugin, page])
-
+function PluginPageContent({ plugin, page }: PluginPageContentProps): JSX.Element {
   return (
     <PluginContextProvider plugin={plugin}>
-      <Suspense fallback={<div>Loading plugin…</div>}>
-        <PluginBoundary plugin={plugin}>
-          <Component />
-        </PluginBoundary>
-      </Suspense>
+      <PluginBoundary plugin={plugin}>
+        <PluginExport plugin={plugin} exportName={page.component || 'default'} />
+      </PluginBoundary>
     </PluginContextProvider>
   )
 }

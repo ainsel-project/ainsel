@@ -52,14 +52,31 @@ describe('registry', () => {
       expect(active.map((p) => p.id)).toEqual(['a'])
     })
 
-    it('filters out plugins without manifest or displayName', () => {
+    it('drops plugins without a manifest and falls back to the manifest name', () => {
       const items: PluginListItem[] = [
         mockItem({ id: 'a' }),
         mockItem({ id: 'b', manifest: undefined }),
         mockItem({ id: 'c', displayName: undefined }),
       ]
       const active = activePlugins(items)
-      expect(active.map((p) => p.id)).toEqual(['a'])
+      expect(active.map((p) => p.id)).toEqual(['a', 'c'])
+      expect(active[1].displayName).toBe(items[2].manifest!.displayName || 'c')
+    })
+
+    it('matches page paths on whole segments only', () => {
+      const plugin = {
+        id: 'mem0',
+        displayName: 'Mem0',
+        manifest: {
+          id: 'mem0',
+          displayName: 'Mem0',
+          version: '1.0.0',
+          pluginApi: '1.1',
+          ui: { entry: '/ui/index.js', pages: [{ path: '/mem', label: 'Mem' }] },
+        },
+      }
+      expect(findPage(plugin, 'memories')).toBeUndefined()
+      expect(findPage(plugin, 'mem/42')?.path).toBe('/mem')
     })
 
     it('sorts plugins by id', () => {

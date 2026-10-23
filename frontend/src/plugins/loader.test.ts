@@ -62,3 +62,19 @@ describe('loader', () => {
     expect(importer).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('loader retry', () => {
+  beforeEach(() => clearModuleCache())
+
+  it('does not cache a failed import', async () => {
+    const plugin = mockPlugin('flaky')
+    const importer = vi
+      .fn<(url: string) => Promise<Record<string, unknown>>>()
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({ default: () => null })
+
+    await expect(loadPluginModule(plugin, importer)).rejects.toThrow('network')
+    await expect(loadPluginModule(plugin, importer)).resolves.toHaveProperty('default')
+    expect(importer).toHaveBeenCalledTimes(2)
+  })
+})

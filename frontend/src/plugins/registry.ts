@@ -14,10 +14,10 @@ export interface ActivePlugin {
 export function activePlugins(items: PluginListItem[]): ActivePlugin[] {
   return items
     .filter((item) => (item.ready ?? true) && !item.disabled)
-    .filter((item) => item.manifest && item.displayName)
+    .filter((item) => item.manifest)
     .map((item) => ({
       id: item.id,
-      displayName: item.displayName!,
+      displayName: item.displayName || item.manifest!.displayName || item.id,
       manifest: item.manifest!,
     }))
     .sort((a, b) => a.id.localeCompare(b.id))
@@ -76,7 +76,9 @@ export function findPage(plugin: ActivePlugin, splat: string): PluginPage | unde
   for (const page of pages) {
     if (page.path === '/') continue // Already handled above
     // Check if splatPath starts with page.path
-    if (splatPath.startsWith(page.path)) {
+    const pagePath = page.path.replace(/\/+$/, '')
+    // Whole segments only: /mem must not match /memories.
+    if (splatPath === pagePath || splatPath.startsWith(pagePath + '/')) {
       if (page.path.length > bestLength) {
         bestMatch = page
         bestLength = page.path.length
