@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAgents } from '../../api/agents'
 import { ApiError } from '../../api/client'
 import { useDeletePersona, usePersona } from '../../api/personas'
+import { usePlugins } from '../../api/plugins'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Markdown } from '../../primitives/Markdown'
@@ -11,8 +12,10 @@ import { Tabs } from '../../primitives/Tabs'
 import { Titleblock } from '../../layout/Titleblock'
 import { formatISO } from '../../utils/time'
 import { PersonaVersionHistory } from './PersonaVersionHistory'
+import { PluginSlot } from '../../plugins/PluginSlot'
+import { activePlugins, slotContributions } from '../../plugins/registry'
 
-const TABS = [
+const BUILT_IN_TABS = [
   { value: 'overview', label: 'Overview' },
   { value: 'history', label: 'History' },
 ] as const
@@ -26,10 +29,27 @@ export function PersonaDetail() {
   const { data, isLoading, error } = usePersona(id)
   const { data: agents } = useAgents({ pageSize: 100 })
   const del = useDeletePersona()
+  const { data: pluginsList } = usePlugins()
 
   const referringAgents = (agents?.items ?? []).filter(
     (a) => a.persona?.id === id,
   )
+
+  // Build tabs list with plugin contributions
+  const plugins = useMemo(() => activePlugins(pluginsList ?? []), [pluginsList])
+  const pluginContributions = useMemo(
+    () => slotContributions(plugins, 'persona.panel'),
+    [plugins],
+  )
+
+  const tabs = useMemo(() => {
+    const builtIn = [...BUILT_IN_TABS]
+    const pluginTabs = pluginContributions.map((c) => ({
+      value: `plugin:${c.plugin.id}`,
+      label: c.plugin.displayName,
+    }))
+    return [...builtIn, ...pluginTabs]
+  }, [pluginContributions])
 
   const onDelete = async () => {
     if (!id) return
@@ -73,13 +93,21 @@ export function PersonaDetail() {
         }
       />
       <div style={{ padding: '28px 32px' }}>
-        <Tabs value={tab} onChange={setTab} tabs={TABS} aria-label="Persona sections" />
+        <Tabs value={tab} onChange={setTab} tabs={tabs} aria-label="Persona sections" />
         <div style={{ marginTop: 24 }}>
           {isLoading ? <p className="label">Loading…</p> : null}
           {error ? (
             <p className="label" style={{ color: 'var(--signal)' }}>
               Failed to load persona.
             </p>
+          ) : null}
+
+          {data && tab.startsWith('plugin:') ? (
+            <PluginSlot
+              slot="persona.panel"
+              props={{ personaId: data.id }}
+              pluginId={tab.substring('plugin:'.length)}
+            />
           ) : null}
 
           {data && tab === 'overview' ? (

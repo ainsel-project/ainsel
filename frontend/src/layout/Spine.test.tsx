@@ -41,7 +41,30 @@ function agentsResponse(items: unknown[]) {
 beforeEach(() => {
   // Recents live in localStorage, which survives between tests in a file.
   localStorage.clear()
-  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(emptyAgentsResponse())))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) => {
+      if (url.includes('/plugins')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([]), { status: 200 }),
+        )
+      }
+      if (url.includes('plugin-context')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              isAdmin: false,
+              sub: 'user-1',
+              username: 'testuser',
+              groups: [],
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.resolve(emptyAgentsResponse())
+    }),
+  )
 })
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -223,5 +246,61 @@ describe('Spine', () => {
   it('no longer renders the Triggers entry (moved under Agent Detail)', () => {
     renderAt('/dashboard')
     expect(screen.queryByRole('link', { name: /^Triggers$/i })).toBeNull()
+  })
+
+  it('renders plugin pages under a Plugins section heading', async () => {
+    vi.unstubAllGlobals()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/plugins')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  id: 'memory-plugin',
+                  displayName: 'Memory Plugin',
+                  ready: true,
+                  manifest: {
+                    id: 'memory-plugin',
+                    displayName: 'Memory Plugin',
+                    pluginApi: '1.1',
+                    ui: {
+                      entry: '/static/ui/index.js',
+                      pages: [
+                        { path: '/', label: 'Memories', section: 'Memory' },
+                      ],
+                    },
+                  },
+                },
+              ]),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('plugin-context')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                isAdmin: false,
+                sub: 'user-1',
+                username: 'testuser',
+                groups: [],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(emptyAgentsResponse())
+      }),
+    )
+
+    renderAt('/dashboard')
+
+    const pluginsSection = await screen.findByText('Plugins')
+    expect(pluginsSection).toBeInTheDocument()
+
+    const memoriesLink = await screen.findByRole('link', { name: /Memories/i })
+    expect(memoriesLink).toBeInTheDocument()
   })
 })

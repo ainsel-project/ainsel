@@ -419,6 +419,346 @@ Delete a connector. The associated webhook secret is deleted as well.
 
 ---
 
+## Plugins
+
+A plugin is a `Plugin` CR declaring third-party code the platform routes to:
+an HTTP workload already deployed in the hub's namespace, reachable through a
+Kubernetes Service and pinned to an exact image digest. The event-gateway
+operator fetches the manifest the plugin serves at `/ainsel-plugin.json`,
+validates it, and records the result in the Plugin's status (see
+[`crd-reference.md`](crd-reference.md)); the hub API below is the admin
+surface for registering and governing plugins.
+
+Reads are open to any authenticated caller: admins get the full record, and
+non-admins see only plugins that are **enabled and Ready**, in a reduced
+public shape (`id`, `displayName`, `version`, `manifest` — no permission or
+group data). Every write is **admin-only** and each successful write inserts
+an audit row (`plugin_installed`, `plugin_uninstalled`, `plugin_enabled`,
+`plugin_disabled`, `plugin_permissions_approved`,
+`plugin_group_access_changed`).
+
+The plugin `id` must match `^[a-z][a-z0-9-]{0,29}[a-z0-9]$` — 2–31 characters,
+not ending in `-` (it becomes a URL segment, a tool-name prefix and the Plugin
+object's name, and a Kubernetes name may not end in `-`), `serviceName` must be
+a DNS-1123 label (`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`, max 63 characters — the
+operator interpolates it into an in-cluster URL), and `imageDigest` must match
+`^sha256:[a-f0-9]{64}$` — a mutable tag would let a compromised registry push
+new code silently.
+
+### GET /api/v1/plugins
+
+List plugins, sorted by id. Supports `page`/`pageSize`.
+
+**Response (admin):** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "mem0",
+      "displayName": "Mem0",
+      "version": "1.2.3",
+      "serviceName": "mem0-svc",
+      "servicePort": 8081,
+      "imageRepository": "ghcr.io/acme/mem0-plugin",
+      "imageDigest": "sha256:…",
+      "disabled": false,
+      "ready": false,
+      "reason": "PermissionsPending",
+      "message": "Declared permissions awaiting approval: agents:read",
+      "declaredPermissions": ["agents:read"],
+      "groupAccess": ["platform"],
+      "signature": {
+        "verified": true,
+        "signer": "key:abc123",
+        "checkedAt": "2026-10-22T10:00:00Z",
+        "message": ""
+      },
+      "verifiedEndpoints": ["10.0.0.1:8080", "10.0.0.2:8080"],
+      "manifest": {"id": "mem0", "pluginApi": "1.0", "version": "1.2.3"}
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 50, "totalPages": 1
+}
+```
+
+Non-admin callers receive the same envelope with only enabled + Ready
+plugins, each as `{"id", "displayName", "version", "manifest"}`.
+`ready`/`reason`/`message` mirror the status `Ready` condition; a plugin the
+reconciler has not processed yet reports `ready: false` with an empty reason.
+Admin responses additionally include `signature` (with fields `verified`, `signer`,
+`checkedAt`, `message`) and `verifiedEndpoints` (a list of endpoints running the
+verified image digest).
+
+### POST /api/v1/plugins
+
+Register a plugin whose workload is already deployed. The CR is created with
+**no approved permissions** — approvals are a separate admin action against
+the set the manifest turns out to declare.
+
+**Request body:**
+```json
+{
+  "id": "mem0",
+  "displayName": "Mem0",
+  "serviceName": "mem0-svc",
+  "servicePort": 8081,
+  "imageRepository": "ghcr.io/acme/mem0-plugin",
+  "imageDigest": "sha256:0123…"
+}
+```
+
+`id`, `serviceName`, `servicePort` (1–65535), `imageRepository` and
+`imageDigest` are required, and each is validated against the rules above —
+an `id` or `serviceName` that fails its pattern is a `400`, never a write the
+API server or the operator would later reject.
+
+**Response:** `201 Created` with the plugin record. `400` on validation
+errors, `409` if the id is already taken.
+
+### GET /api/v1/plugins/{id}
+
+Fetch one plugin. Admins get the full record; non-admin callers get the
+public shape and only when the plugin is enabled and Ready — otherwise
+`404`, indistinguishable from "does not exist".
+
+**Response:** `200 OK` or `404 Not Found`.
+
+### DELETE /api/v1/plugins/{id}
+Unregister a plugin (deletes the CR; the plugin's own workload is not
+touched).
+
+**Response:** `204 No Content` or `404 Not Found`.
+
+### POST /api/v1/plugins/{id}/enable · POST /api/v1/plugins/{id}/disable
+
+Toggle `spec.disabled`. A disabled plugin is not routed to, the reconciler
+stops fetching its manifest (`reason: Disabled`), and it disappears from
+non-admin listings.
+
+**Response:** `200 OK` with the plugin record, or `404 Not Found`.
+
+### POST /api/v1/plugins/{id}/approve-permissions
+
+Grant the plugin its declared permissions. The request must name **exactly**
+the set in `status.declaredPermissions` (order and duplicates are ignored);
+this guards against approving from a stale console view.
+
+**Request body:**
+```json
+{"permissions": ["agents:read", "personas:write"]}
+```
+
+**Response:** `200 OK` with the plugin record when the sets match (the set is
+copied to `spec.approvedPermissions`); `409 Conflict` otherwise, with the
+current declared set named in the error body; `404 Not Found`.
+
+### PUT /api/v1/plugins/{id}/group-access
+
+Set which groups' background identity the plugin may act for.
+
+**Request body:**
+```json
+{"groups": ["platform"]}
+```
+
+**Response:** `200 OK` with the plugin record, `400` if any group id does not
+exist (spec unchanged), or `404 Not Found`.
+
+### /api/v1/plugins/{id}/ui/{path} · /api/v1/plugins/{id}/api/{path} · /api/v1/plugins/{id}/mcp
+
+Reverse proxy to an enabled, Ready plugin, forwarded only to one of its
+`status.verifiedEndpoints`.
+
+| Route | Auth | Methods | Upstream path |
+|---|---|---|---|
+| `ui/{path}` | none | GET, HEAD (else `405`) | directory of `ui.entry` + `/{path}` |
+| `api/{path}` | required | any | `api.basePath` + `/{path}` |
+| `mcp[/{path}]` | required | any | `mcp.path` [+ `/{path}`] |
+
+The query string is passed through. Paths may only contain `A-Z a-z 0-9 . _ ~
+- /`; `%`, `\`, `.`/`..` segments and `//` answer `400 invalid plugin path`.
+
+Removed from the request: `Authorization`, `Cookie`, `Proxy-Authorization`,
+`Forwarded`, `X-Forwarded-*`, `X-Real-Ip`, and every `X-Ainsel-*` header the
+client sent. Added: `X-Ainsel-Plugin-Id`, `X-Ainsel-Forwarded-Prefix`
+(`/api/v1/plugins/{id}/{surface}`), and on `api`/`mcp` with a logged-in user
+`X-Ainsel-Credential` (an `ainselp_` user credential for calling back into the
+hub) and `X-Ainsel-Context` (base64url JSON, same shape as
+`GET /api/v1/plugin-context`, with the plugin's approved permissions). Responses
+lose `Set-Cookie` and get `X-Content-Type-Options: nosniff`; they stream.
+
+**Errors:** `404 plugin not found` (missing, disabled, not Ready, or the surface
+is not in the manifest), `503 plugin has no verified endpoints`,
+`503 plugin credentials are not configured`, `502 plugin unreachable`.
+
+### GET /api/internal/plugin-tools
+
+The operator tool list, for AInsel's MCP server (`services/mcp`) to aggregate:
+it registers each entry as `<pluginId>_<name>` (see
+[`mcp.md`](mcp.md#plugin-tools)). Protected by `X-Internal-Token`, like the
+other `/api/internal/*` routes. The hub is the only MCP client of a plugin, so
+the aggregator never talks to one — it asks the hub what exists and hands each
+call back here.
+
+Only enabled, Ready plugins contribute, and only tools whose manifest audience
+is `operator` or `both` — an `agent` tool is never listed here, for anyone. A
+plugin that cannot be reached contributes nothing and never fails the response:
+one broken plugin must not take the whole tool list down. Entries are sorted by
+plugin id, then tool name, and `name` is the plugin's own tool name — the prefix
+belongs to the caller, so the hub does not rewrite it.
+
+**Response:** `200 OK` (`tools` is always an array, never `null`)
+```json
+{
+  "tools": [
+    {
+      "pluginId": "mem0",
+      "name": "search_memory",
+      "description": "Search the caller's memories",
+      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}}
+    }
+  ]
+}
+```
+
+**Errors:** `401 invalid internal token`, `405 method not allowed`, `503
+internal endpoints disabled` (no `HUB_INTERNAL_VALIDATE_SECRET`).
+
+### POST /api/v1/plugin-tools/call
+
+Run one operator-audience tool on a plugin. The plugin's `CallToolResult` is
+returned unchanged, so a tool-level error stays inside the result as `isError`
+rather than becoming an HTTP status.
+
+**Auth:** a logged-in user. The route is deliberately absent from the
+plugin-credential route table, so an `ainselp_` caller cannot call tools back
+into the hub. The hub mints that user's plugin credential for the call, so the
+tool acts as the caller.
+
+**Request body:**
+```json
+{"pluginId": "mem0", "tool": "search_memory", "arguments": {"query": "…"}}
+```
+
+`pluginId` and `tool` are required; the body is capped at 1 MiB.
+
+**Response:** `200 OK` with the plugin's `CallToolResult`. `400` on an
+unparseable body or a missing `pluginId`/`tool`, `404 plugin not found` (plugin
+missing, disabled or not Ready), `404 tool not found` (the plugin does not serve
+that tool, or serves it to agents only — the same answer either way, so the
+endpoint never discloses which tools a plugin keeps private), `502 plugin
+unreachable`, `503 plugin credentials are not configured`, `405` on any method
+but POST.
+
+### POST /api/internal/plugins/<id>/agent-mcp
+
+One plugin's tools, served as a stateless MCP streamable-HTTP endpoint for agent
+runtimes. This is where the `plugin-<id>` row of the MCP registry points (see
+[`administrator-guide.md`](administrator-guide.md#plugins)): the agent connects
+to the hub and the hub is the MCP client of the plugin, so no plugin address,
+credential or secret ever lands in an agent pod.
+
+**Auth:** `Authorization: Bearer <HUB_INTERNAL_VALIDATE_SECRET>`, plus
+`X-Ainsel-Agent: <agent name>` — required, DNS-label shaped, and validated
+rather than trusted, because the name becomes the subject of the credential the
+plugin sees (`kind: agent`, subject `agent:<name>`). `X-Ainsel-Invocation-Id` is
+optional and must match `^[A-Za-z0-9._:-]{1,128}$`. The pi runtime sends both
+headers only to URLs whose path starts with `/api/internal/plugins/`.
+
+**Response:** the MCP session of that plugin's `agent`- and `both`-audience
+tools; an operator tool is neither listed nor callable here, for any agent. The
+tool list is read as the plugin's own background identity, and the credential a
+call carries is minted per call for the named agent, never reused. A credential
+or transport failure on a call is reported as a tool result with `isError` — the
+agent asked for a tool, and the failure is about that call.
+
+**Errors:** `401 unauthorized` (missing or wrong bearer), `400 missing or
+invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id`, `404 plugin not found`
+(missing, disabled, not Ready, or a manifest with no `mcp` surface — a disabled
+plugin is indistinguishable from one never installed), `502 plugin unreachable`,
+`503 internal endpoints disabled`.
+
+### GET /api/v1/plugin-context
+
+Returns the authenticated caller's context: their identity, effective permissions,
+and group memberships. For plugin credentials, groups and permissions are the
+effective ones after intersection with the plugin's current grants.
+
+**Response:** `200 OK`
+```json
+{
+  "pluginId": "mem0",
+  "kind": "plugin",
+  "sub": "plugin:mem0",
+  "username": "",
+  "isAdmin": false,
+  "permissions": ["agents:read"],
+  "groups": [
+    {"id": "g1", "name": "Team A", "role": "writer"}
+  ],
+  "invocationId": ""
+}
+```
+
+For regular users, `kind` is `user`, `pluginId` is empty, `permissions` is null,
+and `groups` contains the user's memberships. For agent and plugin kinds,
+`isAdmin` is always false.
+
+### POST /api/v1/plugin-context/visible
+
+Checks which resources in a named set are visible to the caller. Returns them
+deduplicated in the order they appeared in the input.
+
+**Request body:**
+```json
+{
+  "resourceType": "agent",
+  "names": ["a1", "a2", "a3"]
+}
+```
+
+Valid `resourceType` values: `agent`, `agent-image`, `connector`, `trigger`,
+`mcp-server`, `persona`, `skill`. Each maps to a permission (e.g. `agent`
+→ `agents:read`). For plugin credentials without the required permission, the
+endpoint returns `403`.
+
+`names` must contain 1–500 items; fewer or more returns `400`.
+
+**Response:** `200 OK`
+```json
+{
+  "visible": ["a1", "a3"]
+}
+```
+
+Each name is checked against the caller's authorization (group membership,
+public/private visibility). Unknown resources are not included.
+
+### POST /api/internal/plugins/<id>/credentials
+
+Issues a background credential token valid for 5 minutes. The request must
+originate from an IP listed in the plugin's `status.verifiedEndpoints` (the IP
+of a pod running the verified image digest). `X-Forwarded-For` and `X-Real-IP`
+headers are ignored; only `RemoteAddr` is checked.
+
+Allowed only when the plugin is enabled and ready (`Ready=True`).
+
+**Request:** Empty body, POST only.
+
+**Response:** `200 OK`
+```json
+{
+  "token": "ainselp_...",
+  "expiresAt": "2026-10-23T12:30:00Z"
+}
+```
+
+On error: `403` if the request source IP is not verified, `404` if the plugin
+does not exist or is not ready, `503` if the credential issuer is not
+configured (no `HUB_PLUGIN_CREDENTIAL_SECRET`).
+
+---
+
 ## Triggers
 
 ### GET /api/v1/triggers

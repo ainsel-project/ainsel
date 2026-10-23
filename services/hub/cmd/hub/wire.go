@@ -17,6 +17,8 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pluginsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
@@ -97,6 +99,85 @@ func wirePrometheus(promURL string) *prometheus.Client {
 func wireMCP(pool *pgxpool.Pool) *mcpservers.Service {
 	store := mcpservers.NewStore(pool)
 	return mcpservers.NewService(store)
+}
+
+// pluginSyncInterval is how often the plugin registry syncer reconciles its
+// rows. Same cadence as the trigger sync loop: a plugin installed or removed
+// shows up in the MCP registry within one tick, which is quick enough for an
+// operator and cheap enough to do by listing rather than watching.
+const pluginSyncInterval = 30 * time.Second
+
+// wirePluginSync builds the syncer that keeps plugin MCP servers registered for
+// agents and plugin skills registered in the skill registry, or nil when it
+// cannot do its job. HUB_SELF_URL is required: it is the hub's own in-cluster
+// address and the base of every URL the syncer writes, so without it the rows
+// would point agents at an address nobody told the hub.
+//
+// The skill halves are wired together: the registry adapter to write rows
+// through and the HTTP fetcher to read a skill document off the plugin pod.
+// The fetcher's client carries the 10 s timeout — a plugin that does not
+// answer a skill GET fast is not worth stalling a sync pass for.
+func wirePluginSync(c *container) *pluginsync.Syncer {
+	selfURL := os.Getenv("HUB_SELF_URL")
+	if selfURL == "" {
+		slog.Info("plugin registry sync disabled: HUB_SELF_URL not set")
+		return nil
+	}
+	fetcher := pluginsync.NewHTTPSkillFetcher(&http.Client{Timeout: 10 * time.Second})
+	s := pluginsync.New(c.apiClient, c.namespace, c.mcpSvc, pluginSkillRegistry{svc: c.skillSvc}, selfURL, fetcher)
+	s.SetResourceVisibility(c.authzStore)
+	slog.Info("plugin registry sync enabled", "selfURL", selfURL, "interval", pluginSyncInterval)
+	return s
+}
+
+// pluginSkillRegistry adapts the skills service to the syncer's SkillRegistry
+// seam: the syncer stays free of the skill registry's own types, and the skill
+// package stays free of the syncer.
+type pluginSkillRegistry struct {
+	svc *skills.Service
+}
+
+func (r pluginSkillRegistry) ListManaged(ctx context.Context) ([]pluginsync.ManagedSkill, error) {
+	rows, err := r.svc.ListManaged(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pluginsync.ManagedSkill, 0, len(rows))
+	for _, sk := range rows {
+		out = append(out, pluginsync.ManagedSkill{
+			ID:          sk.ID,
+			Name:        sk.Name,
+			Description: sk.Description,
+			Body:        sk.Body,
+			Tags:        sk.Tags,
+		})
+	}
+	return out, nil
+}
+
+func (r pluginSkillRegistry) Upsert(ctx context.Context, s pluginsync.ManagedSkill) error {
+	return r.svc.UpsertManaged(ctx, &skills.Skill{
+		ID:          s.ID,
+		Name:        s.Name,
+		Description: s.Description,
+		Body:        s.Body,
+		Tags:        s.Tags,
+	})
+}
+
+func (r pluginSkillRegistry) Delete(ctx context.Context, id string) error {
+	return r.svc.DeleteManaged(ctx, id)
+}
+
+// runPluginSyncLoop is the background loop main.go starts. A disabled syncer is
+// one log line and no work, so the loop itself never has to know why.
+func runPluginSyncLoop(ctx context.Context, c *container) error {
+	s := wirePluginSync(c)
+	if s == nil {
+		return nil
+	}
+	s.Run(ctx, pluginSyncInterval)
+	return nil
 }
 
 // wirePersonas creates the personas service.
@@ -221,6 +302,22 @@ func wireAuthMiddleware(ctx context.Context, c *container, cfg containerConfig) 
 		return fmt.Errorf("invalid HUB_AUTH_MODE %q (want oidc, local, oidc+local, or none)", mode)
 	}
 
+	// Wire plugin credentials issuer if configured
+	if secretStr := os.Getenv("HUB_PLUGIN_CREDENTIAL_SECRET"); secretStr != "" {
+		secret := []byte(secretStr)
+		issuer, err := plugincreds.NewIssuer(secret, 5*time.Minute)
+		if err == plugincreds.ErrDisabled {
+			slog.Info("plugin credentials disabled (secret too short)")
+		} else if err != nil {
+			return fmt.Errorf("create plugin credentials issuer: %w", err)
+		} else {
+			c.apiServer.SetPluginCredentialIssuer(issuer)
+			slog.Info("plugin credentials enabled")
+		}
+	} else {
+		slog.Info("plugin credentials disabled (HUB_PLUGIN_CREDENTIAL_SECRET not set)")
+	}
+
 	if err := c.apiServer.ValidateAuthConfig(cfg.hubAllowInsecureNoAuth); err != nil {
 		return fmt.Errorf("API auth middleware not configured (override: HUB_ALLOW_INSECURE_NO_AUTH): %w", err)
 	}
@@ -316,9 +413,10 @@ func wireOIDCAuth(c *container, oidcCfg oidc.Config) error {
 	// runs after userTokenMW and oidcMW have populated the request context
 	// with the authenticated user's identity.
 	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	fallbackChain := func(next http.Handler) http.Handler {
 		return userTokenMW(oidcMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
-	})
+	}
+	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
 	c.apiServer.SetUserInfoURL(userInfoURL)
 	return nil
 }
@@ -346,12 +444,13 @@ func wireLocalAuth(ctx context.Context, c *container) error {
 	// future combined chain too): local session JWTs are verified statelessly,
 	// so this is what makes disabling take effect immediately.
 	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	fallbackChain := func(next http.Handler) http.Handler {
 		// RequireAuth sits inside both token middlewares: anonymous requests
 		// fall through the token checks and are rejected there, mirroring how
 		// the OIDC middleware rejects missing bearer tokens.
 		return userTokenMW(localMW(localauth.RequireAuth(disabledGuard(c.apiServer.IdentityPersistMiddleware(next)))))
-	})
+	}
+	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
 	c.apiServer.SetPasswordPolicy(policy)
 	slog.Info("local auth enabled", "loginEndpoint", "/api/v1/auth/login",
@@ -389,9 +488,10 @@ func wireOIDCPlusLocalAuth(ctx context.Context, c *container, oidcCfg oidc.Confi
 	// chainMW verify tokens statelessly, so the disabled check must run
 	// inside chainMW and outside IdentityPersistMiddleware.
 	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	fallbackChain := func(next http.Handler) http.Handler {
 		return userTokenMW(chainMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
-	})
+	}
+	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
 	c.apiServer.SetPasswordPolicy(policy)
 	c.apiServer.SetUserInfoURL(userInfoURL)

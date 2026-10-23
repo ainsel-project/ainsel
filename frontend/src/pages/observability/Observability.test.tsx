@@ -6,6 +6,58 @@ import type { ReactNode } from 'react'
 import { Observability } from './Observability'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
+// Mock usePlugins to return a mem0 plugin with all four slots
+vi.mock('../../api/plugins', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/plugins')>()
+  return {
+    ...actual,
+    usePlugins: () => ({
+      data: [
+        {
+          id: 'mem0',
+          displayName: 'Mem0',
+          ready: true,
+          disabled: false,
+          manifest: {
+            id: 'mem0',
+            displayName: 'Mem0',
+            version: '1.0.0',
+            pluginApi: '1.1',
+            ui: {
+              entry: '/ui/index.js',
+              slots: {
+                'agent.panel': 'AgentPanel',
+                'persona.panel': 'PersonaPanel',
+                'observability.section': 'ObsSection',
+                'invocation.panel': 'RunPanel',
+              },
+            },
+          },
+        },
+      ],
+      isPending: false,
+    }),
+  }
+})
+
+// Mock loadPluginModule to return components that render their props
+vi.mock('../../plugins/loader', () => {
+  return {
+    loadPluginModule: vi.fn(async () => ({
+      AgentPanel: ({ agentName }: { agentName: string }) => (
+        <p>{`agentName=${agentName}`}</p>
+      ),
+      PersonaPanel: ({ personaId }: { personaId: string }) => (
+        <p>{`personaId=${personaId}`}</p>
+      ),
+      ObsSection: ({ range }: { range: string }) => <p>{`range=${range}`}</p>,
+      RunPanel: ({ invocationId, agentName }: { invocationId: string; agentName: string }) => (
+        <p>{`invocationId=${invocationId} agentName=${agentName}`}</p>
+      ),
+    })),
+  }
+})
+
 function timeseriesPayload(metric: string) {
   return {
     metric,
@@ -394,6 +446,25 @@ describe('Observability', () => {
       // The info-level sample row stays visible.
       await waitFor(() =>
         expect(screen.getByText('request handled')).toBeInTheDocument(),
+      )
+    })
+  })
+
+  describe('plugin slots', () => {
+    it('renders a panel for the Mem0 plugin with the current range', async () => {
+      renderWithProviders(<Observability />, { route: '/observability' })
+      await waitFor(() => expect(screen.getByText('1.2K')).toBeInTheDocument())
+      await waitFor(() =>
+        expect(screen.getByText('range=24h')).toBeInTheDocument(),
+      )
+    })
+
+    it('updates plugin range when the range selector changes', async () => {
+      renderWithProviders(<Observability />, { route: '/observability' })
+      await waitFor(() => expect(screen.getByText('1.2K')).toBeInTheDocument())
+      await userEvent.click(screen.getByRole('button', { name: '7d' }))
+      await waitFor(() =>
+        expect(screen.getByText('range=7d')).toBeInTheDocument(),
       )
     })
   })

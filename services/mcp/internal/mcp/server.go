@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 
@@ -13,6 +15,9 @@ import (
 // All MCP tools route through the hub; no direct backend connections needed.
 type Backends struct {
 	HubURL string
+	// InternalValidateSecret authenticates the hub's internal endpoints, which is
+	// what the plugin tool aggregator needs to list plugin tools.
+	InternalValidateSecret string
 }
 
 // New creates a configured MCP server with all tools registered.
@@ -82,6 +87,20 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	s.AddTool(mcpServers.ListMCPServersTool(), mcpServers.ListMCPServers)
 	s.AddTool(mcpServers.GetMCPServerTool(), mcpServers.GetMCPServer)
 
+	// Plugins are third-party code the platform routes to. Registration is
+	// separate from deployment (the operator ships the workload), and use is
+	// gated by two explicit admin decisions: a permission approval and a
+	// group-access grant.
+	plugins := tools.NewPluginTools(b.HubURL)
+	s.AddTool(plugins.ListPluginsTool(), plugins.ListPlugins)
+	s.AddTool(plugins.GetPluginTool(), plugins.GetPlugin)
+	s.AddTool(plugins.InstallPluginTool(), plugins.InstallPlugin)
+	s.AddTool(plugins.UninstallPluginTool(), plugins.UninstallPlugin)
+	s.AddTool(plugins.EnablePluginTool(), plugins.EnablePlugin)
+	s.AddTool(plugins.DisablePluginTool(), plugins.DisablePlugin)
+	s.AddTool(plugins.ApprovePluginPermissionsTool(), plugins.ApprovePluginPermissions)
+	s.AddTool(plugins.SetPluginGroupAccessTool(), plugins.SetPluginGroupAccess)
+
 	personas := tools.NewPersonaTools(b.HubURL)
 	s.AddTool(personas.ListPersonasTool(), personas.ListPersonas)
 	s.AddTool(personas.GetPersonaTool(), personas.GetPersona)
@@ -122,6 +141,20 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 
 	_ = log
 	return s
+}
+
+// StartPluginTools keeps plugin operator tools on s: it polls the hub for the
+// plugin tool list and adds, replaces and removes tools until ctx is done. The
+// set of built-in names it must never shadow is taken from s itself, right after
+// the static registrations above, so it cannot drift from the tools registered
+// here. Without an internal token the aggregator logs once and stays off.
+func StartPluginTools(ctx context.Context, s *server.MCPServer, b Backends, interval time.Duration) {
+	builtin := map[string]bool{}
+	for name := range s.ListTools() {
+		builtin[name] = true
+	}
+	agg := tools.NewPluginToolAggregator(b.HubURL, b.InternalValidateSecret, s, builtin, interval)
+	go agg.Run(ctx)
 }
 
 // StreamableHTTPHandler returns an http.Handler for the MCP streamable HTTP transport.

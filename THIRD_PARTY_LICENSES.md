@@ -432,31 +432,50 @@ Apache-2.0 election) are recorded in [NOTICE](NOTICE).
 
 ## Go modules (services, operators, shared)
 
-110 packages.
+165 packages.
 
 | Package | Version | License | License texts |
 | --- | --- | --- | --- |
 | `cel.dev/expr` | v0.25.2 | Apache-2.0 | [LICENSE](LICENSES/cel.dev+expr@v0.25.2/LICENSE) |
 | `github.com/antlr4-go/antlr/v4` | v4.13.1 | BSD-2-Clause | [LICENSE](LICENSES/github.com+antlr4-go+antlr+v4@v4.13.1/LICENSE) |
+| `github.com/asaskevich/govalidator` | v0.0.0-20230301143203-a9d515a09cc2 | MIT | [LICENSE](LICENSES/github.com+asaskevich+govalidator@v0.0.0-20230301143203-a9d515a09cc2/LICENSE) |
 | `github.com/beorn7/perks` | v1.0.1 | MIT | [LICENSE](LICENSES/github.com+beorn7+perks@v1.0.1/LICENSE) |
+| `github.com/blang/semver` | v3.5.1+incompatible | MIT | [LICENSE](LICENSES/github.com+blang+semver@v3.5.1+incompatible/LICENSE) |
 | `github.com/blang/semver/v4` | v4.0.0 | MIT | [LICENSE](LICENSES/github.com+blang+semver+v4@v4.0.0/LICENSE) |
 | `github.com/cenkalti/backoff/v5` | v5.0.3 | MIT | [LICENSE](LICENSES/github.com+cenkalti+backoff+v5@v5.0.3/LICENSE) |
 | `github.com/cespare/xxhash/v2` | v2.3.0 | MIT | [LICENSE.txt](LICENSES/github.com+cespare+xxhash+v2@v2.3.0/LICENSE.txt) |
+| `github.com/coreos/go-oidc/v3` | v3.18.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+coreos+go-oidc+v3@v3.18.0/LICENSE), [NOTICE](LICENSES/github.com+coreos+go-oidc+v3@v3.18.0/NOTICE) |
+| `github.com/cyberphone/json-canonicalization` | v0.0.0-20241213102144-19d51d7fe467 | Apache-2.0 | [LICENSE](LICENSES/github.com+cyberphone+json-canonicalization@v0.0.0-20241213102144-19d51d7fe467/LICENSE) |
 | `github.com/davecgh/go-spew` | v1.1.2-0.20180830191138-d8f796af33cc | ISC | [LICENSE](LICENSES/github.com+davecgh+go-spew@v1.1.2-0.20180830191138-d8f796af33cc/LICENSE) |
+| `github.com/digitorus/pkcs7` | v0.0.0-20230818184609-3a137a874352 | MIT | [LICENSE](LICENSES/github.com+digitorus+pkcs7@v0.0.0-20230818184609-3a137a874352/LICENSE) |
+| `github.com/digitorus/timestamp` | v0.0.0-20231217203849-220c5c2851b7 | BSD-2-Clause | [LICENSE](LICENSES/github.com+digitorus+timestamp@v0.0.0-20231217203849-220c5c2851b7/LICENSE) |
+| `github.com/docker/cli` | v29.5.3+incompatible | Apache-2.0 | [LICENSE](LICENSES/github.com+docker+cli@v29.5.3+incompatible/LICENSE), [NOTICE](LICENSES/github.com+docker+cli@v29.5.3+incompatible/NOTICE) |
+| `github.com/docker/docker-credential-helpers` | v0.9.5 | MIT | [LICENSE](LICENSES/github.com+docker+docker-credential-helpers@v0.9.5/LICENSE) |
+| `github.com/dustin/go-humanize` | v1.0.1 | MIT | [LICENSE](LICENSES/github.com+dustin+go-humanize@v1.0.1/LICENSE) |
 | `github.com/emicklei/go-restful/v3` | v3.13.0 | MIT | [LICENSE](LICENSES/github.com+emicklei+go-restful+v3@v3.13.0/LICENSE) |
 | `github.com/evanphx/json-patch/v5` | v5.9.11 | BSD-3-Clause | [LICENSE](LICENSES/github.com+evanphx+json-patch+v5@v5.9.11/LICENSE) |
 | `github.com/felixge/httpsnoop` | v1.0.4 | MIT | [LICENSE.txt](LICENSES/github.com+felixge+httpsnoop@v1.0.4/LICENSE.txt) |
-| `github.com/fsnotify/fsnotify` | v1.9.0 | BSD-3-Clause | [LICENSE](LICENSES/github.com+fsnotify+fsnotify@v1.9.0/LICENSE) |
+| `github.com/fsnotify/fsnotify` | v1.10.1 | BSD-3-Clause | [LICENSE](LICENSES/github.com+fsnotify+fsnotify@v1.10.1/LICENSE) |
 | `github.com/fxamacker/cbor/v2` | v2.9.1 | MIT | [LICENSE](LICENSES/github.com+fxamacker+cbor+v2@v2.9.1/LICENSE) |
+| `github.com/go-chi/chi/v5` | v5.3.0 | MIT | [LICENSE](LICENSES/github.com+go-chi+chi+v5@v5.3.0/LICENSE) |
+| `github.com/go-jose/go-jose/v4` | v4.1.4 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-jose+go-jose+v4@v4.1.4/LICENSE) |
 | `github.com/go-logr/logr` | v1.4.4 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-logr+logr@v1.4.4/LICENSE) |
 | `github.com/go-logr/stdr` | v1.2.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-logr+stdr@v1.2.2/LICENSE) |
 | `github.com/go-logr/zapr` | v1.3.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-logr+zapr@v1.3.0/LICENSE) |
+| `github.com/go-openapi/analysis` | v0.25.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+analysis@v0.25.2/LICENSE) |
+| `github.com/go-openapi/errors` | v0.22.8 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+errors@v0.22.8/LICENSE) |
 | `github.com/go-openapi/jsonpointer` | v1.0.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+jsonpointer@v1.0.0/LICENSE), [NOTICE](LICENSES/github.com+go-openapi+jsonpointer@v1.0.0/NOTICE) |
 | `github.com/go-openapi/jsonreference` | v1.0.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+jsonreference@v1.0.0/LICENSE), [NOTICE](LICENSES/github.com+go-openapi+jsonreference@v1.0.0/NOTICE) |
+| `github.com/go-openapi/loads` | v0.24.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+loads@v0.24.0/LICENSE) |
+| `github.com/go-openapi/runtime` | v0.32.4 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+runtime@v0.32.4/LICENSE), [NOTICE](LICENSES/github.com+go-openapi+runtime@v0.32.4/NOTICE) |
+| `github.com/go-openapi/runtime/server-middleware` | v0.30.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+runtime+server-middleware@v0.30.0/LICENSE) |
+| `github.com/go-openapi/spec` | v0.22.6 | Apache-2.0 + Unknown | [LICENSE](LICENSES/github.com+go-openapi+spec@v0.22.6/LICENSE), [license.go](LICENSES/github.com+go-openapi+spec@v0.22.6/license.go) |
+| `github.com/go-openapi/strfmt` | v0.26.4 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+strfmt@v0.26.4/LICENSE) |
 | `github.com/go-openapi/swag` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag@v0.27.1/LICENSE) |
 | `github.com/go-openapi/swag/cmdutils` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+cmdutils@v0.27.1/LICENSE) |
 | `github.com/go-openapi/swag/conv` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+conv@v0.27.1/LICENSE) |
 | `github.com/go-openapi/swag/fileutils` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+fileutils@v0.27.1/LICENSE) |
+| `github.com/go-openapi/swag/jsonname` | v0.26.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+jsonname@v0.26.1/LICENSE) |
 | `github.com/go-openapi/swag/jsonutils` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+jsonutils@v0.27.1/LICENSE) |
 | `github.com/go-openapi/swag/loading` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+loading@v0.27.1/LICENSE) |
 | `github.com/go-openapi/swag/mangling` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+mangling@v0.27.1/LICENSE) |
@@ -465,40 +484,76 @@ Apache-2.0 election) are recorded in [NOTICE](NOTICE).
 | `github.com/go-openapi/swag/stringutils` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+stringutils@v0.27.1/LICENSE) |
 | `github.com/go-openapi/swag/typeutils` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+typeutils@v0.27.1/LICENSE) |
 | `github.com/go-openapi/swag/yamlutils` | v0.27.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+swag+yamlutils@v0.27.1/LICENSE) |
+| `github.com/go-openapi/validate` | v0.26.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+go-openapi+validate@v0.26.0/LICENSE) |
+| `github.com/go-viper/mapstructure/v2` | v2.5.0 | MIT | [LICENSE](LICENSES/github.com+go-viper+mapstructure+v2@v2.5.0/LICENSE) |
 | `github.com/golang-jwt/jwt/v5` | v5.3.1 | MIT | [LICENSE](LICENSES/github.com+golang-jwt+jwt+v5@v5.3.1/LICENSE) |
 | `github.com/golang-migrate/migrate/v4` | v4.19.1 | MIT | [LICENSE](LICENSES/github.com+golang-migrate+migrate+v4@v4.19.1/LICENSE) |
+| `github.com/golang/snappy` | v0.0.4 | BSD-3-Clause | [LICENSE](LICENSES/github.com+golang+snappy@v0.0.4/LICENSE) |
 | `github.com/google/cel-go` | v0.29.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+google+cel-go@v0.29.2/LICENSE) |
+| `github.com/google/certificate-transparency-go` | v1.3.3 | Apache-2.0 | [LICENSE](LICENSES/github.com+google+certificate-transparency-go@v1.3.3/LICENSE) |
 | `github.com/google/gnostic-models` | v0.7.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+google+gnostic-models@v0.7.0/LICENSE) |
+| `github.com/google/go-containerregistry` | v0.21.7 | Apache-2.0 | [LICENSE](LICENSES/github.com+google+go-containerregistry@v0.21.7/LICENSE) |
 | `github.com/google/jsonschema-go` | v0.4.2 | MIT | [LICENSE](LICENSES/github.com+google+jsonschema-go@v0.4.2/LICENSE) |
 | `github.com/google/uuid` | v1.6.0 | BSD-3-Clause | [LICENSE](LICENSES/github.com+google+uuid@v1.6.0/LICENSE) |
 | `github.com/gorilla/websocket` | v1.5.4-0.20250319132907-e064f32e3674 | BSD-2-Clause | [LICENSE](LICENSES/github.com+gorilla+websocket@v1.5.4-0.20250319132907-e064f32e3674/LICENSE) |
 | `github.com/grpc-ecosystem/grpc-gateway/v2` | v2.29.0 | BSD-3-Clause | [LICENSE](LICENSES/github.com+grpc-ecosystem+grpc-gateway+v2@v2.29.0/LICENSE) |
+| `github.com/hashicorp/go-cleanhttp` | v0.5.2 | MPL-2.0 | [LICENSE](LICENSES/github.com+hashicorp+go-cleanhttp@v0.5.2/LICENSE) |
+| `github.com/hashicorp/go-retryablehttp` | v0.7.8 | MPL-2.0 | [LICENSE](LICENSES/github.com+hashicorp+go-retryablehttp@v0.7.8/LICENSE) |
+| `github.com/in-toto/attestation` | v1.2.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+in-toto+attestation@v1.2.0/LICENSE) |
+| `github.com/in-toto/in-toto-golang` | v0.11.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+in-toto+in-toto-golang@v0.11.0/LICENSE) |
 | `github.com/jackc/pgerrcode` | v0.0.0-20220416144525-469b46aa5efa | MIT | [LICENSE](LICENSES/github.com+jackc+pgerrcode@v0.0.0-20220416144525-469b46aa5efa/LICENSE) |
 | `github.com/jackc/pgpassfile` | v1.0.0 | MIT | [LICENSE](LICENSES/github.com+jackc+pgpassfile@v1.0.0/LICENSE) |
 | `github.com/jackc/pgservicefile` | v0.0.0-20240606120523-5a60cdf6a761 | MIT | [LICENSE](LICENSES/github.com+jackc+pgservicefile@v0.0.0-20240606120523-5a60cdf6a761/LICENSE) |
 | `github.com/jackc/pgx/v5` | v5.11.0 | MIT | [LICENSE](LICENSES/github.com+jackc+pgx+v5@v5.11.0/LICENSE) |
 | `github.com/jackc/puddle/v2` | v2.2.2 | MIT | [LICENSE](LICENSES/github.com+jackc+puddle+v2@v2.2.2/LICENSE) |
+| `github.com/jedisct1/go-minisign` | v0.0.0-20230811132847-661be99b8267 | MIT | [LICENSE](LICENSES/github.com+jedisct1+go-minisign@v0.0.0-20230811132847-661be99b8267/LICENSE) |
 | `github.com/json-iterator/go` | v1.1.12 | MIT | [LICENSE](LICENSES/github.com+json-iterator+go@v1.1.12/LICENSE) |
+| `github.com/klauspost/compress` | v1.20.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+klauspost+compress@v1.20.1/LICENSE) |
+| `github.com/letsencrypt/boulder` | v0.20260309.0 | MPL-2.0 | [LICENSE.txt](LICENSES/github.com+letsencrypt+boulder@v0.20260309.0/LICENSE.txt) |
 | `github.com/mark3labs/mcp-go` | v1.2.1 | MIT | [LICENSE](LICENSES/github.com+mark3labs+mcp-go@v1.2.1/LICENSE) |
 | `github.com/Masterminds/semver/v3` | v3.4.0 | MIT | [LICENSE.txt](LICENSES/github.com+Masterminds+semver+v3@v3.4.0/LICENSE.txt) |
 | `github.com/MicahParks/jwkset` | v0.11.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+MicahParks+jwkset@v0.11.0/LICENSE) |
 | `github.com/MicahParks/keyfunc/v3` | v3.8.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+MicahParks+keyfunc+v3@v3.8.0/LICENSE) |
+| `github.com/moby/term` | v0.5.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+moby+term@v0.5.2/LICENSE) |
 | `github.com/modern-go/concurrent` | v0.0.0-20180306012644-bacd9c7ef1dd | Apache-2.0 | [LICENSE](LICENSES/github.com+modern-go+concurrent@v0.0.0-20180306012644-bacd9c7ef1dd/LICENSE) |
 | `github.com/modern-go/reflect2` | v1.0.3-0.20250322232337-35a7c28c31ee | Apache-2.0 | [LICENSE](LICENSES/github.com+modern-go+reflect2@v1.0.3-0.20250322232337-35a7c28c31ee/LICENSE) |
 | `github.com/munnerz/goautoneg` | v0.0.0-20191010083416-a7dc8b61c822 | BSD-3-Clause | [LICENSE](LICENSES/github.com+munnerz+goautoneg@v0.0.0-20191010083416-a7dc8b61c822/LICENSE) |
+| `github.com/nozzle/throttler` | v0.0.0-20180817012639-2ea982251481 | Apache-2.0 | [LICENSE](LICENSES/github.com+nozzle+throttler@v0.0.0-20180817012639-2ea982251481/LICENSE) |
 | `github.com/oklog/ulid/v2` | v2.1.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+oklog+ulid+v2@v2.1.2/LICENSE) |
 | `github.com/onsi/ginkgo/v2` | v2.33.1 | MIT | [LICENSE](LICENSES/github.com+onsi+ginkgo+v2@v2.33.1/LICENSE) |
+| `github.com/opencontainers/go-digest` | v1.0.0 | Apache-2.0 + Unknown | [LICENSE](LICENSES/github.com+opencontainers+go-digest@v1.0.0/LICENSE), [LICENSE.docs](LICENSES/github.com+opencontainers+go-digest@v1.0.0/LICENSE.docs) |
+| `github.com/opencontainers/image-spec` | v1.1.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+opencontainers+image-spec@v1.1.1/LICENSE) |
+| `github.com/pkg/browser` | v0.0.0-20240102092130-5ac0b6a4141c | BSD-2-Clause | [LICENSE](LICENSES/github.com+pkg+browser@v0.0.0-20240102092130-5ac0b6a4141c/LICENSE) |
+| `github.com/pkg/errors` | v0.9.1 | BSD-2-Clause | [LICENSE](LICENSES/github.com+pkg+errors@v0.9.1/LICENSE) |
 | `github.com/pmezard/go-difflib` | v1.0.1-0.20181226105442-5d4384ee4fb2 | BSD-2-Clause | [LICENSE](LICENSES/github.com+pmezard+go-difflib@v1.0.1-0.20181226105442-5d4384ee4fb2/LICENSE) |
 | `github.com/prometheus/client_golang` | v1.25.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+prometheus+client_golang@v1.25.0/LICENSE), [NOTICE](LICENSES/github.com+prometheus+client_golang@v1.25.0/NOTICE) |
 | `github.com/prometheus/client_model` | v0.6.3 | Apache-2.0 | [LICENSE](LICENSES/github.com+prometheus+client_model@v0.6.3/LICENSE), [NOTICE](LICENSES/github.com+prometheus+client_model@v0.6.3/NOTICE) |
 | `github.com/prometheus/common` | v0.72.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+prometheus+common@v0.72.0/LICENSE), [NOTICE](LICENSES/github.com+prometheus+common@v0.72.0/NOTICE) |
 | `github.com/prometheus/procfs` | v0.22.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+prometheus+procfs@v0.22.0/LICENSE), [NOTICE](LICENSES/github.com+prometheus+procfs@v0.22.0/NOTICE) |
 | `github.com/santhosh-tekuri/jsonschema/v6` | v6.0.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+santhosh-tekuri+jsonschema+v6@v6.0.2/LICENSE) |
-| `github.com/spf13/cast` | v1.7.1 | MIT | [LICENSE](LICENSES/github.com+spf13+cast@v1.7.1/LICENSE) |
+| `github.com/sassoftware/relic` | v7.2.1+incompatible | Apache-2.0 | [LICENSE](LICENSES/github.com+sassoftware+relic@v7.2.1+incompatible/LICENSE) |
+| `github.com/secure-systems-lab/go-securesystemslib` | v0.11.0 | MIT | [LICENSE](LICENSES/github.com+secure-systems-lab+go-securesystemslib@v0.11.0/LICENSE) |
+| `github.com/shibumi/go-pathspec` | v1.3.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+shibumi+go-pathspec@v1.3.0/LICENSE) |
+| `github.com/sigstore/cosign/v3` | v3.1.3 | Apache-2.0 | [LICENSE](LICENSES/github.com+sigstore+cosign+v3@v3.1.3/LICENSE) |
+| `github.com/sigstore/protobuf-specs` | v0.5.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+sigstore+protobuf-specs@v0.5.1/LICENSE) |
+| `github.com/sigstore/rekor` | v1.5.3 | Apache-2.0 | [LICENSE](LICENSES/github.com+sigstore+rekor@v1.5.3/LICENSE) |
+| `github.com/sigstore/rekor-tiles/v2` | v2.3.0 | Apache-2.0 | [LICENSE](LICENSES/github.com+sigstore+rekor-tiles+v2@v2.3.0/LICENSE) |
+| `github.com/sigstore/sigstore` | v1.10.8 | Apache-2.0 | [LICENSE](LICENSES/github.com+sigstore+sigstore@v1.10.8/LICENSE) |
+| `github.com/sigstore/sigstore-go` | v1.2.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+sigstore+sigstore-go@v1.2.2/LICENSE) |
+| `github.com/sigstore/timestamp-authority/v2` | v2.1.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+sigstore+timestamp-authority+v2@v2.1.2/LICENSE) |
+| `github.com/sirupsen/logrus` | v1.9.4 | MIT | [LICENSE](LICENSES/github.com+sirupsen+logrus@v1.9.4/LICENSE) |
+| `github.com/spf13/cast` | v1.10.0 | MIT | [LICENSE](LICENSES/github.com+spf13+cast@v1.10.0/LICENSE) |
 | `github.com/spf13/cobra` | v1.10.2 | Apache-2.0 | [LICENSE.txt](LICENSES/github.com+spf13+cobra@v1.10.2/LICENSE.txt) |
 | `github.com/spf13/pflag` | v1.0.10 | BSD-3-Clause | [LICENSE](LICENSES/github.com+spf13+pflag@v1.0.10/LICENSE) |
+| `github.com/syndtr/goleveldb` | v1.0.1-0.20220721030215-126854af5e6d | BSD-2-Clause | [LICENSE](LICENSES/github.com+syndtr+goleveldb@v1.0.1-0.20220721030215-126854af5e6d/LICENSE) |
+| `github.com/theupdateframework/go-tuf` | v0.7.0 | BSD-3-Clause | [LICENSE](LICENSES/github.com+theupdateframework+go-tuf@v0.7.0/LICENSE) |
+| `github.com/theupdateframework/go-tuf/v2` | v2.4.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+theupdateframework+go-tuf+v2@v2.4.2/LICENSE), [NOTICE](LICENSES/github.com+theupdateframework+go-tuf+v2@v2.4.2/NOTICE) |
+| `github.com/titanous/rocacheck` | v0.0.0-20171023193734-afe73141d399 | MIT | [LICENSE](LICENSES/github.com+titanous+rocacheck@v0.0.0-20171023193734-afe73141d399/LICENSE) |
+| `github.com/transparency-dev/formats` | v0.1.1 | Apache-2.0 | [LICENSE](LICENSES/github.com+transparency-dev+formats@v0.1.1/LICENSE) |
+| `github.com/transparency-dev/merkle` | v0.0.2 | Apache-2.0 | [LICENSE](LICENSES/github.com+transparency-dev+merkle@v0.0.2/LICENSE) |
 | `github.com/x448/float16` | v0.8.4 | MIT | [LICENSE](LICENSES/github.com+x448+float16@v0.8.4/LICENSE) |
 | `github.com/yosida95/uritemplate/v3` | v3.0.2 | BSD-3-Clause | [LICENSE](LICENSES/github.com+yosida95+uritemplate+v3@v3.0.2/LICENSE) |
+| `github.com/youmark/pkcs8` | v0.0.0-20240726163527-a2c0da244d78 | MIT | [LICENSE](LICENSES/github.com+youmark+pkcs8@v0.0.0-20240726163527-a2c0da244d78/LICENSE) |
 | `go.opentelemetry.io/auto/sdk` | v1.2.1 | Apache-2.0 | [LICENSE](LICENSES/go.opentelemetry.io+auto+sdk@v1.2.1/LICENSE) |
 | `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` | v0.69.0 | Apache-2.0 | [LICENSE](LICENSES/go.opentelemetry.io+contrib+instrumentation+net+http+otelhttp@v0.69.0/LICENSE) |
 | `go.opentelemetry.io/otel` | v1.45.0 | Apache-2.0 | [LICENSE](LICENSES/go.opentelemetry.io+otel@v1.45.0/LICENSE) |
@@ -509,7 +564,7 @@ Apache-2.0 election) are recorded in [NOTICE](NOTICE).
 | `go.opentelemetry.io/otel/trace` | v1.45.0 | Apache-2.0 | [LICENSE](LICENSES/go.opentelemetry.io+otel+trace@v1.45.0/LICENSE) |
 | `go.opentelemetry.io/proto/otlp` | v1.11.0 | Apache-2.0 | [LICENSE](LICENSES/go.opentelemetry.io+proto+otlp@v1.11.0/LICENSE) |
 | `go.uber.org/multierr` | v1.11.0 | MIT | [LICENSE.txt](LICENSES/go.uber.org+multierr@v1.11.0/LICENSE.txt) |
-| `go.uber.org/zap` | v1.27.1 | MIT | [LICENSE](LICENSES/go.uber.org+zap@v1.27.1/LICENSE) |
+| `go.uber.org/zap` | v1.28.0 | MIT | [LICENSE](LICENSES/go.uber.org+zap@v1.28.0/LICENSE) |
 | `go.yaml.in/yaml/v2` | v2.4.4 | Apache-2.0 + MIT | [LICENSE](LICENSES/go.yaml.in+yaml+v2@v2.4.4/LICENSE), [LICENSE.libyaml](LICENSES/go.yaml.in+yaml+v2@v2.4.4/LICENSE.libyaml), [NOTICE](LICENSES/go.yaml.in+yaml+v2@v2.4.4/NOTICE) |
 | `go.yaml.in/yaml/v3` | v3.0.5 | Apache-2.0 | [LICENSE](LICENSES/go.yaml.in+yaml+v3@v3.0.5/LICENSE), [NOTICE](LICENSES/go.yaml.in+yaml+v3@v3.0.5/NOTICE) |
 | `golang.org/x/crypto` | v0.57.0 | BSD-3-Clause | [LICENSE](LICENSES/golang.org+x+crypto@v0.57.0/LICENSE) |

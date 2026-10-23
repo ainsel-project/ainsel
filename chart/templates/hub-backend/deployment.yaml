@@ -107,6 +107,12 @@ spec:
               value: "{{ .Values.hub.port }}"
             - name: HUB_METRICS_PORT
               value: "{{ .Values.hub.metricsPort }}"
+            # The hub's own in-cluster address. The plugin registry syncer builds
+            # its agent MCP URLs from it, so agents reach a plugin's tools through
+            # the hub rather than learning each plugin's Service. Same address the
+            # agent operator is given as HUB_URL.
+            - name: HUB_SELF_URL
+              value: "http://hub-backend.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.hub.port | default 8080 }}"
             - name: PLATFORM_EXTERNAL_URL
               value: {{ .Values.hub.platformExternalUrl | default (printf "https://%s%s" .Values.hub.ingress.host (.Values.ui.basePath | default "")) | quote }}
             - name: CONNECTOR_IMAGE_WEBHOOK
@@ -200,6 +206,11 @@ spec:
             - name: HUB_SKILLS_MCP_TOKEN
               value: {{ .Values.auth.skillsMcpToken | quote }}
             {{- end }}
+            - name: HUB_PLUGIN_CREDENTIAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.plugins.credentialSecretName | default "ainsel-plugin-credentials" }}
+                  key: secret
             {{- with .Values.hub.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

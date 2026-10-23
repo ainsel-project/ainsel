@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/ainsel-project/ainsel/operators/event-gateway/internal/controller"
+	"github.com/ainsel-project/ainsel/operators/event-gateway/internal/signing"
 	commonv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -49,6 +50,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var pluginSigningPolicyPath string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -66,6 +68,9 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&pluginSigningPolicyPath, "plugin-signing-policy", signing.DefaultPolicyPath,
+		"Path to the plugin signing policy file. A missing file means no signing "+
+			"is required; an unreadable or invalid one makes the operator fail closed.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -73,6 +78,40 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// The signing policy is read once at startup: it is operator configuration
+	// (a ConfigMap mount), not per-plugin data, and the chart annotates the pod
+	// template with its checksum so a change rolls the operator.
+	//
+	// A bad policy must not silently mean "no trust configured" — that would
+	// fail open every plugin. Log it and hand the reconciler a policy that
+	// requires a signature with nothing trusted, plus the error, so plugin
+	// status can say why nothing verifies.
+	signingPolicy, signingPolicyErr := signing.LoadPolicy(pluginSigningPolicyPath)
+	if signingPolicyErr != nil {
+		setupLog.Error(signingPolicyErr, "Invalid plugin signing policy; failing closed",
+			"path", pluginSigningPolicyPath)
+		signingPolicy = &signing.Policy{RequireSignature: true}
+	} else {
+		setupLog.Info("Loaded plugin signing policy",
+			"path", pluginSigningPolicyPath,
+			"requireSignature", signingPolicy.RequireSignature,
+			"keys", len(signingPolicy.Keys),
+			"keyless", len(signingPolicy.Keyless),
+			"hash", signingPolicy.Hash())
+	}
+
+	// Create the verifier from the signing policy
+	var verifier signing.Verifier
+	var verifierErr error
+	if signingPolicy != nil {
+		verifier, verifierErr = signing.NewCosignVerifier(signingPolicy)
+		if verifierErr != nil {
+			setupLog.Error(verifierErr, "Failed to create cosign verifier; failing closed",
+				"path", pluginSigningPolicyPath)
+			signingPolicyErr = verifierErr
+		}
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -187,6 +226,16 @@ func main() {
 		ConnectorImagePullPolicy: connectorImagePullPolicy(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "WebhookConnector")
+		os.Exit(1)
+	}
+	if err := (&controller.PluginReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		SigningPolicy:    signingPolicy,
+		SigningPolicyErr: signingPolicyErr,
+		Verifier:         verifier,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "Plugin")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

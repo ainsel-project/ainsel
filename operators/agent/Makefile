@@ -50,13 +50,14 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		paths="../../shared/api/..." \
 		output:crd:artifacts:config=config/crd/bases
 	# shared/api/ also defines CRDs owned by sibling operators (e.g. the
-	# event-gateway's WebhookConnector) and types that are no longer installed
-	# as CRDs at all (Trigger, CronTrigger — moved to Postgres, kept in Go only
-	# as the read contract for cmd/migrate-triggers). controller-gen has no
-	# per-type filter, so prune those after generation to keep this operator's
+	# event-gateway's WebhookConnector and Plugin) and types that are no longer
+	# installed as CRDs at all (Trigger, CronTrigger — moved to Postgres, kept in
+	# Go only as the read contract for cmd/migrate-triggers). controller-gen has
+	# no per-type filter, so prune those after generation to keep this operator's
 	# CRD set scoped to the resources it actually reconciles (agents,
 	# agentimages).
 	rm -f config/crd/bases/ainsel.dev_webhookconnectors.yaml \
+	      config/crd/bases/ainsel.dev_plugins.yaml \
 	      config/crd/bases/ainsel.dev_triggers.yaml \
 	      config/crd/bases/ainsel.dev_crontriggers.yaml
 

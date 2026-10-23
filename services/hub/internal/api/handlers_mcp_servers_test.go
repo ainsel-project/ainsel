@@ -260,3 +260,98 @@ func TestMCPServers_DeleteRejectsWhenReferenced(t *testing.T) {
 		t.Errorf("expected 'img-ref001' in affectedImages, got %v", errResp.AffectedImages)
 	}
 }
+
+// pluginManagedRow writes a registry row as the plugin syncer would: owned by
+// plugin "mem0", pointing at the hub's own agent endpoint.
+func pluginManagedRow(t *testing.T, s *Server) *mcpservers.MCPServer {
+	t.Helper()
+	row := &mcpservers.MCPServer{
+		Name:         "plugin-mem0",
+		DisplayName:  "Mem0",
+		Description:  "Tools of the Mem0 plugin",
+		URL:          "http://hub-backend.ainsel.svc.cluster.local:8080/api/internal/plugins/mem0/agent-mcp",
+		TokenFromEnv: "HUB_INTERNAL_VALIDATE_SECRET", // #nosec G101 -- env var name, not a credential
+		ManagedBy:    "plugin",
+	}
+	if err := s.mcp.Upsert(t.Context(), row); err != nil {
+		t.Fatalf("seed plugin row: %v", err)
+	}
+	return row
+}
+
+func decodeSingleError(t *testing.T, body []byte) map[string]any {
+	t.Helper()
+	var out map[string]any
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode %q: %v", string(body), err)
+	}
+	return out
+}
+
+// TestDeleteMCPServer_PluginManaged409 covers both halves of the rule: the
+// message names the owning plugin, and the answer comes before the
+// agent-image reference check — an image reference is not the user's problem
+// when they cannot delete the row at all.
+func TestDeleteMCPServer_PluginManaged409(t *testing.T) {
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	pluginManagedRow(t, s)
+
+	img := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-plugin01", Namespace: "test-ns"},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "Test Image",
+			ImageURL:    "ghcr.io/test/image:latest",
+			MCPServers:  []agentv1alpha1.AgentImageMCPServer{{Name: "plugin-mem0", URL: "http://hub"}},
+		},
+	}
+	if err := s.client.Create(ctx, img); err != nil {
+		t.Fatalf("create agent image: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/mcp-servers/plugin-mem0", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	out := decodeSingleError(t, rec.Body.Bytes())
+	if len(out) != 1 {
+		t.Fatalf("expected only an error field, got %v", out)
+	}
+	if out["error"] != "managed by plugin mem0" {
+		t.Errorf("error: %v", out["error"])
+	}
+	if got, err := s.mcp.Get(ctx, "plugin-mem0"); err != nil || got == nil {
+		t.Errorf("row must survive the refused delete: %v", err)
+	}
+}
+
+func TestUpdateMCPServer_PluginManaged409(t *testing.T) {
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	row := pluginManagedRow(t, s)
+
+	body := bytes.NewBufferString(`{"displayName":"Mine","url":"http://evil","tokenFromEnv":"OTHER"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mcp-servers/plugin-mem0", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	out := decodeSingleError(t, rec.Body.Bytes())
+	if len(out) != 1 {
+		t.Fatalf("expected only an error field, got %v", out)
+	}
+	if out["error"] != "managed by plugin mem0" {
+		t.Errorf("error: %v", out["error"])
+	}
+	got, err := s.mcp.Get(ctx, "plugin-mem0")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.URL != row.URL || got.DisplayName != row.DisplayName || got.TokenFromEnv != row.TokenFromEnv {
+		t.Errorf("row changed despite the refused update: %+v", got)
+	}
+}

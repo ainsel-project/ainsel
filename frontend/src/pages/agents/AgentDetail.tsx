@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   isIdle,
@@ -10,6 +10,7 @@ import {
 } from '../../api/agents'
 import { ApiError } from '../../api/client'
 import { useAgentPersona } from '../../api/personas'
+import { usePlugins } from '../../api/plugins'
 import { recordAgentView, recentsScope } from '../../agentRecents'
 import { useAuth } from '../../auth/AuthProvider'
 import { Button } from '../../primitives/Button'
@@ -30,8 +31,10 @@ import {
 } from './AgentImageSection'
 import { AgentEnvSection } from './AgentEnvSection'
 import { llmProviderLabel } from './agentFormModel'
+import { PluginSlot } from '../../plugins/PluginSlot'
+import { activePlugins, slotContributions } from '../../plugins/registry'
 
-const TABS = [
+const BUILT_IN_TABS = [
   { value: 'overview', label: 'Overview' },
   { value: 'channel', label: 'Channel' },
   { value: 'persona', label: 'Persona' },
@@ -39,8 +42,6 @@ const TABS = [
   { value: 'tools', label: 'Tools' },
   { value: 'skills', label: 'Skills' },
 ] as const
-
-const TAB_VALUES: string[] = TABS.map((t) => t.value)
 
 // Duration presets for the pause dialog. 'indefinite' sends an empty body:
 // the pause then lasts until someone resumes explicitly.
@@ -57,10 +58,6 @@ export function AgentDetail() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
-  const tab = tabParam && TAB_VALUES.includes(tabParam) ? tabParam : 'overview'
-  const onTabChange = (next: string) => {
-    setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
-  }
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [pauseOpen, setPauseOpen] = useState(false)
@@ -71,6 +68,30 @@ export function AgentDetail() {
   const pause = usePauseAgent()
   const resume = useResumeAgent()
   const { user } = useAuth()
+  const { data: pluginsList } = usePlugins()
+
+  // Build tabs list with plugin contributions
+  const plugins = useMemo(() => activePlugins(pluginsList ?? []), [pluginsList])
+  const pluginContributions = useMemo(
+    () => slotContributions(plugins, 'agent.panel'),
+    [plugins],
+  )
+
+  const tabs = useMemo(() => {
+    const builtIn = [...BUILT_IN_TABS]
+    const pluginTabs = pluginContributions.map((c) => ({
+      value: `plugin:${c.plugin.id}`,
+      label: c.plugin.displayName,
+    }))
+    return [...builtIn, ...pluginTabs]
+  }, [pluginContributions])
+
+  const tab =
+    tabParam && tabs.some((t) => t.value === tabParam) ? tabParam : 'overview'
+
+  const onTabChange = (next: string) => {
+    setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
+  }
 
   // Feed the nav's recent-agents list. Keyed on the loaded agent's id, not the
   // raw route param, so an unresolvable URL cannot be remembered as "viewed".
@@ -170,13 +191,20 @@ export function AgentDetail() {
         }
       />
       <div style={{ padding: '28px 32px' }}>
-        <Tabs value={tab} onChange={onTabChange} tabs={TABS} aria-label="Agent sections" />
+        <Tabs value={tab} onChange={onTabChange} tabs={tabs} aria-label="Agent sections" />
         <div style={{ marginTop: 24 }}>
           {isLoading ? <p className="label">Loading…</p> : null}
           {error ? (
             <p className="label" style={{ color: 'var(--signal)' }}>
               Failed to load agent.
             </p>
+          ) : null}
+          {data && tab.startsWith('plugin:') ? (
+            <PluginSlot
+              slot="agent.panel"
+              props={{ agentName: data.name }}
+              pluginId={tab.substring('plugin:'.length)}
+            />
           ) : null}
           {data && tab === 'overview' ? (
             <div style={{ display: 'grid', gap: 24 }}>

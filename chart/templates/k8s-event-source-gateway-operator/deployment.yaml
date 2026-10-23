@@ -22,10 +22,15 @@ spec:
         {{- with .Values.connectorOperator.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.connectorOperator.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
+      {{- $annotations := default (dict) (deepCopy .Values.connectorOperator.podAnnotations) }}
+      {{- /* The policy is read once at startup, so a changed policy has to
+             roll the pod. Only add the checksum if the operator isn't already
+             carrying one from podAnnotations. */}}
+      {{- if not (hasKey $annotations "checksum/plugin-signing") }}
+      {{- $_ := set $annotations "checksum/plugin-signing" (include (print $.Template.BasePath "/k8s-event-source-gateway-operator/plugin-signing-configmap.yaml") . | sha256sum) }}
       {{- end }}
+      annotations:
+        {{- toYaml $annotations | nindent 8 }}
     spec:
       serviceAccountName: k8s-event-source-gateway-operator
       {{- with .Values.connectorOperator.imagePullSecrets }}
@@ -61,6 +66,7 @@ spec:
           {{- end }}
           args:
             - --leader-elect
+            - --plugin-signing-policy=/etc/ainsel/plugin-signing/policy.yaml
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -84,10 +90,12 @@ spec:
             {{- end }}
           resources:
             {{- toYaml .Values.connectorOperator.resources | nindent 12 }}
+          {{- $mounts := list (dict "name" "plugin-signing" "mountPath" "/etc/ainsel/plugin-signing" "readOnly" true) -}}
           {{- with .Values.connectorOperator.extraVolumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
+          {{- $mounts = concat $mounts . -}}
           {{- end }}
+          volumeMounts:
+            {{- toYaml $mounts | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -100,8 +108,10 @@ spec:
               port: 8081
             initialDelaySeconds: 5
             periodSeconds: 10
+      {{- $volumes := list (dict "name" "plugin-signing" "configMap" (dict "name" (printf "%s-plugin-signing" .Release.Name))) -}}
       {{- with .Values.connectorOperator.extraVolumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
+      {{- $volumes = concat $volumes . -}}
       {{- end }}
+      volumes:
+        {{- toYaml $volumes | nindent 8 }}
 {{- end }}

@@ -753,6 +753,261 @@ Three escalating options, fastest to most thorough:
 For incidents, prefer (1) — reversible, leaves config in place for
 analysis.
 
+### Plugins
+
+Plugins are third-party extensions: HTTP workloads that add tools and UI
+slots to the platform, reached over a Kubernetes Service in the same
+namespace. Because they are third-party code, everything about them leans on
+two anchors — the image is **pinned to a digest** (a mutable tag would let a
+compromised registry push new code into your cluster silently), and nothing
+they ask for is granted until **you** approve it.
+
+**Registering a plugin.** A plugin's Deployment and Service are yours to
+deploy (helm, plain manifests — anything). Once the Service answers, register
+it via the console or `POST /api/v1/plugins` with its `id` (lowercase,
+`^[a-z][a-z0-9-]{0,29}[a-z0-9]$` — 2–31 characters, not ending in `-`), service
+name (a Kubernetes service name: DNS-1123 label, max 63 characters) and port,
+image repository and `sha256:` digest. Registration grants nothing: the CR is
+created with an empty approved-permission set.
+
+The event-gateway operator then fetches the manifest the plugin serves at
+`/ainsel-plugin.json`, checks it (well-formed, its declared `id` matches the
+CR name, its `pluginApi` version is compatible with the platform), and
+records what the plugin declares — permissions, version, the manifest itself
+— on the Plugin's status.
+
+**Signing.** The digest in `spec.image` says *which* bytes run; a signature says
+*who published them*. Without the second check, a compromised registry hands
+new code to your cluster and every digest still matches itself. The
+event-gateway operator verifies each plugin image's [cosign](https://github.com/sigstore/cosign)
+signature against one cluster-wide policy before it accepts the image, and a
+plugin whose image does not verify is not let through.
+
+The policy is a Helm value, not a per-plugin setting — trust in a publisher is a
+platform decision, and one place to audit beats one place per plugin. It renders
+into a ConfigMap the operator mounts read-only at
+`/etc/ainsel/plugin-signing/policy.yaml` (keys in
+[chart/docs/configuration.md](../chart/docs/configuration.md#plugin-signing)):
+
+```yaml
+plugins:
+  requireSignature: true        # default: an unsigned image is rejected
+  signing:
+    keys:                       # PEM public keys — cosign's --key form
+      - |
+        -----BEGIN PUBLIC KEY-----
+        ...base64 DER, one line per 64 chars...
+        -----END PUBLIC KEY-----
+    keyless:                    # issuer + exactly one of subject / subjectRegExp
+      - issuer: https://token.actions.githubusercontent.com
+        subjectRegExp: ^https://github\.com/acme/.+/\.github/workflows/release\.yml@refs/tags/v.+$
+    trustedRootFile: ""         # empty = the public-good sigstore root
+```
+
+`requireSignature: false` accepts unsigned images; it does not make a
+signature that *is* present any less required to verify. Turning it off is a
+per-install choice about how much you trust your registry, not a way to
+install a plugin whose signature is broken.
+
+*Keyed vs keyless.* Pick by who holds the secret:
+
+- **Keyed** — the publisher gives you a public key and signs with the private
+  half. Put the PEM in `keys`. No network, no identity provider, and
+  verification is exactly as strong as that key. The cost is yours: rotation,
+  revocation, and "which build produced this" all live outside the policy.
+- **Keyless** — the publisher's CI signs with its OIDC job identity, so there is
+  no key to exchange. You name the issuer and what was running. For a plugin
+  released from GitHub Actions by a `release.yml` workflow:
+
+  ```yaml
+  keyless:
+    # Every v* release out of any acme repo, as long as release.yml tagged it:
+    - issuer: https://token.actions.githubusercontent.com
+      subjectRegExp: ^https://github\.com/acme/.+/\.github/workflows/release\.yml@refs/tags/v.+$
+    # ...or one exact release, no regexp:
+    - issuer: https://token.actions.githubusercontent.com
+      subject: https://github.com/acme/plugin-mem0/.github/workflows/release.yml@refs/tags/v1.4.2
+  ```
+
+  Anchor the regexp and keep the `@refs/tags/v` suffix: a subject that matches a
+  branch push lets any commit that workflow built pass as a release. An
+  identity with neither `subject` nor `subjectRegExp`, or with both, is rejected
+  when the policy loads — so is a regexp that doesn't compile, and one that is
+  not anchored with `^` and `$` (cosign matches it anywhere in the identity, so
+  an unanchored `github\.com/acme` would also accept `github.com/acme-evil`).
+
+*Air-gapped.* Verification normally fetches sigstore's certificate authority
+and revocation data from the public TUF root. Where there is no path to it,
+stage sigstore's trusted root as a file in the cluster and point at it:
+
+```yaml
+plugins:
+  signing:
+    trustedRootFile: /etc/sigstore/trusted_root.json
+connectorOperator:
+  extraVolumes:
+    - name: sigstore-root
+      secret:
+        secretName: sigstore-trusted-root
+  extraVolumeMounts:
+    - name: sigstore-root
+      mountPath: /etc/sigstore
+      readOnly: true
+```
+
+The operator reads the policy once, at startup, and the pod template carries a
+checksum of it — so `helm upgrade` with a changed policy rolls the operator.
+A policy file it cannot parse or validate is a startup error, and the operator
+then runs requiring a signature it can never verify rather than treating
+signing as off: a typo in trust configuration breaks plugins instead of
+opening a door.
+
+**Approving permissions.** If the manifest declares any permissions, the plugin
+stays not-Ready with reason `PermissionsPending` until you approve them.
+Approval is all-or-nothing against the declared set: `POST
+/api/v1/plugins/{id}/approve-permissions` with `"permissions"` naming exactly
+what the plugin declared — a subset, a superset, or anything the manifest never
+asked for is rejected with `409` and the current declared set in the error.
+That is deliberate: you approve what you have just seen, not what a stale
+console tab remembers. A declared permission you never approve simply is not
+effective.
+
+A plugin can only ever ask for names from this closed vocabulary — anything
+else in a manifest is rejected outright, so a plugin cannot invent a
+permission to widen its own reach:
+
+| Resource | Permissions |
+|---|---|
+| Agents | `agents:read`, `agents:write` |
+| Agent images | `agent-images:read`, `agent-images:write` |
+| Connectors | `connectors:read`, `connectors:write` |
+| Invocations | `invocations:read` |
+| MCP servers | `mcp-servers:read`, `mcp-servers:write` |
+| Observability | `observability:read` |
+| Personas | `personas:read`, `personas:write` |
+| Skills | `skills:read`, `skills:write` |
+| Triggers | `triggers:read`, `triggers:write` |
+
+Read verbs let a plugin look at that resource through the platform API; write
+verbs let it change it. Judge a plugin by the write verbs it asks for.
+
+**Group access.** `PUT /api/v1/plugins/{id}/group-access` sets the groups the
+plugin's background identity (work done without a user) may act in, with the
+`writer` role, bounded by the approved permissions. Unknown group ids are
+rejected; an empty list means the background identity can read only public
+resources. See [Plugin credentials](access-control.md#plugin-credentials).
+
+**Traffic and network.** The browser and agents never talk to a plugin
+directly: the hub proxies its UI assets, API and MCP endpoint under
+`/api/v1/plugins/{id}/ui|api|mcp`, and only to pods running the verified image
+digest. API and MCP calls need a login; the hub swaps the caller's token for a
+short-lived plugin credential, so the plugin never sees a session or `ainsel_`
+token. UI assets (the plugin's JavaScript and styles) are served without a
+login, because browsers cannot attach a token when they load a module; treat
+them as public. Label your plugin pods `ainsel.io/plugin: "true"`: with
+`networkPolicy.enabled` (the default) the chart then lets plugin pods reach the
+hub and accept traffic only from the hub and the event-gateway operator.
+Outbound rules for the external services a plugin uses belong in the plugin's
+own chart.
+
+**Tools, and who may see them.** A plugin's MCP tools declare their audience in
+the manifest: `mcp.audience` maps a tool name to `agent`, `operator` or `both`,
+and a tool the manifest does not list is `both`. The split is strict, and it is
+the platform's rule rather than the plugin's suggestion — an `agent` tool is
+never listed or callable through AInsel's own MCP server, not even for an admin,
+and an `operator` tool is never listed or callable through the agent endpoint.
+The two audiences are served by different endpoints, so neither is reachable by
+asking the other one.
+
+**Plugin tools for operators.** Every operator-facing tool turns up as a tool of
+AInsel's MCP server, named `<pluginId>_<tool>` with the dashes of the plugin id
+turned into underscores — plugin `mem0-cache`, tool `get_entry` is offered as
+`mem0_cache_get_entry`. `services/mcp` polls the hub for that list every 15 s
+(`PLUGIN_TOOLS_POLL_INTERVAL` to change it) and adds, replaces or removes tools
+as it changes. A plugin tool whose name equals a built-in tool is skipped and
+logged at warn instead of shadowing the built-in. Calls go back through the hub
+with your own bearer, so the plugin sees your credential. See
+[`mcp.md`](mcp.md#plugin-tools).
+
+**Plugin tools for AInsel's agents.** A plugin whose manifest declares an `mcp`
+endpoint gets a row in the MCP registry: name `plugin-<id>`, display name the one
+the manifest gives (the plugin id when it omits one), URL
+`<HUB_SELF_URL>/api/internal/plugins/<id>/agent-mcp`, bearer taken from
+`HUB_INTERNAL_VALIDATE_SECRET`, `managedBy: plugin`. Attach it to an agent image
+like any other MCP server — the row points at the hub, not at the plugin, which is
+the whole point:
+
+```yaml
+spec:
+  mcpServers:
+    - name: plugin-mem0
+      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/plugins/mem0/agent-mcp
+      tokenFromEnv: HUB_INTERNAL_VALIDATE_SECRET
+```
+
+`HUB_INTERNAL_VALIDATE_SECRET` is one of the platform-owned env names an
+`mcpServers` entry may not normally reference; the agent operator makes the
+exception for exactly that URL prefix and refuses it anywhere else, so the
+platform token can never be collected by a server you registered. Each call
+carries `X-Ainsel-Agent` (the calling agent) and, when the runtime knows one,
+`X-Ainsel-Invocation-Id` — the plugin receives the invocation id, so it can bind
+what it did to the invocation that did it.
+
+The rows are written by a sync loop that runs every 30 s, once at hub start as
+well, and they exist only while `HUB_SELF_URL` is set on the hub — that is the
+base of every URL the syncer writes, and the chart gives it the same address the
+agent operator gets as `HUB_URL`. Without it the sync is off and plugins serve no
+agent tools.
+
+**Plugin-shipped skills.** A manifest may declare up to 20 skills. Each one
+becomes a row in the skill registry with id and name `<pluginId>-<skill name>`,
+the tag `plugin:<pluginId>`, and `managedBy: plugin`. Its body is fetched from
+the plugin over one of its verified endpoints on the same pass, and a document
+over 64 KiB is rejected rather than stored — the cap is tighter than the
+platform's own skill limit because the fetch happens on a background loop
+against a pod nobody sized for it. Like the MCP row, the skill is public: a
+plugin ships it for the whole platform, not for one owner. A skill whose body
+cannot be read right now keeps the body already stored and is retried next pass,
+so a restarting pod does not empty the registry.
+
+**These rows are read-only for you.** Updating or deleting a plugin's MCP server
+or skill answers `409 {"error": "managed by plugin <id>"}` — the plugin is their
+only author. The rule holds in the other direction too: a plugin never takes over
+a row a user owns. If you name a skill `<pluginId>-<skill name>` or an MCP server
+`plugin-<id>` yourself, that row stays yours and the plugin's version simply is
+not registered — the sync logs it, and that log line is the only trace. Rows are
+removed when the Plugin CR goes away or its manifest stops declaring the surface.
+
+**Disabling.** `POST /api/v1/plugins/{id}/disable` (or the console switch)
+stops routing to the plugin, makes it vanish from non-admin listings, and
+pauses manifest fetching — the registration and your approvals stay put, so
+re-enabling is instant. The plugin keeps its registry rows: disabling is meant
+to stop tools answering, not to reconfigure every agent image that attached them.
+Its agent endpoint then answers `404` to every request — list or call — so an
+agent gets no tools and no call goes through, indistinguishable from a plugin
+that was never installed.
+Uninstalling (`DELETE /api/v1/plugins/{id}`) removes the CR and, with it, the
+`plugin-<id>` row and the plugin's skill rows; the plugin's own Deployment and
+Service are yours to delete separately.
+
+Every plugin change you make — install, uninstall, enable, disable,
+approval, group-access — lands a row in the audit trail (auth events) with
+your identity and the plugin id.
+
+**What each status means.** The console and the API surface one `Ready`
+condition with a reason; the first failing check wins:
+
+| Reason | Meaning | What you do |
+|---|---|---|
+| `Ready` | Manifest valid and compatible, every declared permission approved. | Nothing — the plugin is live. |
+| `Disabled` | `spec.disabled` is set; the manifest is not even fetched. | Enable it when you want it back. |
+| `SignatureRejected` | The plugin image signature verification failed; required by policy. | Verify the image is signed correctly and matches the policy's trust material. |
+| `NoVerifiedEndpoints` | No pod endpoints are running the verified image digest. | Check that pod(s) running the plugin have the correct image digest. |
+| `Unreachable` | The service at `serviceName:servicePort` didn't answer `/ainsel-plugin.json` in 5 s. | Check the plugin's Deployment/Service actually run and the name/port are right. |
+| `InvalidManifest` | The served JSON doesn't parse, or its declared `id` isn't the plugin's name. | Report it to the plugin's author; a plugin cannot claim to be someone else. |
+| `Incompatible` | The manifest's `pluginApi` major version doesn't match the platform's. | Get a plugin version built for this platform, or hold the platform back. |
+| `PermissionsPending` | Manifest is fine; declared permissions await you. | Review the manifest in the plugin detail view, then approve the full declared set. |
+
 ## 6. What you do NOT manage
 
 The whole point of AInsel is to hide AI specifics from end users.

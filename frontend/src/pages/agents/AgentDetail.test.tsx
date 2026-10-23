@@ -18,6 +18,58 @@ vi.mock('../../auth/AuthProvider', () => ({
   }),
 }))
 
+// Mock usePlugins to return a mem0 plugin with all four slots
+vi.mock('../../api/plugins', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/plugins')>()
+  return {
+    ...actual,
+    usePlugins: () => ({
+      data: [
+        {
+          id: 'mem0',
+          displayName: 'Mem0',
+          ready: true,
+          disabled: false,
+          manifest: {
+            id: 'mem0',
+            displayName: 'Mem0',
+            version: '1.0.0',
+            pluginApi: '1.1',
+            ui: {
+              entry: '/ui/index.js',
+              slots: {
+                'agent.panel': 'AgentPanel',
+                'persona.panel': 'PersonaPanel',
+                'observability.section': 'ObsSection',
+                'invocation.panel': 'RunPanel',
+              },
+            },
+          },
+        },
+      ],
+      isPending: false,
+    }),
+  }
+})
+
+// Mock loadPluginModule to return components that render their props
+vi.mock('../../plugins/loader', () => {
+  return {
+    loadPluginModule: vi.fn(async () => ({
+      AgentPanel: ({ agentName }: { agentName: string }) => (
+        <p>{`agentName=${agentName}`}</p>
+      ),
+      PersonaPanel: ({ personaId }: { personaId: string }) => (
+        <p>{`personaId=${personaId}`}</p>
+      ),
+      ObsSection: ({ range }: { range: string }) => <p>{`range=${range}`}</p>,
+      RunPanel: ({ invocationId, agentName }: { invocationId: string; agentName: string }) => (
+        <p>{`invocationId=${invocationId} agentName=${agentName}`}</p>
+      ),
+    })),
+  }
+})
+
 function defaultFetch(url: string, init?: RequestInit): Response {
   if (init?.method === 'DELETE') {
     return new Response(null, { status: 204 })
@@ -854,6 +906,36 @@ describe('AgentDetail', () => {
 
       await waitFor(() => expect(screen.getByText('Pending')).toBeInTheDocument())
       expect(screen.queryByText('Idle')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('plugin slots', () => {
+    it('adds a Mem0 tab and renders the plugin when selected', async () => {
+      renderWithProviders(
+        <Routes>
+          <Route path="/agents/:id" element={<AgentDetail />} />
+        </Routes>,
+        { route: '/agents/a1' },
+      )
+      await screen.findAllByText('doc-writer')
+      expect(screen.getByRole('tab', { name: /mem0/i })).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('tab', { name: /mem0/i }))
+      await waitFor(() =>
+        expect(screen.getByText('agentName=doc-writer')).toBeInTheDocument(),
+      )
+    })
+
+    it('loads a plugin tab via deep link', async () => {
+      renderWithProviders(
+        <Routes>
+          <Route path="/agents/:id" element={<AgentDetail />} />
+        </Routes>,
+        { route: '/agents/a1?tab=plugin:mem0' },
+      )
+      await waitFor(() =>
+        expect(screen.getByText('agentName=doc-writer')).toBeInTheDocument(),
+      )
     })
   })
 

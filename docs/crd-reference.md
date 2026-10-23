@@ -284,6 +284,66 @@ spec:
 
 ---
 
+## Plugin
+
+Registers an external plugin service the platform can route tool calls to.
+A `Plugin` names an in-cluster Service running a plugin container image,
+pinned by digest, and records the manifest the plugin declares together with
+the permissions an operator has approved.
+
+### Spec
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `displayName` | string | No | User-facing name |
+| `service.name` | string | Yes | Name of the Kubernetes Service the plugin is reached over (in the Plugin's namespace). Must be a DNS-1123 label (max 63 chars): the reconciler interpolates it into `http://<name>.<namespace>.svc:<port>`, so a name with `.`, `#` or `/` would point the operator at an attacker-chosen host |
+| `service.port` | int32 | Yes | Port the plugin listens on (1–65535) |
+| `image.repository` | string | Yes | Container image repository |
+| `image.digest` | string | Yes | Image digest, pinned to an exact build (`sha256:` + 64 hex chars). Required: plugins are third-party code and must not move on a mutable tag |
+| `disabled` | bool | No | Stops the plugin from being routed to when true (default `false`) |
+| `approvedPermissions` | []string | No | Declared permissions an operator has granted. A declared permission not listed here is not effective |
+| `groupAccess` | []string | No | Group ids the plugin's background identity may act for (phase 3) |
+
+### Status
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conditions` | []Condition | `Ready`; reasons: `Ready`, `Disabled`, `SignatureRejected`, `NoVerifiedEndpoints`, `Unreachable`, `InvalidManifest`, `Incompatible`, `PermissionsPending` |
+| `observedGeneration` | int64 | Last observed generation |
+| `signature` | PluginSignatureStatus | Image signature verification state (omitted if not verified yet) |
+| `signature.verified` | bool | Whether the plugin image signature was successfully verified |
+| `signature.signer` | string | Identity that signed the image (from the signing certificate or keyless identity) |
+| `signature.digest` | string | Image digest that was verified |
+| `signature.policyHash` | string | Hash of the signing policy used for verification |
+| `signature.checkedAt` | Time | When the signature was last verified |
+| `signature.message` | string | Last verification error, if any |
+| `verifiedEndpoints` | []string | Sorted list of "ip:port" endpoints verified to be running the exact image digest specified in `spec.image.digest` |
+| `manifest` | object | Validated manifest JSON as the raw document (unknown fields are preserved) |
+| `declaredPermissions` | []string | Permissions the manifest asks for, approved or not |
+| `version` | string | Plugin version reported by the manifest |
+
+### Example
+
+```yaml
+apiVersion: ainsel.dev/v1alpha1
+kind: Plugin
+metadata:
+  name: example-plugin
+  namespace: ainsel
+spec:
+  displayName: "Example Plugin"
+  service:
+    name: example-plugin
+    port: 8080
+  image:
+    repository: ghcr.io/acme/example-plugin
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  approvedPermissions:
+    - agents:read
+```
+
+---
+
 ## Trigger
 
 > **DB-backed (not a Kubernetes CRD).** `Trigger` was moved from a CRD to a

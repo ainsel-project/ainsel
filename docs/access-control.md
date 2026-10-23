@@ -233,6 +233,97 @@ curl -X PATCH https://ainsel.example.com/api/v1/users/<user-id> \
   -d '{"disabled": true}'
 ```
 
+## Plugin Credentials
+
+Third-party plugins running in the cluster can authenticate as themselves or
+on behalf of users and agents to call the hub API. Plugin credentials are
+short-lived (5 minutes) and scoped to the permissions and group accesses the
+admin has granted the plugin.
+
+### Token Format and Lifetime
+
+Plugin credential tokens are prefixed `ainselp_` and use HS256 JWT signing.
+Each token carries claims for `kind` (user, agent, or plugin), `sub` (the
+caller's subject), `permissions`, and `groups`. Tokens expire in 5 minutes and
+the `exp` claim is always present.
+
+### Caller Kinds
+
+- **user**: Minted on behalf of an authenticated end-user. Inherits the user's
+  admin status (if any) and effective permissions = user's permissions ∩
+  plugin's approved permissions.
+- **agent**: Issued during an agent run. Carries the agent's owning group
+  (if mapped) with reader role, and the plugin's approved permissions.
+- **plugin**: Issued for the plugin's own background operations. It holds the
+  `writer` role on each group an admin granted on the Plugins page
+  (`spec.groupAccess`) and nothing else, so with no granted groups it can read
+  only public resources. A plugin fetches it with
+  `POST /api/internal/plugins/<id>/credentials`, which only answers callers
+  whose pod IP is one of the plugin's verified endpoints (pods running the
+  signed image digest).
+  Pod IPs are recycled, so the match is as fresh as the operator's last
+  reconcile of the plugin: endpoint and pod changes trigger one immediately,
+  and the 60-second resync bounds the window otherwise.
+
+Agent and plugin kinds never carry the admin bypass — they are always
+constrained by the permissions table.
+
+### Effective Permissions and Groups
+
+Every request is gated by the intersection of:
+- The credential's token permissions
+- The plugin's current `spec.approvedPermissions`
+
+Similarly, for plugin kind:
+- The token's group grants
+- The plugin's current `spec.groupAccess`
+
+This means admins can immediately revoke access by narrowing approvals or
+removing groups, even if credentials are already issued.
+
+### Route Access
+
+Plugin credentials access the hub API via specific `/api/v1/*` routes only.
+Each route requires a permission (e.g. `agents:read`). A plugin without the
+required permission receives `403` with `{"error":"plugin lacks permission
+<perm>"}`. Routes not in the allowlist return `403` with `{"error":"route not
+available to plugin credentials"}`.
+
+| Routes | Read (GET/HEAD) | Write |
+|---|---|---|
+| `/api/v1/plugin-context` | any credential | `POST /visible` only |
+| `/api/v1/agents` | `agents:read` | `agents:write` |
+| `/api/v1/agent-images` | `agent-images:read` | `agent-images:write` |
+| `/api/v1/connectors` | `connectors:read` | `connectors:write` |
+| `/api/v1/triggers`, `/api/v1/cron-triggers` | `triggers:read` | `triggers:write` |
+| `/api/v1/mcp-servers` | `mcp-servers:read` | `mcp-servers:write` |
+| `/api/v1/personas` | `personas:read` | `personas:write` |
+| `/api/v1/skills` | `skills:read` | `skills:write` |
+| `/api/v1/invocations`, `/events`, `/errors` | `invocations:read` | not available |
+| `/api/v1/observability`, `/stats`, `/queue` | `observability:read` | not available |
+| everything else (users, groups, auth, tokens, plugins, chat, channels, …) | not available | not available |
+
+On top of the route check, the normal group checks apply to whoever the
+credential stands for.
+
+### Audit Trail
+
+Non-GET/HEAD requests from plugin credentials are audited as `plugin_api_write`
+events, recording:
+- **ActorSub**: The credential's subject (user/agent/plugin identity)
+- **Target**: `<pluginId> <METHOD> <path>`
+- **Outcome**: `success` (status < 400) or `failure`
+
+### Configuration
+
+Plugin credentials are enabled via the `HUB_PLUGIN_CREDENTIAL_SECRET`
+environment variable (or `plugins.credentialSecretName` in the Helm chart).
+The chart generates a random secret (Secret `ainsel-plugin-credentials`, kept
+across upgrades) unless you name your own. When the variable is unset or
+shorter than 32 bytes, plugin credentials are disabled: `ainselp_` tokens are
+rejected with 401, nothing can be minted, and
+`/api/internal/plugins/<id>/credentials` answers 503.
+
 ## Internal Service Authentication
 
 Service-to-service communication (webhook-receiver → hub, agent runtimes →

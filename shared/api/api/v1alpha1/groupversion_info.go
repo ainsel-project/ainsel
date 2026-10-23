@@ -31,6 +31,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&AgentImageList{},
 		&CronTrigger{},
 		&CronTriggerList{},
+		&Plugin{},
+		&PluginList{},
 		&Trigger{},
 		&TriggerList{},
 		&WebhookConnector{},

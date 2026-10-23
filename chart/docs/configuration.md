@@ -99,6 +99,26 @@ written `<component>.<key>`:
 | `connectorOperator.connectorImagePullPolicy` | string | `IfNotPresent` | Pull policy applied to the webhook-receiver connector pods the operator creates (**not** the operator container above). Use `Always` for mutable tags (e.g. `:dev`) so newly built images are picked up on rollout |
 | `connectorOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
 
+### Plugin Signing
+
+Rendered into the `<release>-plugin-signing` ConfigMap, mounted read-only at
+`/etc/ainsel/plugin-signing/` in the event gateway operator and read there by
+`--plugin-signing-policy`. The operator reads it at startup, so a change rolls
+the operator pod (the pod template carries a checksum of the ConfigMap).
+
+| Value | Type | Default | Description |
+|-------|------|---------|-------------|
+| `plugins.requireSignature` | bool | `true` | Require every plugin image to carry a signature that verifies against the trust material below. With `false`, a signature that is present must still verify, but an unsigned plugin is accepted |
+| `plugins.signing.keys` | list | `[]` | PEM-encoded public keys (cosign `--key` form). RSA keys below 2048 bits are rejected when the policy loads |
+| `plugins.signing.keyless` | list | `[]` | Sigstore identities: `issuer` plus **exactly one** of `subject` (exact) or `subjectRegExp` (Go regexp, must be anchored with `^` and `$`) |
+| `plugins.signing.trustedRootFile` | string | `""` | In-cluster path to a sigstore `trusted_root.json`, for installs that cannot reach the public TUF mirror. Empty means public good — mount the file yourself via `connectorOperator.extraVolumes` and point here |
+
+A file the operator cannot parse or validate (unknown key, bad PEM, a keyless
+entry with both `subject` and `subjectRegExp`) is a startup error, and the
+operator then runs with a policy that requires a signature and trusts nothing —
+never with "signing is off". See the administrator guide's plugin signing
+section for worked examples.
+
 ### Hub
 
 | Value | Type | Default | Description |

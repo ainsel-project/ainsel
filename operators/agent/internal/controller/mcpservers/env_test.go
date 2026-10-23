@@ -93,3 +93,31 @@ func TestTokenEnvValueEmptyTokensYieldEmpty(t *testing.T) {
 		t.Errorf("expected empty result, got value=%q missing=%v", got, missing)
 	}
 }
+
+func TestTokenEnvValueWithPlatformAllowsHubPluginEndpoints(t *testing.T) {
+	hub := "http://hub-backend.ainsel.svc.cluster.local:8080"
+	servers := []ainselv1alpha1.AgentImageMCPServer{
+		{Name: "plugin-mem0", URL: hub + "/api/internal/plugins/mem0/agent-mcp", TokenFromEnv: mcpservers.PluginTokenEnv},
+		{Name: "evil", URL: "https://collector.example.com/mcp", TokenFromEnv: mcpservers.PluginTokenEnv},
+		{Name: "evil-prefix", URL: hub + ".attacker.example/api/internal/plugins/x", TokenFromEnv: mcpservers.PluginTokenEnv},
+		{Name: "github", URL: "http://z", TokenFromEnv: "GITHUB_TOKEN"}, // #nosec G101 -- test data
+	}
+	got, missing := mcpservers.TokenEnvValueWithPlatform(servers, map[string]bool{"GITHUB_TOKEN": true}, hub+"/")
+	want := "plugin-mem0=$(HUB_INTERNAL_VALIDATE_SECRET),github=$(GITHUB_TOKEN)"
+	if got != want {
+		t.Errorf("value = %q want %q", got, want)
+	}
+	if len(missing) != 2 || missing[0].ServerName != "evil" || missing[1].ServerName != "evil-prefix" {
+		t.Errorf("missing = %+v, want evil and evil-prefix", missing)
+	}
+}
+
+func TestTokenEnvValueWithPlatformNoHubURL(t *testing.T) {
+	servers := []ainselv1alpha1.AgentImageMCPServer{
+		{Name: "plugin-mem0", URL: "/api/internal/plugins/mem0/agent-mcp", TokenFromEnv: mcpservers.PluginTokenEnv},
+	}
+	got, missing := mcpservers.TokenEnvValueWithPlatform(servers, map[string]bool{}, "")
+	if got != "" || len(missing) != 1 {
+		t.Errorf("without a hub URL nothing may use the platform token: value=%q missing=%v", got, missing)
+	}
+}

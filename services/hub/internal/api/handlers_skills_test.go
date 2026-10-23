@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -16,6 +17,8 @@ type mockSkillService struct {
 	assignments map[string][]skills.Referrer // skillID -> referrers
 	assignErr   error
 	unassignErr error
+	updateErr   error
+	deleteErr   error
 	assignCalls []assignCallRecord
 }
 
@@ -50,11 +53,14 @@ func (m *mockSkillService) List(_ context.Context, _ skills.ListFilter) ([]skill
 }
 
 func (m *mockSkillService) Update(_ context.Context, _ string, _ skills.UpdateRequest) (*skills.Skill, error) {
+	if m.updateErr != nil {
+		return nil, m.updateErr
+	}
 	return nil, nil
 }
 
 func (m *mockSkillService) Delete(_ context.Context, _ string) error {
-	return nil
+	return m.deleteErr
 }
 
 func (m *mockSkillService) ListAssignments(_ context.Context, skillID string) ([]skills.Referrer, error) {
@@ -255,5 +261,60 @@ func TestSkillAssignments_TooManyPathSegmentsReturns404(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A plugin-managed skill is refused on write paths with 409 and the exact
+// message naming the owning plugin — the same contract as plugin MCP servers.
+
+func TestUpdateSkill_PluginManaged409(t *testing.T) {
+	svc := newMockSkillService()
+	svc.skills["mem0-memory-usage"] = &skills.Skill{
+		ID: "mem0-memory-usage", Name: "mem0-memory-usage",
+		ManagedBy: "plugin", Tags: []string{"plugin:mem0"},
+	}
+	svc.updateErr = skills.PluginManagedError{PluginID: "mem0"}
+
+	mux := registerSkillRoutesForTest(svc)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/mem0-memory-usage",
+		bytes.NewBufferString(`{"name":"Mine"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	out := decodeSingleError(t, rec.Body.Bytes())
+	if len(out) != 1 {
+		t.Fatalf("expected only an error field, got %v", out)
+	}
+	if out["error"] != "managed by plugin mem0" {
+		t.Errorf("error: %v", out["error"])
+	}
+}
+
+func TestDeleteSkill_PluginManaged409(t *testing.T) {
+	svc := newMockSkillService()
+	svc.skills["mem0-memory-usage"] = &skills.Skill{
+		ID: "mem0-memory-usage", Name: "mem0-memory-usage",
+		ManagedBy: "plugin", Tags: []string{"plugin:mem0"},
+	}
+	svc.deleteErr = skills.PluginManagedError{PluginID: "mem0"}
+
+	mux := registerSkillRoutesForTest(svc)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/skills/mem0-memory-usage", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	out := decodeSingleError(t, rec.Body.Bytes())
+	if len(out) != 1 {
+		t.Fatalf("expected only an error field, got %v", out)
+	}
+	if out["error"] != "managed by plugin mem0" {
+		t.Errorf("error: %v", out["error"])
 	}
 }

@@ -1,0 +1,46 @@
+{
+  "id": "hello",
+  "displayName": "Hello",
+  "version": "1.0.0",
+  "description": "Fixture plugin exercising the AInsel plugin contract",
+  "pluginApi": "1.1",
+  "ui": {
+    "entry": "/static/ui/index.js",
+    "pages": [
+      {
+        "path": "/",
+        "label": "Hello",
+        "section": "Library"
+      },
+      {
+        "path": "/admin",
+        "label": "Hello admin",
+        "component": "AdminPage",
+        "visibility": "admin"
+      }
+    ],
+    "slots": {
+      "agent.panel": "AgentPanel"
+    }
+  },
+  "api": {
+    "basePath": "/api"
+  },
+  "mcp": {
+    "path": "/mcp",
+    "audience": {
+      "remember": "agent",
+      "reset": "operator"
+    }
+  },
+  "permissions": [
+    "agents:read"
+  ],
+  "skills": [
+    {
+      "name": "hello-usage",
+      "description": "How agents use the hello plugin",
+      "path": "/static/skills/hello-usage.md"
+    }
+  ]
+}

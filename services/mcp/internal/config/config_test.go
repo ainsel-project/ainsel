@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ainsel-project/ainsel/services/mcp/internal/config"
 )
@@ -15,6 +16,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("OIDC_SIGNING_ALGS", " ES256, EdDSA ")
 	t.Setenv("OIDC_SCOPES", "openid profile groups")
 	t.Setenv("HUB_URL", "http://hub-backend.test:8080")
+	t.Setenv("PLUGIN_TOOLS_POLL_INTERVAL", "45s")
 
 	cfg := config.Load()
 	if cfg.OIDCIssuer != "https://auth.test" {
@@ -31,6 +33,26 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.HubURL != "http://hub-backend.test:8080" {
 		t.Errorf("HubURL = %q; want http://hub-backend.test:8080", cfg.HubURL)
+	}
+	if cfg.PluginToolsPollInterval != 45*time.Second {
+		t.Errorf("PluginToolsPollInterval = %v; want 45s", cfg.PluginToolsPollInterval)
+	}
+}
+
+func TestPluginToolsPollIntervalDefaults(t *testing.T) {
+	t.Setenv("PLUGIN_TOOLS_POLL_INTERVAL", "")
+	if got := config.Load().PluginToolsPollInterval; got != 15*time.Second {
+		t.Errorf("PluginToolsPollInterval = %v; want 15s", got)
+	}
+
+	t.Setenv("PLUGIN_TOOLS_POLL_INTERVAL", "not-a-duration")
+	if got := config.Load().PluginToolsPollInterval; got != 15*time.Second {
+		t.Errorf("PluginToolsPollInterval with an unparseable value = %v; want 15s", got)
+	}
+
+	t.Setenv("PLUGIN_TOOLS_POLL_INTERVAL", "0s")
+	if got := config.Load().PluginToolsPollInterval; got != 15*time.Second {
+		t.Errorf("PluginToolsPollInterval with a non-positive value = %v; want 15s", got)
 	}
 }
 

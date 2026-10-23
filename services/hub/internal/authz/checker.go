@@ -21,7 +21,20 @@ func NewChecker(store CheckerStore, cache *GroupCache) *Checker {
 }
 
 // IsAdmin checks if the user has the admin flag.
+// If a principal is present with matching Sub, returns false without store lookup.
+// Otherwise, looks up the user in the store.
 func (c *Checker) IsAdmin(ctx context.Context, userID string) (bool, error) {
+	return c.isAdmin(ctx, userID)
+}
+
+// isAdmin is the internal helper that checks admin status.
+func (c *Checker) isAdmin(ctx context.Context, userID string) (bool, error) {
+	// Check if there's a principal in the context with matching Sub
+	if principal, ok := PrincipalFrom(ctx); ok && principal.Sub == userID {
+		// Principals are never admins
+		return false, nil
+	}
+	// Fall back to store lookup
 	u, err := c.store.GetUser(ctx, userID)
 	if err != nil {
 		return false, err
@@ -32,7 +45,7 @@ func (c *Checker) IsAdmin(ctx context.Context, userID string) (bool, error) {
 // CanRead returns true if the user can read the resource.
 // Allowed: admin, public resource, member of the resource's group (any role).
 func (c *Checker) CanRead(ctx context.Context, userID, resourceType, resourceName string) (bool, error) {
-	admin, err := c.IsAdmin(ctx, userID)
+	admin, err := c.isAdmin(ctx, userID)
 	if err != nil {
 		return false, err
 	}
@@ -51,17 +64,30 @@ func (c *Checker) CanRead(ctx context.Context, userID, resourceType, resourceNam
 		return true, nil
 	}
 
-	role, err := c.cache.UserRole(ctx, userID, rg.GroupID)
+	role, err := c.role(ctx, userID, rg.GroupID)
 	if err != nil {
 		return false, err
 	}
 	return roleCovers(role, RoleReader), nil
 }
 
+// role is the internal helper that gets the user's role in a group.
+// If a principal is present with matching Sub, returns the role from the principal.
+// Otherwise, looks up the role in the cache.
+func (c *Checker) role(ctx context.Context, userID, groupID string) (GroupRole, error) {
+	// Check if there's a principal in the context with matching Sub
+	if principal, ok := PrincipalFrom(ctx); ok && principal.Sub == userID {
+		// Return the role from the principal, or empty string if not present
+		return principal.Groups[groupID], nil
+	}
+	// Fall back to cache lookup
+	return c.cache.UserRole(ctx, userID, groupID)
+}
+
 // CanWrite returns true if the user can modify the resource.
 // Allowed: admin, writer or owner in the resource's group.
 func (c *Checker) CanWrite(ctx context.Context, userID, resourceType, resourceName string) (bool, error) {
-	admin, err := c.IsAdmin(ctx, userID)
+	admin, err := c.isAdmin(ctx, userID)
 	if err != nil {
 		return false, err
 	}
@@ -77,7 +103,7 @@ func (c *Checker) CanWrite(ctx context.Context, userID, resourceType, resourceNa
 		return false, err
 	}
 
-	role, err := c.cache.UserRole(ctx, userID, rg.GroupID)
+	role, err := c.role(ctx, userID, rg.GroupID)
 	if err != nil {
 		return false, err
 	}
@@ -87,7 +113,7 @@ func (c *Checker) CanWrite(ctx context.Context, userID, resourceType, resourceNa
 // CanManage returns true if the user can manage the resource (toggle public, etc).
 // Allowed: admin, owner in the resource's group.
 func (c *Checker) CanManage(ctx context.Context, userID, resourceType, resourceName string) (bool, error) {
-	admin, err := c.IsAdmin(ctx, userID)
+	admin, err := c.isAdmin(ctx, userID)
 	if err != nil {
 		return false, err
 	}
@@ -103,7 +129,7 @@ func (c *Checker) CanManage(ctx context.Context, userID, resourceType, resourceN
 		return false, err
 	}
 
-	role, err := c.cache.UserRole(ctx, userID, rg.GroupID)
+	role, err := c.role(ctx, userID, rg.GroupID)
 	if err != nil {
 		return false, err
 	}
@@ -112,7 +138,7 @@ func (c *Checker) CanManage(ctx context.Context, userID, resourceType, resourceN
 
 // CanManageGroup returns true if the user is an owner of the given group or an admin.
 func (c *Checker) CanManageGroup(ctx context.Context, userID, groupID string) (bool, error) {
-	admin, err := c.IsAdmin(ctx, userID)
+	admin, err := c.isAdmin(ctx, userID)
 	if err != nil {
 		return false, err
 	}
@@ -120,7 +146,7 @@ func (c *Checker) CanManageGroup(ctx context.Context, userID, groupID string) (b
 		return true, nil
 	}
 
-	role, err := c.cache.UserRole(ctx, userID, groupID)
+	role, err := c.role(ctx, userID, groupID)
 	if err != nil {
 		return false, err
 	}
@@ -130,7 +156,7 @@ func (c *Checker) CanManageGroup(ctx context.Context, userID, groupID string) (b
 // CanWriteGroup returns true if the user is a writer or owner of the given
 // group, or an admin. Used to gate resource creation into a group.
 func (c *Checker) CanWriteGroup(ctx context.Context, userID, groupID string) (bool, error) {
-	admin, err := c.IsAdmin(ctx, userID)
+	admin, err := c.isAdmin(ctx, userID)
 	if err != nil {
 		return false, err
 	}
@@ -138,7 +164,7 @@ func (c *Checker) CanWriteGroup(ctx context.Context, userID, groupID string) (bo
 		return true, nil
 	}
 
-	role, err := c.cache.UserRole(ctx, userID, groupID)
+	role, err := c.role(ctx, userID, groupID)
 	if err != nil {
 		return false, err
 	}

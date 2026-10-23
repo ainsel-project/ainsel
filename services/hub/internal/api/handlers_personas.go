@@ -142,7 +142,14 @@ func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
 	if admin {
 		return nil
 	}
-	groupIDs, _ := store.UserGroupIDs(r.Context(), u.Sub)
+	// Check if there's a principal (agent or plugin caller)
+	var groupIDs []string
+	if ids, ok := authz.PrincipalGroupIDs(r.Context(), u.Sub); ok {
+		groupIDs = ids
+	} else {
+		// Fall back to store lookup for user callers
+		groupIDs, _ = store.UserGroupIDs(r.Context(), u.Sub)
+	}
 	includePublic := r.URL.Query().Get("includePublic") == "true"
 	names, err := store.ListResourcesByGroups(r.Context(), "persona", groupIDs, includePublic)
 	if err != nil {

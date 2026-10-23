@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
@@ -18,6 +19,8 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
@@ -41,6 +44,7 @@ type authzStore interface {
 	BumpTokenVersion(ctx context.Context, id string) error
 	SetPasswordWithFlag(ctx context.Context, id, hash string, mustChange bool) error
 	DeleteUser(ctx context.Context, id string) error
+	IsUserDisabled(ctx context.Context, id string) (bool, error)
 	UserGroupIDs(ctx context.Context, userID string) ([]string, error)
 	UserGroupRoles(ctx context.Context, userID string) (map[string]authz.GroupRole, error)
 	CreateGroup(ctx context.Context, name, description string) (*authz.Group, error)
@@ -92,6 +96,14 @@ type Server struct {
 	authzChecker           *authz.Checker
 	userTokens             *usertokens.Store
 	internalValidateSecret string
+	pluginCreds            *plugincreds.Issuer
+	pluginProxyTransport   http.RoundTripper
+	pluginProxyOnce        sync.Once
+	pluginMCPOnce          sync.Once
+	// pluginMCP is the MCP client the plugin tool endpoints use to list and call
+	// tools on a plugin's own MCP server. Wired by SetPluginMCPClient; see
+	// getPluginMCPClient for the default.
+	pluginMCP *pluginmcp.Client
 
 	// skillMCPHandler is the read-only skill catalogue MCP, gated by
 	// skillsMCPToken below and built once in SetSkillDiscovery. nil until a
@@ -172,6 +184,25 @@ func (s *Server) SetSkillsMCPToken(token string) {
 // SetInternalValidateSecret sets the shared secret for /api/internal/user-tokens/validate.
 func (s *Server) SetInternalValidateSecret(secret string) {
 	s.internalValidateSecret = secret
+}
+
+// SetPluginMCPClient sets the MCP client used to reach plugin MCP endpoints.
+// Used by tests and by wiring that needs a custom transport.
+func (s *Server) SetPluginMCPClient(c *pluginmcp.Client) {
+	s.pluginMCP = c
+}
+
+// getPluginMCPClient returns the plugin MCP client, building the default on
+// first use: plugin tool calls are in-cluster HTTP with a bounded dial, in the
+// same shape as the plugin proxy transport.
+func (s *Server) getPluginMCPClient() *pluginmcp.Client {
+	// Once: concurrent first requests must share one client (and its tool cache).
+	s.pluginMCPOnce.Do(func() {
+		if s.pluginMCP == nil {
+			s.pluginMCP = pluginmcp.New(&http.Client{Timeout: 30 * time.Second})
+		}
+	})
+	return s.pluginMCP
 }
 
 // SetTriggerStore wires the trigger DB store for the /api/v1/triggers/* and /api/v1/cron-triggers/* endpoints.
@@ -259,6 +290,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/agent-images/", s.handleAgentImagePath)
 	s.mux.HandleFunc("/api/v1/connectors", s.handleConnectors)
 	s.mux.HandleFunc("/api/v1/connectors/", s.handleConnector)
+	registerPluginRoutes(s)
 	s.mux.HandleFunc("/api/v1/triggers", s.handleTriggers)
 	s.mux.HandleFunc("/api/v1/triggers/", s.handleTrigger)
 	s.mux.HandleFunc("/api/v1/cron-triggers", s.handleCronTriggers)
@@ -275,6 +307,11 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/ws", s.handleWs)
 	s.mux.HandleFunc("/api/v1/me", s.handleMe)
 	s.mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
+	s.mux.HandleFunc("/api/v1/plugin-context", s.handlePluginContext)
+	s.mux.HandleFunc("/api/v1/plugin-context/visible", s.handlePluginContextVisible)
+	s.mux.HandleFunc("/api/internal/plugins/", s.handleInternalPluginRoutes)
+	s.mux.HandleFunc("/api/internal/plugin-tools", s.handleInternalPluginTools)
+	s.mux.HandleFunc("/api/v1/plugin-tools/call", s.handlePluginToolCall)
 	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/timeseries", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/agents", s.handleObservability)
@@ -341,7 +378,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
-	if s.authMW != nil && strings.HasPrefix(r.URL.Path, "/api/v1/") && !isAuthExempt(r.URL.Path) {
+	if s.authMW != nil && strings.HasPrefix(r.URL.Path, "/api/v1/") && !isAuthExempt(r) {
 		// The forced-change gate sits inside the auth chain because it decides on
 		// the context user, and in front of the mux because a gate the handlers
 		// have to opt into is a gate new endpoints forget.
@@ -351,13 +388,43 @@ func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// isAuthExempt lists /api/v1/* paths that must stay reachable without a
-// session. Only the login endpoint qualifies: it validates credentials
-// itself and is still protected by the global per-IP rate limiter plus a
-// per-username throttle. Login stays exempt even for a flagged user — they
-// need it to reach the forced change screen.
-func isAuthExempt(path string) bool {
-	return path == "/api/v1/auth/login"
+// isAuthExempt lists /api/v1/* requests that must stay reachable without a
+// session. The login endpoint qualifies: it validates credentials itself and
+// is still protected by the global per-IP rate limiter plus a per-username
+// throttle. Login stays exempt even for a flagged user — they need it to
+// reach the forced change screen. Plugin UI requests are also exempt
+// (the handler will return 405 for non-GET/HEAD methods).
+func isAuthExempt(r *http.Request) bool {
+	if r.URL.Path == "/api/v1/auth/login" {
+		return true
+	}
+
+	// Plugin UI requests are auth-exempt
+	// Pattern: /api/v1/plugins/<id>/ui/<non-empty>
+	escapedPath := r.URL.EscapedPath()
+	if !strings.HasPrefix(escapedPath, "/api/v1/plugins/") {
+		return false
+	}
+
+	// Parse the path: /api/v1/plugins/<id>/ui/<rest>
+	rest := strings.TrimPrefix(escapedPath, "/api/v1/plugins/")
+	parts := strings.SplitN(rest, "/", 3)
+
+	// Need at least 3 parts: id, "ui", rest
+	if len(parts) < 3 {
+		return false
+	}
+
+	if parts[1] != "ui" {
+		return false
+	}
+
+	// rest must be non-empty (UI with no rest is invalid)
+	if parts[2] == "" {
+		return false
+	}
+
+	return true
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -486,6 +553,11 @@ func (s *Server) callerGroupIDs(r *http.Request) []string {
 	if !ok {
 		return nil
 	}
+	// Check if there's a principal (agent or plugin caller)
+	if ids, ok := authz.PrincipalGroupIDs(r.Context(), u.Sub); ok {
+		return ids
+	}
+	// Fall back to store lookup for user callers
 	ids, _ := s.authzStore.UserGroupIDs(r.Context(), u.Sub)
 	return ids
 }

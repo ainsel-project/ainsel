@@ -40,3 +40,8 @@ rules:
   - apiGroups: ["ainsel.dev"]
     resources: ["agentimages/status"]
     verbs: ["update", "patch"]
+  # The /api/v1/plugins admin API manages Plugin CRs; status is written by
+  # the event-gateway operator, not the hub.
+  - apiGroups: ["ainsel.dev"]
+    resources: ["plugins"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -940,6 +940,33 @@ function setAinselEventEnv(ctx: EventContext, agentName: string) {
 }
 
 /**
+ * Sets AINSEL_INVOCATION_ID for the duration of fn and restores the previous
+ * value afterwards — including when fn throws or rejects — so the in-process
+ * MCP catalog can attribute plugin proxy calls to the running task. An empty
+ * invocationId clears the variable for the duration of fn.
+ */
+export async function withInvocationEnv<T>(
+	invocationId: string,
+	fn: () => Promise<T>,
+): Promise<T> {
+	const previous = process.env.AINSEL_INVOCATION_ID;
+	if (invocationId) {
+		process.env.AINSEL_INVOCATION_ID = invocationId;
+	} else {
+		delete process.env.AINSEL_INVOCATION_ID;
+	}
+	try {
+		return await fn();
+	} finally {
+		if (previous === undefined) {
+			delete process.env.AINSEL_INVOCATION_ID;
+		} else {
+			process.env.AINSEL_INVOCATION_ID = previous;
+		}
+	}
+}
+
+/**
  * TurnTracker correlates agent_settled / message_end events with the specific
  * task run that started them. A monotonically increasing generation counter
  * prevents stale events from a previous run from resolving the current
@@ -1301,149 +1328,155 @@ async function processTask(
 
 	setAinselEventEnv(evCtx, agentName);
 
-	let succeeded = false;
-	let errMsg = "";
+	// Expose the task's invocation id on the process environment for the
+	// whole task — the in-process MCP catalog reads it per request to tag
+	// plugin agent-MCP calls. withInvocationEnv restores/clears it on every
+	// exit path: success, error, or timeout.
+	return withInvocationEnv(invocationId, async () => {
+		let succeeded = false;
+		let errMsg = "";
 
-	// Begin a new turn — bumps the generation counter so stale agent_settled /
-	// message_end events from a previous task cannot resolve this turn.
-	const turnDone = beginTurn(tracker);
-	const thisGeneration = tracker.activeGeneration;
+		// Begin a new turn — bumps the generation counter so stale agent_settled /
+		// message_end events from a previous task cannot resolve this turn.
+		const turnDone = beginTurn(tracker);
+		const thisGeneration = tracker.activeGeneration;
 
-	// Install the incremental post context. From here on every turn_end
-	// flushes newly captured messages to the hub (live conversation
-	// tracking); the final report below posts whatever is left and awaits
-	// the whole chain before ack/nack.
-	tracker.postCtx = {
-		hubUrl,
-		token,
-		meta: { agentName, invocationId, correlationId, ...eventSubject(evCtx) },
-		gen: thisGeneration,
-		taskId: task.id,
-		postedCount: 0,
-		postChain: Promise.resolve(),
-	};
+		// Install the incremental post context. From here on every turn_end
+		// flushes newly captured messages to the hub (live conversation
+		// tracking); the final report below posts whatever is left and awaits
+		// the whole chain before ack/nack.
+		tracker.postCtx = {
+			hubUrl,
+			token,
+			meta: { agentName, invocationId, correlationId, ...eventSubject(evCtx) },
+			gen: thisGeneration,
+			taskId: task.id,
+			postedCount: 0,
+			postChain: Promise.resolve(),
+		};
 
-	try {
-		await pi.sendUserMessage(buildUserMessage(evCtx, task.payload));
+		try {
+			await pi.sendUserMessage(buildUserMessage(evCtx, task.payload));
 
-		// Wait for the turn to end, with a timeout to prevent hanging forever.
-		let turnTimer: ReturnType<typeof setTimeout> | undefined;
-		const timeout = new Promise<"timeout">((resolve) => {
-			turnTimer = setTimeout(() => resolve("timeout"), TURN_TIMEOUT_MS);
-		});
-		const result = await Promise.race([turnDone, timeout]);
-		clearTimeout(turnTimer);
-
-		if (result === "timeout") {
-			// Clean up tracker so a late agent_settled doesn't resolve an
-			// already-abandoned promise. Keep activeGeneration at 0
-			// throughout the drain so orphaned events are dropped.
-			tracker.resolve = null;
-			tracker.activeGeneration = 0;
-			succeeded = false;
-			errMsg = `Turn timed out after ${TURN_TIMEOUT_MS}ms`;
-			logError("turn timed out, nacking for retry", {
-				event_type: evCtx.type,
-				agent: agentName,
-				timeout_ms: TURN_TIMEOUT_MS,
+			// Wait for the turn to end, with a timeout to prevent hanging forever.
+			let turnTimer: ReturnType<typeof setTimeout> | undefined;
+			const timeout = new Promise<"timeout">((resolve) => {
+				turnTimer = setTimeout(() => resolve("timeout"), TURN_TIMEOUT_MS);
 			});
+			const result = await Promise.race([turnDone, timeout]);
+			clearTimeout(turnTimer);
 
-			// Cancel the abandoned turn and wait for it to settle so its
-			// tail events cannot leak into the next task's turn.
-			ctx.abort();
-			const didSettle = await waitForSettle(tracker, ctx, TURN_SETTLE_TIMEOUT_MS);
-			if (!didSettle) {
-				logError("abandoned turn did not settle within backstop timeout", {
+			if (result === "timeout") {
+				// Clean up tracker so a late agent_settled doesn't resolve an
+				// already-abandoned promise. Keep activeGeneration at 0
+				// throughout the drain so orphaned events are dropped.
+				tracker.resolve = null;
+				tracker.activeGeneration = 0;
+				succeeded = false;
+				errMsg = `Turn timed out after ${TURN_TIMEOUT_MS}ms`;
+				logError("turn timed out, nacking for retry", {
 					event_type: evCtx.type,
 					agent: agentName,
-					settle_timeout_ms: TURN_SETTLE_TIMEOUT_MS,
+					timeout_ms: TURN_TIMEOUT_MS,
 				});
-			}
-		} else {
-			succeeded = true;
-		}
-	} catch (err) {
-		errMsg = err instanceof Error ? err.message : String(err);
-		logError("pi turn failed", {
-			error_message: errMsg,
-			agent: agentName,
-			event_type: evCtx.type,
-			tracking_id: trackingID(evCtx),
-			invocation_id: invocationId,
-		});
-	}
 
-	// After a normal endTurn() (via agent_settled), activeGeneration is 0 —
-	// that is the expected "run completed" state. A genuine mismatch is when a
-	// *different non-zero* generation is active (i.e. a newer run started).
-	if (succeeded && (tracker.activeGeneration === 0 || tracker.activeGeneration === thisGeneration)) {
-		if (tracker.errorMessage !== null) {
-			succeeded = false;
-			errMsg = tracker.errorMessage;
-			logError("LLM returned error, nacking for retry", {
-				event_type: evCtx.type,
+				// Cancel the abandoned turn and wait for it to settle so its
+				// tail events cannot leak into the next task's turn.
+				ctx.abort();
+				const didSettle = await waitForSettle(tracker, ctx, TURN_SETTLE_TIMEOUT_MS);
+				if (!didSettle) {
+					logError("abandoned turn did not settle within backstop timeout", {
+						event_type: evCtx.type,
+						agent: agentName,
+						settle_timeout_ms: TURN_SETTLE_TIMEOUT_MS,
+					});
+				}
+			} else {
+				succeeded = true;
+			}
+		} catch (err) {
+			errMsg = err instanceof Error ? err.message : String(err);
+			logError("pi turn failed", {
 				error_message: errMsg,
 				agent: agentName,
+				event_type: evCtx.type,
+				tracking_id: trackingID(evCtx),
+				invocation_id: invocationId,
 			});
 		}
 
-		if (succeeded && !tracker.assistantMessageCompleted) {
+		// After a normal endTurn() (via agent_settled), activeGeneration is 0 —
+		// that is the expected "run completed" state. A genuine mismatch is when a
+		// *different non-zero* generation is active (i.e. a newer run started).
+		if (succeeded && (tracker.activeGeneration === 0 || tracker.activeGeneration === thisGeneration)) {
+			if (tracker.errorMessage !== null) {
+				succeeded = false;
+				errMsg = tracker.errorMessage;
+				logError("LLM returned error, nacking for retry", {
+					event_type: evCtx.type,
+					error_message: errMsg,
+					agent: agentName,
+				});
+			}
+
+			if (succeeded && !tracker.assistantMessageCompleted) {
+				succeeded = false;
+				errMsg = "Turn ended without producing an assistant message";
+				logError("turn ended without assistant message, nacking for retry", {
+					event_type: evCtx.type,
+					agent: agentName,
+				});
+			}
+		} else if (succeeded) {
+			// Generation mismatch — the turn state is stale/unreliable.
 			succeeded = false;
-			errMsg = "Turn ended without producing an assistant message";
-			logError("turn ended without assistant message, nacking for retry", {
+			errMsg = "Turn state corrupted (generation mismatch); nacking for retry";
+			logError("turn generation mismatch, nacking for retry", {
 				event_type: evCtx.type,
 				agent: agentName,
+				expected_generation: thisGeneration,
+				actual_generation: tracker.activeGeneration,
 			});
 		}
-	} else if (succeeded) {
-		// Generation mismatch — the turn state is stale/unreliable.
-		succeeded = false;
-		errMsg = "Turn state corrupted (generation mismatch); nacking for retry";
-		logError("turn generation mismatch, nacking for retry", {
-			event_type: evCtx.type,
-			agent: agentName,
-			expected_generation: thisGeneration,
-			actual_generation: tracker.activeGeneration,
-		});
-	}
 
-	const durationMs = Date.now() - start;
+		const durationMs = Date.now() - start;
 
-	// Report the conversation transcript. Messages already posted by the
-	// incremental turn_end flushes are skipped (queueConversationFlush slices
-	// past ctx.postedCount); awaiting ctx.postChain covers both the queued
-	// incremental batches and this final one. reportConversation is
-	// guaranteed not to throw, so a serialize/post failure can never skip
-	// ack/nack below or abort the run.
-	const postCtx = tracker.postCtx;
-	tracker.postCtx = null;
-	if (postCtx !== null) {
-		queueConversationFlush(tracker, postCtx);
-		await postCtx.postChain;
-	}
+		// Report the conversation transcript. Messages already posted by the
+		// incremental turn_end flushes are skipped (queueConversationFlush slices
+		// past ctx.postedCount); awaiting ctx.postChain covers both the queued
+		// incremental batches and this final one. reportConversation is
+		// guaranteed not to throw, so a serialize/post failure can never skip
+		// ack/nack below or abort the run.
+		const postCtx = tracker.postCtx;
+		tracker.postCtx = null;
+		if (postCtx !== null) {
+			queueConversationFlush(tracker, postCtx);
+			await postCtx.postChain;
+		}
 
-	if (succeeded) {
-		await ackTask(hubUrl, token, agentName, task.id);
-		logInfo("event processed", {
-			event_type: evCtx.type,
-			duration_ms: durationMs,
-			task_id: task.id,
-		});
-		return true;
-	} else {
-		await nackTask(hubUrl, token, agentName, task.id, errMsg);
-		logError("event failed, nacked with delay", {
-			event_type: evCtx.type,
-			duration_ms: durationMs,
-			nak_delay_ms: NAK_DELAY_MS,
-			task_id: task.id,
-		});
-		// Report the failure to the hub as an error-level task log so it
-		// appears in the observability errors feed. Console logError output
-		// never leaves the pod; without this the errors view stays empty.
-		await postTaskLog(hubUrl, token, agentName, "error", `Event failed: ${errMsg}`, correlationId, invocationId, { event_type: evCtx.type, task_id: task.id, duration_ms: durationMs });
-		return false;
-	}
+		if (succeeded) {
+			await ackTask(hubUrl, token, agentName, task.id);
+			logInfo("event processed", {
+				event_type: evCtx.type,
+				duration_ms: durationMs,
+				task_id: task.id,
+			});
+			return true;
+		} else {
+			await nackTask(hubUrl, token, agentName, task.id, errMsg);
+			logError("event failed, nacked with delay", {
+				event_type: evCtx.type,
+				duration_ms: durationMs,
+				nak_delay_ms: NAK_DELAY_MS,
+				task_id: task.id,
+			});
+			// Report the failure to the hub as an error-level task log so it
+			// appears in the observability errors feed. Console logError output
+			// never leaves the pod; without this the errors view stays empty.
+			await postTaskLog(hubUrl, token, agentName, "error", `Event failed: ${errMsg}`, correlationId, invocationId, { event_type: evCtx.type, task_id: task.id, duration_ms: durationMs });
+			return false;
+		}
+	});
 }
 
 /**

@@ -5,8 +5,11 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/gen-plugin-shared.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/gen-plugin-shared.mjs",
     "build": "tsc -b && vite build",
+    "pretest": "node scripts/gen-plugin-shared.mjs",
     "preview": "vite preview",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
@@ -14,6 +17,7 @@
     "format": "prettier --write src"
   },
   "dependencies": {
+    "@ainsel/plugin-sdk": "workspace:*",
     "@hookform/resolvers": "^5.9.1",
     "@tanstack/react-query": "^5.104.1",
     "dompurify": "^3",

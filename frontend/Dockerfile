@@ -18,12 +18,16 @@ WORKDIR /workspace
 # Layer caching: install deps before copying source.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY frontend/package.json ./frontend/
+# The console depends on the plugin SDK workspace package (shared with plugin
+# modules through the import map), so its manifest is part of the install.
+COPY packages/plugin-sdk/package.json ./packages/plugin-sdk/
 
 # corepack was removed from Node >= 25 images; install pnpm directly.
 RUN npm install -g pnpm@9.15.9 \
     && pnpm install --frozen-lockfile
 
 COPY frontend ./frontend
+COPY packages/plugin-sdk ./packages/plugin-sdk
 
 # Repository docs are served as static assets by the in-app Docs page.
 # The repoDocsPlugin in vite.config.ts copies docs/ into dist/docs/ at

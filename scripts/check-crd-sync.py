@@ -23,6 +23,8 @@ PAIRS = [
      "operators/agent/config/crd/bases/ainsel.dev_agentimages.yaml"),
     ("chart/templates/crds/webhookconnector.yaml",
      "operators/event-gateway/config/crd/bases/ainsel.dev_webhookconnectors.yaml"),
+    ("chart/templates/crds/plugin.yaml",
+     "operators/event-gateway/config/crd/bases/ainsel.dev_plugins.yaml"),
 ]
 
 

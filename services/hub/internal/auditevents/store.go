@@ -28,6 +28,24 @@ const (
 	TypeUserDeleted       = "user_deleted"
 )
 
+// Plugin management events, written by the /api/v1/plugins admin API. Unlike
+// the auth events above these have no slog counterpart: the row is the record.
+// Every successful plugin write gets one, with target = the plugin id.
+const (
+	TypePluginInstalled           = "plugin_installed"
+	TypePluginUninstalled         = "plugin_uninstalled"
+	TypePluginEnabled             = "plugin_enabled"
+	TypePluginDisabled            = "plugin_disabled"
+	TypePluginPermissionsApproved = "plugin_permissions_approved"
+	TypePluginGroupAccessChanged  = "plugin_group_access_changed"
+)
+
+// Plugin API write events, recorded when a plugin credential makes a non-GET/HEAD request.
+// ActorSub is the credential subject, Target is "<pluginId> <METHOD> <path>".
+const (
+	TypePluginAPIWrite = "plugin_api_write"
+)
+
 // Outcomes. Every event is recorded as exactly one of these.
 const (
 	OutcomeSuccess = "success"
