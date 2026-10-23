@@ -29,7 +29,11 @@ import (
 // HostAPIVersion is the plugin API version this build of AInsel implements.
 // It is the host side of Compatible: a manifest targeting a newer minor than
 // this is incompatible.
-const HostAPIVersion = "1.0"
+const HostAPIVersion = "1.1"
+
+// PageVisibilityAdmin is the visibility value for pages that should only be
+// accessible to administrators.
+const PageVisibilityAdmin = "admin"
 
 // ManifestPath is the path a plugin serves its manifest at, relative to the
 // root of its in-cluster Service.
@@ -77,6 +81,11 @@ var Slots = []string{
 // (the hub's install validation uses the same pattern).
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,29}[a-z0-9]$`)
 
+// componentNamePattern matches a valid JavaScript export name: must start with
+// a letter, underscore, or dollar sign, and continue with alphanumerics,
+// underscores, or dollar signs.
+var componentNamePattern = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
+
 // Manifest is a parsed plugin manifest. Only identity fields and pluginApi are
 // required; the ui, api and mcp specs are each optional and nil when absent.
 type Manifest struct {
@@ -122,6 +131,14 @@ type Page struct {
 
 	// Icon names an icon from the console's icon set.
 	Icon string `json:"icon,omitempty"`
+
+	// Component is the exported name of the component that renders this page.
+	// If empty, the module's default export is used.
+	Component string `json:"component,omitempty"`
+
+	// Visibility controls who can access this page. Empty string means public;
+	// "admin" means administrators only.
+	Visibility string `json:"visibility,omitempty"`
 }
 
 // APISpec marks that a plugin exposes a backend API, reachable only through
@@ -211,6 +228,16 @@ func (m *Manifest) Validate() error {
 				errs = append(errs, fmt.Errorf("plugin: duplicate page path %q: page paths must be unique", page.Path))
 			}
 			seen[page.Path] = true
+
+			// Validate component name if provided
+			if page.Component != "" && !componentNamePattern.MatchString(page.Component) {
+				errs = append(errs, fmt.Errorf("plugin: invalid ui.pages[%d].component %q: must match %s", i, page.Component, componentNamePattern))
+			}
+
+			// Validate visibility value
+			if page.Visibility != "" && page.Visibility != PageVisibilityAdmin {
+				errs = append(errs, fmt.Errorf("plugin: invalid ui.pages[%d].visibility %q: must be empty or %q", i, page.Visibility, PageVisibilityAdmin))
+			}
 		}
 
 		// Slots is a map, so iterate its keys in sorted order: Validate's

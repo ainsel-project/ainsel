@@ -51,8 +51,8 @@ func marshalManifest(t *testing.T, m map[string]any) []byte {
 }
 
 func TestConstants(t *testing.T) {
-	if HostAPIVersion != "1.0" {
-		t.Errorf("HostAPIVersion = %q, want %q", HostAPIVersion, "1.0")
+	if HostAPIVersion != "1.1" {
+		t.Errorf("HostAPIVersion = %q, want %q", HostAPIVersion, "1.1")
 	}
 	if ManifestPath != "/ainsel-plugin.json" {
 		t.Errorf("ManifestPath = %q, want %q", ManifestPath, "/ainsel-plugin.json")
@@ -555,6 +555,82 @@ func TestValidate_PathCharacters(t *testing.T) {
 			}
 			if err != nil && !strings.Contains(err.Error(), tc.field) {
 				t.Errorf("validatePath error = %q, want to contain %q", err.Error(), tc.field)
+			}
+		})
+	}
+}
+
+func TestValidate_PageComponentAndVisibility(t *testing.T) {
+	cases := []struct {
+		name       string
+		component  string
+		visibility string
+		shouldErr  bool
+		errContent string
+	}{
+		// Component tests
+		{"component valid", "MemoryPage", "", false, ""},
+		{"component empty", "", "", false, ""},
+		{"component with underscore", "_MyComponent", "", false, ""},
+		{"component with dollar", "$Component", "", false, ""},
+		{"component invalid starts with digit", "1abc", "", true, "component"},
+		{"component invalid with dash", "a-b", "", true, "component"},
+
+		// Visibility tests
+		{"visibility empty", "", "", false, ""},
+		{"visibility admin", "", "admin", false, ""},
+		{"visibility invalid public", "", "public", true, "visibility"},
+		{"visibility invalid other", "", "private", true, "visibility"},
+
+		// Combined
+		{"component and visibility", "Settings", "admin", false, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := validManifest()
+			m["ui"] = map[string]any{
+				"entry": "/plugins/mem0/index.js",
+				"pages": []any{
+					map[string]any{
+						"path":      "/settings",
+						"label":     "Settings",
+						"component": tc.component,
+						"visibility": tc.visibility,
+					},
+				},
+			}
+			_, err := Parse(marshalManifest(t, m))
+			if tc.shouldErr && err == nil {
+				t.Fatalf("Parse: expected error, got nil")
+			}
+			if !tc.shouldErr && err != nil {
+				t.Fatalf("Parse: unexpected error: %v", err)
+			}
+			if err != nil && !strings.Contains(err.Error(), tc.errContent) {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), tc.errContent)
+			}
+		})
+	}
+}
+
+func TestCompatible_HostIs11(t *testing.T) {
+	cases := []struct {
+		pluginAPI string
+		want      bool
+	}{
+		{pluginAPI: "1.0", want: true},
+		{pluginAPI: "1.1", want: true},
+		{pluginAPI: "1.2", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("plugin_%s_vs_host_%s", tc.pluginAPI, HostAPIVersion), func(t *testing.T) {
+			got, err := Compatible(tc.pluginAPI, HostAPIVersion)
+			if err != nil {
+				t.Fatalf("Compatible(%q, %q): unexpected error: %v", tc.pluginAPI, HostAPIVersion, err)
+			}
+			if got != tc.want {
+				t.Errorf("Compatible(%q, %q) = %v, want %v", tc.pluginAPI, HostAPIVersion, got, tc.want)
 			}
 		})
 	}

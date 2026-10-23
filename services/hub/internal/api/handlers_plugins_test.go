@@ -352,6 +352,71 @@ func TestListPlugins_NonAdminSeesOnlyEnabledReady(t *testing.T) {
 	}
 }
 
+func TestListPlugins_NonAdminStripsAdminPages(t *testing.T) {
+	// Create a manifest with two pages: one public and one admin-only.
+	adminPageManifest := `{
+		"id":"admin-pages","pluginApi":"1.1","version":"1.0.0",
+		"ui":{
+			"entry":"/index.js",
+			"pages":[
+				{"path":"/","label":"Home"},
+				{"path":"/settings","label":"Settings","visibility":"admin"}
+			]
+		}
+	}`
+	p := pluginCRReady(pluginCR("admin-pages", false), true, "Ready", "ok", nil)
+	p.Status.Manifest.Raw = []byte(adminPageManifest)
+
+	s, _ := pluginAuthzTestServer(t, nil, p)
+
+	// Non-admin: sees only the public page
+	rec := doJSON(t, s, http.MethodGet, "/api/v1/plugins", nil, asUser("member", "member"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("member list: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var pubList struct {
+		Items []map[string]any `json:"items"`
+	}
+	decodeJSON(t, rec.Body.Bytes(), &pubList)
+	if len(pubList.Items) != 1 {
+		t.Fatalf("member items = %v, want exactly 1", pubList.Items)
+	}
+	var pubManifest map[string]any
+	pubManifestBytes, _ := json.Marshal(pubList.Items[0]["manifest"])
+	if err := json.Unmarshal(pubManifestBytes, &pubManifest); err != nil {
+		t.Fatalf("decoding non-admin manifest: %v", err)
+	}
+	pubPages, ok := pubManifest["ui"].(map[string]any)["pages"].([]any)
+	if !ok || len(pubPages) != 1 {
+		t.Errorf("non-admin manifest pages = %v, want 1 public page", pubPages)
+	}
+	if pubPages[0].(map[string]any)["path"] != "/" {
+		t.Errorf("non-admin page path = %v, want /", pubPages[0])
+	}
+
+	// Admin: sees both pages
+	rec = doJSON(t, s, http.MethodGet, "/api/v1/plugins", nil, asUser("admin", "admin"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin list: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var adminList struct {
+		Items []map[string]any `json:"items"`
+	}
+	decodeJSON(t, rec.Body.Bytes(), &adminList)
+	if len(adminList.Items) != 1 {
+		t.Fatalf("admin items = %v, want exactly 1", adminList.Items)
+	}
+	var adminManifest map[string]any
+	adminManifestBytes, _ := json.Marshal(adminList.Items[0]["manifest"])
+	if err := json.Unmarshal(adminManifestBytes, &adminManifest); err != nil {
+		t.Fatalf("decoding admin manifest: %v", err)
+	}
+	adminPages, ok := adminManifest["ui"].(map[string]any)["pages"].([]any)
+	if !ok || len(adminPages) != 2 {
+		t.Errorf("admin manifest pages = %v, want 2 pages", adminPages)
+	}
+}
+
 // --- authentication ---
 
 // With authz configured, an anonymous caller gets 401 on every plugin route —

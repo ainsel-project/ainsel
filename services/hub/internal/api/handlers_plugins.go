@@ -553,7 +553,37 @@ func toPluginPublicResponse(p connectorv1alpha1.Plugin) PluginPublicResponse {
 		Version:     p.Status.Version,
 	}
 	if p.Status.Manifest != nil && len(p.Status.Manifest.Raw) > 0 {
-		resp.Manifest = json.RawMessage(p.Status.Manifest.Raw)
+		// Strip admin-only pages from the manifest for non-admin callers
+		resp.Manifest = stripAdminPagesFromManifest(p.Status.Manifest.Raw)
 	}
 	return resp
+}
+
+// stripAdminPagesFromManifest removes pages with visibility "admin" from a
+// manifest JSON. If the manifest cannot be parsed, returns the original.
+func stripAdminPagesFromManifest(manifestBytes []byte) json.RawMessage {
+	var m pluginpkg.Manifest
+	if err := json.Unmarshal(manifestBytes, &m); err != nil {
+		// If we can't parse, return original (shouldn't happen for Ready plugins)
+		return json.RawMessage(manifestBytes)
+	}
+
+	// Filter out admin pages
+	if m.UI != nil && len(m.UI.Pages) > 0 {
+		var filteredPages []pluginpkg.Page
+		for _, page := range m.UI.Pages {
+			if page.Visibility != pluginpkg.PageVisibilityAdmin {
+				filteredPages = append(filteredPages, page)
+			}
+		}
+		m.UI.Pages = filteredPages
+	}
+
+	// Re-marshal and return
+	filtered, err := json.Marshal(m)
+	if err != nil {
+		// If re-marshaling fails, return original
+		return json.RawMessage(manifestBytes)
+	}
+	return json.RawMessage(filtered)
 }
