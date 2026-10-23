@@ -18,6 +18,7 @@ import { SectionStatus } from '../../../primitives/SectionStatus'
 import { Tag } from '../../../primitives/Tag'
 import { formatISO } from '../../../utils/time'
 import { ConversationTranscript } from './ConversationTranscript'
+import { PluginSlot } from '../../../plugins/PluginSlot'
 
 function StatusTag({ status }: { status: 'matched' | 'unmatched' | 'error' }) {
   if (status === 'matched') return <Tag variant="ok">MATCH</Tag>
@@ -139,6 +140,13 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
             emptyState={transcriptEmptyState(invocation)}
           />
         )}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <PluginSlot
+          slot="invocation.panel"
+          props={{ invocationId: invocation.id, agentName: invocation.agentName ?? invocation.agent }}
+        />
       </div>
     </Panel>
   )

@@ -20,6 +20,7 @@ import { LogStream } from './LogStream'
 import { RangeSelector } from './RangeSelector'
 import { SummaryCards } from './SummaryCards'
 import { TokensTable } from './TokensTable'
+import { PluginSlot } from '../../plugins/PluginSlot'
 
 const VALID_RANGES = ['1h', '6h', '24h', '7d'] as const
 const isRange = (s: string | null): s is Range =>
@@ -227,6 +228,16 @@ export function Observability() {
         </Panel>
 
         <LogStream range={range} />
+
+        <PluginSlot
+          slot="observability.section"
+          props={{ range }}
+          render={(c, el) => (
+            <Panel key={c.plugin.id} title={c.plugin.displayName}>
+              {el}
+            </Panel>
+          )}
+        />
       </div>
     </>
   )

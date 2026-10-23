@@ -4,6 +4,58 @@ import { Route, Routes } from 'react-router-dom'
 import { EventView } from './EventView'
 import { renderWithProviders } from '../../../test/renderWithProviders'
 
+// Mock usePlugins to return a mem0 plugin with all four slots
+vi.mock('../../../api/plugins', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/plugins')>()
+  return {
+    ...actual,
+    usePlugins: () => ({
+      data: [
+        {
+          id: 'mem0',
+          displayName: 'Mem0',
+          ready: true,
+          disabled: false,
+          manifest: {
+            id: 'mem0',
+            displayName: 'Mem0',
+            version: '1.0.0',
+            pluginApi: '1.1',
+            ui: {
+              entry: '/ui/index.js',
+              slots: {
+                'agent.panel': 'AgentPanel',
+                'persona.panel': 'PersonaPanel',
+                'observability.section': 'ObsSection',
+                'invocation.panel': 'RunPanel',
+              },
+            },
+          },
+        },
+      ],
+      isPending: false,
+    }),
+  }
+})
+
+// Mock loadPluginModule to return components that render their props
+vi.mock('../../../plugins/loader', () => {
+  return {
+    loadPluginModule: vi.fn(async () => ({
+      AgentPanel: ({ agentName }: { agentName: string }) => (
+        <p>{`agentName=${agentName}`}</p>
+      ),
+      PersonaPanel: ({ personaId }: { personaId: string }) => (
+        <p>{`personaId=${personaId}`}</p>
+      ),
+      ObsSection: ({ range }: { range: string }) => <p>{`range=${range}`}</p>,
+      RunPanel: ({ invocationId, agentName }: { invocationId: string; agentName: string }) => (
+        <p>{`invocationId=${invocationId} agentName=${agentName}`}</p>
+      ),
+    })),
+  }
+})
+
 const sampleEvent = {
   id: 'evt-1234567890000000000',
   timestamp: '2026-06-10T08:31:25Z',
@@ -487,5 +539,14 @@ describe('EventView', () => {
     const button = await screen.findByRole('button', { name: /back to top/i })
     fireEvent.click(button)
     expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+  })
+
+  describe('plugin slots', () => {
+    it('renders a plugin slot below the transcript with invocation details', async () => {
+      renderEventView('/observability/events/evt-1234567890000000000')
+      await waitFor(() =>
+        expect(screen.getByText('invocationId=inv-1 agentName=review-bot')).toBeInTheDocument(),
+      )
+    })
   })
 })
