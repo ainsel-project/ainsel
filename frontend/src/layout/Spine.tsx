@@ -1,9 +1,11 @@
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useMemo } from 'react'
 import { NavLink, Link } from 'react-router-dom'
 import { useAgents } from '../api/agents'
+import { usePlugins, usePluginCallerContext } from '../api/plugins'
 import { getAgentRecents, RECENT_AGENT_LIMIT } from '../agentRecents'
 import { PREF_CHANGE_EVENT } from '../prefs'
 import { Dot } from '../primitives/Dot'
+import { activePlugins, navEntries } from '../plugins/registry'
 import './Spine.css'
 
 type NavItem = { idx: string; name: string; to: string; tag?: string }
@@ -130,6 +132,106 @@ export function Spine({
   open = false,
   onClose,
 }: SpineProps) {
+  const { data: pluginItems } = usePlugins()
+  const { data: callerContext } = usePluginCallerContext()
+
+  const availablePlugins = useMemo(
+    () => activePlugins(Array.isArray(pluginItems) ? pluginItems : []),
+    [pluginItems],
+  )
+  const pluginNavEntries = useMemo(
+    () => navEntries(availablePlugins, callerContext?.isAdmin ?? false),
+    [availablePlugins, callerContext?.isAdmin],
+  )
+
+  // Group plugin entries by section and compute Plugins section
+  const pluginsBySection = useMemo(() => {
+    const grouped = new Map<string, typeof pluginNavEntries>()
+    for (const entry of pluginNavEntries) {
+      if (!grouped.has(entry.section)) {
+        grouped.set(entry.section, [])
+      }
+      grouped.get(entry.section)!.push(entry)
+    }
+    return grouped
+  }, [pluginNavEntries])
+
+  // Render sections with plugin entries
+  const renderSections = () => {
+    const sectionElements: React.ReactNode[] = []
+
+    for (let i = 0; i < SECTIONS.length; i++) {
+      const section = SECTIONS[i]
+      sectionElements.push(
+        <div key={section.label}>
+          <div className="nav-section">
+            <span className="label">{section.label}</span>
+          </div>
+          {section.items.map((item) => (
+            <div key={item.to}>
+              <NavLink
+                to={item.to}
+                className={({ isActive }) =>
+                  isActive ? 'nav-link active' : 'nav-link'
+                }
+              >
+                <span className="idx">{item.idx}</span>
+                <span className="name">{item.name}</span>
+                {item.tag ? <span className="nav-tag">{item.tag}</span> : <span />}
+              </NavLink>
+              {item.to === '/agents' ? <RecentAgents scope={recentsScope} /> : null}
+            </div>
+          ))}
+          {/* Render plugin entries for this section */}
+          {pluginsBySection.get(section.label)?.map((entry, idx) => (
+            <div key={entry.to}>
+              <NavLink
+                to={entry.to}
+                className={({ isActive }) =>
+                  isActive ? 'nav-link active' : 'nav-link'
+                }
+              >
+                <span className="idx">P·{idx + 1}</span>
+                <span className="name">{entry.label}</span>
+                <span />
+              </NavLink>
+            </div>
+          ))}
+        </div>,
+      )
+
+      // Insert Plugins section after Library (index 2)
+      if (i === 2) {
+        const pluginOnlyEntries = pluginsBySection.get('Plugins')
+        if (pluginOnlyEntries && pluginOnlyEntries.length > 0) {
+          sectionElements.push(
+            <div key="Plugins">
+              <div className="nav-section">
+                <span className="label">Plugins</span>
+              </div>
+              {pluginOnlyEntries.map((entry, idx) => (
+                <div key={entry.to}>
+                  <NavLink
+                    to={entry.to}
+                    className={({ isActive }) =>
+                      isActive ? 'nav-link active' : 'nav-link'
+                    }
+                  >
+                    <span className="idx">P·{idx + 1}</span>
+                    <span className="name">{entry.label}</span>
+                    <span />
+                  </NavLink>
+                </div>
+              ))}
+            </div>,
+          )
+        }
+      }
+    }
+
+    return sectionElements
+  }
+
   return (
     <>
       {open ? <div className="spine-backdrop" aria-hidden="true" onClick={onClose} /> : null}
@@ -149,28 +251,7 @@ export function Spine({
         </div>
 
         <nav className="nav" aria-label="Primary">
-          {SECTIONS.map((section) => (
-            <div key={section.label}>
-              <div className="nav-section">
-                <span className="label">{section.label}</span>
-              </div>
-              {section.items.map((item) => (
-                <div key={item.to}>
-                  <NavLink
-                    to={item.to}
-                    className={({ isActive }) =>
-                      isActive ? 'nav-link active' : 'nav-link'
-                    }
-                  >
-                    <span className="idx">{item.idx}</span>
-                    <span className="name">{item.name}</span>
-                    {item.tag ? <span className="nav-tag">{item.tag}</span> : <span />}
-                  </NavLink>
-                  {item.to === '/agents' ? <RecentAgents scope={recentsScope} /> : null}
-                </div>
-              ))}
-            </div>
-          ))}
+          {renderSections()}
         </nav>
 
         <div className="spine-footer">

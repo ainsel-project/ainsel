@@ -44,6 +44,7 @@ import { MCPServerForm } from './pages/mcp-servers/MCPServerForm'
 import { SkillList } from './pages/skills/SkillList'
 import { SkillForm } from './pages/skills/SkillForm'
 import { SkillDetail } from './pages/skills/SkillDetail'
+import { PluginPage } from './plugins/PluginPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -136,6 +137,7 @@ export default function App() {
                 <Route path="mcp-servers/new" element={<MCPServerForm />} />
                 <Route path="mcp-servers/:name" element={<MCPServerForm />} />
               </Route>
+              <Route path="/p/:pluginId/*" element={<PluginPage />} />
             </Route>
 
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
