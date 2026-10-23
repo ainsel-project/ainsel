@@ -58,6 +58,14 @@ spec:
               app.kubernetes.io/managed-by: connector-operator
       ports:
         - port: {{ .Values.hub.port }}
+    # From plugin pods (scoped credential callbacks and background
+    # credentials; plugins label their pods ainsel.io/plugin: "true")
+    - from:
+        - podSelector:
+            matchLabels:
+              ainsel.io/plugin: "true"
+      ports:
+        - port: {{ .Values.hub.port }}
     # From the ingress controller (browser API traffic: UI -> ingress -> hub-backend)
     - from:
         - namespaceSelector:
@@ -68,6 +76,31 @@ spec:
     # Allow metrics scraping
     - ports:
         - port: {{ .Values.hub.metricsPort }}
+---
+# Plugin pods accept traffic only from the hub (the plugin proxy) and the
+# event-gateway operator (manifest fetch). Egress is left to each plugin's own
+# chart, which knows the external services the plugin talks to.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: plugins
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      ainsel.io/plugin: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub-backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: k8s-event-source-gateway-operator
 ---
 # Allow Postgres ingress from hub only
 apiVersion: networking.k8s.io/v1

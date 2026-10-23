@@ -564,6 +564,33 @@ Set which groups' background identity the plugin may act for.
 **Response:** `200 OK` with the plugin record, `400` if any group id does not
 exist (spec unchanged), or `404 Not Found`.
 
+### /api/v1/plugins/{id}/ui/{path} · /api/v1/plugins/{id}/api/{path} · /api/v1/plugins/{id}/mcp
+
+Reverse proxy to an enabled, Ready plugin, forwarded only to one of its
+`status.verifiedEndpoints`.
+
+| Route | Auth | Methods | Upstream path |
+|---|---|---|---|
+| `ui/{path}` | none | GET, HEAD (else `405`) | directory of `ui.entry` + `/{path}` |
+| `api/{path}` | required | any | `api.basePath` + `/{path}` |
+| `mcp[/{path}]` | required | any | `mcp.path` [+ `/{path}`] |
+
+The query string is passed through. Paths may only contain `A-Z a-z 0-9 . _ ~
+- /`; `%`, `\`, `.`/`..` segments and `//` answer `400 invalid plugin path`.
+
+Removed from the request: `Authorization`, `Cookie`, `Proxy-Authorization`,
+`Forwarded`, `X-Forwarded-*`, `X-Real-Ip`, and every `X-Ainsel-*` header the
+client sent. Added: `X-Ainsel-Plugin-Id`, `X-Ainsel-Forwarded-Prefix`
+(`/api/v1/plugins/{id}/{surface}`), and on `api`/`mcp` with a logged-in user
+`X-Ainsel-Credential` (an `ainselp_` user credential for calling back into the
+hub) and `X-Ainsel-Context` (base64url JSON, same shape as
+`GET /api/v1/plugin-context`, with the plugin's approved permissions). Responses
+lose `Set-Cookie` and get `X-Content-Type-Options: nosniff`; they stream.
+
+**Errors:** `404 plugin not found` (missing, disabled, not Ready, or the surface
+is not in the manifest), `503 plugin has no verified endpoints`,
+`503 plugin credentials are not configured`, `502 plugin unreachable`.
+
 ### GET /api/v1/plugin-context
 
 Returns the authenticated caller's context: their identity, effective permissions,

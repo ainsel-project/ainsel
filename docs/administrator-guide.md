@@ -889,11 +889,24 @@ permission to widen its own reach:
 Read verbs let a plugin look at that resource through the platform API; write
 verbs let it change it. Judge a plugin by the write verbs it asks for.
 
-**Group access.** `PUT /api/v1/plugins/{id}/group-access` records which
-groups' background identity the plugin may act for (the background identity
-itself lands with a later phase; the hub validates and stores the list now).
-Unknown group ids are rejected; an empty list means the plugin acts for no
-group.
+**Group access.** `PUT /api/v1/plugins/{id}/group-access` sets the groups the
+plugin's background identity (work done without a user) may act in, with the
+`writer` role, bounded by the approved permissions. Unknown group ids are
+rejected; an empty list means the background identity can read only public
+resources. See [Plugin credentials](access-control.md#plugin-credentials).
+
+**Traffic and network.** The browser and agents never talk to a plugin
+directly: the hub proxies its UI assets, API and MCP endpoint under
+`/api/v1/plugins/{id}/ui|api|mcp`, and only to pods running the verified image
+digest. API and MCP calls need a login; the hub swaps the caller's token for a
+short-lived plugin credential, so the plugin never sees a session or `ainsel_`
+token. UI assets (the plugin's JavaScript and styles) are served without a
+login, because browsers cannot attach a token when they load a module; treat
+them as public. Label your plugin pods `ainsel.io/plugin: "true"`: with
+`networkPolicy.enabled` (the default) the chart then lets plugin pods reach the
+hub and accept traffic only from the hub and the event-gateway operator.
+Outbound rules for the external services a plugin uses belong in the plugin's
+own chart.
 
 **Disabling.** `POST /api/v1/plugins/{id}/disable` (or the console switch)
 stops routing to the plugin, makes it vanish from non-admin listings, and
