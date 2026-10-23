@@ -283,6 +283,28 @@ decisions: a permission approval and a group-access grant.
 | `approve_plugin_permissions` | write | Approve exactly the permission set the manifest declares — anything else is rejected with the declared set. Admin-only. |
 | `set_plugin_group_access` | write | Set which groups the plugin may act on behalf of; an empty array revokes all. Admin-only. |
 
+### Plugin tools
+
+Tools that plugins serve to operators appear here as ordinary tools of this
+server, named `<pluginId>_<tool>`: the plugin id with its dashes turned into
+underscores, then the plugin's own tool name. Nothing else about them differs —
+they show up in `tools/list`, take the arguments their input schema describes,
+and return the plugin's result. A call goes back through the hub with your own
+bearer, so the plugin acts as you.
+
+The list is not fixed at startup. The server polls the hub for the operator tool
+list (every 15 s by default, `PLUGIN_TOOLS_POLL_INTERVAL`) and re-registers what
+came back: tools that appeared or changed are added or replaced, tools whose
+plugin was disabled or uninstalled are removed. A failed poll leaves the current
+list untouched rather than emptying it. A plugin tool whose name would shadow a
+built-in tool is skipped and logged at warn.
+
+Only the operator audience is here. A tool the plugin's manifest declares
+`"agent"` in `mcp.audience` is not listed and cannot be called through this
+server, whatever is asked for — those tools are served to agent runtimes through
+a separate hub endpoint. A tool-level failure is not a call failure: it comes
+back inside the result as `isError`, the same as any other MCP tool.
+
 ### Invocations & activity
 
 | Tool | Mode | What it answers |

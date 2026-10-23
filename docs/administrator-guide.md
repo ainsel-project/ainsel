@@ -908,11 +908,84 @@ hub and accept traffic only from the hub and the event-gateway operator.
 Outbound rules for the external services a plugin uses belong in the plugin's
 own chart.
 
+**Tools, and who may see them.** A plugin's MCP tools declare their audience in
+the manifest: `mcp.audience` maps a tool name to `agent`, `operator` or `both`,
+and a tool the manifest does not list is `both`. The split is strict, and it is
+the platform's rule rather than the plugin's suggestion — an `agent` tool is
+never listed or callable through AInsel's own MCP server, not even for an admin,
+and an `operator` tool is never listed or callable through the agent endpoint.
+The two audiences are served by different endpoints, so neither is reachable by
+asking the other one.
+
+**Plugin tools for operators.** Every operator-facing tool turns up as a tool of
+AInsel's MCP server, named `<pluginId>_<tool>` with the dashes of the plugin id
+turned into underscores — plugin `mem0-cache`, tool `get_entry` is offered as
+`mem0_cache_get_entry`. `services/mcp` polls the hub for that list every 15 s
+(`PLUGIN_TOOLS_POLL_INTERVAL` to change it) and adds, replaces or removes tools
+as it changes. A plugin tool whose name equals a built-in tool is skipped and
+logged at warn instead of shadowing the built-in. Calls go back through the hub
+with your own bearer, so the plugin sees your credential. See
+[`mcp.md`](mcp.md#plugin-tools).
+
+**Plugin tools for AInsel's agents.** A plugin whose manifest declares an `mcp`
+endpoint gets a row in the MCP registry: name `plugin-<id>`, display name the
+plugin's display name, URL `<HUB_SELF_URL>/api/internal/plugins/<id>/agent-mcp`,
+bearer taken from `HUB_INTERNAL_VALIDATE_SECRET`, `managedBy: plugin`. Attach it
+to an agent image like any other MCP server — the row points at the hub, not at
+the plugin, which is the whole point:
+
+```yaml
+spec:
+  mcpServers:
+    - name: plugin-mem0
+      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/plugins/mem0/agent-mcp
+      tokenFromEnv: HUB_INTERNAL_VALIDATE_SECRET
+```
+
+`HUB_INTERNAL_VALIDATE_SECRET` is one of the platform-owned env names an
+`mcpServers` entry may not normally reference; the agent operator makes the
+exception for exactly that URL prefix and refuses it anywhere else, so the
+platform token can never be collected by a server you registered. Each call
+carries `X-Ainsel-Agent` (the calling agent) and, when the runtime knows one,
+`X-Ainsel-Invocation-Id` — the plugin receives the invocation id, so it can bind
+what it did to the invocation that did it.
+
+The rows are written by a sync loop that runs every 30 s, once at hub start as
+well, and they exist only while `HUB_SELF_URL` is set on the hub — that is the
+base of every URL the syncer writes, and the chart gives it the same address the
+agent operator gets as `HUB_URL`. Without it the sync is off and plugins serve no
+agent tools.
+
+**Plugin-shipped skills.** A manifest may declare up to 20 skills. Each one
+becomes a row in the skill registry with id and name `<pluginId>-<skill name>`,
+the tag `plugin:<pluginId>`, and `managedBy: plugin`. Its body is fetched from
+the plugin over one of its verified endpoints on the same pass, and a document
+over 64 KiB is rejected rather than stored — the cap is tighter than the
+platform's own skill limit because the fetch happens on a background loop
+against a pod nobody sized for it. Like the MCP row, the skill is public: a
+plugin ships it for the whole platform, not for one owner. A skill whose body
+cannot be read right now keeps the body already stored and is retried next pass,
+so a restarting pod does not empty the registry.
+
+**These rows are read-only for you.** Updating or deleting a plugin's MCP server
+or skill answers `409 {"error": "managed by plugin <id>"}` — the plugin is their
+only author. The rule holds in the other direction too: a plugin never takes over
+a row a user owns. If you name a skill `<pluginId>-<skill name>` or an MCP server
+`plugin-<id>` yourself, that row stays yours and the plugin's version simply is
+not registered — the sync logs it, and that log line is the only trace. Rows are
+removed when the Plugin CR goes away or its manifest stops declaring the surface.
+
 **Disabling.** `POST /api/v1/plugins/{id}/disable` (or the console switch)
 stops routing to the plugin, makes it vanish from non-admin listings, and
 pauses manifest fetching — the registration and your approvals stay put, so
-re-enabling is instant. Uninstalling (`DELETE /api/v1/plugins/{id}`) removes
-the CR; the plugin's own Deployment/Service are yours to delete separately.
+re-enabling is instant. The plugin keeps its registry rows: disabling is meant
+to stop tools answering, not to reconfigure every agent image that attached them.
+Its agent endpoint then answers `404` to every request — list or call — so an
+agent gets no tools and no call goes through, indistinguishable from a plugin
+that was never installed.
+Uninstalling (`DELETE /api/v1/plugins/{id}`) removes the CR and, with it, the
+`plugin-<id>` row and the plugin's skill rows; the plugin's own Deployment and
+Service are yours to delete separately.
 
 Every plugin change you make — install, uninstall, enable, disable,
 approval, group-access — lands a row in the audit trail (auth events) with

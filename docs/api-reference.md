@@ -591,6 +591,93 @@ lose `Set-Cookie` and get `X-Content-Type-Options: nosniff`; they stream.
 is not in the manifest), `503 plugin has no verified endpoints`,
 `503 plugin credentials are not configured`, `502 plugin unreachable`.
 
+### GET /api/internal/plugin-tools
+
+The operator tool list, for AInsel's MCP server (`services/mcp`) to aggregate:
+it registers each entry as `<pluginId>_<name>` (see
+[`mcp.md`](mcp.md#plugin-tools)). Protected by `X-Internal-Token`, like the
+other `/api/internal/*` routes. The hub is the only MCP client of a plugin, so
+the aggregator never talks to one — it asks the hub what exists and hands each
+call back here.
+
+Only enabled, Ready plugins contribute, and only tools whose manifest audience
+is `operator` or `both` — an `agent` tool is never listed here, for anyone. A
+plugin that cannot be reached contributes nothing and never fails the response:
+one broken plugin must not take the whole tool list down. Entries are sorted by
+plugin id, then tool name, and `name` is the plugin's own tool name — the prefix
+belongs to the caller, so the hub does not rewrite it.
+
+**Response:** `200 OK` (`tools` is always an array, never `null`)
+```json
+{
+  "tools": [
+    {
+      "pluginId": "mem0",
+      "name": "search_memory",
+      "description": "Search the caller's memories",
+      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}}
+    }
+  ]
+}
+```
+
+**Errors:** `401 invalid internal token`, `405 method not allowed`, `503
+internal endpoints disabled` (no `HUB_INTERNAL_VALIDATE_SECRET`).
+
+### POST /api/v1/plugin-tools/call
+
+Run one operator-audience tool on a plugin. The plugin's `CallToolResult` is
+returned unchanged, so a tool-level error stays inside the result as `isError`
+rather than becoming an HTTP status.
+
+**Auth:** a logged-in user. The route is deliberately absent from the
+plugin-credential route table, so an `ainselp_` caller cannot call tools back
+into the hub. The hub mints that user's plugin credential for the call, so the
+tool acts as the caller.
+
+**Request body:**
+```json
+{"pluginId": "mem0", "tool": "search_memory", "arguments": {"query": "…"}}
+```
+
+`pluginId` and `tool` are required; the body is capped at 1 MiB.
+
+**Response:** `200 OK` with the plugin's `CallToolResult`. `400` on an
+unparseable body or a missing `pluginId`/`tool`, `404 plugin not found` (plugin
+missing, disabled or not Ready), `404 tool not found` (the plugin does not serve
+that tool, or serves it to agents only — the same answer either way, so the
+endpoint never discloses which tools a plugin keeps private), `502 plugin
+unreachable`, `503 plugin credentials are not configured`, `405` on any method
+but POST.
+
+### POST /api/internal/plugins/<id>/agent-mcp
+
+One plugin's tools, served as a stateless MCP streamable-HTTP endpoint for agent
+runtimes. This is where the `plugin-<id>` row of the MCP registry points (see
+[`administrator-guide.md`](administrator-guide.md#plugins)): the agent connects
+to the hub and the hub is the MCP client of the plugin, so no plugin address,
+credential or secret ever lands in an agent pod.
+
+**Auth:** `Authorization: Bearer <HUB_INTERNAL_VALIDATE_SECRET>`, plus
+`X-Ainsel-Agent: <agent name>` — required, DNS-label shaped, and validated
+rather than trusted, because the name becomes the subject of the credential the
+plugin sees (`kind: agent`, subject `agent:<name>`). `X-Ainsel-Invocation-Id` is
+optional and must match `^[A-Za-z0-9._:-]{1,128}$`. The pi runtime sends both
+headers only to URLs whose path starts with `/api/internal/plugins/`.
+
+**Response:** the MCP session of that plugin's `agent`- and `both`-audience
+tools; an operator tool is neither listed nor callable here, for any agent. The
+tool list is read as the plugin's own background identity, and the credential a
+call carries is minted per call for the named agent, never reused. A credential
+or transport failure on a call is reported as a tool result with `isError` — the
+agent asked for a tool, and the failure is about that call.
+
+**Errors:** `401 unauthorized` (missing or wrong bearer), `400 missing or
+invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id`, `404 plugin not found`
+(missing, disabled, not Ready, or a manifest with no `mcp` surface — a disabled
+plugin is indistinguishable from one never installed), `502 plugin unreachable`,
+`503 internal endpoints disabled`.
+
 ### GET /api/v1/plugin-context
 
 Returns the authenticated caller's context: their identity, effective permissions,
