@@ -997,7 +997,8 @@ var _ = Describe("Plugin Controller", func() {
 		rv1 := p1.ResourceVersion
 
 		// Second reconcile with same state - should not update status
-		reconcilePluginWithOptions(verifier, policy, nowFunc)
+		later := now.Add(time.Hour)
+		reconcilePluginWithOptions(verifier, policy, func() time.Time { return later })
 
 		p2 := &commonv1alpha1.Plugin{}
 		Expect(k8sClient.Get(ctx, key, p2)).To(Succeed())

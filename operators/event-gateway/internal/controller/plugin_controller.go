@@ -351,37 +351,29 @@ func (r *PluginReconciler) verifySignature(ctx context.Context, p *commonv1alpha
 		policy = &signing.Policy{}
 	}
 
-	// If no trust material and signatures not required, record as verified=false
-	if !policy.HasTrust() && !policy.RequireSignature {
-		return &signing.Result{Verified: false}, false, nil
+	// Without a verifier nothing can be checked; fail closed when required.
+	if r.Verifier == nil && policy.RequireSignature {
+		return nil, false, fmt.Errorf("no verifier configured but signatures required")
 	}
 
-	// If no verifier, can't verify
-	if r.Verifier == nil {
-		if policy.RequireSignature {
-			return nil, false, fmt.Errorf("no verifier configured but signatures required")
-		}
-		return &signing.Result{Verified: false}, false, nil
-	}
-
-	// Check if we can reuse the cached signature result
+	// Reuse the recorded outcome while digest, policy and the 24h window still match.
+	// This covers the no-trust path too, so its status does not churn.
 	if r.canReuseSigResult(p) {
-		// Return cached result with reused=true
 		return &signing.Result{
 			Verified: p.Status.Signature.Verified,
 			Signer:   p.Status.Signature.Signer,
 		}, true, nil
 	}
 
+	// No trust material (or no verifier) and signatures not required: record verified=false.
+	if r.Verifier == nil || (!policy.HasTrust() && !policy.RequireSignature) {
+		return &signing.Result{Verified: false}, false, nil
+	}
+
 	// Verify the signature
 	result, err := r.Verifier.Verify(ctx, p.Spec.Image.Repository+"@"+p.Spec.Image.Digest)
 	if err != nil {
 		return nil, false, err
-	}
-
-	// If signature is not verified and it's required, return error
-	if !result.Verified && policy.RequireSignature {
-		return &result, false, nil
 	}
 
 	return &result, false, nil
