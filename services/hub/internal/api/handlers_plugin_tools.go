@@ -148,6 +148,7 @@ func (s *Server) handlePluginToolCall(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var body pluginToolCallRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
