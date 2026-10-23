@@ -157,4 +157,27 @@ describe('PluginDetail', () => {
       })
     })
   })
+
+  it('keeps showing approved permissions without an approve button', async () => {
+    const approved = { ...defaultPlugin, approvedPermissions: ['perm1', 'perm2'] }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes('/plugins') && !url.includes('plugin-context')
+            ? new Response(JSON.stringify([approved]), { status: 200 })
+            : defaultFetch(url),
+        ),
+      ),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/plugins/:id" element={<PluginDetail />} />
+      </Routes>,
+      { route: '/plugins/plugin1' },
+    )
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+    expect(screen.getAllByText('perm2').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Approve permissions' })).not.toBeInTheDocument()
+  })
 })

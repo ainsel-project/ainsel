@@ -123,8 +123,7 @@ export function PluginDetail() {
   }
 
   const statusText = getStatusText(plugin)
-  const statusVariant =
-    statusText === 'Ready' ? 'ok' : statusText === 'Disabled' ? 'err' : 'warn'
+  const statusVariant = statusText === 'Ready' ? 'ok' : statusText === 'Disabled' ? 'err' : 'warn'
 
   return (
     <>
@@ -146,9 +145,7 @@ export function PluginDetail() {
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Tag variant={statusVariant}>{statusText}</Tag>
                 {plugin.message && (
-                  <span style={{ color: 'var(--ink-3)', fontSize: '0.9em' }}>
-                    {plugin.message}
-                  </span>
+                  <span style={{ color: 'var(--ink-3)', fontSize: '0.9em' }}>{plugin.message}</span>
                 )}
               </div>
             </div>
@@ -222,33 +219,41 @@ export function PluginDetail() {
           </div>
         </Panel>
 
-        {hasUnapprovedPermissions && (
-          <Panel title="Permissions">
-            <div style={{ padding: 16, display: 'grid', gap: 14 }}>
-              <div>
-                <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                  Declared Permissions
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {plugin.declaredPermissions?.map((perm) => (
+        <Panel title="Permissions">
+          <div style={{ padding: 16, display: 'grid', gap: 14 }}>
+            <div>
+              <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
+                Declared Permissions
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {plugin.declaredPermissions?.length ? (
+                  plugin.declaredPermissions.map((perm) => (
                     <Tag key={perm} variant="warn">
                       {perm}
                     </Tag>
-                  )) || <span style={{ color: 'var(--ink-3)' }}>None</span>}
-                </div>
+                  ))
+                ) : (
+                  <span style={{ color: 'var(--ink-3)' }}>None</span>
+                )}
               </div>
-              <div>
-                <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                  Approved Permissions
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {plugin.approvedPermissions?.map((perm) => (
+            </div>
+            <div>
+              <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
+                Approved Permissions
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {plugin.approvedPermissions?.length ? (
+                  plugin.approvedPermissions.map((perm) => (
                     <Tag key={perm} variant="ok">
                       {perm}
                     </Tag>
-                  )) || <span style={{ color: 'var(--ink-3)' }}>None</span>}
-                </div>
+                  ))
+                ) : (
+                  <span style={{ color: 'var(--ink-3)' }}>None</span>
+                )}
               </div>
+            </div>
+            {hasUnapprovedPermissions && (
               <Button
                 variant="primary"
                 onClick={() => setConfirmApproveOpen(true)}
@@ -256,9 +261,9 @@ export function PluginDetail() {
               >
                 Approve permissions
               </Button>
-            </div>
-          </Panel>
-        )}
+            )}
+          </div>
+        </Panel>
 
         <Panel title="Group Access">
           <div style={{ padding: 16, display: 'grid', gap: 14 }}>
