@@ -17,6 +17,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
+	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
@@ -221,6 +222,22 @@ func wireAuthMiddleware(ctx context.Context, c *container, cfg containerConfig) 
 		return fmt.Errorf("invalid HUB_AUTH_MODE %q (want oidc, local, oidc+local, or none)", mode)
 	}
 
+	// Wire plugin credentials issuer if configured
+	if secretStr := os.Getenv("HUB_PLUGIN_CREDENTIAL_SECRET"); secretStr != "" {
+		secret := []byte(secretStr)
+		issuer, err := plugincreds.NewIssuer(secret, 5*time.Minute)
+		if err == plugincreds.ErrDisabled {
+			slog.Info("plugin credentials disabled (secret too short)")
+		} else if err != nil {
+			return fmt.Errorf("create plugin credentials issuer: %w", err)
+		} else {
+			c.apiServer.SetPluginCredentialIssuer(issuer)
+			slog.Info("plugin credentials enabled")
+		}
+	} else {
+		slog.Info("plugin credentials disabled (HUB_PLUGIN_CREDENTIAL_SECRET not set)")
+	}
+
 	if err := c.apiServer.ValidateAuthConfig(cfg.hubAllowInsecureNoAuth); err != nil {
 		return fmt.Errorf("API auth middleware not configured (override: HUB_ALLOW_INSECURE_NO_AUTH): %w", err)
 	}
@@ -316,9 +333,10 @@ func wireOIDCAuth(c *container, oidcCfg oidc.Config) error {
 	// runs after userTokenMW and oidcMW have populated the request context
 	// with the authenticated user's identity.
 	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	fallbackChain := func(next http.Handler) http.Handler {
 		return userTokenMW(oidcMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
-	})
+	}
+	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
 	c.apiServer.SetUserInfoURL(userInfoURL)
 	return nil
 }
@@ -346,12 +364,13 @@ func wireLocalAuth(ctx context.Context, c *container) error {
 	// future combined chain too): local session JWTs are verified statelessly,
 	// so this is what makes disabling take effect immediately.
 	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	fallbackChain := func(next http.Handler) http.Handler {
 		// RequireAuth sits inside both token middlewares: anonymous requests
 		// fall through the token checks and are rejected there, mirroring how
 		// the OIDC middleware rejects missing bearer tokens.
 		return userTokenMW(localMW(localauth.RequireAuth(disabledGuard(c.apiServer.IdentityPersistMiddleware(next)))))
-	})
+	}
+	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
 	c.apiServer.SetPasswordPolicy(policy)
 	slog.Info("local auth enabled", "loginEndpoint", "/api/v1/auth/login",
@@ -389,9 +408,10 @@ func wireOIDCPlusLocalAuth(ctx context.Context, c *container, oidcCfg oidc.Confi
 	// chainMW verify tokens statelessly, so the disabled check must run
 	// inside chainMW and outside IdentityPersistMiddleware.
 	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	c.apiServer.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	fallbackChain := func(next http.Handler) http.Handler {
 		return userTokenMW(chainMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
-	})
+	}
+	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
 	c.apiServer.SetLocalAuthSecret([]byte(secret))
 	c.apiServer.SetPasswordPolicy(policy)
 	c.apiServer.SetUserInfoURL(userInfoURL)

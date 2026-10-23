@@ -12,6 +12,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
@@ -41,6 +42,7 @@ type authzStore interface {
 	BumpTokenVersion(ctx context.Context, id string) error
 	SetPasswordWithFlag(ctx context.Context, id, hash string, mustChange bool) error
 	DeleteUser(ctx context.Context, id string) error
+	IsUserDisabled(ctx context.Context, id string) (bool, error)
 	UserGroupIDs(ctx context.Context, userID string) ([]string, error)
 	UserGroupRoles(ctx context.Context, userID string) (map[string]authz.GroupRole, error)
 	CreateGroup(ctx context.Context, name, description string) (*authz.Group, error)
@@ -92,6 +94,7 @@ type Server struct {
 	authzChecker           *authz.Checker
 	userTokens             *usertokens.Store
 	internalValidateSecret string
+	pluginCreds            *plugincreds.Issuer
 
 	// skillMCPHandler is the read-only skill catalogue MCP, gated by
 	// skillsMCPToken below and built once in SetSkillDiscovery. nil until a

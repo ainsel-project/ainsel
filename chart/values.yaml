@@ -190,6 +190,10 @@ plugins:
     keys: []
     keyless: []
     trustedRootFile: ""
+  # Secret name for plugin credentials (HUB_PLUGIN_CREDENTIAL_SECRET).
+  # When empty, a Secret named "ainsel-plugin-credentials" is auto-generated.
+  # Set this to use an existing Secret from your deployment environment.
+  credentialSecretName: ""
 hub:
   replicas: 1
   image:

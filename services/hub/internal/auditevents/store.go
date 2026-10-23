@@ -40,6 +40,12 @@ const (
 	TypePluginGroupAccessChanged  = "plugin_group_access_changed"
 )
 
+// Plugin API write events, recorded when a plugin credential makes a non-GET/HEAD request.
+// ActorSub is the credential subject, Target is "<pluginId> <METHOD> <path>".
+const (
+	TypePluginAPIWrite = "plugin_api_write"
+)
+
 // Outcomes. Every event is recorded as exactly one of these.
 const (
 	OutcomeSuccess = "success"

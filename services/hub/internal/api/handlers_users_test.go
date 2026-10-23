@@ -19,6 +19,8 @@ type fakeAuthzStore struct {
 	passwords     map[string]string
 	tokenVersions map[string]int64
 	versionErr    error // when set, UserTokenVersion/BumpTokenVersion fail with it
+	groups        map[string]authz.Group
+	resources     map[string]string // key: resourceType:resourceName, value: groupID
 }
 
 func newFakeAuthzStore() *fakeAuthzStore {
@@ -26,6 +28,8 @@ func newFakeAuthzStore() *fakeAuthzStore {
 		users:         make(map[string]authz.User),
 		passwords:     make(map[string]string),
 		tokenVersions: make(map[string]int64),
+		groups:        make(map[string]authz.Group),
+		resources:     make(map[string]string),
 	}
 }
 
@@ -147,32 +151,75 @@ func (f *fakeAuthzStore) UserGroupIDs(_ context.Context, _ string) ([]string, er
 func (f *fakeAuthzStore) UserGroupRoles(_ context.Context, _ string) (map[string]authz.GroupRole, error) {
 	return nil, nil
 }
-func (f *fakeAuthzStore) SetResourceGroup(_ context.Context, _, _, _ string, _ bool) error {
+func (f *fakeAuthzStore) SetResourceGroup(_ context.Context, resourceType, resourceName, groupID string, _ bool) error {
+	key := resourceType + ":" + resourceName
+	if groupID == "" {
+		delete(f.resources, key)
+	} else {
+		f.resources[key] = groupID
+	}
 	return nil
 }
-func (f *fakeAuthzStore) GetResourceGroup(_ context.Context, _, _ string) (*authz.ResourceGroup, error) {
-	return nil, authz.ErrNotFound
+func (f *fakeAuthzStore) GetResourceGroup(_ context.Context, resourceType, resourceName string) (*authz.ResourceGroup, error) {
+	key := resourceType + ":" + resourceName
+	groupID, ok := f.resources[key]
+	if !ok {
+		return nil, authz.ErrNotFound
+	}
+	return &authz.ResourceGroup{GroupID: groupID}, nil
 }
 func (f *fakeAuthzStore) DeleteResourceGroup(_ context.Context, _, _ string) error       { return nil }
 func (f *fakeAuthzStore) SetResourcePublic(_ context.Context, _, _ string, _ bool) error { return nil }
 func (f *fakeAuthzStore) ListResourcesByGroups(_ context.Context, _ string, _ []string, _ bool) ([]string, error) {
 	return nil, nil
 }
-func (f *fakeAuthzStore) CreateGroup(_ context.Context, _, _ string) (*authz.Group, error) {
-	return nil, nil
+func (f *fakeAuthzStore) CreateGroup(_ context.Context, id, name string) (*authz.Group, error) {
+	g := authz.Group{ID: id, Name: name, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	f.groups[id] = g
+	return &g, nil
 }
-func (f *fakeAuthzStore) GetGroup(_ context.Context, _ string) (*authz.Group, error) { return nil, nil }
-func (f *fakeAuthzStore) ListGroups(_ context.Context) ([]authz.Group, error)        { return nil, nil }
-func (f *fakeAuthzStore) UpdateGroup(_ context.Context, _, _, _ string) (*authz.Group, error) {
-	return nil, nil
+func (f *fakeAuthzStore) GetGroup(_ context.Context, id string) (*authz.Group, error) {
+	g, ok := f.groups[id]
+	if !ok {
+		return nil, authz.ErrNotFound
+	}
+	return &g, nil
 }
-func (f *fakeAuthzStore) DeleteGroup(_ context.Context, _ string) error { return nil }
+func (f *fakeAuthzStore) ListGroups(_ context.Context) ([]authz.Group, error) {
+	out := make([]authz.Group, 0, len(f.groups))
+	for _, g := range f.groups {
+		out = append(out, g)
+	}
+	return out, nil
+}
+func (f *fakeAuthzStore) UpdateGroup(_ context.Context, id, name, description string) (*authz.Group, error) {
+	g, ok := f.groups[id]
+	if !ok {
+		return nil, authz.ErrNotFound
+	}
+	g.Name = name
+	g.Description = description
+	g.UpdatedAt = time.Now()
+	f.groups[id] = g
+	return &g, nil
+}
+func (f *fakeAuthzStore) DeleteGroup(_ context.Context, id string) error {
+	delete(f.groups, id)
+	return nil
+}
 func (f *fakeAuthzStore) AddGroupMember(_ context.Context, _, _ string, _ authz.GroupRole) error {
 	return nil
 }
 func (f *fakeAuthzStore) RemoveGroupMember(_ context.Context, _, _ string) error { return nil }
 func (f *fakeAuthzStore) ListGroupMembers(_ context.Context, _ string) ([]authz.MemberWithUser, error) {
 	return nil, nil
+}
+func (f *fakeAuthzStore) IsUserDisabled(_ context.Context, id string) (bool, error) {
+	u, ok := f.users[id]
+	if !ok {
+		return false, authz.ErrNotFound
+	}
+	return u.Disabled, nil
 }
 
 func userSyncTestServer(t *testing.T) *Server {

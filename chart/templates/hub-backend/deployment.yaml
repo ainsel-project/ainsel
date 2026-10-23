@@ -200,6 +200,11 @@ spec:
             - name: HUB_SKILLS_MCP_TOKEN
               value: {{ .Values.auth.skillsMcpToken | quote }}
             {{- end }}
+            - name: HUB_PLUGIN_CREDENTIAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.plugins.credentialSecretName | default "ainsel-plugin-credentials" }}
+                  key: secret
             {{- with .Values.hub.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
