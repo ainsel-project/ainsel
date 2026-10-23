@@ -1,6 +1,9 @@
 package authz
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // Principal represents a non-user caller (agent or plugin) with their identity and
 // group permissions.
@@ -10,18 +13,18 @@ type Principal struct {
 	Groups map[string]GroupRole // groupID -> role
 }
 
-// principalContextKey is the context key for storing a Principal.
-var principalContextKey struct{}
+// principalKey is the context key type for storing a Principal.
+type principalKey struct{}
 
 // WithPrincipal returns a new context with the Principal attached.
 func WithPrincipal(ctx context.Context, p *Principal) context.Context {
-	return context.WithValue(ctx, principalContextKey, p)
+	return context.WithValue(ctx, principalKey{}, p)
 }
 
 // PrincipalFrom returns the Principal from the context, if present.
 func PrincipalFrom(ctx context.Context) (*Principal, bool) {
-	p, ok := ctx.Value(principalContextKey).(*Principal)
-	return p, ok
+	p, ok := ctx.Value(principalKey{}).(*Principal)
+	return p, ok && p != nil
 }
 
 // PrincipalGroupIDs returns the principal's group IDs (sorted) when ctx holds a
@@ -35,18 +38,6 @@ func PrincipalGroupIDs(ctx context.Context, userID string) ([]string, bool) {
 	for id := range p.Groups {
 		ids = append(ids, id)
 	}
-	// Sort for deterministic output
-	sortedIDs := make([]string, len(ids))
-	copy(sortedIDs, ids)
-	sliceSort(sortedIDs)
-	return sortedIDs, true
-}
-
-// sliceSort sorts a slice of strings in-place (minimal implementation for this package).
-func sliceSort(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j-1] > s[j]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
+	slices.Sort(ids)
+	return ids, true
 }

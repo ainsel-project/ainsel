@@ -199,6 +199,10 @@ func (i *Issuer) Verify(token string) (*Claims, error) {
 		return nil, fmt.Errorf("%w: aud mismatch", ErrInvalid)
 	}
 
+	if kind, _ := mc["kind"].(string); !isKnownKind(kind) {
+		return nil, fmt.Errorf("%w: unknown kind", ErrInvalid)
+	}
+
 	// Extract other claims
 	c := &Claims{
 		PluginID: pid,

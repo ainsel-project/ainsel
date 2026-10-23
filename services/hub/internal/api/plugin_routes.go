@@ -58,13 +58,11 @@ var routeRules = []routeRule{
 // - always is true if any plugin credential may call it (no permission check)
 // - ok is false if the route is not available to plugin credentials
 func RoutePermission(method, rawPath string) (perm string, always bool, ok bool) {
-	// Validate path: clean it and ensure it doesn't escape /api/v1/
+	// Reject anything path.Clean would rewrite ("..", ".", "//"); a single
+	// trailing slash is fine.
+	trimmed := strings.TrimSuffix(rawPath, "/")
 	cleanPath := path.Clean(rawPath)
-	if cleanPath != rawPath {
-		// Path needed cleaning, which means it had unusual patterns
-		return "", false, false
-	}
-	if !strings.HasPrefix(cleanPath, "/api/v1/") {
+	if cleanPath != trimmed || !strings.HasPrefix(cleanPath, "/api/v1/") {
 		return "", false, false
 	}
 
@@ -75,24 +73,12 @@ func RoutePermission(method, rawPath string) (perm string, always bool, ok bool)
 	for _, rule := range routeRules {
 		// Match: exact prefix or prefix + /
 		if cleanPath == rule.prefix || strings.HasPrefix(cleanPath, rule.prefix+"/") {
-			// Special handling for plugin-context: POST only to /visible is allowed
-			if rule.prefix == "/api/v1/plugin-context" {
-				if method == "POST" {
-					// Only POST /visible is allowed
-					if cleanPath == "/api/v1/plugin-context/visible" {
-						return "", true, true
-					}
-					// Other POST requests to plugin-context are not allowed
-					return "", false, false
-				}
-				// GET, HEAD, etc to plugin-context are always allowed
-				if isRead {
+			if rule.alwaysAllow {
+				// plugin-context: reads, plus POST /visible only.
+				if isRead || (method == "POST" && cleanPath == rule.prefix+"/visible") {
 					return "", true, true
 				}
-			}
-
-			if rule.alwaysAllow {
-				return "", true, true
+				return "", false, false
 			}
 
 			if isRead {

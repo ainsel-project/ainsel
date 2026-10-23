@@ -98,10 +98,10 @@ func TestChecker_PrincipalGroupRoles(t *testing.T) {
 	store.setupResource("agent", "pub", "public", true) // public resource
 
 	tests := []struct {
-		name      string
-		groups    map[string]GroupRole
-		canRead   map[string]bool // resource -> expected canRead result
-		canWrite  map[string]bool // resource -> expected canWrite result
+		name     string
+		groups   map[string]GroupRole
+		canRead  map[string]bool // resource -> expected canRead result
+		canWrite map[string]bool // resource -> expected canWrite result
 	}{
 		{
 			name:   "reader on g1",
@@ -188,11 +188,11 @@ func TestChecker_PrincipalOnlyForMatchingSub(t *testing.T) {
 // TestPrincipalGroupIDs tests that PrincipalGroupIDs returns sorted IDs correctly.
 func TestPrincipalGroupIDs(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupCtx     func(context.Context) context.Context
-		userID       string
-		expectedOK   bool
-		expectedIDs  []string
+		name        string
+		setupCtx    func(context.Context) context.Context
+		userID      string
+		expectedOK  bool
+		expectedIDs []string
 	}{
 		{
 			name: "with matching principal",

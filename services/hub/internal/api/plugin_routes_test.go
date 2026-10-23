@@ -276,3 +276,28 @@ func TestRoutePermission_ValidateCoverage(t *testing.T) {
 		}
 	}
 }
+
+func TestRoutePermission_PluginContextMethods(t *testing.T) {
+	cases := []struct {
+		method, path string
+		always, ok   bool
+	}{
+		{"GET", "/api/v1/plugin-context", true, true},
+		{"POST", "/api/v1/plugin-context/visible", true, true},
+		{"DELETE", "/api/v1/plugin-context", false, false},
+		{"PUT", "/api/v1/plugin-context/visible", false, false},
+		{"POST", "/api/v1/plugin-context", false, false},
+	}
+	for _, c := range cases {
+		_, always, ok := RoutePermission(c.method, c.path)
+		if always != c.always || ok != c.ok {
+			t.Errorf("%s %s: always=%v ok=%v, want %v %v", c.method, c.path, always, ok, c.always, c.ok)
+		}
+	}
+	if perm, _, ok := RoutePermission("GET", "/api/v1/agents/"); !ok || perm != "agents:read" {
+		t.Errorf("trailing slash: perm=%q ok=%v", perm, ok)
+	}
+	if _, _, ok := RoutePermission("GET", "/api/v1/agents//x"); ok {
+		t.Error("double slash should be denied")
+	}
+}
