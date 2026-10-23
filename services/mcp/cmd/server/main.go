@@ -70,9 +70,16 @@ func main() {
 		log.Warn("INTERNAL_VALIDATE_SECRET not set, user token auth disabled")
 	}
 
-	s := mcpserver.New(log, mcpserver.Backends{
-		HubURL: cfg.HubURL,
-	})
+	backends := mcpserver.Backends{
+		HubURL:                 cfg.HubURL,
+		InternalValidateSecret: cfg.InternalValidateSecret,
+	}
+	s := mcpserver.New(log, backends)
+	// Plugin operator tools are polled from the hub for the lifetime of the
+	// process, on the same context that drives shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	mcpserver.StartPluginTools(ctx, s, backends, cfg.PluginToolsPollInterval)
 	handler := mcpserver.StreamableHTTPHandler(s)
 
 	mux := http.NewServeMux()
@@ -103,9 +110,7 @@ func main() {
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
+		<-ctx.Done()
 		log.Info("shutting down")
 		_ = srv.Close()
 	}()

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"time"
 
+	"github.com/ainsel-project/ainsel/services/mcp/internal/tools"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -18,6 +20,9 @@ type Config struct {
 	MCPResourceURL         string
 	HubURL                 string
 	InternalValidateSecret string
+	// PluginToolsPollInterval is how often the plugin tool aggregator re-reads
+	// the hub's operator plugin tool list.
+	PluginToolsPollInterval time.Duration
 }
 
 func Load() Config {
@@ -32,6 +37,8 @@ func Load() Config {
 		MCPResourceURL:         envStr("MCP_RESOURCE_URL", ""),
 		HubURL:                 envStr("HUB_URL", "http://hub-backend.ainsel.svc.cluster.local:8080"),
 		InternalValidateSecret: envStr("INTERNAL_VALIDATE_SECRET", ""),
+		PluginToolsPollInterval: envDuration("PLUGIN_TOOLS_POLL_INTERVAL",
+			tools.DefaultPluginToolsPollInterval),
 	}
 }
 
@@ -56,6 +63,18 @@ func envInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
+		}
+	}
+	return fallback
+}
+
+// envDuration reads a Go duration (e.g. "30s"). An unparseable or non-positive
+// value falls back to fallback, so a typo cannot park the poll loop on an
+// interval that time.Ticker rejects.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
 		}
 	}
 	return fallback
