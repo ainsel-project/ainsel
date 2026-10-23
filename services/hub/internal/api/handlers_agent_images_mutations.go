@@ -14,6 +14,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// mergeEnvVarUpdate resolves one env var of an update request against the
+// secrets currently stored for the same env list (name -> stored value).
+//
+//   - An empty value on a name that is currently stored as a secret means
+//     "keep the stored value" regardless of the submitted flag: the GET view
+//     always redacts secret values, so a read-modify-write client cannot
+//     round-trip them any other way. Secret is forced to true so a cleared
+//     flag cannot make a later GET echo the stored secret in cleartext.
+//   - Otherwise an omitted flag keeps the stored flag, so rotating a secret
+//     without repeating secret: true does not declassify it. Only an explicit
+//     secret: false does.
+func mergeEnvVarUpdate(e AgentImageEnvVarUpdate, existingSecrets map[string]string) agentv1alpha1.AgentImageEnvVar {
+	existingVal, wasSecret := existingSecrets[e.Name]
+	if e.Value == "" && wasSecret {
+		return agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: existingVal, Secret: true}
+	}
+	secret := wasSecret
+	if e.Secret != nil {
+		secret = *e.Secret
+	}
+	return agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: e.Value, Secret: secret}
+}
+
 func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	var existing agentv1alpha1.AgentImage
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
@@ -47,20 +70,7 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 
 		newEnv := make([]agentv1alpha1.AgentImageEnvVar, 0, len(*req.Env))
 		for _, e := range *req.Env {
-			ev := agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: e.Value, Secret: e.Secret}
-			// An empty value on a name that is currently stored as a secret
-			// means "keep the stored value" regardless of the submitted flag:
-			// the GET view always redacts secret values, so a read-modify-write
-			// client cannot round-trip them any other way. Forcing Secret=true
-			// also closes the flag-flip hole where a cleared flag would make a
-			// later GET echo the stored secret in cleartext.
-			if ev.Value == "" {
-				if existingVal, ok := existingSecrets[ev.Name]; ok {
-					ev.Value = existingVal
-					ev.Secret = true
-				}
-			}
-			newEnv = append(newEnv, ev)
+			newEnv = append(newEnv, mergeEnvVarUpdate(e, existingSecrets))
 		}
 		existing.Spec.Env = newEnv
 	}
@@ -164,14 +174,7 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 			// keyed by (sidecar name, env name).
 			secrets := existingSidecarSecrets[sc.Name]
 			for _, e := range sc.Env {
-				ev := agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: e.Value, Secret: e.Secret}
-				if ev.Value == "" {
-					if existingVal, ok := secrets[ev.Name]; ok {
-						ev.Value = existingVal
-						ev.Secret = true
-					}
-				}
-				sidecar.Env = append(sidecar.Env, ev)
+				sidecar.Env = append(sidecar.Env, mergeEnvVarUpdate(e, secrets))
 			}
 			newSidecars = append(newSidecars, sidecar)
 		}

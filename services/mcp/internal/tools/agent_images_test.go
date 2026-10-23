@@ -376,6 +376,85 @@ func TestUpdateAgentImage_EnvPatchUpsert(t *testing.T) {
 	}
 }
 
+// TestUpdateAgentImage_EnvPatchRotateKeepsSecret verifies that rotating a
+// secret through env_patch without repeating secret: true keeps the flag, and
+// that an explicit secret: false still reaches the hub to declassify.
+func TestUpdateAgentImage_EnvPatchRotateKeepsSecret(t *testing.T) {
+	var capturedBody string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "ainsel-ai-agent-default",
+				"env": []map[string]any{
+					{"name": "MATRIX_MCP_TOKEN", "value": "", "secret": true},
+					{"name": "FORGEJO_PAT", "value": "", "secret": true},
+				},
+			})
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "ainsel-ai-agent-default"})
+	}))
+	defer hub.Close()
+
+	it := &AgentImageTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name":      "ainsel-ai-agent-default",
+		"env_patch": `[{"name":"MATRIX_MCP_TOKEN","value":"rotated"},{"name":"FORGEJO_PAT","value":"public","secret":false}]`,
+	}
+	result, err := it.UpdateAgentImage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	want := `"env":[{"name":"MATRIX_MCP_TOKEN","value":"rotated","secret":true},` +
+		`{"name":"FORGEJO_PAT","value":"public","secret":false}]`
+	if !strings.Contains(capturedBody, want) {
+		t.Errorf("expected rotated secret to keep its flag and explicit false to pass through; got: %s", capturedBody)
+	}
+}
+
+// TestUpdateAgentImage_EnvExplicitSecretFalsePassesThrough verifies that an
+// explicit secret: false in a full env list reaches the hub (with a plain bool
+// and omitempty it was dropped, which the hub now reads as "keep the flag").
+func TestUpdateAgentImage_EnvExplicitSecretFalsePassesThrough(t *testing.T) {
+	var capturedBody string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":  "ainsel-ai-agent-default",
+				"env": []map[string]any{{"name": "API_KEY", "value": "", "secret": true}},
+			})
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "ainsel-ai-agent-default"})
+	}))
+	defer hub.Close()
+
+	it := &AgentImageTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name": "ainsel-ai-agent-default",
+		"env":  `[{"name":"API_KEY","value":"public","secret":false}]`,
+	}
+	result, err := it.UpdateAgentImage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(capturedBody, `{"name":"API_KEY","value":"public","secret":false}`) {
+		t.Errorf("expected explicit secret:false in request body; got: %s", capturedBody)
+	}
+}
+
 func TestUpdateAgentImage_EnvAndEnvPatchMutuallyExclusive(t *testing.T) {
 	it := &AgentImageTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
 	req := mcp.CallToolRequest{}

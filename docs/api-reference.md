@@ -259,7 +259,7 @@ and an owned persona may share a name with the template it was forked from.
 Each `AgentImage` may define environment variables (`env`) to inject into every agent pod that uses the image. Env vars have an optional `secret` flag:
 
 - When `secret` is `true`, the API **never** returns the value — it is always returned as `""` in GET/list responses to prevent leaking sensitive data.
-- On update, sending `value: ""` for a secret env var means "keep the existing value": the stored value is preserved and the entry stays secret, whether or not the request repeats `secret: true` (the GET view never returns secret values, so this is the only lossless round-trip). To replace a secret, send a non-empty value with `secret: true`; to declassify one, send a non-empty value with `secret: false`; to remove one, drop the entry from the list. Sidecar `env` follows the same rule.
+- On update, sending `value: ""` for a secret env var means "keep the existing value": the stored value is preserved and the entry stays secret, whether or not the request repeats `secret: true` (the GET view never returns secret values, so this is the only lossless round-trip). To replace a secret, send a non-empty value; omitting `secret` keeps the flag currently stored for that name, so a rotated secret stays secret. To declassify one, send a non-empty value with an explicit `secret: false`; to remove one, drop the entry from the list. Sidecar `env` follows the same rules.
 
 ### GET /api/v1/agent-images
 
@@ -305,7 +305,7 @@ Fetch one `AgentImage` by name.
 
 Update an `AgentImage`. All body fields are optional. Setting `tools` to a non-nil array replaces the tool list; an empty array clears it.
 
-For secret env vars — top-level and sidecar alike — sending `value: ""` preserves the existing stored value and keeps the `secret` flag, regardless of the flag submitted with the entry. Send a non-empty `value` to replace the secret (with `secret: true`) or to declassify it (with `secret: false`); drop the entry to remove it.
+For secret env vars — top-level and sidecar alike — sending `value: ""` preserves the existing stored value and keeps the `secret` flag, regardless of the flag submitted with the entry. Send a non-empty `value` to replace the secret; an omitted `secret` keeps the stored flag, and only an explicit `secret: false` declassifies it. Drop the entry to remove it.
 
 If any tool is removed and an existing Agent has it in `enabledTools`, the request fails with `409 Conflict` and the response body lists the affected agents and the removed tools.
 

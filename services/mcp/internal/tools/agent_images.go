@@ -75,8 +75,14 @@ type envEntry struct {
 	// Secret marks the value as sensitive. The hub never returns the value of
 	// a secret entry (it reads back as ""), so a client that resends a secret
 	// must set this flag and send an empty value to keep the stored one.
-	Secret bool `json:"secret,omitempty"`
+	// Omitted (nil) on update keeps the flag currently stored for the name;
+	// only an explicit false declassifies.
+	Secret *bool `json:"secret,omitempty"`
 }
+
+func (e envEntry) isSecret() bool { return e.Secret != nil && *e.Secret }
+
+func boolPtr(v bool) *bool { return &v }
 
 // toolExample represents an example for a tool declaration.
 type toolExample struct {
@@ -126,7 +132,7 @@ func (t *AgentImageTools) CreateAgentImage(ctx context.Context, req mcp.CallTool
 			return mcp.NewToolResultError(fmt.Sprintf("invalid env JSON: %v", err)), nil
 		}
 		for _, e := range envVars {
-			if e.Secret && e.Value == "" {
+			if e.isSecret() && e.Value == "" {
 				return mcp.NewToolResultError(fmt.Sprintf("secret env var %s requires a non-empty value on create: there is no stored value to preserve", e.Name)), nil
 			}
 		}
@@ -151,8 +157,8 @@ func (t *AgentImageTools) UpdateAgentImageTool() mcp.Tool {
 		mcp.WithString("display_name", mcp.Description("New display name for the agent image")),
 		mcp.WithString("image_url", mcp.Description("New container image URL")),
 		mcp.WithString("description", mcp.Description("New description")),
-		mcp.WithString("env", mcp.Description("JSON array of {name, value, secret?} environment variable objects. Replaces the full list: omit to preserve existing env vars, send [] to clear them. The API never returns secret values, so an entry for a currently-secret name must be sent as {name, value: \"\", secret: true} to keep the stored value; the tool applies this automatically. Mutually exclusive with env_patch.")),
-		mcp.WithString("env_patch", mcp.Description("JSON array of {name, value, secret?} objects upserted onto the current env list by name: matching entries are updated in place, new names are appended, nothing is removed (use env to remove or clear). An entry with value \"\" on a currently-secret name keeps the stored value. Mutually exclusive with env.")),
+		mcp.WithString("env", mcp.Description("JSON array of {name, value, secret?} environment variable objects. Replaces the full list: omit to preserve existing env vars, send [] to clear them. The API never returns secret values, so an entry for a currently-secret name must be sent as {name, value: \"\", secret: true} to keep the stored value; the tool applies this automatically. Omitting secret keeps the current flag, so rotating a secret keeps it secret; send secret: false with a value to declassify. Mutually exclusive with env_patch.")),
+		mcp.WithString("env_patch", mcp.Description("JSON array of {name, value, secret?} objects upserted onto the current env list by name: matching entries are updated in place, new names are appended, nothing is removed (use env to remove or clear). An entry with value \"\" on a currently-secret name keeps the stored value; omitting secret keeps the current flag. Mutually exclusive with env.")),
 		mcp.WithString("tools", mcp.Description("JSON array of tool declarations {name, kind, description, examples[]}. Each example is {title, snippet}. Omit to preserve existing tools; send [] to clear them.")),
 	)
 }
@@ -200,7 +206,7 @@ func (t *AgentImageTools) UpdateAgentImage(ctx context.Context, req mcp.CallTool
 			}
 			for i := range envVars {
 				if envVars[i].Value == "" && secretNames[envVars[i].Name] {
-					envVars[i].Secret = true
+					envVars[i].Secret = boolPtr(true)
 				}
 			}
 			payload["env"] = envVars
@@ -281,7 +287,7 @@ func (t *AgentImageTools) currentSecretEnvNames(ctx context.Context, name string
 	}
 	secrets := make(map[string]bool, len(currentEnv))
 	for _, e := range currentEnv {
-		if e.Secret {
+		if e.isSecret() {
 			secrets[e.Name] = true
 		}
 	}
@@ -292,8 +298,9 @@ func (t *AgentImageTools) currentSecretEnvNames(ctx context.Context, name string
 // entries are updated in place, new names appended. A patch entry with an
 // empty value over a currently-secret name keeps the stored value — it is
 // resent as {name, value: "", secret: true} so the hub's preserve path fires.
-// A non-empty value replaces the entry wholesale, which is also how a caller
-// rotates (secret: true) or declassifies (secret: false) a variable.
+// A non-empty value replaces the value; an omitted secret flag keeps the
+// current one, so rotating a secret does not declassify it. Only an explicit
+// secret: false declassifies.
 func upsertEnv(current, patch []envEntry) []envEntry {
 	merged := make([]envEntry, 0, len(current)+len(patch))
 	index := make(map[string]int, len(current))
@@ -303,9 +310,12 @@ func upsertEnv(current, patch []envEntry) []envEntry {
 	}
 	for _, p := range patch {
 		if i, ok := index[p.Name]; ok {
-			if p.Value == "" && merged[i].Secret {
-				merged[i] = envEntry{Name: p.Name, Value: "", Secret: true}
+			if p.Value == "" && merged[i].isSecret() {
+				merged[i] = envEntry{Name: p.Name, Value: "", Secret: boolPtr(true)}
 			} else {
+				if p.Secret == nil {
+					p.Secret = merged[i].Secret
+				}
 				merged[i] = p
 			}
 			continue

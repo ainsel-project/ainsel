@@ -200,7 +200,7 @@ describe('ImageDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(capturedBody).not.toBeNull())
-    expect(capturedBody!.env).toEqual([{ name: 'FORGEJO_URL', value: 'https://git.example.com' }])
+    expect(capturedBody!.env).toEqual([{ name: 'FORGEJO_URL', value: 'https://git.example.com', secret: false }])
   })
 
   it('can add a new env var and submit', async () => {
@@ -239,7 +239,7 @@ describe('ImageDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: /create/i }))
     await waitFor(() => expect(capturedBody).not.toBeNull())
-    expect(capturedBody!.env).toEqual([{ name: 'MY_VAR', value: 'my-value' }])
+    expect(capturedBody!.env).toEqual([{ name: 'MY_VAR', value: 'my-value', secret: false }])
   })
 
   it('renders secret env vars with masked value and secret checkbox', async () => {

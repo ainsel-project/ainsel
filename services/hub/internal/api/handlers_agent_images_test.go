@@ -604,7 +604,7 @@ func TestAgentImages_UpdateEnv(t *testing.T) {
 	s := testServer(t, existing)
 	registerAgentImageRoutes(s)
 
-	newEnv := []AgentImageEnvVarInfo{{Name: "FORGEJO_URL", Value: "https://git.example.com"}}
+	newEnv := []AgentImageEnvVarUpdate{{Name: "FORGEJO_URL", Value: "https://git.example.com"}}
 	body, _ := json.Marshal(SimpleAgentImageUpdateRequest{Env: &newEnv})
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-envupd01", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -907,8 +907,8 @@ func TestAgentImages_UpdateSecretEnvPreservesValue(t *testing.T) {
 	registerAgentImageRoutes(s)
 
 	// Send update with empty value for the secret env var – should preserve the existing value.
-	newEnv := []AgentImageEnvVarInfo{
-		{Name: "API_KEY", Value: "", Secret: true},
+	newEnv := []AgentImageEnvVarUpdate{
+		{Name: "API_KEY", Value: "", Secret: ptr(true)},
 		{Name: "LOG_LEVEL", Value: "info"},
 	}
 	body, _ := json.Marshal(SimpleAgentImageUpdateRequest{Env: &newEnv})
@@ -961,8 +961,8 @@ func TestAgentImages_UpdateSecretEnvOverwritesValue(t *testing.T) {
 	s := testServer(t, existing)
 	registerAgentImageRoutes(s)
 
-	newEnv := []AgentImageEnvVarInfo{
-		{Name: "API_KEY", Value: "new-secret", Secret: true},
+	newEnv := []AgentImageEnvVarUpdate{
+		{Name: "API_KEY", Value: "new-secret", Secret: ptr(true)},
 	}
 	body, _ := json.Marshal(SimpleAgentImageUpdateRequest{Env: &newEnv})
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secow01", bytes.NewReader(body))
@@ -984,6 +984,145 @@ func TestAgentImages_UpdateSecretEnvOverwritesValue(t *testing.T) {
 				t.Errorf("secret env var value should be overwritten, got %q", e.Value)
 			}
 		}
+	}
+}
+
+// TestAgentImages_UpdateSecretEnvRotateWithoutFlag verifies that rotating a
+// secret without repeating secret: true keeps it secret. Before the fix an
+// omitted flag decoded as false, so the new value was stored in plaintext and
+// the next GET echoed it.
+func TestAgentImages_UpdateSecretEnvRotateWithoutFlag(t *testing.T) {
+	existing := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secrot01", Namespace: "test-ns"},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "Rotate Image",
+			ImageURL:    "ghcr.io/test/image:latest",
+			Env: []agentv1alpha1.AgentImageEnvVar{
+				{Name: "API_KEY", Value: "old-secret", Secret: true},
+				{Name: "LOG_LEVEL", Value: "debug"},
+			},
+		},
+		Status: agentv1alpha1.AgentImageStatus{Phase: agentv1alpha1.AgentImagePhaseReady},
+	}
+
+	s := testServer(t, existing)
+	registerAgentImageRoutes(s)
+
+	putBody := `{"env":[{"name":"API_KEY","value":"new-secret"},{"name":"LOG_LEVEL","value":"info"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secrot01", strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "new-secret") {
+		t.Errorf("update response must not echo the rotated secret, got: %s", rec.Body.String())
+	}
+
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-secrot01", Namespace: "test-ns"}, &img); err != nil {
+		t.Fatalf("get crd: %v", err)
+	}
+	stored := make(map[string]agentv1alpha1.AgentImageEnvVar, len(img.Spec.Env))
+	for _, e := range img.Spec.Env {
+		stored[e.Name] = e
+	}
+	if v := stored["API_KEY"]; v.Value != "new-secret" || !v.Secret {
+		t.Errorf("API_KEY should hold the rotated value and stay secret, got %+v", v)
+	}
+	if v := stored["LOG_LEVEL"]; v.Value != "info" || v.Secret {
+		t.Errorf("plain env var should stay plain, got %+v", v)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-secrot01", nil)
+	getRec := httptest.NewRecorder()
+	s.mux.ServeHTTP(getRec, getReq)
+	if strings.Contains(getRec.Body.String(), "new-secret") {
+		t.Errorf("GET must not echo the rotated secret, got: %s", getRec.Body.String())
+	}
+}
+
+// TestAgentImages_UpdateSecretEnvExplicitDeclassify verifies that an explicit
+// secret: false with a non-empty value is still the way to declassify.
+func TestAgentImages_UpdateSecretEnvExplicitDeclassify(t *testing.T) {
+	existing := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secdecl01", Namespace: "test-ns"},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "Declassify Image",
+			ImageURL:    "ghcr.io/test/image:latest",
+			Env: []agentv1alpha1.AgentImageEnvVar{
+				{Name: "API_KEY", Value: "old-secret", Secret: true},
+			},
+		},
+		Status: agentv1alpha1.AgentImageStatus{Phase: agentv1alpha1.AgentImagePhaseReady},
+	}
+
+	s := testServer(t, existing)
+	registerAgentImageRoutes(s)
+
+	putBody := `{"env":[{"name":"API_KEY","value":"public","secret":false}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secdecl01", strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-secdecl01", Namespace: "test-ns"}, &img); err != nil {
+		t.Fatalf("get crd: %v", err)
+	}
+	if len(img.Spec.Env) != 1 || img.Spec.Env[0].Value != "public" || img.Spec.Env[0].Secret {
+		t.Errorf("explicit secret: false should declassify, got %+v", img.Spec.Env)
+	}
+}
+
+// TestAgentImages_UpdateSidecarSecretEnvRotateWithoutFlag verifies that the
+// omitted-flag rule also applies to sidecar env.
+func TestAgentImages_UpdateSidecarSecretEnvRotateWithoutFlag(t *testing.T) {
+	existing := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secscrot01", Namespace: "test-ns"},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "Sidecar Rotate Image",
+			ImageURL:    "ghcr.io/test/image:latest",
+			Sidecars: []agentv1alpha1.AgentImageSidecar{
+				{
+					Name:  "matrix-connector",
+					Image: "ghcr.io/test/matrix:latest",
+					Env: []agentv1alpha1.AgentImageEnvVar{
+						{Name: "MATRIX_MCP_TOKEN", Value: "old-token", Secret: true},
+					},
+				},
+			},
+		},
+		Status: agentv1alpha1.AgentImageStatus{Phase: agentv1alpha1.AgentImagePhaseReady},
+	}
+
+	s := testServer(t, existing)
+	registerAgentImageRoutes(s)
+
+	putBody := `{"sidecars":[{"name":"matrix-connector","image":"ghcr.io/test/matrix:latest",` +
+		`"env":[{"name":"MATRIX_MCP_TOKEN","value":"new-token"}]}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secscrot01", strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-secscrot01", Namespace: "test-ns"}, &img); err != nil {
+		t.Fatalf("get crd: %v", err)
+	}
+	env := img.Spec.Sidecars[0].Env
+	if len(env) != 1 || env[0].Value != "new-token" || !env[0].Secret {
+		t.Errorf("sidecar secret should hold the rotated value and stay secret, got %+v", env)
 	}
 }
 
