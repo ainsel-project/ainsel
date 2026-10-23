@@ -19,6 +19,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
@@ -96,6 +97,10 @@ type Server struct {
 	internalValidateSecret string
 	pluginCreds            *plugincreds.Issuer
 	pluginProxyTransport   http.RoundTripper
+	// pluginMCP is the MCP client the plugin tool endpoints use to list and call
+	// tools on a plugin's own MCP server. Wired by SetPluginMCPClient; see
+	// getPluginMCPClient for the default.
+	pluginMCP *pluginmcp.Client
 
 	// skillMCPHandler is the read-only skill catalogue MCP, gated by
 	// skillsMCPToken below and built once in SetSkillDiscovery. nil until a
@@ -176,6 +181,22 @@ func (s *Server) SetSkillsMCPToken(token string) {
 // SetInternalValidateSecret sets the shared secret for /api/internal/user-tokens/validate.
 func (s *Server) SetInternalValidateSecret(secret string) {
 	s.internalValidateSecret = secret
+}
+
+// SetPluginMCPClient sets the MCP client used to reach plugin MCP endpoints.
+// Used by tests and by wiring that needs a custom transport.
+func (s *Server) SetPluginMCPClient(c *pluginmcp.Client) {
+	s.pluginMCP = c
+}
+
+// getPluginMCPClient returns the plugin MCP client, building the default on
+// first use: plugin tool calls are in-cluster HTTP with a bounded dial, in the
+// same shape as the plugin proxy transport.
+func (s *Server) getPluginMCPClient() *pluginmcp.Client {
+	if s.pluginMCP == nil {
+		s.pluginMCP = pluginmcp.New(&http.Client{Timeout: 30 * time.Second})
+	}
+	return s.pluginMCP
 }
 
 // SetTriggerStore wires the trigger DB store for the /api/v1/triggers/* and /api/v1/cron-triggers/* endpoints.
@@ -283,6 +304,8 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.mux.HandleFunc("/api/v1/plugin-context", s.handlePluginContext)
 	s.mux.HandleFunc("/api/v1/plugin-context/visible", s.handlePluginContextVisible)
 	s.mux.HandleFunc("/api/internal/plugins/", s.handleInternalPluginCredentials)
+	s.mux.HandleFunc("/api/internal/plugin-tools", s.handleInternalPluginTools)
+	s.mux.HandleFunc("/api/v1/plugin-tools/call", s.handlePluginToolCall)
 	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/timeseries", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/agents", s.handleObservability)

@@ -90,6 +90,10 @@ func TestRoutePermission_Mappings(t *testing.T) {
 		{"GET", "/api/v1/channels", "", false, false},
 		{"GET", "/api/v1/platform", "", false, false},
 
+		// Plugin tool calls are the operator surface: a plugin credential must
+		// not be able to call tools back into the hub.
+		{"POST", "/api/v1/plugin-tools/call", "", false, false},
+
 		// Path traversal attempts - cleaned path differs
 		{"GET", "/api/v1/agents/../users", "", false, false},
 		{"GET", "/api/v1/agentsX", "", false, false}, // Not exact or with /
