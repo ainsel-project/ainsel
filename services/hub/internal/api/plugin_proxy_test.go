@@ -330,8 +330,12 @@ func TestPluginProxy_StripsSpoofedHeaders(t *testing.T) {
 
 	// X-Ainsel-Credential should be the hub-minted one, not "forged"
 	cred := upstreamReq.Header.Get("X-Ainsel-Credential")
-	if cred != "forged" && !strings.HasPrefix(cred, "ainselp_") {
+	if !strings.HasPrefix(cred, "ainselp_") {
 		t.Fatalf("X-Ainsel-Credential: got %q, should be minted not forged", cred)
+	}
+
+	if ctxHdr := upstreamReq.Header.Get("X-Ainsel-Context"); ctxHdr == "" || ctxHdr == "forged" {
+		t.Fatalf("X-Ainsel-Context: got %q, should be hub-built", ctxHdr)
 	}
 
 	// Response should not have upstream Set-Cookie
@@ -393,10 +397,11 @@ func TestPluginProxy_OnlyVerifiedEndpoints(t *testing.T) {
 	}
 
 	var errResp map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&errResp); err == nil {
-		if !strings.Contains(errResp["error"], "verified endpoints") {
-			t.Fatalf("error message: got %q", errResp["error"])
-		}
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if errResp["error"] != "plugin has no verified endpoints" {
+		t.Fatalf("error message: got %q", errResp["error"])
 	}
 }
 
@@ -603,10 +608,11 @@ func TestPluginProxy_CredentialsDisabled(t *testing.T) {
 	}
 
 	var errResp map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&errResp); err == nil {
-		if !strings.Contains(errResp["error"], "not configured") {
-			t.Fatalf("error message: got %q", errResp["error"])
-		}
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if errResp["error"] != "plugin credentials are not configured" {
+		t.Fatalf("error message: got %q", errResp["error"])
 	}
 }
 
@@ -655,5 +661,37 @@ func TestPluginProxy_ManagementRoutesUnchanged(t *testing.T) {
 
 	if resp.ID != "mem0" {
 		t.Fatalf("plugin id: got %q, want \"mem0\"", resp.ID)
+	}
+}
+
+// TestPluginProxy_DevModeForwardsWithoutCredential: with no auth middleware and
+// no issuer there is no user, so the request is forwarded without credentials.
+func TestPluginProxy_DevModeForwardsWithoutCredential(t *testing.T) {
+	var gotCred, gotPath string
+	called := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		gotCred = r.Header.Get("X-Ainsel-Credential")
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	plugin := pluginCRReady(pluginCR("mem0", false), true, "", "", nil)
+	raw, _ := json.Marshal(&pluginpkg.Manifest{ID: "mem0", PluginAPI: "1.0", Version: "1.0.0", API: &pluginpkg.APISpec{BasePath: "/api"}})
+	plugin.Status.Manifest = &runtime.RawExtension{Raw: raw}
+	plugin.Status.VerifiedEndpoints = []string{upstream.Listener.Addr().String()}
+
+	s := testServer(t, plugin)
+	registerPluginRoutes(s)
+
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/plugins/mem0/api/memories", nil))
+
+	if rec.Code != http.StatusOK || !called {
+		t.Fatalf("got %d (upstream called=%v), want 200 forwarded", rec.Code, called)
+	}
+	if gotPath != "/api/memories" || gotCred != "" {
+		t.Fatalf("upstream saw path %q credential %q", gotPath, gotCred)
 	}
 }

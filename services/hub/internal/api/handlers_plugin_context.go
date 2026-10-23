@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -50,20 +49,11 @@ func (s *Server) handlePluginContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	resp.Sub = u.Sub
-	resp.Username = u.Username
-	resp.IsAdmin = s.callerIsAdmin(r)
-	if s.authzStore != nil {
-		roles, err := s.authzStore.UserGroupRoles(ctx, u.Sub)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-		for id, role := range roles {
-			resp.Groups = append(resp.Groups, pluginContextGroup{ID: id, Name: s.groupName(r, id), Role: string(role)})
-		}
+	resp, err := s.userPluginContext(r, u)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
-	sort.Slice(resp.Groups, func(a, b int) bool { return resp.Groups[a].ID < resp.Groups[b].ID })
 	writeJSON(w, http.StatusOK, resp)
 }
 

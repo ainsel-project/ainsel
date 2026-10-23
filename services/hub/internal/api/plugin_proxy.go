@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
@@ -59,15 +60,42 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 	// Pick an endpoint
 	endpoint, ok := pluginproxy.PickEndpoint(plugin.Status.VerifiedEndpoints, func(n int) int { return rand.IntN(n) })
 	if !ok {
-		writeError(w, http.StatusServiceUnavailable, `{"error":"plugin has no verified endpoints"}`)
+		writeError(w, http.StatusServiceUnavailable, "plugin has no verified endpoints")
 		return
 	}
 
-	// For API and MCP, check that credentials are available
+	// For API and MCP with an authenticated user, mint the credential and
+	// context up front so any failure stops the request instead of forwarding
+	// it without them. Without a user (dev mode, no auth) nothing is attached.
+	var credential, contextHeader string
 	if surface != pluginproxy.SurfaceUI {
-		if s.pluginCreds == nil {
-			writeError(w, http.StatusServiceUnavailable, "plugin credentials are not configured")
-			return
+		if u, ok := oidc.FromContext(ctx); ok && u != nil && u.Sub != "" {
+			cred, _, err := s.MintUserPluginCredential(ctx, pluginID, u)
+			if errors.Is(err, plugincreds.ErrDisabled) {
+				writeError(w, http.StatusServiceUnavailable, "plugin credentials are not configured")
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			pc, err := s.userPluginContext(r, u)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			pc.PluginID = pluginID
+			pc.Permissions = plugin.Spec.ApprovedPermissions
+			if pc.Permissions == nil {
+				pc.Permissions = []string{}
+			}
+			raw, err := json.Marshal(pc)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			credential = cred
+			contextHeader = base64.RawURLEncoding.EncodeToString(raw)
 		}
 	}
 
@@ -81,6 +109,7 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 			pr.Out.URL.Scheme = "http"
 			pr.Out.URL.Host = endpoint
 			pr.Out.URL.Path = upstreamPath
+			pr.Out.URL.RawPath = ""
 			pr.Out.URL.RawQuery = r.URL.RawQuery
 
 			// Set Host header to the endpoint
@@ -96,40 +125,9 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 			prefix := fmt.Sprintf("/api/v1/plugins/%s/%s", pluginID, surface)
 			pr.Out.Header.Set("X-Ainsel-Forwarded-Prefix", prefix)
 
-			// For API and MCP with authenticated user, set credentials and context
-			if surface != pluginproxy.SurfaceUI {
-				u, ok := oidc.FromContext(r.Context())
-				if ok && u != nil && u.Sub != "" {
-					// Mint a credential
-					cred, _, err := s.MintUserPluginCredential(ctx, pluginID, u)
-					if err != nil {
-						// This shouldn't happen because we already checked pluginCreds above
-						return
-					}
-
-					pr.Out.Header.Set("X-Ainsel-Credential", cred)
-
-					// Build and set X-Ainsel-Context
-					contextResp, err := s.userPluginContext(r, u)
-					if err != nil {
-						// If we can't build context, just continue without it
-						// (shouldn't happen in practice)
-						return
-					}
-
-					// Set pluginId and permissions on the context
-					contextResp.PluginID = pluginID
-					// Get approved permissions from the plugin
-					contextResp.Permissions = plugin.Spec.ApprovedPermissions
-					if contextResp.Permissions == nil {
-						contextResp.Permissions = []string{}
-					}
-
-					// Encode as base64url (no padding)
-					contextBytes, _ := json.Marshal(contextResp)
-					contextEncoded := base64.RawURLEncoding.EncodeToString(contextBytes)
-					pr.Out.Header.Set("X-Ainsel-Context", contextEncoded)
-				}
+			if credential != "" {
+				pr.Out.Header.Set("X-Ainsel-Credential", credential)
+				pr.Out.Header.Set("X-Ainsel-Context", contextHeader)
 			}
 		},
 		ModifyResponse: func(res *http.Response) error {
@@ -155,12 +153,11 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 // This factors out the logic from handlePluginContext for reuse in the proxy.
 func (s *Server) userPluginContext(r *http.Request, u *oidc.User) (pluginContextResponse, error) {
 	resp := pluginContextResponse{
-		Kind:        plugincreds.KindUser,
-		Sub:         u.Sub,
-		Username:    u.Username,
-		IsAdmin:     s.callerIsAdmin(r),
-		Groups:      []pluginContextGroup{},
-		Permissions: []string{}, // Will be set by the caller
+		Kind:     plugincreds.KindUser,
+		Sub:      u.Sub,
+		Username: u.Username,
+		IsAdmin:  s.callerIsAdmin(r),
+		Groups:   []pluginContextGroup{},
 	}
 
 	if s.authzStore != nil {
@@ -177,6 +174,7 @@ func (s *Server) userPluginContext(r *http.Request, u *oidc.User) (pluginContext
 		}
 	}
 
+	sort.Slice(resp.Groups, func(a, b int) bool { return resp.Groups[a].ID < resp.Groups[b].ID })
 	return resp, nil
 }
 
