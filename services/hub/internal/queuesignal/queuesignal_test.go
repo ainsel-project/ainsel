@@ -157,7 +157,7 @@ func (f *fakePatcher) reset() {
 
 func TestPublishOne_FirstMeasurementIsPublishedImmediately(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	counter.set("busy", 2, 1)
 	done, err := p.publishOne(context.Background(), "busy", false)
@@ -187,8 +187,8 @@ func TestPublishOne_FirstMeasurementIsPublishedImmediately(t *testing.T) {
 func TestPublishOne_WorkArrivingBeatsTheDebounce(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	p := New(counter, patcher,
-		WithDebounce(time.Hour), // would swallow the update if treated as ordinary churn
-		WithLogger(discardLogger()))
+		withDebounce(time.Hour), // would swallow the update if treated as ordinary churn
+		withLogger(discardLogger()))
 
 	counter.set("a", 1, 0)
 	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
@@ -224,7 +224,7 @@ func TestPublishOne_WorkArrivingBeatsTheDebounce(t *testing.T) {
 // operator gets to scale pods away, so it must not be debounced either.
 func TestPublishOne_DrainingToEmptyBeatsTheDebounce(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+	p := New(counter, patcher, withDebounce(time.Hour), withLogger(discardLogger()))
 
 	counter.set("a", 0, 3)
 	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
@@ -249,7 +249,7 @@ func TestPublishOne_DrainingToEmptyBeatsTheDebounce(t *testing.T) {
 // must stay queued rather than being silently dropped.
 func TestPublishOne_DebouncedUpdateStaysPending(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+	p := New(counter, patcher, withDebounce(time.Hour), withLogger(discardLogger()))
 
 	counter.set("a", 5, 0)
 	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
@@ -292,7 +292,7 @@ func TestPublishOne_DebouncedUpdateStaysPending(t *testing.T) {
 // debounce window). Immediate even though the queue never became empty.
 func TestPublishOne_ClaimTransitionsAreImmediate(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+	p := New(counter, patcher, withDebounce(time.Hour), withLogger(discardLogger()))
 
 	counter.set("a", 5, 0)
 	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
@@ -320,7 +320,7 @@ func TestPublishOne_ClaimTransitionsAreImmediate(t *testing.T) {
 // boot again.
 func TestPublishOne_NewWorkResetsTheIdleClock(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithDebounce(time.Hour), WithLogger(discardLogger()))
+	p := New(counter, patcher, withDebounce(time.Hour), withLogger(discardLogger()))
 
 	counter.set("a", 1, 0)
 	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
@@ -364,7 +364,7 @@ func TestPublishOne_NewWorkResetsTheIdleClock(t *testing.T) {
 
 func TestPublishOne_IdenticalCountsNeedNoWrite(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	counter.set("a", 7, 2)
 	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
@@ -388,7 +388,7 @@ func TestPublishOne_IdenticalCountsNeedNoWrite(t *testing.T) {
 // observation timestamp from going stale when the hub is alive but idle.
 func TestPublishOne_ForceRepublishesUnchangedCounts(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	counter.set("a", 7, 2)
 	if _, err := p.publishOne(context.Background(), "a", false); err != nil {
@@ -423,7 +423,7 @@ func TestPublishOne_MissingAgentIsForgotten(t *testing.T) {
 		Group:    "ainsel.dev",
 		Resource: "agents",
 	}, "gone")
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	counter.set("gone", 3, 0)
 	done, err := p.publishOne(context.Background(), "gone", false)
@@ -433,7 +433,7 @@ func TestPublishOne_MissingAgentIsForgotten(t *testing.T) {
 	if !done {
 		t.Error("a deleted agent must be dropped, not retried forever")
 	}
-	if _, ok := p.Published("gone"); ok {
+	if _, ok := p.published("gone"); ok {
 		t.Error("publisher still remembers a deleted agent; the sweep would resurrect it")
 	}
 }
@@ -441,13 +441,13 @@ func TestPublishOne_MissingAgentIsForgotten(t *testing.T) {
 func TestPublishOne_PatchFailureIsRetried(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	patcher.failWith = errors.New("apiserver unavailable")
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	counter.set("a", 1, 0)
 	if _, err := p.publishOne(context.Background(), "a", false); err == nil {
 		t.Fatal("publishOne() = nil, want the patch error surfaced for retry")
 	}
-	if _, ok := p.Published("a"); ok {
+	if _, ok := p.published("a"); ok {
 		t.Error("publisher recorded a signal it never wrote; debounce would now skip it")
 	}
 }
@@ -455,7 +455,7 @@ func TestPublishOne_PatchFailureIsRetried(t *testing.T) {
 func TestPublishOne_CountFailurePropagates(t *testing.T) {
 	counter := newCounter()
 	counter.failOn("a", errors.New("db down"))
-	p := New(counter, &fakePatcher{}, WithLogger(discardLogger()))
+	p := New(counter, &fakePatcher{}, withLogger(discardLogger()))
 
 	done, err := p.publishOne(context.Background(), "a", false)
 	if err == nil {
@@ -468,7 +468,7 @@ func TestPublishOne_CountFailurePropagates(t *testing.T) {
 
 func TestObserveDoesNoIOLikePublishing(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	p.Observe("a")
 	if patcher.count() != 0 {
@@ -488,9 +488,9 @@ func TestObserveDoesNoIOLikePublishing(t *testing.T) {
 func TestRunRepublishesQueuedWorkWithNoObservations(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	p := New(counter, patcher,
-		WithTick(5*time.Millisecond),
-		WithSweep(5*time.Millisecond),
-		WithLogger(discardLogger()))
+		withTick(5*time.Millisecond),
+		withSweep(5*time.Millisecond),
+		withLogger(discardLogger()))
 
 	counter.set("orphan", 2, 0)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -506,7 +506,7 @@ func TestRunRepublishesQueuedWorkWithNoObservations(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 		}
 	}
-	if sig, ok := p.Published("orphan"); !ok || sig.Pending != 2 {
+	if sig, ok := p.published("orphan"); !ok || sig.Pending != 2 {
 		t.Errorf("published state = %+v (found %v), want pending 2 for orphan", sig, ok)
 	}
 }
@@ -515,7 +515,7 @@ func TestRunRepublishesQueuedWorkWithNoObservations(t *testing.T) {
 // stays marked busy.
 func TestMarkAllCatchesDrainedAgents(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	// Pretend we previously said "a" was busy, and it has since finished.
 	p.mu.Lock()
@@ -596,7 +596,7 @@ func discardLogger() *slog.Logger {
 // the pods it has instead of scaling them to zero.
 func TestMarkAllKeepsHeartbeatForIdleAgents(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	// Pretend the agent got work, drained, and we published the empty signal.
 	p.mu.Lock()
@@ -620,10 +620,10 @@ func TestMarkAllKeepsHeartbeatForIdleAgents(t *testing.T) {
 func TestRunKeepsBeatingForAnIdleAgent(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	p := New(counter, patcher,
-		WithTick(5*time.Millisecond),
-		WithSweep(5*time.Millisecond),
-		WithDebounce(1*time.Millisecond),
-		WithLogger(discardLogger()))
+		withTick(5*time.Millisecond),
+		withSweep(5*time.Millisecond),
+		withDebounce(1*time.Millisecond),
+		withLogger(discardLogger()))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -632,13 +632,13 @@ func TestRunKeepsBeatingForAnIdleAgent(t *testing.T) {
 	// Work arrives, then drains.
 	counter.set("idle", 1, 0)
 	waitFor(t, time.After(2*time.Second), func() bool {
-		sig, ok := p.Published("idle")
+		sig, ok := p.published("idle")
 		return ok && sig.Pending == 1
 	}, "the agent with queued work was never published")
 
 	counter.set("idle", 0, 0)
 	waitFor(t, time.After(2*time.Second), func() bool {
-		sig, ok := p.Published("idle")
+		sig, ok := p.published("idle")
 		return ok && sig.Empty()
 	}, "the drained agent was never published as empty")
 
@@ -672,7 +672,7 @@ func waitFor(t *testing.T, deadline <-chan time.Time, ok func() bool, msg string
 // its spec alone, with no rows waiting and no published history.
 func TestMarkAllCoversOptedInAgentsWithNoHistory(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithAgentLister(fakeLister{"a"}), WithLogger(discardLogger()))
+	p := New(counter, patcher, WithAgentLister(fakeLister{"a"}), withLogger(discardLogger()))
 
 	p.markAll(context.Background())
 
@@ -691,9 +691,9 @@ func TestRunBeatsForOptedInAgentWithNoRows(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	p := New(counter, patcher,
 		WithAgentLister(fakeLister{"sleepy"}),
-		WithTick(5*time.Millisecond),
-		WithSweep(5*time.Millisecond),
-		WithLogger(discardLogger()))
+		withTick(5*time.Millisecond),
+		withSweep(5*time.Millisecond),
+		withLogger(discardLogger()))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -708,7 +708,7 @@ func TestRunBeatsForOptedInAgentWithNoRows(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 		}
 	}
-	sig, ok := p.Published("sleepy")
+	sig, ok := p.published("sleepy")
 	if !ok || !sig.Empty() {
 		t.Errorf("published %+v (found %v), want an empty signal for sleepy", sig, ok)
 	}
@@ -720,9 +720,9 @@ func TestRunKeepsBeatingForOptedInAgent(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	p := New(counter, patcher,
 		WithAgentLister(fakeLister{"steady"}),
-		WithTick(5*time.Millisecond),
-		WithSweep(5*time.Millisecond),
-		WithLogger(discardLogger()))
+		withTick(5*time.Millisecond),
+		withSweep(5*time.Millisecond),
+		withLogger(discardLogger()))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -755,7 +755,7 @@ func (f fakeLister) QueueWatchedAgents(context.Context) ([]string, error) { retu
 // The lister widens coverage; it must not subtract it.
 func TestMarkAllSurvivesListFailure(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithAgentLister(errLister{}), WithLogger(discardLogger()))
+	p := New(counter, patcher, WithAgentLister(errLister{}), withLogger(discardLogger()))
 
 	p.mu.Lock()
 	p.last["known"] = Signal{Pending: 0, Active: 0, ObservedAt: time.Now().Add(-6 * time.Minute)}
@@ -776,7 +776,7 @@ func TestMarkAllSurvivesListFailure(t *testing.T) {
 // minute that nobody reads.
 func TestMarkAllDoesNotBeatForStaticAgents(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithAgentLister(fakeLister{"opted-in"}), WithLogger(discardLogger()))
+	p := New(counter, patcher, WithAgentLister(fakeLister{"opted-in"}), withLogger(discardLogger()))
 
 	p.markAll(context.Background())
 
@@ -802,14 +802,14 @@ func (errLister) QueueWatchedAgents(context.Context) ([]string, error) {
 // per restart — and made status.lastInvocation claim activity that never happened.
 func TestFirstObservationOfAnIdleAgentDoesNotStampLastInvocation(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	counter.set("idle", 0, 0)
 	if _, err := p.publishOne(context.Background(), "idle", false); err != nil {
 		t.Fatalf("publishOne: %v", err)
 	}
 
-	sig, ok := p.Published("idle")
+	sig, ok := p.published("idle")
 	if !ok {
 		t.Fatal("an opted-in idle agent was never published")
 	}
@@ -823,14 +823,14 @@ func TestFirstObservationOfAnIdleAgentDoesNotStampLastInvocation(t *testing.T) {
 // that has tasks waiting.
 func TestFirstObservationWithQueuedWorkStampsLastInvocation(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
-	p := New(counter, patcher, WithLogger(discardLogger()))
+	p := New(counter, patcher, withLogger(discardLogger()))
 
 	counter.set("busy", 3, 0)
 	if _, err := p.publishOne(context.Background(), "busy", false); err != nil {
 		t.Fatalf("publishOne: %v", err)
 	}
 
-	sig, ok := p.Published("busy")
+	sig, ok := p.published("busy")
 	if !ok {
 		t.Fatal("the agent with queued work was never published")
 	}
@@ -866,8 +866,8 @@ func TestMergePatchBodyClearsDueIdsWhenEmpty(t *testing.T) {
 func TestPublishOne_DueSetChangeBeatsTheDebounce(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	p := New(counter, patcher,
-		WithDebounce(time.Hour),
-		WithLogger(discardLogger()))
+		withDebounce(time.Hour),
+		withLogger(discardLogger()))
 
 	counter.set("a", 2, 1)
 	counter.setDue("a", 7)
@@ -899,8 +899,8 @@ func TestPublishOne_DueSetChangeBeatsTheDebounce(t *testing.T) {
 func TestPublishOne_DueIDsFailureKeepsTheLastPublishedList(t *testing.T) {
 	counter, patcher := newCounter(), &fakePatcher{}
 	p := New(counter, patcher,
-		WithDebounce(time.Hour),
-		WithLogger(discardLogger()))
+		withDebounce(time.Hour),
+		withLogger(discardLogger()))
 
 	counter.set("a", 2, 1)
 	counter.setDue("a", 7, 8)
