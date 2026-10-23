@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import React from 'react'
 import { installPluginHost } from './host'
-import { readFileSync } from 'fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { cwd } from 'process'
 
@@ -51,30 +52,51 @@ describe('installPluginHost', () => {
 })
 
 describe('generator', () => {
-  it('generates react.js with useState in the export list', async () => {
-    // @ts-expect-error ESM .mjs files do not have declaration files; type checked at runtime
-    const { generate } = await import('../../scripts/gen-plugin-shared.mjs')
-    const tempDir = join(projectRoot, 'temp-test-dir-react')
-    await generate(tempDir)
-    const reactJs = readFileSync(join(tempDir, 'react.js'), 'utf-8')
-    expect(reactJs).toContain('useState')
-    expect(reactJs).toContain("['react']")
-    expect(reactJs).not.toContain('__esModule')
-    expect(reactJs).not.toContain("'default'")
+  let outDir: string
+
+  beforeEach(() => {
+    // Inside the project: vitest only loads modules from under its root.
+    const base = join(cwd(), 'node_modules', '.cache')
+    mkdirSync(base, { recursive: true })
+    outDir = mkdtempSync(join(base, 'plugin-shared-test-'))
   })
 
-  it('generates ainsel-plugin-sdk.js with all exports from exports.json', async () => {
-    // @ts-expect-error ESM .mjs files do not have declaration files; type checked at runtime
+  afterEach(() => {
+    rmSync(outDir, { recursive: true, force: true })
+    delete window.__AINSEL_SHARED__
+  })
+
+  // Imports a generated shim as a real ES module, so a syntax error in the
+  // generated code fails here rather than in the browser.
+  async function importShim(file: string): Promise<Record<string, unknown>> {
+    const target = join(outDir, file.replace(/\.js$/, '.mjs'))
+    copyFileSync(join(outDir, file), target)
+    return import(/* @vite-ignore */ target)
+  }
+
+  it('generates a react shim that re-exports the console React', async () => {
     const { generate } = await import('../../scripts/gen-plugin-shared.mjs')
-    const tempDir = join(projectRoot, 'temp-test-dir-sdk')
-    await generate(tempDir)
+    await generate(outDir)
+    installPluginHost()
 
-    const exportsPath = join(projectRoot, 'packages', 'plugin-sdk', 'exports.json')
-    const exportsJson = JSON.parse(readFileSync(exportsPath, 'utf-8'))
+    const shim = await importShim('react.js')
+    expect(shim.useState).toBe(React.useState)
+    expect(shim.default).toBe(React)
+    expect(readFileSync(join(outDir, 'react.js'), 'utf-8')).not.toContain('__esModule')
+  })
 
-    const sdkJs = readFileSync(join(tempDir, 'ainsel-plugin-sdk.js'), 'utf-8')
-    for (const exportName of exportsJson) {
-      expect(sdkJs).toContain(`'${exportName}'`)
+  it('generates an sdk shim exporting every name in exports.json', async () => {
+    const { generate } = await import('../../scripts/gen-plugin-shared.mjs')
+    await generate(outDir)
+    installPluginHost()
+
+    const exportsJson: string[] = JSON.parse(
+      readFileSync(join(projectRoot, 'packages', 'plugin-sdk', 'exports.json'), 'utf-8'),
+    )
+    const shim = await importShim('ainsel-plugin-sdk.js')
+    for (const name of exportsJson) {
+      expect(shim[name], name).toBeDefined()
     }
+    expect(shim.PLUGIN_API_VERSION).toBe('1.1')
   })
 })

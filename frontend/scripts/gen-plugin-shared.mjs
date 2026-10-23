@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -29,24 +29,15 @@ function isValidExportName(name) {
 }
 
 async function getModuleExports(specifier) {
-  try {
-    const mod = await import(specifier)
-    return Object.keys(mod).filter(isValidExportName).sort()
-  } catch (error) {
-    console.error(`Error importing ${specifier}:`, error.message)
-    return []
-  }
+  // A failed import must fail the build: an empty shim would only surface as
+  // a broken plugin at runtime.
+  const mod = await import(specifier)
+  return Object.keys(mod).filter(isValidExportName).sort()
 }
 
 function generateModuleShim(specifier, exportNames, filename) {
-  const exportStatements = exportNames.map(name => `  '${name}': m.${name},`).join('\n')
-  const code = `const m = window.__AINSEL_SHARED__['${specifier}'];
-export default m;
-export const {
-${exportStatements}
-} = m;
-`
-  return code
+  const named = exportNames.length > 0 ? `export const { ${exportNames.join(', ')} } = m;\n` : ''
+  return `const m = window.__AINSEL_SHARED__[${JSON.stringify(specifier)}];\nexport default m;\n${named}`
 }
 
 export async function generate(outDir = join(frontendRoot, 'public', 'plugin-shared')) {
@@ -75,7 +66,7 @@ export async function generate(outDir = join(frontendRoot, 'public', 'plugin-sha
 }
 
 // Run generator when executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   generate().catch(error => {
     console.error('Generator failed:', error)
     process.exit(1)
