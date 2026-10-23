@@ -48,9 +48,16 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		newEnv := make([]agentv1alpha1.AgentImageEnvVar, 0, len(*req.Env))
 		for _, e := range *req.Env {
 			ev := agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: e.Value, Secret: e.Secret}
-			if ev.Secret && ev.Value == "" {
+			// An empty value on a name that is currently stored as a secret
+			// means "keep the stored value" regardless of the submitted flag:
+			// the GET view always redacts secret values, so a read-modify-write
+			// client cannot round-trip them any other way. Forcing Secret=true
+			// also closes the flag-flip hole where a cleared flag would make a
+			// later GET echo the stored secret in cleartext.
+			if ev.Value == "" {
 				if existingVal, ok := existingSecrets[ev.Name]; ok {
 					ev.Value = existingVal
+					ev.Secret = true
 				}
 			}
 			newEnv = append(newEnv, ev)
@@ -134,6 +141,17 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	if req.Sidecars != nil {
+		existingSidecarSecrets := make(map[string]map[string]string, len(existing.Spec.Sidecars))
+		for _, sc := range existing.Spec.Sidecars {
+			secrets := make(map[string]string, len(sc.Env))
+			for _, e := range sc.Env {
+				if e.Secret {
+					secrets[e.Name] = e.Value
+				}
+			}
+			existingSidecarSecrets[sc.Name] = secrets
+		}
+
 		newSidecars := make([]agentv1alpha1.AgentImageSidecar, 0, len(*req.Sidecars))
 		for _, sc := range *req.Sidecars {
 			sidecar := agentv1alpha1.AgentImageSidecar{
@@ -142,8 +160,18 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 				Port:    sc.Port,
 				MCPPath: sc.MCPPath,
 			}
+			// Sidecar env follows the same keep-on-empty rule as top-level env,
+			// keyed by (sidecar name, env name).
+			secrets := existingSidecarSecrets[sc.Name]
 			for _, e := range sc.Env {
-				sidecar.Env = append(sidecar.Env, agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: e.Value, Secret: e.Secret})
+				ev := agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: e.Value, Secret: e.Secret}
+				if ev.Value == "" {
+					if existingVal, ok := secrets[ev.Name]; ok {
+						ev.Value = existingVal
+						ev.Secret = true
+					}
+				}
+				sidecar.Env = append(sidecar.Env, ev)
 			}
 			newSidecars = append(newSidecars, sidecar)
 		}
