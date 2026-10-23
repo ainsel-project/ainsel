@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
+	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -19,68 +22,80 @@ func (s *Server) handlePluginContext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	pc, ok := PluginCallerFrom(ctx)
+	resp := pluginContextResponse{Kind: plugincreds.KindUser, Groups: []pluginContextGroup{}}
 
-	// Check if this is a plugin caller or a regular user
-	if ok && pc.Kind != "" {
-		// Plugin credentials
-		resp := map[string]interface{}{
-			"pluginId":    pc.PluginID,
-			"kind":        pc.Kind,
-			"sub":         pc.Sub,
-			"username":    "",
-			"isAdmin":     false,
-			"permissions": pc.Permissions,
-			"groups":      pc.Groups,
-			"invocationId": pc.InvocationID,
+	if pc, ok := PluginCallerFrom(ctx); ok {
+		resp.PluginID = pc.PluginID
+		resp.Kind = pc.Kind
+		resp.Sub = pc.Sub
+		resp.Username = pc.Username
+		resp.Permissions = pc.Permissions
+		if resp.Permissions == nil {
+			resp.Permissions = []string{}
+		}
+		resp.InvocationID = pc.InvocationID
+		if pc.Kind == plugincreds.KindUser {
+			resp.IsAdmin = s.callerIsAdmin(r)
+		}
+		for _, g := range pc.Groups {
+			resp.Groups = append(resp.Groups, pluginContextGroup{ID: g.ID, Name: s.groupName(r, g.ID), Role: g.Role})
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 
-	// Regular user
+	// Regular user (session or ainsel_ token)
 	u, ok := oidc.FromContext(ctx)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-
-	isAdmin := false
-	if s.authzChecker != nil {
-		isAdmin, _ = s.authzChecker.IsAdmin(ctx, u.Sub)
-	}
-
-	// Get user's groups
-	var groups []map[string]interface{}
+	resp.Sub = u.Sub
+	resp.Username = u.Username
+	resp.IsAdmin = s.callerIsAdmin(r)
 	if s.authzStore != nil {
-		userGroups, err := s.authzStore.UserGroupRoles(ctx, u.Sub)
-		if err == nil && userGroups != nil {
-			for groupID, role := range userGroups {
-				g, _ := s.authzStore.GetGroup(ctx, groupID)
-				groupName := ""
-				if g != nil {
-					groupName = g.Name
-				}
-				groups = append(groups, map[string]interface{}{
-					"id":   groupID,
-					"name": groupName,
-					"role": string(role),
-				})
-			}
+		roles, err := s.authzStore.UserGroupRoles(ctx, u.Sub)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		for id, role := range roles {
+			resp.Groups = append(resp.Groups, pluginContextGroup{ID: id, Name: s.groupName(r, id), Role: string(role)})
 		}
 	}
-
-	resp := map[string]interface{}{
-		"pluginId":    "",
-		"kind":        "user",
-		"sub":         u.Sub,
-		"username":    u.Username,
-		"isAdmin":     isAdmin,
-		"permissions": nil,
-		"groups":      groups,
-		"invocationId": "",
-	}
+	sort.Slice(resp.Groups, func(a, b int) bool { return resp.Groups[a].ID < resp.Groups[b].ID })
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// pluginContextResponse is the body of GET /api/v1/plugin-context.
+// Permissions is null for callers that are not plugin credentials.
+type pluginContextResponse struct {
+	PluginID     string               `json:"pluginId"`
+	Kind         string               `json:"kind"`
+	Sub          string               `json:"sub"`
+	Username     string               `json:"username"`
+	IsAdmin      bool                 `json:"isAdmin"`
+	Permissions  []string             `json:"permissions"`
+	Groups       []pluginContextGroup `json:"groups"`
+	InvocationID string               `json:"invocationId"`
+}
+
+type pluginContextGroup struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
+// groupName resolves a group's display name; unknown groups get "".
+func (s *Server) groupName(r *http.Request, id string) string {
+	if s.authzStore == nil {
+		return ""
+	}
+	g, err := s.authzStore.GetGroup(r.Context(), id)
+	if err != nil || g == nil {
+		return ""
+	}
+	return g.Name
 }
 
 // handlePluginContextVisible checks which resources are visible to the caller
@@ -96,6 +111,7 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 		Names        []string `json:"names"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -103,13 +119,13 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 
 	// Validate resourceType
 	resourceTypeMap := map[string]string{
-		"agent":         "agents:read",
-		"agent-image":   "agent-images:read",
-		"connector":     "connectors:read",
-		"trigger":       "triggers:read",
-		"mcp-server":    "mcp-servers:read",
-		"persona":       "personas:read",
-		"skill":         "skills:read",
+		"agent":       "agents:read",
+		"agent-image": "agent-images:read",
+		"connector":   "connectors:read",
+		"trigger":     "triggers:read",
+		"mcp-server":  "mcp-servers:read",
+		"persona":     "personas:read",
+		"skill":       "skills:read",
 	}
 
 	requiredPerm, ok := resourceTypeMap[req.ResourceType]
@@ -136,7 +152,7 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Deduplicate and check visibility
-	var visible []string
+	visible := []string{}
 	seen := make(map[string]bool)
 
 	for _, name := range req.Names {
@@ -243,6 +259,6 @@ func (s *Server) handleInternalPluginCredentials(w http.ResponseWriter, r *http.
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"token":     tok,
-		"expiresAt": exp.Format("2006-01-02T15:04:05Z07:00"),
+		"expiresAt": exp.UTC().Format(time.RFC3339),
 	})
 }

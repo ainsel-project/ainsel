@@ -20,7 +20,7 @@ type fakeAuthzStore struct {
 	tokenVersions map[string]int64
 	versionErr    error // when set, UserTokenVersion/BumpTokenVersion fail with it
 	groups        map[string]authz.Group
-	resources     map[string]string // key: resourceType:resourceName, value: groupID
+	resources     map[string]string                     // key: resourceType:resourceName, value: groupID
 	userGroups    map[string]map[string]authz.GroupRole // user ID -> (group ID -> role)
 }
 

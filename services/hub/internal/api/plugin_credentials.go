@@ -38,6 +38,7 @@ type PluginCaller struct {
 	PluginID     string
 	Kind         string
 	Sub          string
+	Username     string
 	Permissions  []string
 	Groups       []plugincreds.GroupGrant
 	InvocationID string
@@ -150,6 +151,7 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 		PluginID:     claims.PluginID,
 		Kind:         claims.Kind,
 		Sub:          claims.Sub,
+		Username:     claims.Username,
 		Permissions:  effectivePerms,
 		Groups:       effectiveGroups,
 		InvocationID: claims.InvocationID,
