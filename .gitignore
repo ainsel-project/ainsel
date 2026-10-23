@@ -9,6 +9,7 @@ dist/
 coverage/
 .eslintcache
 .pnpm-store/
+frontend/public/plugin-shared/
 
 # TypeScript composite project outputs
 *.tsbuildinfo
