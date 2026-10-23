@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -299,7 +301,13 @@ func TestPluginCredential_PluginKindUsesGroups(t *testing.T) {
 		return nil, nil
 	}, time.Minute))
 
+	// The handler runs the real authz check for the agent named in the path,
+	// so the principal set by the middleware is what decides.
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/api/v1/agents/")
+		if !s.requireRead(w, r, "agent", name) {
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 	disabledGuard := authz.NewDisabledGuard(s.authzStore)
@@ -336,14 +344,25 @@ func TestPluginCredential_PluginKindUsesGroups(t *testing.T) {
 		t.Errorf("agent in group: expected 200, got %d", rec.Code)
 	}
 
-	// Request for a2 (in g2) also reaches the handler at the middleware level
-	// (the handler would check group access if needed, but our test handler doesn't)
+	// a2 lives in g2, which the plugin was not granted
 	req = httptest.NewRequest("GET", "/api/v1/agents/a2", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rec = httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("agent outside granted groups: expected 403, got %d", rec.Code)
+	}
+
+	// An agent-kind credential keeps its owning group (g2) even though the
+	// plugin's background groupAccess is only g1.
+	agentTok := mintAgentPluginToken(t, issuer, "mem0", "a2", "inv-1", []string{"agents:read"},
+		[]plugincreds.GroupGrant{{ID: "g2", Role: "reader"}})
+	req = httptest.NewRequest("GET", "/api/v1/agents/a2", nil)
+	req.Header.Set("Authorization", "Bearer "+agentTok)
+	rec = httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("middleware doesn't enforce group access: expected 200, got %d", rec.Code)
+		t.Errorf("agent credential on own group: expected 200, got %d", rec.Code)
 	}
 }
 
@@ -465,7 +484,7 @@ func TestMintCredentials(t *testing.T) {
 		}
 
 		// Mint credential
-		tok, exp, err := s.MintUserPluginCredential(ctx, "mem0", user)
+		tok, exp, err := s.MintUserPluginCredential(ctx, "mem0", &oidc.User{Sub: user.ID, Username: user.Username})
 		if err != nil {
 			t.Fatalf("mint user credential: %v", err)
 		}
@@ -590,7 +609,7 @@ func TestMintCredentials(t *testing.T) {
 			t.Fatalf("upsert user: %v", err)
 		}
 
-		_, _, err = s.MintUserPluginCredential(ctx, "mem0", user)
+		_, _, err = s.MintUserPluginCredential(ctx, "mem0", &oidc.User{Sub: user.ID, Username: user.Username})
 		if err == nil {
 			t.Error("expected error for disabled plugin")
 		}
@@ -607,7 +626,7 @@ func TestMintCredentials(t *testing.T) {
 			t.Fatalf("upsert user: %v", err)
 		}
 
-		_, _, err = s.MintUserPluginCredential(ctx, "mem0", user)
+		_, _, err = s.MintUserPluginCredential(ctx, "mem0", &oidc.User{Sub: user.ID, Username: user.Username})
 		if err != plugincreds.ErrDisabled {
 			t.Errorf("expected ErrDisabled, got %v", err)
 		}

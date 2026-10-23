@@ -13,6 +13,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -34,11 +35,11 @@ func (w *statusCaptureWriter) WriteHeader(status int) {
 
 // PluginCaller describes the authenticated plugin caller and their effective permissions/groups.
 type PluginCaller struct {
-	PluginID    string
-	Kind        string
-	Sub         string
-	Permissions []string
-	Groups      []plugincreds.GroupGrant
+	PluginID     string
+	Kind         string
+	Sub          string
+	Permissions  []string
+	Groups       []plugincreds.GroupGrant
 	InvocationID string
 }
 
@@ -67,13 +68,7 @@ func (s *Server) PluginCredentialMiddleware(disabledGuard, fallback func(http.Ha
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check for plugin credential bearer token
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				fallback(next).ServeHTTP(w, r)
-				return
-			}
-
-			token := strings.TrimPrefix(authHeader, "Bearer ")
+			token := bearerToken(r.Header.Get("Authorization"))
 			if !plugincreds.LooksLike(token) {
 				fallback(next).ServeHTTP(w, r)
 				return
@@ -104,8 +99,11 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 	var plugin connectorv1alpha1.Plugin
 	pluginKey := types.NamespacedName{Name: claims.PluginID, Namespace: s.ns}
 	if err := s.client.Get(ctx, pluginKey, &plugin); err != nil {
-		// Plugin not found, disabled, or other issue
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, "service unavailable")
 		return
 	}
 
@@ -125,14 +123,11 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 	effectivePerms := intersect(claims.Permissions, plugin.Spec.ApprovedPermissions)
 
 	// Compute effective groups (for plugin kind)
-	var effectiveGroups []plugincreds.GroupGrant
+	// (agents keep their owning group; groupAccess only governs the
+	// plugin's own background identity)
+	effectiveGroups := claims.Groups
 	if claims.Kind == plugincreds.KindPlugin {
 		effectiveGroups = intersectGroups(claims.Groups, plugin.Spec.GroupAccess)
-	} else if claims.Kind == plugincreds.KindAgent {
-		// Agent: filter groups to only those in spec.groupAccess
-		effectiveGroups = intersectGroups(claims.Groups, plugin.Spec.GroupAccess)
-	} else {
-		effectiveGroups = claims.Groups
 	}
 
 	// Set up request context
@@ -214,33 +209,30 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 
 // MintUserPluginCredential mints a user-kind plugin credential.
 // Returns token, expiration, error. Checks that the plugin is enabled and Ready.
-func (s *Server) MintUserPluginCredential(ctx context.Context, pluginID string, u *authz.User) (string, time.Time, error) {
+func (s *Server) MintUserPluginCredential(ctx context.Context, pluginID string, u *oidc.User) (string, time.Time, error) {
 	if s.pluginCreds == nil {
 		return "", time.Time{}, plugincreds.ErrDisabled
 	}
 
-	// Load and validate plugin
-	var plugin connectorv1alpha1.Plugin
-	if err := s.client.Get(ctx, types.NamespacedName{Name: pluginID, Namespace: s.ns}, &plugin); err != nil {
-		return "", time.Time{}, plugincreds.ErrDisabled
-	}
-	if plugin.Spec.Disabled || !meta.IsStatusConditionTrue(plugin.Status.Conditions, connectorv1alpha1.PluginConditionReady) {
-		return "", time.Time{}, errors.New("plugin not available")
+	plugin, err := s.availablePlugin(ctx, pluginID)
+	if err != nil {
+		return "", time.Time{}, err
 	}
 
-	// Look up current user state to get admin flag
+	if u == nil || u.Sub == "" {
+		return "", time.Time{}, errors.New("no user")
+	}
 	admin := false
-	if u != nil {
-		currentUser, err := s.authzStore.GetUser(ctx, u.ID)
-		if err == nil && currentUser != nil {
-			admin = currentUser.IsAdmin
+	if s.authzChecker != nil {
+		if admin, err = s.authzChecker.IsAdmin(ctx, u.Sub); err != nil {
+			return "", time.Time{}, err
 		}
 	}
 
 	claims := plugincreds.Claims{
 		PluginID:    pluginID,
 		Kind:        plugincreds.KindUser,
-		Sub:         u.ID,
+		Sub:         u.Sub,
 		Username:    u.Username,
 		Admin:       admin,
 		Permissions: plugin.Spec.ApprovedPermissions,
@@ -257,20 +249,21 @@ func (s *Server) MintAgentPluginCredential(ctx context.Context, pluginID, agentN
 		return "", time.Time{}, plugincreds.ErrDisabled
 	}
 
-	// Load and validate plugin
-	var plugin connectorv1alpha1.Plugin
-	if err := s.client.Get(ctx, types.NamespacedName{Name: pluginID, Namespace: s.ns}, &plugin); err != nil {
-		return "", time.Time{}, plugincreds.ErrDisabled
-	}
-	if plugin.Spec.Disabled || !meta.IsStatusConditionTrue(plugin.Status.Conditions, connectorv1alpha1.PluginConditionReady) {
-		return "", time.Time{}, errors.New("plugin not available")
+	plugin, err := s.availablePlugin(ctx, pluginID)
+	if err != nil {
+		return "", time.Time{}, err
 	}
 
 	// Get agent's owning group
 	var groups []plugincreds.GroupGrant
-	rg, err := s.authzStore.GetResourceGroup(ctx, "agent", agentName)
-	if err == nil && rg != nil && rg.GroupID != "" {
-		groups = []plugincreds.GroupGrant{{ID: rg.GroupID, Role: "reader"}}
+	if s.authzStore != nil {
+		rg, err := s.authzStore.GetResourceGroup(ctx, "agent", agentName)
+		switch {
+		case err == nil && rg != nil && rg.GroupID != "":
+			groups = []plugincreds.GroupGrant{{ID: rg.GroupID, Role: string(authz.RoleReader)}}
+		case err != nil && !errors.Is(err, authz.ErrNotFound):
+			return "", time.Time{}, err
+		}
 	}
 
 	claims := plugincreds.Claims{
@@ -292,19 +285,15 @@ func (s *Server) MintPluginBackgroundCredential(ctx context.Context, pluginID st
 		return "", time.Time{}, plugincreds.ErrDisabled
 	}
 
-	// Load and validate plugin
-	var plugin connectorv1alpha1.Plugin
-	if err := s.client.Get(ctx, types.NamespacedName{Name: pluginID, Namespace: s.ns}, &plugin); err != nil {
-		return "", time.Time{}, plugincreds.ErrDisabled
-	}
-	if plugin.Spec.Disabled || !meta.IsStatusConditionTrue(plugin.Status.Conditions, connectorv1alpha1.PluginConditionReady) {
-		return "", time.Time{}, errors.New("plugin not available")
+	plugin, err := s.availablePlugin(ctx, pluginID)
+	if err != nil {
+		return "", time.Time{}, err
 	}
 
 	// Build groups from spec.groupAccess with writer role
 	var groups []plugincreds.GroupGrant
 	for _, gid := range plugin.Spec.GroupAccess {
-		groups = append(groups, plugincreds.GroupGrant{ID: gid, Role: "writer"})
+		groups = append(groups, plugincreds.GroupGrant{ID: gid, Role: string(authz.RoleWriter)})
 	}
 
 	claims := plugincreds.Claims{
@@ -316,6 +305,35 @@ func (s *Server) MintPluginBackgroundCredential(ctx context.Context, pluginID st
 	}
 
 	return s.pluginCreds.Issue(claims)
+}
+
+// errPluginUnavailable is returned by the mint helpers when the plugin is
+// missing, disabled, or not Ready.
+var errPluginUnavailable = errors.New("plugin not available")
+
+// availablePlugin loads the Plugin CR and requires it to be enabled and Ready.
+func (s *Server) availablePlugin(ctx context.Context, pluginID string) (*connectorv1alpha1.Plugin, error) {
+	var plugin connectorv1alpha1.Plugin
+	if err := s.client.Get(ctx, types.NamespacedName{Name: pluginID, Namespace: s.ns}, &plugin); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errPluginUnavailable
+		}
+		return nil, err
+	}
+	if plugin.Spec.Disabled || !meta.IsStatusConditionTrue(plugin.Status.Conditions, connectorv1alpha1.PluginConditionReady) {
+		return nil, errPluginUnavailable
+	}
+	return &plugin, nil
+}
+
+// bearerToken extracts a bearer token, matching the scheme case-insensitively
+// like the other auth middlewares.
+func bearerToken(header string) string {
+	const prefix = "Bearer "
+	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(header[len(prefix):])
 }
 
 // Helper functions
