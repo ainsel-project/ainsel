@@ -203,6 +203,10 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 // "<pluginId>-<skillName>" shape the syncer derives from the manifest, and
 // that shape is the syncer's contract, not user input. The row is always left
 // owned by the plugin, even if the id collided with an existing row.
+// ErrIDTakenByUser is returned by UpsertManaged when a skill with that id
+// exists and is not plugin-managed.
+var ErrIDTakenByUser = errors.New("skill id is taken by a user-managed skill")
+
 func (s *Store) UpsertManaged(ctx context.Context, sk *Skill) error {
 	now := time.Now().UTC()
 	if sk.Tags == nil {
@@ -218,9 +222,14 @@ func (s *Store) UpsertManaged(ctx context.Context, sk *Skill) error {
 		   tags = EXCLUDED.tags,
 		   managed_by = 'plugin',
 		   updated_at = EXCLUDED.updated_at
+		 WHERE skills.managed_by = 'plugin'
 		 RETURNING created_at, updated_at`,
 		sk.ID, sk.Name, sk.Description, sk.Body, sk.Tags, now,
 	).Scan(&sk.CreatedAt, &sk.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The conflict target exists but a user owns it: never take it over.
+		return ErrIDTakenByUser
+	}
 	if err != nil {
 		return fmt.Errorf("skills.UpsertManaged: %w", err)
 	}

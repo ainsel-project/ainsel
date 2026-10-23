@@ -426,3 +426,24 @@ func TestStoreDeleteManaged(t *testing.T) {
 		t.Errorf("expected ErrNotFound on second delete, got %v", err)
 	}
 }
+
+func TestStoreUpsertManagedNeverTakesOverUserSkill(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+
+	if err := store.Create(ctx, &skills.Skill{ID: "mem0-memory-usage", Name: "mine", Body: "user body"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	err := store.UpsertManaged(ctx, &skills.Skill{ID: "mem0-memory-usage", Name: "mem0-memory-usage", Body: "plugin body", Tags: []string{"plugin:mem0"}})
+	if !errors.Is(err, skills.ErrIDTakenByUser) {
+		t.Fatalf("UpsertManaged err = %v, want ErrIDTakenByUser", err)
+	}
+	got, err := store.Get(ctx, "mem0-memory-usage")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ManagedBy != "user" || got.Body != "user body" || got.Name != "mine" {
+		t.Errorf("user skill was modified: %+v", got)
+	}
+}

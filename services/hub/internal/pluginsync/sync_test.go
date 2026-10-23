@@ -576,3 +576,19 @@ func TestSync_SkillNoEndpointKeepsExistingRow(t *testing.T) {
 		t.Errorf("row changed: %+v", skillReg.rows["mem0-memory-usage"])
 	}
 }
+
+// TestSync_NeverTakesOverUserRowWithPluginName: a user row that happens to be
+// named plugin-<id> stays the user's; the plugin's server is not registered.
+func TestSync_NeverTakesOverUserRowWithPluginName(t *testing.T) {
+	c := syncClient(t, pluginWithManifest(t, "mem0", mcpManifest, false))
+	user := &mcpservers.MCPServer{Name: "plugin-mem0", DisplayName: "Mine", URL: "https://example.com/mcp", ManagedBy: "user"}
+	reg := newFakeMCPRegistry(user)
+	s := pluginsync.New(c, testNS, reg, nil, testSelfURL, nil)
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if len(reg.upserted) != 0 || len(reg.deleted) != 0 {
+		t.Fatalf("user row touched: upserted=%+v deleted=%v", reg.upserted, reg.deleted)
+	}
+}

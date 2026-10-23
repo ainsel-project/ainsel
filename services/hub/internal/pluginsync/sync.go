@@ -185,7 +185,15 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 	// order instead of a new one every pass.
 	for _, name := range slices.Sorted(maps.Keys(desired)) {
 		row := desired[name]
-		if cur, ok := current[name]; ok && sameRegistration(cur, row) {
+		cur, ok := current[name]
+		if ok && cur.ManagedBy != mcpservers.ManagedByPlugin {
+			// Never take over a row a user or helm owns, even if its name
+			// matches: the plugin's server is simply not registered.
+			slog.Warn("plugin mcp server name taken by a row the plugin does not own; not registering",
+				"name", name, "managedBy", cur.ManagedBy)
+			continue
+		}
+		if ok && sameRegistration(cur, row) {
 			continue
 		}
 		if err := s.mcp.Upsert(ctx, row); err != nil {
