@@ -54,3 +54,36 @@ func TestMigrateRejectsKeyValueDSN(t *testing.T) {
 		t.Errorf("expected URL-form rejection error, got: %v", err)
 	}
 }
+
+// TestMigrateUpAddsSkillsManagedBy covers migration 0030: every skills row
+// gains a managed_by that defaults to "user", so pre-existing console skills
+// keep reading as user-owned without a backfill.
+func TestMigrateUpAddsSkillsManagedBy(t *testing.T) {
+	dsn, stop := startPostgres(t)
+	defer stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := db.Migrate(ctx, dsn); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO skills (id, name) VALUES ('plain', 'Plain')`); err != nil {
+		t.Fatalf("insert without managed_by: %v", err)
+	}
+	var managedBy string
+	if err := pool.QueryRow(ctx, `SELECT managed_by FROM skills WHERE id = 'plain'`).Scan(&managedBy); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if managedBy != "user" {
+		t.Errorf("managed_by default: want %q, got %q", "user", managedBy)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO skills (id, name, managed_by) VALUES ('nul', 'Nul', NULL)`); err == nil {
+		t.Error("expected NOT NULL on managed_by to reject an explicit NULL, insert succeeded")
+	}
+}

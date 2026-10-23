@@ -3,6 +3,7 @@ package skills_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
@@ -300,5 +301,128 @@ func TestStoreListEmptyFilterReturnsAll(t *testing.T) {
 		if s.Tags == nil {
 			t.Errorf("skill %s: expected non-nil tags", s.ID)
 		}
+	}
+}
+
+// --- managed_by / plugin-managed rows ---------------------------------------
+
+func TestStoreCreateDefaultsManagedByToUser(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+
+	sk := skills.Skill{ID: "mine", Name: "Mine", Body: "b"}
+	if err := store.Create(ctx, &sk); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if sk.ManagedBy != "user" {
+		t.Errorf("Create should report ManagedBy=user, got %q", sk.ManagedBy)
+	}
+	got, err := store.Get(ctx, "mine")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ManagedBy != "user" {
+		t.Errorf("ManagedBy: want user, got %q", got.ManagedBy)
+	}
+}
+
+// TestStoreUpsertManagedInsertsAndUpdates: the syncer writes rows under a
+// caller-chosen id — user-facing Create validates ids from request input, the
+// plugin path must accept the fixed "<pluginId>-<skillName>" shape as-is.
+func TestStoreUpsertManagedInsertsAndUpdates(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+
+	sk := &skills.Skill{
+		ID:          "mem0-memory-usage",
+		Name:        "mem0-memory-usage",
+		Description: "How to use memories",
+		Body:        "v1",
+		Tags:        []string{"plugin:mem0"},
+	}
+	if err := store.UpsertManaged(ctx, sk); err != nil {
+		t.Fatalf("UpsertManaged insert: %v", err)
+	}
+	got, err := store.Get(ctx, "mem0-memory-usage")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ManagedBy != "plugin" {
+		t.Errorf("ManagedBy: want plugin, got %q", got.ManagedBy)
+	}
+	if got.Body != "v1" || !slices.Equal(got.Tags, []string{"plugin:mem0"}) {
+		t.Errorf("row: %+v", got)
+	}
+	createdAt := got.CreatedAt
+
+	sk.Body = "v2"
+	sk.Description = "Updated"
+	if err := store.UpsertManaged(ctx, sk); err != nil {
+		t.Fatalf("UpsertManaged update: %v", err)
+	}
+	got, err = store.Get(ctx, "mem0-memory-usage")
+	if err != nil {
+		t.Fatalf("Get after update: %v", err)
+	}
+	if got.Body != "v2" || got.Description != "Updated" {
+		t.Errorf("row not updated: %+v", got)
+	}
+	if !got.CreatedAt.Equal(createdAt) {
+		t.Errorf("created_at changed on upsert: %v -> %v", createdAt, got.CreatedAt)
+	}
+}
+
+func TestStoreListManagedReturnsOnlyPluginRows(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+
+	if err := store.Create(ctx, &skills.Skill{ID: "user-skill", Name: "User", Body: "user body"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := store.UpsertManaged(ctx, &skills.Skill{
+		ID: "mem0-usage", Name: "mem0-usage", Description: "d", Body: "plugin body",
+		Tags: []string{"plugin:mem0"},
+	}); err != nil {
+		t.Fatalf("UpsertManaged: %v", err)
+	}
+
+	got, err := store.ListManaged(ctx)
+	if err != nil {
+		t.Fatalf("ListManaged: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 managed row, got %d (%+v)", len(got), got)
+	}
+	row := got[0]
+	if row.ID != "mem0-usage" || row.Name != "mem0-usage" || row.Description != "d" || row.Body != "plugin body" {
+		t.Errorf("row: %+v", row)
+	}
+	if row.ManagedBy != "plugin" {
+		t.Errorf("ManagedBy: %q", row.ManagedBy)
+	}
+	if !slices.Equal(row.Tags, []string{"plugin:mem0"}) {
+		t.Errorf("tags: %v", row.Tags)
+	}
+}
+
+func TestStoreDeleteManaged(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+
+	if err := store.UpsertManaged(ctx, &skills.Skill{ID: "mem0-usage", Name: "mem0-usage", Body: "b"}); err != nil {
+		t.Fatalf("UpsertManaged: %v", err)
+	}
+	if err := store.DeleteManaged(ctx, "mem0-usage"); err != nil {
+		t.Fatalf("DeleteManaged: %v", err)
+	}
+	if _, err := store.Get(ctx, "mem0-usage"); !errors.Is(err, skills.ErrNotFound) {
+		t.Errorf("expected row gone, got %v", err)
+	}
+	if err := store.DeleteManaged(ctx, "mem0-usage"); !errors.Is(err, skills.ErrNotFound) {
+		t.Errorf("expected ErrNotFound on second delete, got %v", err)
 	}
 }

@@ -31,6 +31,47 @@ type AgentImageLister interface {
 	Unassign(ctx context.Context, skillID, agentImageName string) error
 }
 
+// ManagedBy values. "user" rows are console-owned; "plugin" rows are written
+// by the plugin skill syncer for skills a plugin manifest declares.
+const (
+	ManagedByUser   = "user"
+	ManagedByPlugin = "plugin"
+)
+
+// ErrPluginManaged is the sentinel wrapped by every PluginManagedError, so a
+// caller can test for plugin ownership without knowing the plugin id.
+var ErrPluginManaged = errors.New("skill is managed by a plugin")
+
+// PluginManagedError reports a skill row owned by a plugin. Its message is the
+// exact wording the API answers with (409), so the handler passes it through
+// verbatim.
+type PluginManagedError struct {
+	PluginID string
+}
+
+func (e PluginManagedError) Error() string {
+	return fmt.Sprintf("managed by plugin %s", e.PluginID)
+}
+
+func (e PluginManagedError) Unwrap() error { return ErrPluginManaged }
+
+// pluginTagPrefix marks the tag that names a plugin skill's owner. The syncer
+// writes exactly ["plugin:<id>"], and it — not the id — is the record of
+// ownership a refusal quotes back.
+const pluginTagPrefix = "plugin:"
+
+// pluginIDFromTags recovers the owning plugin id from a row's tags. It returns
+// the empty string for a row without the tag, which only a row not written by
+// the syncer can be.
+func pluginIDFromTags(tags []string) string {
+	for _, t := range tags {
+		if strings.HasPrefix(t, pluginTagPrefix) {
+			return strings.TrimPrefix(t, pluginTagPrefix)
+		}
+	}
+	return ""
+}
+
 // Service orchestrates Store + Reconciler + AgentImageLister.
 type Service struct {
 	store            *Store
@@ -307,6 +348,15 @@ func (s *Service) SearchForDiscovery(ctx context.Context, query string, tags []s
 // some AgentImage or Agent selects the skill: an edit to a catalogue
 // entry must not touch the shared, size-capped delivery object.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Skill, error) {
+	// The stored row's owner decides: a plugin-owned row is refused, so the
+	// mapping from a plugin to its shipped skill has exactly one author.
+	row, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if row.ManagedBy == ManagedByPlugin {
+		return nil, PluginManagedError{PluginID: pluginIDFromTags(row.Tags)}
+	}
 	if req.Name != nil {
 		if err := validateName(*req.Name); err != nil {
 			return nil, err
@@ -337,6 +387,41 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Sk
 	return updated, nil
 }
 
+// ListManaged returns the full rows of every plugin-owned skill. It is the
+// syncer's view of the registry: reconciling against this set alone never
+// reads a user skill into the comparison.
+func (s *Service) ListManaged(ctx context.Context) ([]Skill, error) {
+	return s.store.ListManaged(ctx)
+}
+
+// UpsertManaged inserts or updates a plugin-owned skill under the id the
+// caller derived from the manifest. Delivery follows the same rule as every
+// other write: the content is mounted only when some agent enables it.
+func (s *Service) UpsertManaged(ctx context.Context, sk *Skill) error {
+	if err := s.store.UpsertManaged(ctx, sk); err != nil {
+		return err
+	}
+	s.deliverIfEnabled(ctx, "plugin-upsert", sk)
+	return nil
+}
+
+// DeleteManaged removes a plugin-owned row with no ownership check — the
+// syncer's path, for rows that stopped being declared. The referrer check the
+// user-facing Delete applies is deliberately skipped: an image referencing a
+// skill its plugin withdrew is the plugin's decision, and Converge prunes the
+// mounted entry from there.
+func (s *Service) DeleteManaged(ctx context.Context, id string) error {
+	if err := s.store.DeleteManaged(ctx, id); err != nil {
+		return err
+	}
+	if s.rec != nil {
+		if err := s.rec.Delete(ctx, id); err != nil {
+			return fmt.Errorf("delete configmap entry: %w", err)
+		}
+	}
+	return nil
+}
+
 // Delete checks referrers first and refuses if any exist.
 //
 // Ordering: the DB row is deleted before the ConfigMap entry. If the
@@ -345,6 +430,15 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Sk
 // and gets overwritten if the same ID is recreated. A later reconcile
 // loop is the intended cleanup path; for v1 we accept the asymmetry.
 func (s *Service) Delete(ctx context.Context, id string) error {
+	// Ownership first: a user cannot delete a plugin's skill at all, whatever
+	// references it happens to hold.
+	row, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if row.ManagedBy == ManagedByPlugin {
+		return PluginManagedError{PluginID: pluginIDFromTags(row.Tags)}
+	}
 	if s.agentImageLister != nil {
 		refs, err := s.agentImageLister.ListReferrers(ctx, id)
 		if err != nil {

@@ -703,3 +703,99 @@ func TestServiceConvergeKeepsAgentLevelSkills(t *testing.T) {
 		t.Errorf("catalogue skill should not be delivered, keys=%v", keys(cm.Data))
 	}
 }
+
+// --- plugin-managed skills ---------------------------------------------------
+
+func upsertPluginSkill(t *testing.T, svc *skills.Service, id, body string) {
+	t.Helper()
+	sk := &skills.Skill{
+		ID:          id,
+		Name:        id,
+		Description: "plugin skill",
+		Body:        body,
+		Tags:        []string{"plugin:mem0"},
+	}
+	if err := svc.UpsertManaged(context.Background(), sk); err != nil {
+		t.Fatalf("UpsertManaged: %v", err)
+	}
+}
+
+// TestServiceUpdateRefusesPluginManaged: the plugin owns the row, so a console
+// edit is refused with the exact wording the API answers with (409 body
+// "managed by plugin <id>", the id read from the "plugin:<id>" tag).
+func TestServiceUpdateRefusesPluginManaged(t *testing.T) {
+	ctx := context.Background()
+	svc, cleanup := newTestService(t, nil)
+	defer cleanup()
+	upsertPluginSkill(t, svc, "mem0-usage", "plugin body")
+
+	_, err := svc.Update(ctx, "mem0-usage", skills.UpdateRequest{Body: ptr("mine now")})
+	if err == nil {
+		t.Fatal("expected update of a plugin-managed skill to fail")
+	}
+	if !errors.Is(err, skills.ErrPluginManaged) {
+		t.Errorf("expected ErrPluginManaged, got %T: %v", err, err)
+	}
+	if err.Error() != "managed by plugin mem0" {
+		t.Errorf("error message: %q", err.Error())
+	}
+	got, err := svc.Get(ctx, "mem0-usage")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Body != "plugin body" {
+		t.Errorf("row changed despite the refused update: %q", got.Body)
+	}
+}
+
+func TestServiceDeleteRefusesPluginManaged(t *testing.T) {
+	ctx := context.Background()
+	svc, cleanup := newTestService(t, nil)
+	defer cleanup()
+	upsertPluginSkill(t, svc, "mem0-usage", "plugin body")
+
+	err := svc.Delete(ctx, "mem0-usage")
+	if err == nil {
+		t.Fatal("expected delete of a plugin-managed skill to fail")
+	}
+	if !errors.Is(err, skills.ErrPluginManaged) {
+		t.Errorf("expected ErrPluginManaged, got %T: %v", err, err)
+	}
+	if err.Error() != "managed by plugin mem0" {
+		t.Errorf("error message: %q", err.Error())
+	}
+	if _, err := svc.Get(ctx, "mem0-usage"); err != nil {
+		t.Errorf("row must survive the refused delete: %v", err)
+	}
+}
+
+// TestServiceManagedSkillLifecycle: UpsertManaged stores a plugin-owned row
+// readable through Get and ListManaged, and DeleteManaged (the syncer's path)
+// removes it despite the ownership, which only the plugin side may do.
+func TestServiceManagedSkillLifecycle(t *testing.T) {
+	ctx := context.Background()
+	svc, cleanup := newTestService(t, nil)
+	defer cleanup()
+	upsertPluginSkill(t, svc, "mem0-usage", "v1")
+
+	got, err := svc.Get(ctx, "mem0-usage")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ManagedBy != "plugin" {
+		t.Errorf("ManagedBy: %q", got.ManagedBy)
+	}
+	managed, err := svc.ListManaged(ctx)
+	if err != nil {
+		t.Fatalf("ListManaged: %v", err)
+	}
+	if len(managed) != 1 || managed[0].ID != "mem0-usage" || managed[0].Body != "v1" {
+		t.Fatalf("ListManaged: %+v", managed)
+	}
+	if err := svc.DeleteManaged(ctx, "mem0-usage"); err != nil {
+		t.Fatalf("DeleteManaged: %v", err)
+	}
+	if _, err := svc.Get(ctx, "mem0-usage"); !errors.Is(err, skills.ErrNotFound) {
+		t.Errorf("expected row gone, got %v", err)
+	}
+}

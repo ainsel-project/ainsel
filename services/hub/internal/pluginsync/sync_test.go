@@ -3,6 +3,7 @@ package pluginsync_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
@@ -369,5 +370,209 @@ func TestSync_SkillRegistryOptional(t *testing.T) {
 	}
 	if len(reg.rows) != 1 {
 		t.Fatalf("expected the MCP row to be created, got %v", reg.rows)
+	}
+}
+
+// --- plugin-shipped skills -------------------------------------------------
+
+// fakeSkillRegistry is an in-memory stand-in for the skill registry's managed
+// rows, recording every write so a test can assert on the exact reconcile.
+type fakeSkillRegistry struct {
+	rows      map[string]pluginsync.ManagedSkill
+	upserted  []pluginsync.ManagedSkill
+	deleted   []string
+	listErr   error
+	upsertErr error
+	deleteErr error
+}
+
+func newFakeSkillRegistry(rows ...pluginsync.ManagedSkill) *fakeSkillRegistry {
+	f := &fakeSkillRegistry{rows: map[string]pluginsync.ManagedSkill{}}
+	for _, r := range rows {
+		f.rows[r.ID] = r
+	}
+	return f
+}
+
+func (f *fakeSkillRegistry) ListManaged(_ context.Context) ([]pluginsync.ManagedSkill, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	out := make([]pluginsync.ManagedSkill, 0, len(f.rows))
+	for _, r := range f.rows {
+		cp := r
+		cp.Tags = slices.Clone(r.Tags)
+		out = append(out, cp)
+	}
+	return out, nil
+}
+
+func (f *fakeSkillRegistry) Upsert(_ context.Context, sk pluginsync.ManagedSkill) error {
+	if f.upsertErr != nil {
+		return f.upsertErr
+	}
+	cp := sk
+	cp.Tags = slices.Clone(sk.Tags)
+	f.upserted = append(f.upserted, cp)
+	f.rows[sk.ID] = cp
+	return nil
+}
+
+func (f *fakeSkillRegistry) Delete(_ context.Context, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	if _, ok := f.rows[id]; !ok {
+		return errors.New("skill not found")
+	}
+	f.deleted = append(f.deleted, id)
+	delete(f.rows, id)
+	return nil
+}
+
+// pluginSkillManifest is the smallest manifest that declares one skill. The
+// skill id and name the syncer must derive from it are "mem0-memory-usage".
+const pluginSkillManifest = `{"id":"mem0","displayName":"Mem0","version":"1.0.0","pluginApi":"1.1","skills":[{"name":"memory-usage","description":"How the agent should use mem0 memories","path":"/skills/memory-usage.md"}]}`
+
+func pluginWithManifestAndEndpoints(t *testing.T, name, manifest string, endpoints []string) client.Object {
+	t.Helper()
+	p := pluginWithManifest(t, name, manifest, false).(*connectorv1alpha1.Plugin)
+	p.Status.VerifiedEndpoints = endpoints
+	return p
+}
+
+func managedPluginSkill(id, body string) pluginsync.ManagedSkill {
+	return pluginsync.ManagedSkill{
+		ID:          id,
+		Name:        id,
+		Description: "How the agent should use mem0 memories",
+		Body:        body,
+		Tags:        []string{"plugin:mem0"},
+	}
+}
+
+func TestSync_RegistersPluginSkills(t *testing.T) {
+	c := syncClient(t, pluginWithManifestAndEndpoints(t, "mem0", pluginSkillManifest, []string{"10.0.0.5:8080"}))
+	reg := newFakeMCPRegistry()
+	skillReg := newFakeSkillRegistry()
+	vis := &fakeVisibility{}
+	var fetched []string
+	fetch := func(_ context.Context, endpoint, path string) (string, error) {
+		fetched = append(fetched, endpoint+path)
+		return "# Mem0 usage", nil
+	}
+	s := pluginsync.New(c, testNS, reg, skillReg, testSelfURL, fetch)
+	s.SetResourceVisibility(vis)
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if len(fetched) != 1 || fetched[0] != "10.0.0.5:8080/skills/memory-usage.md" {
+		t.Fatalf("fetch calls: %v", fetched)
+	}
+	if len(skillReg.rows) != 1 {
+		t.Fatalf("expected 1 managed skill, got %v", skillReg.rows)
+	}
+	got := skillReg.rows["mem0-memory-usage"]
+	if got.ID != "mem0-memory-usage" || got.Name != "mem0-memory-usage" {
+		t.Errorf("id/name: got %q/%q, want mem0-memory-usage/mem0-memory-usage", got.ID, got.Name)
+	}
+	if got.Description != "How the agent should use mem0 memories" {
+		t.Errorf("description: %q", got.Description)
+	}
+	if got.Body != "# Mem0 usage" {
+		t.Errorf("body: %q", got.Body)
+	}
+	if !slices.Equal(got.Tags, []string{"plugin:mem0"}) {
+		t.Errorf("tags: %v", got.Tags)
+	}
+	var seen bool
+	for _, call := range vis.publicCalls {
+		if call == (publicCall{"skill", "mem0-memory-usage", true}) {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Errorf("expected SetResourcePublic(skill, mem0-memory-usage, true), got %v", vis.publicCalls)
+	}
+
+	// A second pass over unchanged state must not write again.
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("second SyncOnce: %v", err)
+	}
+	if len(skillReg.upserted) != 1 {
+		t.Errorf("expected no second upsert, got %d", len(skillReg.upserted))
+	}
+}
+
+func TestSync_RemovesSkillWhenPluginDeleted(t *testing.T) {
+	c := syncClient(t)
+	skillReg := newFakeSkillRegistry(managedPluginSkill("mem0-usage", "old body"))
+	fetch := func(context.Context, string, string) (string, error) {
+		return "", errors.New("must not be called")
+	}
+	s := pluginsync.New(c, testNS, newFakeMCPRegistry(), skillReg, testSelfURL, fetch)
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if len(skillReg.deleted) != 1 || skillReg.deleted[0] != "mem0-usage" {
+		t.Errorf("expected delete of mem0-usage, got %v", skillReg.deleted)
+	}
+	if len(skillReg.rows) != 0 {
+		t.Errorf("expected no managed skills left, got %v", skillReg.rows)
+	}
+}
+
+// TestSync_SkillFetchFailureKeepsExistingBody: a plugin whose skill document
+// cannot be read right now must not lose the body already stored, and must not
+// be deleted for it — the declaration still exists.
+func TestSync_SkillFetchFailureKeepsExistingBody(t *testing.T) {
+	c := syncClient(t, pluginWithManifestAndEndpoints(t, "mem0", pluginSkillManifest, []string{"10.0.0.5:8080"}))
+	skillReg := newFakeSkillRegistry(managedPluginSkill("mem0-memory-usage", "previously fetched body"))
+	fetch := func(context.Context, string, string) (string, error) {
+		return "", errors.New("connection refused")
+	}
+	s := pluginsync.New(c, testNS, newFakeMCPRegistry(), skillReg, testSelfURL, fetch)
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if len(skillReg.upserted) != 0 {
+		t.Errorf("expected no upsert on fetch failure, got %v", skillReg.upserted)
+	}
+	if len(skillReg.deleted) != 0 {
+		t.Errorf("expected no delete on fetch failure, got %v", skillReg.deleted)
+	}
+	got := skillReg.rows["mem0-memory-usage"]
+	if got.Body != "previously fetched body" {
+		t.Errorf("body was overwritten: %q", got.Body)
+	}
+}
+
+// TestSync_SkillNoEndpointKeepsExistingRow: a plugin with no verified endpoint
+// yet (starting up) is not a skill removal. The fetcher must not be called and
+// the existing row survives untouched.
+func TestSync_SkillNoEndpointKeepsExistingRow(t *testing.T) {
+	c := syncClient(t, pluginWithManifestAndEndpoints(t, "mem0", pluginSkillManifest, nil))
+	skillReg := newFakeSkillRegistry(managedPluginSkill("mem0-memory-usage", "stored body"))
+	var called bool
+	fetch := func(context.Context, string, string) (string, error) {
+		called = true
+		return "", nil
+	}
+	s := pluginsync.New(c, testNS, newFakeMCPRegistry(), skillReg, testSelfURL, fetch)
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if called {
+		t.Errorf("fetcher must not be called without a verified endpoint")
+	}
+	if len(skillReg.upserted) != 0 || len(skillReg.deleted) != 0 {
+		t.Errorf("expected no writes, got upserts %v deletes %v", skillReg.upserted, skillReg.deleted)
+	}
+	if skillReg.rows["mem0-memory-usage"].Body != "stored body" {
+		t.Errorf("row changed: %+v", skillReg.rows["mem0-memory-usage"])
 	}
 }

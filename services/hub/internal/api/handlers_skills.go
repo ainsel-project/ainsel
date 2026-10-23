@@ -470,6 +470,13 @@ func (h *skillHandlers) writeSkillError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "skill ID already in use")
 		return
 	}
+	var pmErr skills.PluginManagedError
+	if errors.As(err, &pmErr) {
+		// The error message is the exact 409 wording ("managed by plugin <id>"),
+		// same contract as plugin-owned MCP servers.
+		writeError(w, http.StatusConflict, pmErr.Error())
+		return
+	}
 	if errors.Is(err, skills.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return

@@ -12,6 +12,7 @@ type Skill struct {
 	Description string    `json:"description"`
 	Body        string    `json:"body"`
 	Tags        []string  `json:"tags"`
+	ManagedBy   string    `json:"managedBy"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }

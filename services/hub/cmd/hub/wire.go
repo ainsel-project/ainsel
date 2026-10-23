@@ -108,23 +108,65 @@ func wireMCP(pool *pgxpool.Pool) *mcpservers.Service {
 const pluginSyncInterval = 30 * time.Second
 
 // wirePluginSync builds the syncer that keeps plugin MCP servers registered for
-// agents, or nil when it cannot do its job. HUB_SELF_URL is required: it is the
-// hub's own in-cluster address and the base of every URL the syncer writes, so
-// without it the rows would point agents at an address nobody told the hub.
+// agents and plugin skills registered in the skill registry, or nil when it
+// cannot do its job. HUB_SELF_URL is required: it is the hub's own in-cluster
+// address and the base of every URL the syncer writes, so without it the rows
+// would point agents at an address nobody told the hub.
 //
-// The skill halves are nil: nothing in the skill registry is plugin-owned, so
-// there is nothing for them to write, and a syncer with only one of the two
-// halves would be a misconfiguration rather than a partial feature.
+// The skill halves are wired together: the registry adapter to write rows
+// through and the HTTP fetcher to read a skill document off the plugin pod.
+// The fetcher's client carries the 10 s timeout — a plugin that does not
+// answer a skill GET fast is not worth stalling a sync pass for.
 func wirePluginSync(c *container) *pluginsync.Syncer {
 	selfURL := os.Getenv("HUB_SELF_URL")
 	if selfURL == "" {
 		slog.Info("plugin registry sync disabled: HUB_SELF_URL not set")
 		return nil
 	}
-	s := pluginsync.New(c.apiClient, c.namespace, c.mcpSvc, nil, selfURL, nil)
+	fetcher := pluginsync.NewHTTPSkillFetcher(&http.Client{Timeout: 10 * time.Second})
+	s := pluginsync.New(c.apiClient, c.namespace, c.mcpSvc, pluginSkillRegistry{svc: c.skillSvc}, selfURL, fetcher)
 	s.SetResourceVisibility(c.authzStore)
 	slog.Info("plugin registry sync enabled", "selfURL", selfURL, "interval", pluginSyncInterval)
 	return s
+}
+
+// pluginSkillRegistry adapts the skills service to the syncer's SkillRegistry
+// seam: the syncer stays free of the skill registry's own types, and the skill
+// package stays free of the syncer.
+type pluginSkillRegistry struct {
+	svc *skills.Service
+}
+
+func (r pluginSkillRegistry) ListManaged(ctx context.Context) ([]pluginsync.ManagedSkill, error) {
+	rows, err := r.svc.ListManaged(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pluginsync.ManagedSkill, 0, len(rows))
+	for _, sk := range rows {
+		out = append(out, pluginsync.ManagedSkill{
+			ID:          sk.ID,
+			Name:        sk.Name,
+			Description: sk.Description,
+			Body:        sk.Body,
+			Tags:        sk.Tags,
+		})
+	}
+	return out, nil
+}
+
+func (r pluginSkillRegistry) Upsert(ctx context.Context, s pluginsync.ManagedSkill) error {
+	return r.svc.UpsertManaged(ctx, &skills.Skill{
+		ID:          s.ID,
+		Name:        s.Name,
+		Description: s.Description,
+		Body:        s.Body,
+		Tags:        s.Tags,
+	})
+}
+
+func (r pluginSkillRegistry) Delete(ctx context.Context, id string) error {
+	return r.svc.DeleteManaged(ctx, id)
 }
 
 // runPluginSyncLoop is the background loop main.go starts. A disabled syncer is

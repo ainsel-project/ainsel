@@ -48,9 +48,12 @@ func (s *Store) Create(ctx context.Context, sk *Skill) error {
 	if sk.Tags == nil {
 		sk.Tags = []string{}
 	}
+	// managed_by is deliberately not an input here: Create is the user-facing
+	// path, and only the plugin syncer's UpsertManaged may claim a row for a
+	// plugin.
 	if _, err := s.pool.Exec(ctx,
-		`INSERT INTO skills (id, name, description, body, tags, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+		`INSERT INTO skills (id, name, description, body, tags, managed_by, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, 'user', $6, $6)`,
 		sk.ID, sk.Name, sk.Description, sk.Body, sk.Tags, now,
 	); err != nil {
 		if isUniqueViolation(err) {
@@ -58,6 +61,7 @@ func (s *Store) Create(ctx context.Context, sk *Skill) error {
 		}
 		return fmt.Errorf("insert skill: %w", err)
 	}
+	sk.ManagedBy = ManagedByUser
 	sk.CreatedAt = now
 	sk.UpdatedAt = now
 	return nil
@@ -67,9 +71,9 @@ func (s *Store) Create(ctx context.Context, sk *Skill) error {
 func (s *Store) Get(ctx context.Context, id string) (*Skill, error) {
 	var sk Skill
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, description, body, tags, created_at, updated_at
+		SELECT id, name, description, body, tags, managed_by, created_at, updated_at
 		FROM skills WHERE id = $1
-	`, id).Scan(&sk.ID, &sk.Name, &sk.Description, &sk.Body, &sk.Tags, &sk.CreatedAt, &sk.UpdatedAt)
+	`, id).Scan(&sk.ID, &sk.Name, &sk.Description, &sk.Body, &sk.Tags, &sk.ManagedBy, &sk.CreatedAt, &sk.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -130,15 +134,15 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]SkillSummary, er
 // Update applies a partial update.
 func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Skill, error) {
 	var (
-		name, description, body string
-		tags                    []string
-		createdAt               time.Time
+		name, description, body, managedBy string
+		tags                               []string
+		createdAt                          time.Time
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT name, description, body, tags, created_at
+		SELECT name, description, body, tags, managed_by, created_at
 		FROM skills WHERE id = $1
 		FOR UPDATE
-	`, id).Scan(&name, &description, &body, &tags, &createdAt)
+	`, id).Scan(&name, &description, &body, &tags, &managedBy, &createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -176,6 +180,7 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Skil
 		Description: description,
 		Body:        body,
 		Tags:        tags,
+		ManagedBy:   managedBy,
 		CreatedAt:   createdAt,
 		UpdatedAt:   now,
 	}, nil
@@ -191,6 +196,70 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// UpsertManaged inserts or updates a plugin-owned skill under the caller's
+// id. The id is not validated here: plugin skills carry the fixed
+// "<pluginId>-<skillName>" shape the syncer derives from the manifest, and
+// that shape is the syncer's contract, not user input. The row is always left
+// owned by the plugin, even if the id collided with an existing row.
+func (s *Store) UpsertManaged(ctx context.Context, sk *Skill) error {
+	now := time.Now().UTC()
+	if sk.Tags == nil {
+		sk.Tags = []string{}
+	}
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO skills (id, name, description, body, tags, managed_by, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, 'plugin', $6, $6)
+		 ON CONFLICT (id) DO UPDATE SET
+		   name = EXCLUDED.name,
+		   description = EXCLUDED.description,
+		   body = EXCLUDED.body,
+		   tags = EXCLUDED.tags,
+		   managed_by = 'plugin',
+		   updated_at = EXCLUDED.updated_at
+		 RETURNING created_at, updated_at`,
+		sk.ID, sk.Name, sk.Description, sk.Body, sk.Tags, now,
+	).Scan(&sk.CreatedAt, &sk.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("skills.UpsertManaged: %w", err)
+	}
+	sk.ManagedBy = ManagedByPlugin
+	return nil
+}
+
+// ListManaged returns the full rows (body included) of every plugin-owned
+// skill, ordered by id so a reconcile pass visits them in a stable order.
+// The syncer reconciles against this set alone, which is what makes the pass
+// safe to run against a registry full of user skills.
+func (s *Store) ListManaged(ctx context.Context) ([]Skill, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, name, description, body, tags, managed_by, created_at, updated_at
+		FROM skills WHERE managed_by = 'plugin' ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("skills.ListManaged: %w", err)
+	}
+	defer rows.Close()
+	var out []Skill
+	for rows.Next() {
+		var sk Skill
+		if err := rows.Scan(&sk.ID, &sk.Name, &sk.Description, &sk.Body, &sk.Tags, &sk.ManagedBy, &sk.CreatedAt, &sk.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("skills.ListManaged: %w", err)
+		}
+		if sk.Tags == nil {
+			sk.Tags = []string{}
+		}
+		out = append(out, sk)
+	}
+	return out, rows.Err()
+}
+
+// DeleteManaged removes a row by id with no ownership check. It exists for
+// the plugin skill syncer, which reconciles the rows ListManaged returned and
+// is the only code allowed to drop one; every other caller goes through the
+// service's ownership-guarded Delete.
+func (s *Store) DeleteManaged(ctx context.Context, id string) error {
+	return s.Delete(ctx, id)
 }
 
 // escapeILIKE escapes LIKE/ILIKE metacharacters (\, %, _) so user-supplied
