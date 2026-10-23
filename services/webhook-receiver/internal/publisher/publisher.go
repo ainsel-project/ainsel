@@ -68,6 +68,3 @@ func (p *HTTPPublisher) Publish(logger *slog.Logger, connector string, headers m
 
 	return nil
 }
-
-// Close is a no-op for the HTTP publisher (kept for interface compatibility).
-func (p *HTTPPublisher) Close() {}
