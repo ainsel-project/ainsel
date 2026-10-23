@@ -73,3 +73,41 @@ func TokenEnvValue(servers []ainselv1alpha1.AgentImageMCPServer, envNames map[st
 	}
 	return strings.Join(parts, ","), missingEnv
 }
+
+// PluginTokenEnv is the platform-injected env var that plugin MCP servers in
+// the hub registry use as their bearer: the hub's agent endpoint for plugins
+// authenticates the runner with it.
+const PluginTokenEnv = "HUB_INTERNAL_VALIDATE_SECRET"
+
+// IsHubPluginURL reports whether url is one of the hub's internal plugin
+// endpoints (<hubURL>/api/internal/plugins/...). Only such servers may
+// reference PluginTokenEnv: handing the platform secret to any other URL
+// would let a user-registered server collect it.
+func IsHubPluginURL(url, hubURL string) bool {
+	hubURL = strings.TrimSuffix(hubURL, "/")
+	if hubURL == "" {
+		return false
+	}
+	return strings.HasPrefix(url, hubURL+"/api/internal/plugins/")
+}
+
+// TokenEnvValueWithPlatform is TokenEnvValue plus one platform exception:
+// a server pointing at the hub's internal plugin endpoints may use
+// PluginTokenEnv even though it is not an AgentImage env var (the operator
+// injects it on every agent container).
+func TokenEnvValueWithPlatform(servers []ainselv1alpha1.AgentImageMCPServer, envNames map[string]bool, hubURL string) (string, []MissingEnvEntry) {
+	var parts []string
+	var missing []MissingEnvEntry
+	for _, s := range servers {
+		if s.TokenFromEnv == PluginTokenEnv && IsHubPluginURL(s.URL, hubURL) {
+			parts = append(parts, fmt.Sprintf("%s=$(%s)", s.Name, s.TokenFromEnv))
+			continue
+		}
+		v, m := TokenEnvValue([]ainselv1alpha1.AgentImageMCPServer{s}, envNames)
+		if v != "" {
+			parts = append(parts, v)
+		}
+		missing = append(missing, m...)
+	}
+	return strings.Join(parts, ","), missing
+}

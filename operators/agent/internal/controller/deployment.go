@@ -469,7 +469,7 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 	// from the image env are skipped; the controller logs
 	// them so a future Degraded condition can surface the
 	// misconfiguration to the user.
-	tokenValue, me := mcpservers.TokenEnvValue(effectiveMCPServers(agent, img), imageEnvNames)
+	tokenValue, me := mcpservers.TokenEnvValueWithPlatform(effectiveMCPServers(agent, img), imageEnvNames, resolveHubURL())
 	if len(me) > 0 {
 		plan.missingEnv = append(plan.missingEnv, me...)
 		var descs []string
