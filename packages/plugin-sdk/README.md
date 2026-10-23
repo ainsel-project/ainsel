@@ -6,9 +6,30 @@ The AInsel plugin SDK for building console extensions.
 
 This package provides the types and utilities for developing plugins that extend the AInsel console. Plugins can add new pages, fill extension slots, and access the console's HTTP clients and user context.
 
+## Install
+
+```bash
+npm install --save-dev @ainsel/plugin-sdk react
+```
+
+A dev dependency is enough: at runtime the console provides the SDK and React
+to your plugin module, so neither is bundled (see below). The package gives you
+the types and something for your bundler to mark as external.
+
 ## Version
 
 The plugin API version supported by this SDK is `1.1`. Consult `PLUGIN_API_VERSION` to check it at runtime.
+
+The SDK's minor version tracks the plugin API: SDK `1.1.x` implements
+`pluginApi: "1.1"`. Target the SDK minor that matches the `pluginApi` your
+manifest declares.
+
+## Releasing (maintainers)
+
+Bump `version` in this `package.json` and merge to `main`. The
+[Plugin SDK workflow](../../.github/workflows/plugin-sdk.yml) publishes any
+version npm does not have yet to npmjs.com with provenance, using the
+`NPM_TOKEN` repository secret.
 
 ## Architecture
 

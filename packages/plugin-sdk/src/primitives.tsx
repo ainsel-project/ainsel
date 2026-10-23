@@ -1,5 +1,5 @@
 import React from 'react'
-import { getHostPrimitives } from './host'
+import { getHostPrimitives } from './host.js'
 
 // Delegating wrappers for host primitives. Each wrapper forwards all props
 // to the registered host component.

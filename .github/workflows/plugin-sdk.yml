@@ -1,0 +1,111 @@
+name: Plugin SDK
+
+# Checks @ainsel/plugin-sdk on every change and publishes it to npmjs.com
+# from main.
+#
+# The SDK is versioned on its own, not with the product: its minor tracks the
+# plugin API it implements (SDK 1.1.x <-> pluginApi "1.1"). Releasing is
+# therefore a version bump in packages/plugin-sdk/package.json, merged to main:
+# the publish job sees a version npm does not have yet and publishes it. Pushes
+# that leave the version alone publish nothing, so re-runs are safe.
+#
+# Secret: NPM_TOKEN - an npm granular access token with read and write access
+# to the @ainsel scope. Packages are published with provenance (id-token), so
+# npm shows which workflow run built each version.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/plugin-sdk/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/plugin-sdk.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'packages/plugin-sdk/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/plugin-sdk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publish at a time per ref; never cancel a publish halfway.
+concurrency:
+  group: plugin-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Test, Typecheck, Build, Pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test
+        run: pnpm --filter @ainsel/plugin-sdk test
+      - name: Typecheck
+        run: pnpm --filter @ainsel/plugin-sdk typecheck
+      - name: Build
+        run: pnpm --filter @ainsel/plugin-sdk build
+      - name: Pack (dry run of what npm will receive)
+        working-directory: packages/plugin-sdk
+        run: |
+          set -euo pipefail
+          pnpm pack --pack-destination "${RUNNER_TEMP}"
+          tar -tzf "${RUNNER_TEMP}"/ainsel-plugin-sdk-*.tgz | tee "${RUNNER_TEMP}/files.txt"
+          # The published entry points must exist in the tarball.
+          grep -qx 'package/dist/index.js' "${RUNNER_TEMP}/files.txt"
+          grep -qx 'package/dist/index.d.ts' "${RUNNER_TEMP}/files.txt"
+
+  publish:
+    name: Publish to npm
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # npm provenance
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Decide whether this version is new
+        id: version
+        working-directory: packages/plugin-sdk
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          if npm view "@ainsel/plugin-sdk@${version}" version >/dev/null 2>&1; then
+            echo "publish=false" >> "${GITHUB_OUTPUT}"
+            echo "@ainsel/plugin-sdk@${version} is already on npm - nothing to publish." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "publish=true" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Publish
+        if: steps.version.outputs.publish == 'true'
+        working-directory: packages/plugin-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # pnpm publish applies publishConfig (dist entry points); prepack builds.
+          pnpm publish --access public --no-git-checks
+          echo "Published @ainsel/plugin-sdk@${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
