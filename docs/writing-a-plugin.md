@@ -23,7 +23,7 @@ The whole contract has one worked implementation: the `hello` fixture at
 written to be copied. Read it alongside this guide; every snippet below is
 quoted from it.
 
-> **Last verified against:** `feat/plugin-system` (commit `0796c0b`), October 2026.
+> **Last verified against:** `main` (commit `cc0738c`), October 2026.
 > File paths and field names should match the current codebase; if they
 > drift, please open an issue or PR to update this doc.
 
@@ -65,6 +65,31 @@ You own the Deployment and the Service. AInsel owns the `Plugin` resource that
 describes them, and it never creates or deletes your workload.
 
 ## The Development Loop
+
+### Pick the versions
+
+Your plugin targets a **plugin API** version, declared as `pluginApi` in the
+manifest, and builds against the matching **SDK** from npm. Pick them from
+the oldest AInsel release you want to run on:
+
+| AInsel release | Highest `pluginApi` | SDK to install |
+|---|---|---|
+| 0.3.0 and later | `1.1` | `@ainsel/plugin-sdk@^1.1` |
+
+```bash
+npm install --save-dev @ainsel/plugin-sdk@^1.1 react
+```
+
+The SDK minor always matches the plugin API (`1.1.x` ↔ `pluginApi: "1.1"`);
+patch releases only fix the SDK itself. A dev dependency is enough: at runtime
+the console hands your module its own React and SDK, so neither ends up in
+your bundle (see [Console UI with the SDK](#console-ui-with-the-sdk)). An
+AInsel install accepts any `pluginApi` with the same major and a minor up to
+its own — a `1.1` plugin keeps working on a later `1.2` host; a `1.2` plugin is
+refused by a `1.1` host with reason `Incompatible`. The full table lives in the
+[reference](plugin-reference.md#versioning).
+
+### Iterate against a dev install
 
 Dev against a throwaway install, where signature verification is off:
 
@@ -188,7 +213,8 @@ segments. Full field table:
 Your UI is one ES module — the file `ui.entry` names. The console imports it in
 the browser, so **it is your build output, not your source**: no JSX syntax, no
 bundler-only features, and these three imports are resolved by the console's
-import map and must not be bundled:
+import map and must not be bundled (install `@ainsel/plugin-sdk` from npm for
+the types — see [Pick the versions](#pick-the-versions)):
 
 - `react`
 - `react/jsx-runtime`
@@ -529,6 +555,8 @@ and say in your own docs how to clean it up.
 
 ## Checklist
 
+- [ ] `@ainsel/plugin-sdk` minor equals the manifest's `pluginApi`, and that
+      `pluginApi` is supported by the oldest AInsel release you target
 - [ ] Manifest served at `GET /ainsel-plugin.json`, parses with unknown fields
       absent, `id` matches the `Plugin` CR name, `pluginApi` ≤ the host's
 - [ ] UI module imports only `react`, `react/jsx-runtime`, `@ainsel/plugin-sdk`;

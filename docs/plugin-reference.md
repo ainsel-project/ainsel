@@ -13,7 +13,7 @@ what is listed here is what the parser enforces. The
 [author guide](writing-a-plugin.md) walks through a complete plugin; this page
 is the lookup table.
 
-> **Last verified against:** `feat/plugin-system` (commit `0796c0b`), October 2026.
+> **Last verified against:** `main` (commit `cc0738c`), October 2026.
 > File paths and field names should match the current codebase; if they
 > drift, please open an issue or PR to update this doc.
 
@@ -121,7 +121,19 @@ mount prefix, so:
 |---|---|---|
 | Host plugin API | `1.1` | `plugin.HostAPIVersion` in [`shared/api/plugin/manifest.go`](../shared/api/plugin/manifest.go) |
 | SDK plugin API | `1.1` | `PLUGIN_API_VERSION` in [`packages/plugin-sdk/src/index.ts`](../packages/plugin-sdk/src/index.ts) |
-| SDK package | `1.1.0` | `packages/plugin-sdk/package.json` |
+| SDK package | `1.1.0` | [`@ainsel/plugin-sdk` on npm](https://www.npmjs.com/package/@ainsel/plugin-sdk), source in `packages/plugin-sdk/` |
+
+**Which AInsel release supports which plugin API.** A row is added whenever
+the host plugin API changes; AInsel releases in between keep the row above.
+
+| AInsel release | Host plugin API | Accepts `pluginApi` | SDK |
+|---|---|---|---|
+| 0.3.0 and later | `1.1` | `1.0`, `1.1` | `@ainsel/plugin-sdk@^1.1` |
+
+The SDK is versioned on its own, not with AInsel: its minor tracks the plugin
+API (`1.1.x` implements `pluginApi "1.1"`), patch releases only fix the SDK, and
+a major marks a breaking plugin API change. An AInsel release that changes
+nothing for plugins publishes no new SDK.
 
 **Compatibility rule.** `Compatible(pluginApi, host)` is *same major, manifest
 minor not newer than the host*:
