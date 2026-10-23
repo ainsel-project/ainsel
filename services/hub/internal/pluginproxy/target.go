@@ -44,34 +44,38 @@ func Resolve(m *plugin.Manifest, s Surface, escapedRest string) (string, error) 
 			return "", ErrInvalidPath
 		}
 		// Join path.Dir(manifest.ui.entry) + "/" + rest
-		dir := path.Dir(m.UI.Entry)
-		return dir + "/" + escapedRest, nil
+		return joinPath(path.Dir(m.UI.Entry), escapedRest), nil
 
 	case SurfaceAPI:
 		if m.API == nil {
 			return "", ErrNoSurface
 		}
 		// Empty rest -> basePath itself
-		if escapedRest == "" {
-			return m.API.BasePath, nil
-		}
-		// Join basePath with rest, ensuring exactly one /
-		return m.API.BasePath + "/" + escapedRest, nil
+		return joinPath(m.API.BasePath, escapedRest), nil
 
 	case SurfaceMCP:
 		if m.MCP == nil {
 			return "", ErrNoSurface
 		}
 		// Empty rest -> mcp.path itself
-		if escapedRest == "" {
-			return m.MCP.Path, nil
-		}
-		// Join with exactly one /
-		return m.MCP.Path + "/" + escapedRest, nil
+		return joinPath(m.MCP.Path, escapedRest), nil
 
 	default:
 		return "", ErrInvalidPath
 	}
+}
+
+// joinPath joins a validated base and rest with exactly one "/"; an empty rest
+// yields the base without a trailing slash (but never an empty path).
+func joinPath(base, rest string) string {
+	base = strings.TrimSuffix(base, "/")
+	if rest == "" {
+		if base == "" {
+			return "/"
+		}
+		return base
+	}
+	return base + "/" + rest
 }
 
 // validateEscapedPath checks that the escaped rest path does not contain
@@ -92,8 +96,8 @@ func validateEscapedPath(escapedRest string) error {
 		return ErrInvalidPath
 	}
 
-	// Reject double slashes (empty segments)
-	if strings.Contains(escapedRest, "//") {
+	// Reject a leading slash and double slashes (empty segments)
+	if strings.HasPrefix(escapedRest, "/") || strings.Contains(escapedRest, "//") {
 		return ErrInvalidPath
 	}
 

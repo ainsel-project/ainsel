@@ -1,6 +1,7 @@
 package pluginproxy
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -177,5 +178,33 @@ func TestSanitizeRequestHeaders(t *testing.T) {
 	}
 	if h.Get("Accept") != "application/json" {
 		t.Errorf("Accept should be kept")
+	}
+}
+
+func TestResolve_JoinEdges(t *testing.T) {
+	m := &plugin.Manifest{
+		UI:  &plugin.UISpec{Entry: "/index.js"},
+		API: &plugin.APISpec{BasePath: "/api/"},
+		MCP: &plugin.MCPSpec{Path: "/mcp"},
+	}
+	cases := []struct {
+		s    Surface
+		rest string
+		want string
+	}{
+		{SurfaceUI, "index.js", "/index.js"},
+		{SurfaceUI, "assets/a.css", "/assets/a.css"},
+		{SurfaceAPI, "", "/api"},
+		{SurfaceAPI, "x/y", "/api/x/y"},
+		{SurfaceMCP, "", "/mcp"},
+	}
+	for _, c := range cases {
+		got, err := Resolve(m, c.s, c.rest)
+		if err != nil || got != c.want {
+			t.Errorf("Resolve(%s, %q) = %q, %v; want %q", c.s, c.rest, got, err, c.want)
+		}
+	}
+	if _, err := Resolve(m, SurfaceAPI, "/x"); !errors.Is(err, ErrInvalidPath) {
+		t.Errorf("leading slash: err = %v, want ErrInvalidPath", err)
 	}
 }
