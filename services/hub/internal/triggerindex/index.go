@@ -76,7 +76,7 @@ func (idx *Index) Match(evt *ainselapishared.Event) []MatchResult {
 	defer idx.mu.RUnlock()
 
 	// Build payload once per event; reused across all trigger evaluations.
-	payload := buildFilterPayload(evt)
+	payload := BuildFilterPayload(evt)
 
 	var results []MatchResult
 	for _, t := range idx.triggers {
@@ -102,13 +102,15 @@ func (idx *Index) Match(evt *ainselapishared.Event) []MatchResult {
 	return results
 }
 
-// buildFilterPayload merges event body fields and headers into a single map
-// for filter evaluation. Body fields are at the top level; headers are nested
+// BuildFilterPayload merges event body fields and headers into a single map
+// for filter evaluation. It is shared by trigger matching and the channel
+// bridge filter gate so identical filter syntax means the same thing on both
+// paths. Body fields are at the top level; headers are nested
 // under the "headers" key, allowing filters like {"field": "headers.X-GitHub-Event"}.
 // A canonical "type" key is also derived from the webhook event-type header
 // (any header ending in "-Event") so that triggers can match on event type
 // with a filter like {field: "type", op: "eq", value: "push"}.
-func buildFilterPayload(evt *ainselapishared.Event) map[string]any {
+func BuildFilterPayload(evt *ainselapishared.Event) map[string]any {
 	payload := map[string]any{}
 	if len(evt.Data) > 0 {
 		_ = json.Unmarshal(evt.Data, &payload)

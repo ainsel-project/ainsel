@@ -12,6 +12,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 // channelDefaultWindow is how far the per-channel rates on a list cover when the
@@ -612,6 +613,12 @@ type bridgeCreateRequest struct {
 	To string `json:"to"`
 	// Name optionally labels the edge; it defaults to "<from> → <to>".
 	Name string `json:"name,omitempty"`
+	// Filters optionally gates the transfer, as a disjunction of groups: the
+	// bridge delivers an event when ANY group matches, and a group matches
+	// when ALL of its filters match — the same shape and semantics as trigger
+	// filters, just wrapped in groups so one edge can express "push OR a
+	// mentioning comment". Nil or absent Filters transfers everything.
+	Filters [][]ainselapishared.Filter `json:"filters,omitempty"`
 }
 
 // handleAttachBridge records that events arriving at the path channel are
@@ -644,7 +651,16 @@ func (s *Server) attachBridge(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 
-	bridge, err := s.channelSvc.Attach(r.Context(), from.ID, to.ID, req.Name)
+	// Validate the gate up front so an operator typo fails at attach time and
+	// not as a silently-skipped delivery at transfer time: an op Filter.Match
+	// does not implement never matches, which would leave the whole bridge
+	// dark behind a 201.
+	if err := channels.ValidateFilterGroups(req.Filters); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	bridge, err := s.channelSvc.Attach(r.Context(), from.ID, to.ID, req.Name, req.Filters)
 	if err != nil {
 		channelError(w, err)
 		return
