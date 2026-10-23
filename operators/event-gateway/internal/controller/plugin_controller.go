@@ -406,11 +406,7 @@ func (r *PluginReconciler) canReuseSigResult(p *commonv1alpha1.Plugin) bool {
 	}
 
 	elapsed := r.now().Sub(p.Status.Signature.CheckedAt.Time)
-	if elapsed > 24*time.Hour {
-		return false
-	}
-
-	return true
+	return elapsed <= 24*time.Hour
 }
 
 // resolveVerifiedEndpoints finds all endpoints (IP:port pairs) that are running
@@ -466,7 +462,7 @@ func (r *PluginReconciler) resolveVerifiedEndpoints(ctx context.Context, p *comm
 			}
 
 			// Get the port number
-			var port int32 = p.Spec.Service.Port
+			port := p.Spec.Service.Port
 			if portName != nil {
 				for _, epPort := range eps.Ports {
 					if epPort.Name != nil && *epPort.Name == *portName && epPort.Port != nil {

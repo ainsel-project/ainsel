@@ -78,12 +78,12 @@ const (
 	// e2eInternalSecret is the hub's cluster-internal bearer: the credential an
 	// agent pod sends for a plugin's agent MCP endpoint, named by the registry
 	// row the syncer writes.
-	e2eInternalSecret = "e2e-internal-secret-0123456789abcdef"
+	e2eInternalSecret = "e2e-internal-secret-0123456789abcdef" // #nosec G101 -- test fixture, not a credential
 
 	// e2eCredSecret signs plugin credentials. Any 32+ bytes work; the hub and
 	// nothing else verifies them here, since the plugin only echoes it back to
 	// the hub's own callback.
-	e2eCredSecret = "e2e-plugin-credential-secret-0123456789"
+	e2eCredSecret = "e2e-plugin-credential-secret-0123456789" // #nosec G101 -- test fixture, not a credential
 
 	// e2eSelfURL is the hub's in-cluster address, the base every registry URL
 	// the syncer writes is built from. It is deliberately not the httptest

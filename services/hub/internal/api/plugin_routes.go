@@ -3,8 +3,6 @@ package api
 import (
 	"path"
 	"strings"
-
-	"github.com/ainsel-project/ainsel/shared/api/plugin"
 )
 
 // routeRule defines a route pattern and its required permissions.
@@ -97,9 +95,4 @@ func RoutePermission(method, rawPath string) (perm string, always bool, ok bool)
 
 	// No matching rule means denied
 	return "", false, false
-}
-
-// allPermissions returns all permissions from the plugin vocabulary.
-func allPermissions() []string {
-	return plugin.Permissions
 }

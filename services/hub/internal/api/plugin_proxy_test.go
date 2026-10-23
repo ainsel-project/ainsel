@@ -24,7 +24,7 @@ func TestPluginProxy_UIServedWithoutAuth(t *testing.T) {
 	upstreamSvc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamReq = r
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("console.log('ok')"))
+		_, _ = w.Write([]byte("console.log('ok')"))
 	}))
 	defer upstreamSvc.Close()
 
@@ -135,7 +135,7 @@ func TestPluginProxy_APIForwardsCredential(t *testing.T) {
 	upstreamSvc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamReq = r
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"memories":[]}`))
+		_, _ = w.Write([]byte(`{"memories":[]}`))
 	}))
 	defer upstreamSvc.Close()
 

@@ -77,7 +77,7 @@ func TokenEnvValue(servers []ainselv1alpha1.AgentImageMCPServer, envNames map[st
 // PluginTokenEnv is the platform-injected env var that plugin MCP servers in
 // the hub registry use as their bearer: the hub's agent endpoint for plugins
 // authenticates the runner with it.
-const PluginTokenEnv = "HUB_INTERNAL_VALIDATE_SECRET"
+const PluginTokenEnv = "HUB_INTERNAL_VALIDATE_SECRET" // #nosec G101 -- an env var name, not a credential
 
 // IsHubPluginURL reports whether url is one of the hub's internal plugin
 // endpoints (<hubURL>/api/internal/plugins/...). Only such servers may

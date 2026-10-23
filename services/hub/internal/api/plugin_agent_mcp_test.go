@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ import (
 
 const (
 	// agentMCPSecret is the hub's internal bearer secret for these fixtures.
-	agentMCPSecret = "agent-mcp-internal-secret"
+	agentMCPSecret = "agent-mcp-internal-secret" // #nosec G101 -- test fixture, not a credential
 	// agentMCPAgent / agentMCPInvocation are the caller the tests present.
 	agentMCPAgent      = "reviewer"
 	agentMCPInvocation = "inv-42"
@@ -537,13 +538,5 @@ func closedAddr(t *testing.T) string {
 
 // equalStrings compares two string slices exactly.
 func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return slices.Equal(a, b)
 }

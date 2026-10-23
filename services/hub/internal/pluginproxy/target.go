@@ -140,7 +140,8 @@ func PickEndpoint(endpoints []string, rnd func(n int) int) (string, bool) {
 	}
 
 	if rnd == nil {
-		rnd = func(n int) int { return rand.IntN(n) }
+		// Load spreading across verified endpoints, not a security decision.
+		rnd = func(n int) int { return rand.IntN(n) } // #nosec G404 -- load balancing only
 	}
 
 	idx := rnd(len(endpoints))

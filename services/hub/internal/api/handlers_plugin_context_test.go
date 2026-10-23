@@ -67,7 +67,7 @@ func TestPluginContext_PluginCaller(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
 
 	disabledGuard := authz.NewDisabledGuard(s.authzStore)
@@ -132,7 +132,7 @@ func TestPluginContext_RegularUser(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
 
 	req := httptest.NewRequest("GET", "/api/v1/agents", nil)

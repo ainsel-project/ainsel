@@ -794,7 +794,9 @@ func TestGetPlugin_ExposesSignatureToAdminsOnly(t *testing.T) {
 	// PluginPublicResponse should not have signature or verifiedEndpoints fields
 	// We verify this by decoding into a map and checking the keys
 	var memberMap map[string]any
-	json.Unmarshal(memberRec.Body.Bytes(), &memberMap)
+	if err := json.Unmarshal(memberRec.Body.Bytes(), &memberMap); err != nil {
+		t.Fatalf("decode member response: %v", err)
+	}
 	if _, hasSignature := memberMap["signature"]; hasSignature {
 		t.Errorf("public response exposes signature field")
 	}
