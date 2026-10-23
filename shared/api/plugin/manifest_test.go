@@ -513,3 +513,49 @@ func TestMissingApprovals(t *testing.T) {
 		t.Errorf("MissingApprovals = %v, want [agents:read]", got)
 	}
 }
+
+func TestValidate_PathCharacters(t *testing.T) {
+	cases := []struct {
+		name      string
+		field     string
+		path      string
+		shouldErr bool
+	}{
+		// ui.entry cases
+		{"ui.entry encoded traversal", "ui.entry", "/ui/%2e%2e/x.js", true},
+		{"ui.entry backslash", "ui.entry", "/ui/a\\b.js", true},
+		{"ui.entry dot segment", "ui.entry", "/ui/./x.js", true},
+		{"ui.entry empty segment", "ui.entry", "/ui//x.js", true},
+		{"ui.entry query string", "ui.entry", "/ui/x.js?v=1", true},
+		{"ui.entry fragment", "ui.entry", "/ui/x.js#a", true},
+		{"ui.entry non-ascii", "ui.entry", "/ui/ä.js", true},
+		{"ui.entry space", "ui.entry", "/ui/a b.js", true},
+		{"ui.entry valid", "ui.entry", "/ui/v1.2/index-abc_~.js", false},
+
+		// api.basePath cases
+		{"api.basePath percent", "api.basePath", "/api/%2e%2e", true},
+		{"api.basePath trailing slash", "api.basePath", "/api/", false},
+		{"api.basePath with path", "api.basePath", "/api/v1/", false},
+
+		// mcp.path case
+		{"mcp.path backslash", "mcp.path", "/mcp\\api", true},
+
+		// ui.pages[0].path case
+		{"ui.pages[0].path dot-dot", "ui.pages[0].path", "/a/../../api", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePath(tc.field, tc.path)
+			if tc.shouldErr && err == nil {
+				t.Errorf("validatePath(%q, %q): expected error, got nil", tc.field, tc.path)
+			}
+			if !tc.shouldErr && err != nil {
+				t.Errorf("validatePath(%q, %q): unexpected error: %v", tc.field, tc.path, err)
+			}
+			if err != nil && !strings.Contains(err.Error(), tc.field) {
+				t.Errorf("validatePath error = %q, want to contain %q", err.Error(), tc.field)
+			}
+		})
+	}
+}

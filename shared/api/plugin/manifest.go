@@ -319,7 +319,9 @@ func parseVersionPart(s string) (int, error) {
 // and are later joined onto a mount prefix or used as a route, so they must be
 // absolute-within-the-plugin and must not escape via "..". A nil spec is not
 // passed here at all: an empty path is only rejected once its parent spec is
-// present.
+// present. Allowed characters are A-Z a-z 0-9 . _ ~ - /. Rejected: % (any
+// encoding), \, .. or . segments, empty segments (//), ? or # in path. A
+// single trailing / is allowed for basePath.
 func validatePath(field, path string) error {
 	if path == "" {
 		return fmt.Errorf("plugin: %s is required", field)
@@ -327,10 +329,62 @@ func validatePath(field, path string) error {
 	if !strings.HasPrefix(path, "/") {
 		return fmt.Errorf("plugin: invalid %s %q: must start with %q", field, path, "/")
 	}
-	for _, seg := range strings.Split(path, "/") {
+
+	// Reject % outright to prevent encoded traversal
+	if strings.Contains(path, "%") {
+		return fmt.Errorf("plugin: invalid %s %q: invalid character", field, path)
+	}
+
+	// Reject ? and #
+	if strings.ContainsAny(path, "?#") {
+		return fmt.Errorf("plugin: invalid %s %q: invalid character", field, path)
+	}
+
+	// Reject backslash
+	if strings.Contains(path, "\\") {
+		return fmt.Errorf("plugin: invalid %s %q: invalid character", field, path)
+	}
+
+	// Reject double slashes (empty segments)
+	if strings.Contains(path, "//") {
+		return fmt.Errorf("plugin: invalid %s %q: invalid path", field, path)
+	}
+
+	// Check characters - allowed: A-Z a-z 0-9 . _ ~ - /
+	for _, r := range path {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '~' || r == '-' || r == '/':
+		default:
+			// Invalid character (space, non-ASCII, etc.)
+			return fmt.Errorf("plugin: invalid %s %q: invalid character", field, path)
+		}
+	}
+
+	// Check segments for . and .. (and empty trailing / for non-basePath)
+	// For basePath, allow a single trailing /
+	checkPath := path
+	if strings.HasSuffix(path, "/") && field == "api.basePath" {
+		checkPath = path[:len(path)-1]
+	}
+
+	segments := strings.Split(checkPath, "/")
+	for _, seg := range segments {
+		// Skip empty segments (from leading /)
+		if seg == "" {
+			continue
+		}
+		// . segment is invalid
+		if seg == "." {
+			return fmt.Errorf("plugin: invalid %s %q: must not contain %q", field, path, ".")
+		}
+		// .. segment is invalid
 		if seg == ".." {
 			return fmt.Errorf("plugin: invalid %s %q: must not contain %q", field, path, "..")
 		}
 	}
+
 	return nil
 }
