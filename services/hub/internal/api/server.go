@@ -487,6 +487,11 @@ func (s *Server) callerGroupIDs(r *http.Request) []string {
 	if !ok {
 		return nil
 	}
+	// Check if there's a principal (agent or plugin caller)
+	if ids, ok := authz.PrincipalGroupIDs(r.Context(), u.Sub); ok {
+		return ids
+	}
+	// Fall back to store lookup for user callers
 	ids, _ := s.authzStore.UserGroupIDs(r.Context(), u.Sub)
 	return ids
 }
