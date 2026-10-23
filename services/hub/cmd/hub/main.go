@@ -74,6 +74,14 @@ func main() {
 		return runChannelSyncLoop(ctx, c.channelRecon, c.mgr)
 	}))
 
+	// Plugin MCP registry sync: a plugin that declares an MCP endpoint gets a
+	// registry row pointing agents at the hub's own agent endpoint, and loses it
+	// when the Plugin goes away. One pass at startup, then a ticker; non-fatal,
+	// because a failed pass leaves the previous registration standing.
+	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
+		return runPluginSyncLoop(ctx, c)
+	}))
+
 	// API HTTP server.
 	g.Go(func() error {
 		slog.Info("API server starting", "port", cfg.hubPort)

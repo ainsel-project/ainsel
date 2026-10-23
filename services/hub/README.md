@@ -51,6 +51,11 @@ Optional: `HUB_PROMETHEUS_URL` for the token metric endpoints and raw PromQL,
 and `HUB_METRICS_SOURCE` (`postgres` by default, `prometheus` to pin those event
 panels onto the scraped counters). `HUB_NAMESPACE` defaults to `ainsel`.
 
+`HUB_SELF_URL` — the hub's own in-cluster address — turns on the plugin registry
+sync loop, which registers a plugin's agent MCP endpoint as a registry row agents
+can attach. Unset, the loop logs that it is disabled and stays off, because
+there is no address to point those rows at.
+
 ## Testing
 
 ```bash

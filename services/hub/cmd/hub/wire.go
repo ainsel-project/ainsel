@@ -18,6 +18,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pluginsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
@@ -98,6 +99,43 @@ func wirePrometheus(promURL string) *prometheus.Client {
 func wireMCP(pool *pgxpool.Pool) *mcpservers.Service {
 	store := mcpservers.NewStore(pool)
 	return mcpservers.NewService(store)
+}
+
+// pluginSyncInterval is how often the plugin registry syncer reconciles its
+// rows. Same cadence as the trigger sync loop: a plugin installed or removed
+// shows up in the MCP registry within one tick, which is quick enough for an
+// operator and cheap enough to do by listing rather than watching.
+const pluginSyncInterval = 30 * time.Second
+
+// wirePluginSync builds the syncer that keeps plugin MCP servers registered for
+// agents, or nil when it cannot do its job. HUB_SELF_URL is required: it is the
+// hub's own in-cluster address and the base of every URL the syncer writes, so
+// without it the rows would point agents at an address nobody told the hub.
+//
+// The skill halves are nil: nothing in the skill registry is plugin-owned, so
+// there is nothing for them to write, and a syncer with only one of the two
+// halves would be a misconfiguration rather than a partial feature.
+func wirePluginSync(c *container) *pluginsync.Syncer {
+	selfURL := os.Getenv("HUB_SELF_URL")
+	if selfURL == "" {
+		slog.Info("plugin registry sync disabled: HUB_SELF_URL not set")
+		return nil
+	}
+	s := pluginsync.New(c.apiClient, c.namespace, c.mcpSvc, nil, selfURL, nil)
+	s.SetResourceVisibility(c.authzStore)
+	slog.Info("plugin registry sync enabled", "selfURL", selfURL, "interval", pluginSyncInterval)
+	return s
+}
+
+// runPluginSyncLoop is the background loop main.go starts. A disabled syncer is
+// one log line and no work, so the loop itself never has to know why.
+func runPluginSyncLoop(ctx context.Context, c *container) error {
+	s := wirePluginSync(c)
+	if s == nil {
+		return nil
+	}
+	s.Run(ctx, pluginSyncInterval)
+	return nil
 }
 
 // wirePersonas creates the personas service.

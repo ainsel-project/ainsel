@@ -220,6 +220,13 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if existing.ManagedBy == mcpservers.ManagedByPlugin {
+			// The row and the endpoint it points at both belong to the plugin:
+			// rewriting them would send every agent that attached the server to
+			// somewhere the plugin never served.
+			writeError(w, http.StatusConflict, pluginManagedMessage(existing.Name))
+			return
+		}
 		if err := validateTokenFromEnv(req.TokenFromEnv); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -236,6 +243,23 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 		saved, _ := s.mcp.Get(r.Context(), name)
 		writeJSON(w, http.StatusOK, toMCPDTO(saved))
 	case http.MethodDelete:
+		// Plugin ownership is answered before the agent-image reference check.
+		// The row cannot be deleted either way, and naming the owning plugin is
+		// the useful half: the images pointing at the row are the plugin's
+		// business, not something the caller gets to detach by hand.
+		existing, err := s.mcp.Get(r.Context(), name)
+		if err != nil {
+			if errors.Is(err, mcpservers.ErrNotFound) {
+				writeError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if existing.ManagedBy == mcpservers.ManagedByPlugin {
+			writeError(w, http.StatusConflict, pluginManagedMessage(existing.Name))
+			return
+		}
 		affectedImages, err := s.agentImagesReferencingMCPServer(r.Context(), name)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -254,6 +278,8 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, err.Error())
 			case errors.Is(err, mcpservers.ErrManaged):
 				writeError(w, http.StatusConflict, err.Error())
+			case errors.Is(err, mcpservers.ErrPluginManaged):
+				writeError(w, http.StatusConflict, err.Error())
 			default:
 				writeError(w, http.StatusInternalServerError, err.Error())
 			}
@@ -269,6 +295,13 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, PUT, DELETE")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+// pluginManagedMessage is the 409 body a plugin-owned row is refused with. The
+// service returns the same wording as an error; the handlers that check
+// ownership before doing anything else need it as a string.
+func pluginManagedMessage(rowName string) string {
+	return mcpservers.PluginManagedError{PluginID: mcpservers.PluginIDFromName(rowName)}.Error()
 }
 
 // agentImagesReferencingMCPServer returns the names of all AgentImages in the
