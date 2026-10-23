@@ -63,7 +63,7 @@ func (s *Server) handlePluginAgentMCP(w http.ResponseWriter, r *http.Request, pl
 	}
 	caller, ok := agentMCPCallerFrom(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "missing or invalid X-Ainsel-Agent")
+		writeError(w, http.StatusBadRequest, "missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id")
 		return
 	}
 
@@ -149,15 +149,23 @@ func (s *Server) agentPluginToolHandler(pluginID, toolName string, target plugin
 	}
 }
 
+// invocationIDPattern bounds the invocation id an agent declares before it is
+// put into a credential and forwarded to the plugin.
+var invocationIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+
 // agentMCPCallerFrom reads the caller an agent runtime declares. X-Ainsel-Agent
 // is required and must be a well-formed agent name; X-Ainsel-Invocation-Id is
-// optional and reaches the plugin credential as-is.
+// optional and must match invocationIDPattern.
 func agentMCPCallerFrom(r *http.Request) (agentMCPCaller, bool) {
 	agentName := r.Header.Get("X-Ainsel-Agent")
 	if !agentNamePattern.MatchString(agentName) {
 		return agentMCPCaller{}, false
 	}
-	return agentMCPCaller{agentName: agentName, invocationID: r.Header.Get("X-Ainsel-Invocation-Id")}, true
+	invocationID := r.Header.Get("X-Ainsel-Invocation-Id")
+	if invocationID != "" && !invocationIDPattern.MatchString(invocationID) {
+		return agentMCPCaller{}, false
+	}
+	return agentMCPCaller{agentName: agentName, invocationID: invocationID}, true
 }
 
 // internalBearerToken extracts the token from an "Authorization: Bearer <t>"

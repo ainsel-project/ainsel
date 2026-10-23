@@ -346,6 +346,8 @@ func TestAgentMCP_RequiresInternalToken(t *testing.T) {
 		{"token without agent header", agentMCPSecret, map[string]string{
 			"Authorization": "Bearer " + agentMCPSecret,
 		}, http.StatusBadRequest, false},
+		{"oversized invocation id", agentMCPSecret, agentMCPHeaders(agentMCPSecret, agentMCPAgent, strings.Repeat("a", 129)), http.StatusBadRequest, false},
+		{"invocation id with spaces", agentMCPSecret, agentMCPHeaders(agentMCPSecret, agentMCPAgent, "inv 1"), http.StatusBadRequest, false},
 		{"internal endpoints disabled", "", agentMCPHeaders(agentMCPSecret, agentMCPAgent, agentMCPInvocation), http.StatusServiceUnavailable, false},
 	}
 	for _, tt := range tests {
@@ -401,11 +403,11 @@ func TestAgentMCP_AgentHeader(t *testing.T) {
 			want := http.StatusBadRequest
 			if tt.ok {
 				want = http.StatusOK
-				if msg := decodeAgentMCPError(t, rec); msg == "missing or invalid X-Ainsel-Agent" {
+				if msg := decodeAgentMCPError(t, rec); msg == "missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id" {
 					t.Fatalf("valid agent name %q was rejected", tt.agent)
 				}
-			} else if msg := decodeAgentMCPError(t, rec); msg != "missing or invalid X-Ainsel-Agent" {
-				t.Fatalf("error = %q, want %q", msg, "missing or invalid X-Ainsel-Agent")
+			} else if msg := decodeAgentMCPError(t, rec); msg != "missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id" {
+				t.Fatalf("error = %q, want %q", msg, "missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id")
 			}
 			if rec.Code != want {
 				t.Fatalf("status = %d, want %d: %s", rec.Code, want, rec.Body.String())
