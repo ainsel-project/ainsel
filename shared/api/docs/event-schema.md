@@ -63,9 +63,12 @@ message is born directly in the target agent's channel.
 ## Common Payload Shapes
 
 The shapes below are what webhook providers emit in `data` and what filters
-match against. They are conventions, not Go types.
+match against. They are conventions, not Go types. They are the forge-family
+bodies (Forgejo, Gitea and GitHub all use these top-level keys); any other
+source carries its own shape, and nothing in the envelope changes because of
+it — filters just address different paths.
 
-### Issue events (`X-Forgejo-Event: issues`)
+### Issue events (type `issues`)
 
 ```json
 {
@@ -81,7 +84,7 @@ match against. They are conventions, not Go types.
 }
 ```
 
-### Pull request events (`X-Forgejo-Event: pull_request`)
+### Pull request events (type `pull_request`)
 
 ```json
 {
@@ -115,7 +118,7 @@ Comments arrive as `issue_comment` / `pull_request` events with an
 }
 ```
 
-### Push events (`X-Forgejo-Event: push`)
+### Push events (type `push`)
 
 ```json
 {
@@ -143,6 +146,15 @@ paths into that payload:
 # Match events of a given derived type
 filters:
   - field: "type"
+    op: eq
+    value: "issues"
+
+# Match one provider's delivery, by header, rather than the derived type.
+# Header keys are stored in canonical form — net/http title-cases each
+# dash-separated token, so GitHub's X-GitHub-Event arrives here as
+# "X-Github-Event", and that is the key a filter must use.
+filters:
+  - field: "headers.X-Github-Event"
     op: eq
     value: "issues"
 
