@@ -1,4 +1,4 @@
-// Package common defines shared types for the Ainsel agent platform.
+// Package ainselapishared defines shared types for the Ainsel agent platform.
 package ainselapishared
 
 import (
@@ -9,8 +9,11 @@ import (
 // RawJSON is an alias for json.RawMessage for event data payloads.
 type RawJSON = json.RawMessage
 
-// Event is the canonical event format produced by connectors and consumed by the hub.
-// Type, Subject, Actor, and Action are removed — raw payload + headers carry all information.
+// Event is the canonical event envelope for the Ainsel platform: connectors
+// produce it, the hub consumes and routes it. Payload shape is intentionally
+// unmodelled — the full webhook body is carried in Data (parsed JSON) and Raw
+// (verbatim), and provider headers in Headers, so new connector types need no
+// schema changes.
 type Event struct {
 	ID        string            `json:"id"`
 	Version   string            `json:"version"`
