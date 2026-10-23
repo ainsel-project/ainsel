@@ -236,7 +236,7 @@ as ambiguous with the candidate ids listed rather than guessed.
 | `update_agent_image` | write | Update an agent image (displayName, imageURL, description, env, env_patch, tools). `env` replaces the full list (`[]` clears it); `env_patch` upserts entries by name and removes nothing. The two are mutually exclusive. |
 | `delete_agent_image` | write | Delete an agent image. Fails with a conflict if any Agent references it. |
 
-Env entries are `{name, value, secret?}`. The API never returns secret values (they read back as `""`), so a resent secret must be sent as `{name, value: "", secret: true}` to keep the stored value — `update_agent_image` stamps that flag automatically for `env`, and `env_patch` applies the same keep-on-empty rule. Rotating a secret sends a non-empty `value`; removing a variable drops it from the full `env` list.
+Env entries are `{name, value, secret?}`. The API never returns secret values (they read back as `""`), so a resent secret must be sent as `{name, value: "", secret: true}` to keep the stored value — `update_agent_image` stamps that flag automatically for `env`, and `env_patch` applies the same keep-on-empty rule. Rotating a secret sends a non-empty `value` and keeps it secret unless `secret: false` is sent explicitly, which declassifies it; removing a variable drops it from the full `env` list.
 
 ### Personas
 

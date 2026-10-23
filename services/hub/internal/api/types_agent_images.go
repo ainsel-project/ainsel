@@ -82,14 +82,34 @@ type SimpleAgentImageCreateRequest struct {
 // All fields are optional. A nil field means "do not modify"; a non-nil empty
 // slice means "clear".
 type SimpleAgentImageUpdateRequest struct {
-	DisplayName   *string                  `json:"displayName,omitempty"`
-	Description   *string                  `json:"description,omitempty"`
-	ImageURL      *string                  `json:"imageURL,omitempty"`
-	Tools         *[]AgentImageToolInfo    `json:"tools,omitempty"`
-	Env           *[]AgentImageEnvVarInfo  `json:"env,omitempty"`
-	MCPServers    *[]string                `json:"mcpServers,omitempty"`
-	Sidecars      *[]AgentImageSidecarInfo `json:"sidecars,omitempty"`
-	EnabledSkills *[]string                `json:"enabledSkills,omitempty"`
+	DisplayName   *string                    `json:"displayName,omitempty"`
+	Description   *string                    `json:"description,omitempty"`
+	ImageURL      *string                    `json:"imageURL,omitempty"`
+	Tools         *[]AgentImageToolInfo      `json:"tools,omitempty"`
+	Env           *[]AgentImageEnvVarUpdate  `json:"env,omitempty"`
+	MCPServers    *[]string                  `json:"mcpServers,omitempty"`
+	Sidecars      *[]AgentImageSidecarUpdate `json:"sidecars,omitempty"`
+	EnabledSkills *[]string                  `json:"enabledSkills,omitempty"`
+}
+
+// AgentImageEnvVarUpdate is an env var in an update request. Secret is a
+// pointer so that omitting it keeps the flag currently stored for that name:
+// a caller that rotates a secret without repeating secret: true must not
+// declassify it (the next GET would echo the new value in cleartext). Only an
+// explicit secret: false declassifies.
+type AgentImageEnvVarUpdate struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Secret *bool  `json:"secret,omitempty"`
+}
+
+// AgentImageSidecarUpdate is a sidecar in an update request.
+type AgentImageSidecarUpdate struct {
+	Name    string                   `json:"name"`
+	Image   string                   `json:"image"`
+	Port    int32                    `json:"port,omitempty"`
+	MCPPath string                   `json:"mcpPath,omitempty"`
+	Env     []AgentImageEnvVarUpdate `json:"env,omitempty"`
 }
 
 // toSimpleAgentImageResponse maps a CRD AgentImage into the API response type.

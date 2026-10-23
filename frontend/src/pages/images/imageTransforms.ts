@@ -40,7 +40,7 @@ export function buildRequestBody(values: ImageFormValues): AgentImageRequest {
     imageURL: values.imageURL,
     tools: values.tools.map(toApiTool),
     env: values.env.map(
-      (e): EnvVar => ({ name: e.name, value: e.value, secret: e.secret || undefined }),
+      (e): EnvVar => ({ name: e.name, value: e.value, secret: e.secret }),
     ),
     mcpServers: values.mcpServers,
     enabledSkills: values.enabledSkills,
