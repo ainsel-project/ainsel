@@ -282,6 +282,150 @@ func TestUpdateAgentImage_PreserveEnv(t *testing.T) {
 	}
 }
 
+// TestUpdateAgentImage_SecretEnvRoundTrip verifies that resending an env
+// list read back through MCP (secret values always come back redacted as "")
+// stamps the secret flag onto entries whose name is currently secret, so the
+// hub preserves the stored value instead of blanking it (issue #28).
+func TestUpdateAgentImage_SecretEnvRoundTrip(t *testing.T) {
+	var capturedBody string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":   "ainsel-ai-agent-default",
+				"name": "Default agent runtime",
+				"env": []map[string]any{
+					{"name": "MATRIX_MCP_TOKEN", "value": "", "secret": true},
+					{"name": "LOG_LEVEL", "value": "debug", "secret": false},
+				},
+			})
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":          "ainsel-ai-agent-default",
+			"displayName": "Default agent runtime",
+		})
+	}))
+	defer hub.Close()
+
+	it := &AgentImageTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name": "ainsel-ai-agent-default",
+		"env":  `[{"name":"MATRIX_MCP_TOKEN","value":""},{"name":"LOG_LEVEL","value":"info"}]`,
+	}
+	result, err := it.UpdateAgentImage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(capturedBody, `"name":"MATRIX_MCP_TOKEN","value":"","secret":true`) {
+		t.Errorf("expected secret flag on the resent secret entry; got: %s", capturedBody)
+	}
+	if !strings.Contains(capturedBody, `"name":"LOG_LEVEL","value":"info"`) {
+		t.Errorf("expected plain env var in request body; got: %s", capturedBody)
+	}
+}
+
+// TestUpdateAgentImage_EnvPatchUpsert verifies that env_patch upserts by
+// name: existing entries keep their order, new names are appended, and an
+// empty value over a currently-secret name keeps the stored value.
+func TestUpdateAgentImage_EnvPatchUpsert(t *testing.T) {
+	var capturedBody string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":   "ainsel-ai-agent-default",
+				"name": "Default agent runtime",
+				"env": []map[string]any{
+					{"name": "MATRIX_MCP_TOKEN", "value": "", "secret": true},
+				},
+			})
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":          "ainsel-ai-agent-default",
+			"displayName": "Default agent runtime",
+		})
+	}))
+	defer hub.Close()
+
+	it := &AgentImageTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name":      "ainsel-ai-agent-default",
+		"env_patch": `[{"name":"TURN_TIMEOUT_MS","value":"3600000"},{"name":"MATRIX_MCP_TOKEN","value":""}]`,
+	}
+	result, err := it.UpdateAgentImage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	// Existing secret keeps its flag and stays first; the new var is appended.
+	want := `"env":[{"name":"MATRIX_MCP_TOKEN","value":"","secret":true},` +
+		`{"name":"TURN_TIMEOUT_MS","value":"3600000"}]`
+	if !strings.Contains(capturedBody, want) {
+		t.Errorf("expected merged env list in request body; got: %s", capturedBody)
+	}
+}
+
+func TestUpdateAgentImage_EnvAndEnvPatchMutuallyExclusive(t *testing.T) {
+	it := &AgentImageTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name":      "ainsel-ai-agent-default",
+		"env":       `[{"name":"A","value":"1"}]`,
+		"env_patch": `[{"name":"B","value":"2"}]`,
+	}
+	result, _ := it.UpdateAgentImage(context.Background(), req)
+	if !result.IsError {
+		t.Fatal("expected error when both env and env_patch are supplied")
+	}
+	if !strings.Contains(result.Content[0].(mcp.TextContent).Text, "mutually exclusive") {
+		t.Errorf("expected mutual-exclusion error; got: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+}
+
+func TestUpdateAgentImage_EnvPatchMissingName(t *testing.T) {
+	it := &AgentImageTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name":      "ainsel-ai-agent-default",
+		"env_patch": `[{"value":"2"}]`,
+	}
+	result, _ := it.UpdateAgentImage(context.Background(), req)
+	if !result.IsError {
+		t.Fatal("expected error for env_patch entry without name")
+	}
+	if !strings.Contains(result.Content[0].(mcp.TextContent).Text, "missing name") {
+		t.Errorf("expected missing-name error; got: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+}
+
+func TestCreateAgentImage_SecretEnvRequiresValue(t *testing.T) {
+	it := &AgentImageTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"display_name": "Bad secret",
+		"image_url":    "registry.example.com/bad",
+		"env":          `[{"name":"TOKEN","value":"","secret":true}]`,
+	}
+	result, _ := it.CreateAgentImage(context.Background(), req)
+	if !result.IsError {
+		t.Fatal("expected error for secret env var with empty value on create")
+	}
+	if !strings.Contains(result.Content[0].(mcp.TextContent).Text, "non-empty value on create") {
+		t.Errorf("expected descriptive error; got: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+}
+
 func TestUpdateAgentImage_MissingName(t *testing.T) {
 	it := &AgentImageTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
 	req := mcp.CallToolRequest{}

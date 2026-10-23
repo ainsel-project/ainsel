@@ -987,6 +987,178 @@ func TestAgentImages_UpdateSecretEnvOverwritesValue(t *testing.T) {
 	}
 }
 
+// TestAgentImages_UpdateSecretEnvMCPShape verifies the regression behind
+// issue #28: an update in the exact shape the MCP tools send ({name, value}
+// only, no secret flag) must not blank env vars that are currently stored as
+// secrets. Before the fix this test failed.
+func TestAgentImages_UpdateSecretEnvMCPShape(t *testing.T) {
+	existing := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secmcp01", Namespace: "test-ns"},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "MCP Shape Image",
+			ImageURL:    "ghcr.io/test/image:latest",
+			Env: []agentv1alpha1.AgentImageEnvVar{
+				{Name: "API_KEY", Value: "s3cr3t", Secret: true},
+				// Already-empty stored secret, as seen in the wild
+				// (HUB_INTERNAL_VALIDATE_SECRET): preserving it is a no-op.
+				{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: "", Secret: true},
+				{Name: "LOG_LEVEL", Value: "debug"},
+			},
+		},
+		Status: agentv1alpha1.AgentImageStatus{Phase: agentv1alpha1.AgentImagePhaseReady},
+	}
+
+	s := testServer(t, existing)
+	registerAgentImageRoutes(s)
+
+	putBody := `{"env":[{"name":"API_KEY","value":""},` +
+		`{"name":"HUB_INTERNAL_VALIDATE_SECRET","value":""},` +
+		`{"name":"LOG_LEVEL","value":"v2"},` +
+		`{"name":"NEW_VAR","value":"new"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secmcp01", strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-secmcp01", Namespace: "test-ns"}, &img); err != nil {
+		t.Fatalf("get crd: %v", err)
+	}
+	stored := make(map[string]agentv1alpha1.AgentImageEnvVar, len(img.Spec.Env))
+	for _, e := range img.Spec.Env {
+		stored[e.Name] = e
+	}
+	if v, ok := stored["API_KEY"]; !ok || v.Value != "s3cr3t" || !v.Secret {
+		t.Errorf("API_KEY should keep its stored secret value, got %+v", stored["API_KEY"])
+	}
+	if v, ok := stored["HUB_INTERNAL_VALIDATE_SECRET"]; !ok || v.Value != "" || !v.Secret {
+		t.Errorf("already-empty stored secret should stay secret and empty, got %+v", stored["HUB_INTERNAL_VALIDATE_SECRET"])
+	}
+	if v, ok := stored["LOG_LEVEL"]; !ok || v.Value != "v2" || v.Secret {
+		t.Errorf("plain env var should be updated, got %+v", stored["LOG_LEVEL"])
+	}
+	if v, ok := stored["NEW_VAR"]; !ok || v.Value != "new" {
+		t.Errorf("new env var should be added, got %+v", stored["NEW_VAR"])
+	}
+}
+
+// TestAgentImages_UpdateSecretEnvFlagFlipGuard verifies that resending a
+// secret with an explicit secret: false and an empty value neither blanks the
+// stored value nor downgrades the flag (a downgrade would make the next GET
+// echo the stored secret in cleartext).
+func TestAgentImages_UpdateSecretEnvFlagFlipGuard(t *testing.T) {
+	existing := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secflip01", Namespace: "test-ns"},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "Flag Flip Image",
+			ImageURL:    "ghcr.io/test/image:latest",
+			Env: []agentv1alpha1.AgentImageEnvVar{
+				{Name: "API_KEY", Value: "s3cr3t", Secret: true},
+			},
+		},
+		Status: agentv1alpha1.AgentImageStatus{Phase: agentv1alpha1.AgentImagePhaseReady},
+	}
+
+	s := testServer(t, existing)
+	registerAgentImageRoutes(s)
+
+	putBody := `{"env":[{"name":"API_KEY","value":"","secret":false}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secflip01", strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-secflip01", Namespace: "test-ns"}, &img); err != nil {
+		t.Fatalf("get crd: %v", err)
+	}
+	if len(img.Spec.Env) != 1 || img.Spec.Env[0].Value != "s3cr3t" || !img.Spec.Env[0].Secret {
+		t.Errorf("secret should keep its value and flag, got %+v", img.Spec.Env)
+	}
+
+	// The masking view must still hide the preserved value.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-secflip01", nil)
+	getRec := httptest.NewRecorder()
+	s.mux.ServeHTTP(getRec, getReq)
+	if !strings.Contains(getRec.Body.String(), `"value":""`) {
+		t.Errorf("GET should not echo the stored secret value, got: %s", getRec.Body.String())
+	}
+}
+
+// TestAgentImages_UpdateSidecarSecretEnvPreserved verifies the second gap
+// behind issue #28: sidecar env secrets are preserved on update whether or
+// not the caller repeats the secret flag.
+func TestAgentImages_UpdateSidecarSecretEnvPreserved(t *testing.T) {
+	existing := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secsc01", Namespace: "test-ns"},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "Sidecar Secret Image",
+			ImageURL:    "ghcr.io/test/image:latest",
+			Sidecars: []agentv1alpha1.AgentImageSidecar{
+				{
+					Name:  "matrix-connector",
+					Image: "ghcr.io/test/matrix:latest",
+					Env: []agentv1alpha1.AgentImageEnvVar{
+						{Name: "MATRIX_MCP_TOKEN", Value: "matrix-token", Secret: true},
+					},
+				},
+				{
+					Name:  "forgejo-connector",
+					Image: "ghcr.io/test/forgejo:latest",
+					Env: []agentv1alpha1.AgentImageEnvVar{
+						{Name: "FORGEJO_PAT", Value: "forgejo-pat", Secret: true},
+					},
+				},
+			},
+		},
+		Status: agentv1alpha1.AgentImageStatus{Phase: agentv1alpha1.AgentImagePhaseReady},
+	}
+
+	s := testServer(t, existing)
+	registerAgentImageRoutes(s)
+
+	// One sidecar resends the flag, the other does not; both must preserve.
+	putBody := `{"sidecars":[` +
+		`{"name":"matrix-connector","image":"ghcr.io/test/matrix:latest","env":[{"name":"MATRIX_MCP_TOKEN","value":"","secret":true}]},` +
+		`{"name":"forgejo-connector","image":"ghcr.io/test/forgejo:latest","env":[{"name":"FORGEJO_PAT","value":""}]}` +
+		`]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secsc01", strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var img agentv1alpha1.AgentImage
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-secsc01", Namespace: "test-ns"}, &img); err != nil {
+		t.Fatalf("get crd: %v", err)
+	}
+	for _, sc := range img.Spec.Sidecars {
+		for _, e := range sc.Env {
+			switch e.Name {
+			case "MATRIX_MCP_TOKEN":
+				if e.Value != "matrix-token" || !e.Secret {
+					t.Errorf("MATRIX_MCP_TOKEN should keep its stored secret value, got %+v", e)
+				}
+			case "FORGEJO_PAT":
+				if e.Value != "forgejo-pat" || !e.Secret {
+					t.Errorf("FORGEJO_PAT should keep its stored secret value, got %+v", e)
+				}
+			}
+		}
+	}
+}
+
 func agentImageTestServerWithMCP(t *testing.T, objects ...runtime.Object) *Server {
 	t.Helper()
 	s := testServer(t, objects...)

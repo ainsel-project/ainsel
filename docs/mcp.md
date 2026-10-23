@@ -232,9 +232,11 @@ as ambiguous with the candidate ids listed rather than guessed.
 |------|------|-----------------|
 | `list_agent_images` | read | Agent runtimes available in the platform, with their tools and supported models. |
 | `get_agent_image` | read | One agent image: tools, models, reference name. |
-| `create_agent_image` | write | Register a new agent runtime (displayName, imageURL, optional description/env). |
-| `update_agent_image` | write | Update an agent image (displayName, imageURL, description, env, tools). Send `[]` to clear env or tools. |
+| `create_agent_image` | write | Register a new agent runtime (displayName, imageURL, optional description/env). Env entries are `{name, value, secret?}`; a secret entry requires a non-empty value on create. |
+| `update_agent_image` | write | Update an agent image (displayName, imageURL, description, env, env_patch, tools). `env` replaces the full list (`[]` clears it); `env_patch` upserts entries by name and removes nothing. The two are mutually exclusive. |
 | `delete_agent_image` | write | Delete an agent image. Fails with a conflict if any Agent references it. |
+
+Env entries are `{name, value, secret?}`. The API never returns secret values (they read back as `""`), so a resent secret must be sent as `{name, value: "", secret: true}` to keep the stored value — `update_agent_image` stamps that flag automatically for `env`, and `env_patch` applies the same keep-on-empty rule. Rotating a secret sends a non-empty `value`; removing a variable drops it from the full `env` list.
 
 ### Personas
 

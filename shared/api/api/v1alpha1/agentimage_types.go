@@ -91,6 +91,8 @@ type AgentImageSidecar struct {
 	// Env is a list of environment variables injected into the sidecar container.
 	// Values that reference Secret keys use the same <agent>-image-env Secret
 	// as the main container.
+	// On update, an entry with an empty value whose name is already stored as
+	// a secret keeps its stored value, mirroring AgentImageEnvVar.
 	// +optional
 	Env []AgentImageEnvVar `json:"env,omitempty"`
 }
