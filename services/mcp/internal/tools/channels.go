@@ -76,7 +76,7 @@ func (c *ChannelTools) GetChannelEventsTool() mcp.Tool {
 		mcp.WithNumber("limit", mcp.Description("Maximum events (default: 50, max: 200)")),
 		mcp.WithString("since", mcp.Description("Earliest timestamp (RFC 3339)")),
 		mcp.WithString("status", mcp.Description("Filter by derived status: matched, unmatched or error")),
-		mcp.WithString("subject", mcp.Description("Event subject pattern \"<connector>.<eventType>\", e.g. forgejo.issue_open or cron.*")),
+		mcp.WithString("subject", mcp.Description("Event subject pattern \"<connector>.<eventType>\", where the event type is the webhook event-type header value — e.g. forgejo.issues, forgejo.push or cron.*")),
 	)
 }
 
