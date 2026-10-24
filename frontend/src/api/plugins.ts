@@ -38,7 +38,13 @@ export async function getPlugins(): Promise<PluginListItem[]> {
   const page = await request<Paginated<PluginListItem>>('/plugins', {
     query: { pageSize: 200 },
   })
-  return page.items ?? []
+  const items = page.items ?? []
+  if (page.total != null && items.length < page.total) {
+    console.warn(
+      `plugins: hub reports ${page.total} plugins, showing first ${items.length} (hub maximum page size)`,
+    )
+  }
+  return items
 }
 
 export function getPluginContext() {

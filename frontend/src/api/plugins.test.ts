@@ -22,8 +22,20 @@ describe('api/plugins', () => {
     const plugins = await getPlugins()
     expect(plugins).toEqual([{ id: 'forgejo', ready: true }])
     const [url] = mockFetch().mock.calls[0]
-    expect(url).toContain('/plugins')
-    expect(url).toContain('pageSize=200')
+    expect(url).toContain('/api/v1/plugins?pageSize=200')
+  })
+
+  it('getPlugins warns when the hub page is truncated', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockFetch().mockResolvedValue(
+      new Response(
+        JSON.stringify({ items: [{ id: 'a' }], total: 2, page: 1, pageSize: 200, totalPages: 1 }),
+        { status: 200 },
+      ),
+    )
+    expect(await getPlugins()).toEqual([{ id: 'a' }])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('2 plugins'))
+    warn.mockRestore()
   })
 
   it('getPlugins returns an empty array when no plugin is installed', async () => {
