@@ -56,6 +56,8 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   },
 ]
 
+const BUILT_IN_SECTIONS = new Set(SECTIONS.map((s) => s.label))
+
 type SpineProps = {
   operator: string
   /** Recents bucket for the signed-in account; see recentsScope(). */
@@ -201,16 +203,17 @@ export function Spine({
         </div>,
       )
 
-      // Insert Plugins section after Library (index 2)
+      // Plugin-owned headings (e.g. "Forgejo", or "Plugins" for pages that
+      // name no section) go after Library, in the order plugins are listed.
       if (i === 2) {
-        const pluginOnlyEntries = pluginsBySection.get('Plugins')
-        if (pluginOnlyEntries && pluginOnlyEntries.length > 0) {
+        for (const [label, entries] of pluginsBySection) {
+          if (BUILT_IN_SECTIONS.has(label)) continue
           sectionElements.push(
-            <div key="Plugins">
+            <div key={`plugin-section-${label}`}>
               <div className="nav-section">
-                <span className="label">Plugins</span>
+                <span className="label">{label}</span>
               </div>
-              {pluginOnlyEntries.map((entry, idx) => (
+              {entries.map((entry, idx) => (
                 <div key={entry.to}>
                   <NavLink
                     to={entry.to}

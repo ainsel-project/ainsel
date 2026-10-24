@@ -190,10 +190,12 @@ Reading the fixture line by line:
   [Versioning](plugin-reference.md#versioning)).
 - `ui.pages[]` — two pages: the default at `/p/hello`, and an admin-only one at
   `/p/hello/admin` rendering the named export `AdminPage`. `section` groups the
-  nav entry; a section outside the console's built-in names puts it under
-  "Plugins". The console frames each page like its own: a title block with
-  the section and the `label` above a padded body, so a page renders only its
-  content, with no title or outer margin of its own.
+  nav entry under that heading: a built-in one, or your own (your plugin's
+  name is a good choice), which the sidebar shows after Library. Without a
+  section the page goes under "Plugins". The console frames each page like
+  its own: a title block with the section and the `label` above a padded
+  body, so a page renders only its content, with no title or outer margin of
+  its own.
 - `ui.slots` — one extension point filled: `agent.panel` renders `AgentPanel`
   under each agent.
 - `api.basePath` — marks that you serve a backend under `/api`, reachable only

@@ -113,7 +113,7 @@ describe('registry', () => {
       ])
     })
 
-    it('assigns non-matching sections to Plugins section', () => {
+    it('keeps a section of the plugin\'s own and puts pages without one under Plugins', () => {
       const plugins = [
         {
           id: 'test',
@@ -123,13 +123,15 @@ describe('registry', () => {
               entry: '/static/ui/index.js',
               pages: [
                 { path: '/', label: 'Home', section: 'Memory' },
+                { path: '/other', label: 'Other' },
+                { path: '/blank', label: 'Blank', section: '  ' },
               ],
             },
           }),
         },
       ]
       const entries = navEntries(plugins, true)
-      expect(entries[0].section).toEqual('Plugins')
+      expect(entries.map((e) => e.section)).toEqual(['Memory', 'Plugins', 'Plugins'])
     })
 
     it('omits admin pages when isAdmin is false', () => {

@@ -251,7 +251,7 @@ describe('Spine', () => {
     expect(screen.queryByRole('link', { name: /^Triggers$/i })).toBeNull()
   })
 
-  it('renders plugin pages under a Plugins section heading', async () => {
+  it('renders plugin pages under their own section heading, after Library', async () => {
     vi.unstubAllGlobals()
     vi.stubGlobal(
       'fetch',
@@ -272,6 +272,7 @@ describe('Spine', () => {
                       entry: '/static/ui/index.js',
                       pages: [
                         { path: '/', label: 'Memories', section: 'Memory' },
+                        { path: '/loose', label: 'Loose' },
                       ],
                     },
                   },
@@ -300,10 +301,18 @@ describe('Spine', () => {
 
     renderAt('/dashboard')
 
-    const pluginsSection = await screen.findByText('Plugins')
-    expect(pluginsSection).toBeInTheDocument()
-
     const memoriesLink = await screen.findByRole('link', { name: /Memories/i })
-    expect(memoriesLink).toBeInTheDocument()
+    const looseLink = screen.getByRole('link', { name: /Loose/i })
+
+    // Each link sits in the block whose heading names its section.
+    const headingOf = (link: HTMLElement) =>
+      link.closest('div:has(> .nav-section)')!.querySelector('.nav-section .label')!.textContent
+    expect(headingOf(memoriesLink)).toBe('Memory')
+    expect(headingOf(looseLink)).toBe('Plugins')
+
+    const headings = Array.from(document.querySelectorAll('.nav-section .label')).map(
+      (el) => el.textContent,
+    )
+    expect(headings.indexOf('Memory')).toBe(headings.indexOf('Library') + 1)
   })
 })
