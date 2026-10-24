@@ -32,7 +32,7 @@ describe('PluginList', () => {
       if (url.includes('/plugins')) {
         return Promise.resolve(
           new Response(
-            JSON.stringify([
+            JSON.stringify({ items: [
               {
                 id: 'plugin1',
                 displayName: 'Test Plugin',
@@ -42,7 +42,7 @@ describe('PluginList', () => {
                 declaredPermissions: [],
                 approvedPermissions: [],
               },
-            ]),
+            ] }),
             { status: 200 },
           ),
         )
@@ -73,7 +73,7 @@ describe('PluginList', () => {
       if (url.includes('/plugins')) {
         return Promise.resolve(
           new Response(
-            JSON.stringify([
+            JSON.stringify({ items: [
               {
                 id: 'plugin2',
                 displayName: 'Disabled Plugin',
@@ -83,7 +83,7 @@ describe('PluginList', () => {
                 declaredPermissions: [],
                 approvedPermissions: [],
               },
-            ]),
+            ] }),
             { status: 200 },
           ),
         )
@@ -143,7 +143,7 @@ describe('PluginList', () => {
         fetchCallCount++
         return Promise.resolve(
           new Response(
-            JSON.stringify([
+            JSON.stringify({ items: [
               {
                 id: 'plugin1',
                 displayName: 'Test Plugin',
@@ -153,7 +153,7 @@ describe('PluginList', () => {
                 declaredPermissions: [],
                 approvedPermissions: [],
               },
-            ]),
+            ] }),
             { status: 200 },
           ),
         )

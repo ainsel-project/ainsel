@@ -48,7 +48,7 @@ function defaultFetch(url: string): Response {
     )
   }
   if (url.includes('/plugins')) {
-    return new Response(JSON.stringify([defaultPlugin]), { status: 200 })
+    return new Response(JSON.stringify({ items: [defaultPlugin] }), { status: 200 })
   }
   return new Response('{}', { status: 200 })
 }
@@ -165,7 +165,7 @@ describe('PluginDetail', () => {
       vi.fn((url: string) =>
         Promise.resolve(
           url.includes('/plugins') && !url.includes('plugin-context')
-            ? new Response(JSON.stringify([approved]), { status: 200 })
+            ? new Response(JSON.stringify({ items: [approved] }), { status: 200 })
             : defaultFetch(url),
         ),
       ),

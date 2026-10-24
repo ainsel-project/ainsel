@@ -46,7 +46,7 @@ beforeEach(() => {
     vi.fn((url: string) => {
       if (url.includes('/plugins')) {
         return Promise.resolve(
-          new Response(JSON.stringify([]), { status: 200 }),
+          new Response(JSON.stringify({ items: [] }), { status: 200 }),
         )
       }
       if (url.includes('plugin-context')) {
@@ -256,7 +256,7 @@ describe('Spine', () => {
         if (url.includes('/plugins')) {
           return Promise.resolve(
             new Response(
-              JSON.stringify([
+              JSON.stringify({ items: [
                 {
                   id: 'memory-plugin',
                   displayName: 'Memory Plugin',
@@ -273,7 +273,7 @@ describe('Spine', () => {
                     },
                   },
                 },
-              ]),
+              ] }),
               { status: 200 },
             ),
           )
