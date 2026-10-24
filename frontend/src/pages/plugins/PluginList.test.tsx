@@ -42,7 +42,7 @@ describe('PluginList', () => {
                 declaredPermissions: [],
                 approvedPermissions: [],
               },
-            ] }),
+            ], total: 1, page: 1, pageSize: 200, totalPages: 1 }),
             { status: 200 },
           ),
         )
@@ -83,7 +83,7 @@ describe('PluginList', () => {
                 declaredPermissions: [],
                 approvedPermissions: [],
               },
-            ] }),
+            ], total: 1, page: 1, pageSize: 200, totalPages: 1 }),
             { status: 200 },
           ),
         )
@@ -153,7 +153,7 @@ describe('PluginList', () => {
                 declaredPermissions: [],
                 approvedPermissions: [],
               },
-            ] }),
+            ], total: 1, page: 1, pageSize: 200, totalPages: 1 }),
             { status: 200 },
           ),
         )

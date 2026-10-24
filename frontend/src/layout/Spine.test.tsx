@@ -46,7 +46,10 @@ beforeEach(() => {
     vi.fn((url: string) => {
       if (url.includes('/plugins')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ items: [] }), { status: 200 }),
+          new Response(
+            JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),
+            { status: 200 },
+          ),
         )
       }
       if (url.includes('plugin-context')) {
