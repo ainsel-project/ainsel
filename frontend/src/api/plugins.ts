@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PluginManifest } from '@ainsel/plugin-sdk'
 import { request } from './client'
+import type { Paginated } from './types'
 
 export interface PluginListItem {
   id: string
@@ -31,8 +32,19 @@ export interface PluginCallerContext {
   groups: { id: string; name: string; role: string }[]
 }
 
-export function getPlugins() {
-  return request<PluginListItem[]>('/plugins')
+// The hub pages the list; 200 is its maximum page size and far above the
+// number of plugins a deployment installs.
+export async function getPlugins(): Promise<PluginListItem[]> {
+  const page = await request<Paginated<PluginListItem>>('/plugins', {
+    query: { pageSize: 200 },
+  })
+  const items = page.items ?? []
+  if (page.total != null && items.length < page.total) {
+    console.warn(
+      `plugins: hub reports ${page.total} plugins, showing first ${items.length} (hub maximum page size)`,
+    )
+  }
+  return items
 }
 
 export function getPluginContext() {
