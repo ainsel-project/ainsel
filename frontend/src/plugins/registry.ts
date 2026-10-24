@@ -25,13 +25,13 @@ export function activePlugins(items: PluginListItem[]): ActivePlugin[] {
 
 /**
  * Compute navigation entries for active plugins.
- * Pages appear under their declared section if it's a built-in section name
- * (Operations, Fleet, Library, Docs, Admin), otherwise under Plugins.
+ * Pages appear under their declared section: a built-in one (Operations,
+ * Fleet, Library, Docs, Admin) or a heading of the plugin's own, such as
+ * "Forgejo". A page without a section goes under Plugins.
  * Admin pages are omitted when isAdmin is false.
  */
 export function navEntries(plugins: ActivePlugin[], isAdmin: boolean) {
   const entries: { section: string; label: string; to: string }[] = []
-  const builtInSections = new Set(['Operations', 'Fleet', 'Library', 'Docs', 'Admin'])
 
   for (const plugin of plugins) {
     const pages = plugin.manifest.ui?.pages ?? []
@@ -39,9 +39,7 @@ export function navEntries(plugins: ActivePlugin[], isAdmin: boolean) {
       if (page.visibility === 'admin' && !isAdmin) {
         continue
       }
-      const section = builtInSections.has(page.section ?? '')
-        ? page.section!
-        : 'Plugins'
+      const section = page.section?.trim() || 'Plugins'
       const path = page.path === '/' ? `/p/${plugin.id}` : `/p/${plugin.id}${page.path}`
       entries.push({
         section,
