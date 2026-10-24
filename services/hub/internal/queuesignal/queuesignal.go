@@ -159,22 +159,26 @@ func New(counters Counter, patcher Patcher, opts ...Option) *Publisher {
 	return p
 }
 
-// Option tunes a Publisher for tests or unusual deployments.
+// Option tunes a Publisher. Production passes only WithAgentLister; the timing
+// and logger options below are unexported test seams, so the exported surface of
+// this package reads as the configuration the hub actually supports. Production
+// takes the Default* constants, and a non-default interval is exercised only by
+// the tests that set these.
 type Option func(*Publisher)
 
-// WithTick sets the publish loop interval (wake-latency budget).
-func WithTick(d time.Duration) Option { return func(p *Publisher) { p.tick = d } }
+// withTick sets the publish loop interval (wake-latency budget).
+func withTick(d time.Duration) Option { return func(p *Publisher) { p.tick = d } }
 
-// WithDebounce sets the minimum interval between non-edge updates for one agent.
-func WithDebounce(d time.Duration) Option { return func(p *Publisher) { p.debounce = d } }
+// withDebounce sets the minimum interval between non-edge updates for one agent.
+func withDebounce(d time.Duration) Option { return func(p *Publisher) { p.debounce = d } }
 
-// WithSweep sets how often known agents are re-measured and republished, which
+// withSweep sets how often known agents are re-measured and republished, which
 // repairs failed writes, catches changes the store did not report, and keeps the
 // observation timestamp fresh.
-func WithSweep(d time.Duration) Option { return func(p *Publisher) { p.sweep = d } }
+func withSweep(d time.Duration) Option { return func(p *Publisher) { p.sweep = d } }
 
-// WithLogger directs the publisher's logs.
-func WithLogger(l *slog.Logger) Option { return func(p *Publisher) { p.log = l } }
+// withLogger directs the publisher's logs.
+func withLogger(l *slog.Logger) Option { return func(p *Publisher) { p.log = l } }
 
 // WithAgentLister points the sweep at the Agent CRDs, so an agent that opted into
 // queue scaling keeps beating from the first sweep after a hub restart even when
@@ -379,9 +383,10 @@ func (p *Publisher) publishOne(ctx context.Context, name string, force bool) (bo
 	return true, nil
 }
 
-// Published reports the last signal written for an agent. Exposed for tests and
-// for the hub's own diagnostics.
-func (p *Publisher) Published(name string) (Signal, bool) {
+// published reports the last signal written for an agent. It is a test seam: its
+// only readers are the tests in this package, and nothing in the hub surfaces it
+// over the API.
+func (p *Publisher) published(name string) (Signal, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	sig, ok := p.last[name]
@@ -427,18 +432,11 @@ func mergePatchBody(sig Signal) ([]byte, error) {
 type K8sPatcher struct {
 	client    client.Client
 	namespace string
-	log       *slog.Logger
 }
 
 // NewK8sPatcher builds a patcher writing to agents in the given namespace.
 func NewK8sPatcher(c client.Client, namespace string) *K8sPatcher {
-	return &K8sPatcher{client: c, namespace: namespace, log: slog.Default()}
-}
-
-// WithLogger returns the patcher, logging to l.
-func (k *K8sPatcher) WithLogger(l *slog.Logger) *K8sPatcher {
-	k.log = l
-	return k
+	return &K8sPatcher{client: c, namespace: namespace}
 }
 
 // Patch writes sig to the named agent's status.
@@ -470,18 +468,11 @@ func (k *K8sPatcher) Patch(ctx context.Context, agentName string, sig Signal) er
 type K8sAgentLister struct {
 	client    client.Client
 	namespace string
-	log       *slog.Logger
 }
 
 // NewK8sAgentLister builds a lister reading Agents in the given namespace.
 func NewK8sAgentLister(c client.Client, namespace string) *K8sAgentLister {
-	return &K8sAgentLister{client: c, namespace: namespace, log: slog.Default()}
-}
-
-// WithLogger returns the lister, logging to l.
-func (k *K8sAgentLister) WithLogger(l *slog.Logger) *K8sAgentLister {
-	k.log = l
-	return k
+	return &K8sAgentLister{client: c, namespace: namespace}
 }
 
 // QueueWatchedAgents names every agent in the namespace: each one's runs are
