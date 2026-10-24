@@ -32,7 +32,7 @@ func NewActivityTools(hubURL string) *ActivityTools {
 
 func (a *ActivityTools) SummarizeAgentActivityTool() mcp.Tool {
 	return mcp.NewTool("summarize_agent_activity",
-		mcp.WithDescription("Per-agent rollup of recent activity: invocation count by status, token usage, cost, and most-recent errors. Default window: last 24 hours."),
+		mcp.WithDescription("Per-agent rollup of recent activity: invocation count by status and most-recent errors. Default window: last 24 hours. Token usage and cost are not on invocation records yet; use get_token_usage."),
 		mcp.WithString("since", mcp.Description("Earliest timestamp (RFC 3339). Defaults to 24 hours ago.")),
 		mcp.WithString("until", mcp.Description("Latest timestamp (RFC 3339). Defaults to now.")),
 	)
@@ -44,10 +44,26 @@ func (a *ActivityTools) SummarizeAgentActivityTool() mcp.Tool {
 const activityInvocationCap = 1000
 
 type agentActivityStats struct {
-	Agent        string             `json:"agent"`
-	Invocations  map[string]int     `json:"invocations"`
-	Tokens       map[string]float64 `json:"tokens"`
-	RecentErrors []map[string]any   `json:"recentErrors,omitempty"`
+	Agent       string         `json:"agent"`
+	Invocations map[string]int `json:"invocations"`
+	// RecentErrors carries the error message of the newest failing
+	// invocations, capped at five per agent.
+	RecentErrors []map[string]any `json:"recentErrors,omitempty"`
+}
+
+// invocationStatusBuckets are the status keys every rollup reports. They are
+// the hub's invocation vocabulary, taken from the status constants in
+// services/hub/internal/invocations/types.go. Any other status the hub starts
+// emitting is still counted under its own name rather than dropped, so a hub
+// change cannot silently empty a bucket again.
+var invocationStatusBuckets = []string{"queued", "running", "success", "failure", "timeout"}
+
+func newInvocationCounts() map[string]int {
+	counts := map[string]int{"total": 0}
+	for _, s := range invocationStatusBuckets {
+		counts[s] = 0
+	}
+	return counts
 }
 
 func (a *ActivityTools) SummarizeAgentActivity(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -83,7 +99,10 @@ func (a *ActivityTools) SummarizeAgentActivity(ctx context.Context, req mcp.Call
 
 	byAgent := map[string]*agentActivityStats{}
 	for _, inv := range invocations {
-		name, _ := inv["agent"].(string)
+		// The hub emits agentName (see the JSON tags on
+		// invocations.Invocation). Reading a key it never emits used to skip
+		// every row here and return a silently empty rollup.
+		name, _ := inv["agentName"].(string)
 		if name == "" {
 			continue
 		}
@@ -91,30 +110,16 @@ func (a *ActivityTools) SummarizeAgentActivity(ctx context.Context, req mcp.Call
 		if !ok {
 			s = &agentActivityStats{
 				Agent:       name,
-				Invocations: map[string]int{"total": 0, "succeeded": 0, "failed": 0, "skipped": 0},
-				Tokens:      map[string]float64{"input": 0, "output": 0, "totalCostUSD": 0},
+				Invocations: newInvocationCounts(),
 			}
 			byAgent[name] = s
 		}
 		s.Invocations["total"]++
 		status, _ := inv["status"].(string)
-		switch status {
-		case "succeeded":
-			s.Invocations["succeeded"]++
-		case "failed":
-			s.Invocations["failed"]++
-		case "skipped":
-			s.Invocations["skipped"]++
+		if status == "" {
+			status = "unknown"
 		}
-		if v, ok := inv["tokensInput"].(float64); ok {
-			s.Tokens["input"] += v
-		}
-		if v, ok := inv["tokensOutput"].(float64); ok {
-			s.Tokens["output"] += v
-		}
-		if v, ok := inv["costUSD"].(float64); ok {
-			s.Tokens["totalCostUSD"] += v
-		}
+		s.Invocations[status]++
 		if errMsg, ok := inv["error"].(string); ok && errMsg != "" && len(s.RecentErrors) < 5 {
 			s.RecentErrors = append(s.RecentErrors, map[string]any{
 				"invocationId": inv["id"],
@@ -140,7 +145,9 @@ func (a *ActivityTools) SummarizeAgentActivity(ctx context.Context, req mcp.Call
 		},
 		"agents":  agentsOut,
 		"latency": nil,
-		"_note":   "latency aggregation (p50/p95) not yet implemented on the hub; this field is intentionally null",
+		"_note": "latency aggregation (p50/p95) not yet implemented on the hub; this field is intentionally null. " +
+			"Token usage and cost are not fields of an invocation record, so they are not rolled up here; " +
+			"use get_token_usage for token counts.",
 	}
 	if invocationsCapped {
 		out["invocationsCapped"] = true
