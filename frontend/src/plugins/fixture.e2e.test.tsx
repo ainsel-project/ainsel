@@ -83,6 +83,10 @@ describe('fixture plugin in the console', () => {
       isPending: false,
     } as unknown as ReturnType<typeof usePluginCallerContext>)
     renderAt('/p/hello/admin')
-    expect(await screen.findByText('Hello admin')).toBeInTheDocument()
+    // The page label is "Hello admin" too; match the plugin's body, not the
+    // console's title block above it.
+    expect(
+      await screen.findByText('Hello admin', { ignore: '.titleblock *, script, style' }),
+    ).toBeInTheDocument()
   })
 })

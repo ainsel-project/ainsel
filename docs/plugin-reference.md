@@ -79,7 +79,7 @@ host implements `1.1`.
 | `ui.entry` | string | yes if `ui` present | [path rules](#path-rules); the ES module the console imports | 1.0 |
 | `ui.pages` | array | no | page `path`s must be unique within the plugin | 1.0 |
 | `ui.pages[].path` | string | yes | [path rules](#path-rules); `"/"` is the plugin's index page | 1.0 |
-| `ui.pages[].label` | string | no | not validated; it is the text the console shows in the sidebar, so leave it empty at your own cost | 1.0 |
+| `ui.pages[].label` | string | no | not validated; it is the text the console shows in the sidebar and as the page's title, so leave it empty at your own cost | 1.0 |
 | `ui.pages[].section` | string | no | grouped under this heading; a name outside the console's built-in set (`Operations`, `Fleet`, `Library`, `Docs`, `Admin`) is listed under "Plugins" | 1.0 |
 | `ui.pages[].icon` | string | no | accepted and stored; the console does not render page icons yet | 1.0 |
 | `ui.pages[].component` | string | no | exported component name, `^[A-Za-z_$][A-Za-z0-9_$]*$`; empty means the module's default export | 1.1 |
