@@ -7,6 +7,7 @@ import { activePlugins, findPage, type ActivePlugin } from './registry'
 import { PluginExport } from './PluginExport'
 import { PluginBoundary } from './PluginBoundary'
 import { PluginContextProvider } from './PluginContextProvider'
+import { Titleblock } from '../layout/Titleblock'
 
 /**
  * Routes plugin pages at /p/:pluginId/* routes.
@@ -60,12 +61,27 @@ interface PluginPageContentProps {
   page: PluginPageSpec
 }
 
+// The console frames every plugin page the way it frames its own: a title
+// block (crumbs: the page's sidebar section, then its label) above a padded
+// body. A plugin renders only the body, so every plugin looks the same.
 function PluginPageContent({ plugin, page }: PluginPageContentProps): JSX.Element {
   return (
-    <PluginContextProvider plugin={plugin}>
-      <PluginBoundary plugin={plugin}>
-        <PluginExport plugin={plugin} exportName={page.component || 'default'} />
-      </PluginBoundary>
-    </PluginContextProvider>
+    <>
+      <Titleblock
+        crumbs={
+          <>
+            {page.section || plugin.displayName} / <b>{page.label}</b>
+          </>
+        }
+        title={page.label}
+      />
+      <div style={{ padding: '28px 32px' }}>
+        <PluginContextProvider plugin={plugin}>
+          <PluginBoundary plugin={plugin}>
+            <PluginExport plugin={plugin} exportName={page.component || 'default'} />
+          </PluginBoundary>
+        </PluginContextProvider>
+      </div>
+    </>
   )
 }
