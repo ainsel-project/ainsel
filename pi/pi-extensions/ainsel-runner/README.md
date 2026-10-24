@@ -77,7 +77,7 @@ from the chart's shared `auth.internalValidateSecret`).
 | `HUB_URL` | yes | Hub backend base URL (e.g. `http://ainsel-hub:8080`) |
 | `HUB_INTERNAL_VALIDATE_SECRET` | yes | Shared secret for `X-Internal-Token` header |
 | `AINSEL_LLM_MODEL` | yes | Model identifier; reported in token metrics. The legacy alias `OLLAMA_CLOUD_MODEL` is read as a fallback for one release (issue #96); there is no default |
-| `NAK_DELAY_MS` | no | NACK backoff in ms before the hub re-delivers a failed task (default `60000`) |
+| `NAK_DELAY_MS` | no | Base NACK backoff in ms. The hub doubles it per recorded attempt of the task and caps the result at 30 minutes, so this is the first retry's wait rather than a fixed one (default `60000`) |
 | `TURN_TIMEOUT_MS` | no | Maximum time in ms to wait for a single LLM turn before aborting and nacking (default `600000`, i.e. 10 minutes) |
 | `TURN_SETTLE_TIMEOUT_MS` | no | Maximum time in ms to wait for an aborted turn to settle before proceeding (default `10000`, i.e. 10 seconds). Backstop only — after `ctx.abort()` the run should settle in milliseconds. |
 | `TOOL_RESULT_MAX_CHARS` | no | Per-text-block character cap for toolResult transcript content (default `16000`). Oversized blocks are truncated with head+tail retention and a `[truncated N chars]` marker. Read lazily at call time. |

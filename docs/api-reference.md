@@ -984,7 +984,7 @@ Every edge in the graph in one call, both registries merged. **Response:** `{ it
 
 ## Invocations
 
-Invocations record one dispatch of an event to an agent. They are persisted in the `invocations` Postgres table (48h retention) so they survive hub restarts; the endpoint returns `503 Service Unavailable` when invocation history is not configured.
+Invocations record one dispatch of an event to an agent. They are persisted in the `invocations` Postgres table (7-day retention, aligned with `task_conversations` so a transcript never outlives the invocation that leads to it) so they survive hub restarts; the endpoint returns `503 Service Unavailable` when invocation history is not configured.
 
 ### GET /api/v1/invocations
 
@@ -1630,7 +1630,7 @@ no database.
 
 | Param | Description |
 |-------|-------------|
-| `range` | Optional. `1h`, `6h`, `24h` or `7d`; windows the records read. Omitted means everything still retained (conversations and invocations are pruned after 48h — retained, not lifetime). The Prometheus path reads all-time counters and ignores `range`. Invalid values return `400`. |
+| `range` | Optional. `1h`, `6h`, `24h` or `7d`; windows the records read. Every option is inside retention (conversations, invocations and task logs are pruned after 7 days); omitted means everything still retained — retained, not lifetime. The Prometheus path reads all-time counters and ignores `range`. Invalid values return `400`. |
 
 **Response:** `200 OK`
 ```json
@@ -1889,7 +1889,7 @@ cannot be deleted. **Status codes:** `204`, `403`, `404`, `409`.
 
 ### GET /api/v1/tokens
 
-Per-`(agent, repository, issueNumber, model)` token consumption. The hub's own conversation rows (`task_conversations`, kept for 48 h) answer by default, on every install, whether or not a Prometheus exists; set `observability.metricsSource` to `prometheus` to pin the agent runtime's counters instead. A pinned backend that is not configured returns `503` naming it, rather than falling back silently. The response names the backend that answered in `source`.
+Per-`(agent, repository, issueNumber, model)` token consumption. The hub's own conversation rows (`task_conversations`, kept for 7 days) answer by default, on every install, whether or not a Prometheus exists; set `observability.metricsSource` to `prometheus` to pin the agent runtime's counters instead. A pinned backend that is not configured returns `503` naming it, rather than falling back silently. The response names the backend that answered in `source`.
 
 **Query parameters:** `agent`, `repository`, `issueNumber` (exact-match filters, applied server-side on both backends), `since`, `until` (RFC 3339; bound the window on the records path — absent means everything the hub still retains; the Prometheus path reads cumulative counters and has no window).
 

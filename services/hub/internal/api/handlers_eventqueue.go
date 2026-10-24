@@ -372,10 +372,11 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	delay := 60 * time.Second
-	if body.DelayMs > 0 {
-		delay = time.Duration(body.DelayMs) * time.Millisecond
-	}
+	// delay_ms is the worker's base, not the final wait: the hub owns retry
+	// pacing, and only the hub can see how many attempts this row has already
+	// spent (each one is a fresh Job in per-task mode). The wait doubles per
+	// attempt and stops at eventqueue.NakDelayMax.
+	delay := eventqueue.NakDelay(task.Attempts, time.Duration(body.DelayMs)*time.Millisecond)
 
 	if err := s.eventQueue.NakTask(r.Context(), taskID, delay, body.Error); err != nil {
 		slog.Error("nack task failed", "task_id", taskID, "error", err)
@@ -404,7 +405,12 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 		s.broadcastAgentError(agentName, body.Error, task.InvocationID)
 	}
 
-	slog.Info("task nacked", "task_id", taskID, "agent", agentName, "delay_ms", body.DelayMs)
+	slog.Info("task nacked",
+		"task_id", taskID,
+		"agent", agentName,
+		"attempts", task.Attempts,
+		"delay_ms", delay.Milliseconds(),
+	)
 	w.WriteHeader(http.StatusNoContent)
 }
 

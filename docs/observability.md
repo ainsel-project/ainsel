@@ -149,10 +149,11 @@ retained, while a counter that predates the pruning remembers all of them.
 `observability.prometheus.url` is what lights up raw PromQL, and nothing else,
 unless you also pin the source. The token tiles, the token table by subject and
 the per-agent table answer from the hub's own rows whether or not Prometheus
-exists. Note the retention cliff on the records path: `task_conversations` and
-`invocations` are pruned after 48 hours, so a range wider than that (or no range)
-reports what is still retained, not lifetime — pinning Prometheus is the way to
-read counters that predate the pruning. The hub reads both settings once at
+exists. Note the retention cliff on the records path: `task_conversations`,
+`invocations` and `task_logs` are pruned after 7 days, so the widest range the
+console offers (`7d`) is inside retention, but anything older — or an unbounded
+range — reports what is still retained, not lifetime. Pinning Prometheus is the way
+to read counters that predate the pruning. The hub reads both settings once at
 startup, so configure them and let `helm upgrade` roll the pods.
 
 The two backends report in different units, and every metrics response carries a

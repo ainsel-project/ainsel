@@ -368,8 +368,9 @@ Key properties:
   onto `Agent` status (the queue signal); the operator renders one Job per
   pending task. The pod fetches *its* task by id
   (`GET /api/internal/agents/{name}/tasks/{id}`) and acks (completed) or
-  nacks (retry with backoff, failed after `max_attempts`). There is no
-  claim for a dead worker to strand: a crashed pod leaves the row
+  nacks (retry with exponential backoff — the worker's `delay_ms` base, doubled
+  per recorded attempt and capped at 30 minutes — failed after `max_attempts`).
+  There is no claim for a dead worker to strand: a crashed pod leaves the row
   `pending` and the Job restarts it in a fresh pod.
 
 ### Derived Subject
