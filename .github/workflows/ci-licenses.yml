@@ -1,0 +1,159 @@
+name: CI - licenses
+
+# Two facts this enforces.
+#
+# 1. What ships is what was checked. THIRD_PARTY_LICENSES.md and LICENSES/ are the
+#    attribution bundle the distributed artifacts carry (frontend image, Go
+#    images, pi image), generated from the lockfiles by
+#    scripts/generate-third-party-licenses.py. Regenerate and fail on any diff:
+#    a committed manifest that drifts from the lockfiles is a manifest that was
+#    never read.
+#
+# 2. Nothing ships under a license this project may not distribute. AInsel is
+#    Apache-2.0; a copyleft dependency arriving through a routine bump would
+#    otherwise be shipped by nobody in particular. scripts/check-license-policy.py
+#    holds the list and it denies by default: a license has to be *decided*, not
+#    assumed.
+#
+# Why not google/go-licenses, as this issue proposed: v1.6.0 cannot load a module
+# whose go.mod declares go >= 1.25 (google/go-licenses#128) and every module here
+# declares 1.26 — it errors before classifying anything. The generator already
+# solves the same problem with `go list -deps` plus a license-text classifier, and
+# covers the npm trees too, so the policy runs over its output.
+#
+# First-party "unknown license" noise, which the issue asked to suppress, is
+# already gone: the generator excludes the own-module prefix
+# (OWN_GO_PREFIX) rather than scanning our own packages at all.
+#
+# Exceptions process — what a change here means:
+#   * A new entry in ALLOWED, or in REVIEWED_EXCEPTIONS, is a licence-policy
+#     change. It needs a reason in the diff (REVIEWED_EXCEPTIONS has one per
+#     entry, and one without a reason fails a test).
+#   * A new `Unknown` row is a violation, not a warning: if neither the declared
+#     license nor the license text identifies the terms, we do not know what we
+#     would be redistributing.
+#   * THIRD_PARTY_LICENSES.md is never edited by hand — the drift job would undo
+#     it on the next run.
+#
+# Both jobs are path-filtered to the generator's inputs: a docs-only PR does not
+# pay for a pnpm install and eight `go mod download`s.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'THIRD_PARTY_LICENSES.md'
+      - 'LICENSES/**'
+      - 'NOTICE'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'pi/pi-extensions/**/package.json'
+      - 'pi/pi-extensions/**/package-lock.json'
+      - 'pi/pi-extensions/**/.npmrc'
+      - 'go.work'
+      - 'go.work.sum'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'scripts/generate-third-party-licenses.py'
+      - 'scripts/check-license-policy.py'
+      - 'scripts/test_check_license_policy.py'
+      - 'scripts/test_generate_third_party_licenses.py'
+      - '.github/workflows/ci-licenses.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'THIRD_PARTY_LICENSES.md'
+      - 'LICENSES/**'
+      - 'NOTICE'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'pi/pi-extensions/**/package.json'
+      - 'pi/pi-extensions/**/package-lock.json'
+      - 'pi/pi-extensions/**/.npmrc'
+      - 'go.work'
+      - 'go.work.sum'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'scripts/generate-third-party-licenses.py'
+      - 'scripts/check-license-policy.py'
+      - 'scripts/test_check_license_policy.py'
+      - 'scripts/test_generate_third_party_licenses.py'
+      - '.github/workflows/ci-licenses.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: License policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the committed manifest against the policy
+        run: python3 scripts/check-license-policy.py
+
+      - name: Policy and generator rules
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts.test_check_license_policy -v
+          python3 -m unittest scripts.test_generate_third_party_licenses -v
+
+  drift:
+    name: Manifest matches the lockfiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The generator reads three ecosystems: the pnpm workspace (`pnpm licenses
+      # list`), each pi extension (an `npm ci` into a temp dir), and Go (per-module
+      # `go mod download` + `go list -deps`). All three are needed for a complete
+      # regeneration, which is what this job compares.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: false
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate the manifest
+        run: python3 scripts/generate-third-party-licenses.py
+
+      - name: Fail on any drift
+        run: |
+          set -euo pipefail
+
+          # git status, not `git diff --exit-code`: a new dependency writes a new
+          # LICENSES/<dep>@<ver>/ directory, which is untracked and invisible to
+          # a diff of tracked paths. That is the commonest drift there is.
+          changed="$(git status --porcelain -- THIRD_PARTY_LICENSES.md LICENSES)"
+          if [ -z "$changed" ]; then
+            echo "ok: THIRD_PARTY_LICENSES.md and LICENSES/ match the lockfiles"
+            exit 0
+          fi
+
+          echo "::error::the committed license manifest does not match the lockfiles"
+          git status --porcelain -- THIRD_PARTY_LICENSES.md LICENSES
+          git diff --stat -- THIRD_PARTY_LICENSES.md
+          cat <<'EOF'
+
+          Regenerate and commit the result:
+
+            pnpm install --frozen-lockfile
+            python3 scripts/generate-third-party-licenses.py
+            git add THIRD_PARTY_LICENSES.md LICENSES
+            git commit --amend --no-edit
+
+          If the new dependency's license is not permitted, the policy job names
+          it; fix that first, or the regenerated manifest will just fail there.
+          EOF
+          exit 1

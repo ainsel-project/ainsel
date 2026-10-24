@@ -320,6 +320,8 @@ third-party dependency bundled into ainsel's distributed artifacts — name,
 version, license, and license text — lives in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and
 [`LICENSES/`](LICENSES/), and is kept in sync by
-`.github/workflows/ci-licenses.yml`. The frontend image serves these files
-under `<BASE_PATH>/legal/`; the Go service and operator images ship them
-under `/legal/`.
+`.github/workflows/ci-licenses.yml` — which also refuses a dependency whose
+license may not ship in an Apache-2.0 product (the allowlist and the reviewed
+copyleft exceptions live in `scripts/check-license-policy.py`). The frontend image
+serves these files under `<BASE_PATH>/legal/`; the Go service and operator images
+ship them under `/legal/`.
