@@ -19,8 +19,9 @@ const DefaultCapacity = 1000
 // deliberately aligned with tasklogs.ConversationRetention so an invocation
 // and its conversation transcript expire together: the UI reaches a
 // transcript only through its invocation record, so a conversation that
-// outlives its invocation would be unreachable.
-const Retention = 48 * time.Hour
+// outlives its invocation would be unreachable — widening one without the
+// other would buy nothing.
+const Retention = 7 * 24 * time.Hour
 
 // Store is the persistence contract for invocation history. The hub always
 // wires the Postgres-backed implementation (NewPgStore) in production;

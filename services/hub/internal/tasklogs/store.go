@@ -12,9 +12,14 @@ import (
 // DefaultRetention is how long log entries are kept before pruning.
 const DefaultRetention = 7 * 24 * time.Hour
 
-// ConversationRetention is how long conversation messages are kept.
-// Shorter than log retention since conversations are high-volume.
-const ConversationRetention = 48 * time.Hour
+// ConversationRetention is how long conversation messages are kept. It matches
+// task_logs' DefaultRetention and invocations.Retention: the records path backs
+// the observability ranges the console offers (up to 7d), and a transcript is
+// reached through its invocation record, so the three expire together or a range
+// the UI offers silently reports a partial window. Conversations are the
+// high-volume table, so this is the one that costs the most to widen — the prune
+// loop is unchanged and just deletes a wider window.
+const ConversationRetention = 7 * 24 * time.Hour
 
 // Store is the task_logs database layer.
 type Store struct {
@@ -419,7 +424,7 @@ func (s *Store) AgentTokenUsageSince(ctx context.Context, since, until time.Time
 // kept, not dropped, so the totals stay comparable with the summary. The scan
 // is a created_at range scan over the window: idx_task_conversations_subject
 // does not serve it (the query constrains none of its leading columns), which
-// is acceptable while the retention loop keeps the table at 48 h of rows.
+// is acceptable while the retention loop keeps the table at 7 days of rows.
 func (s *Store) TokenUsageBySubject(ctx context.Context, since, until time.Time) ([]TokenSubjectUsageRow, error) {
 	query := `SELECT agent_name, repo, event_type, model,
 			COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),

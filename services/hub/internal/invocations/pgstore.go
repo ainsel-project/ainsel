@@ -175,8 +175,8 @@ func (s *PgStore) Capacity() int {
 // Prune deletes invocation records that started before now-retention,
 // returning the number of removed rows. Stale "running" rows are pruned like
 // any other record: every normal path eventually calls Complete on them
-// (tasks survive hub restarts in the event queue), and 48 hours is far
-// beyond the longest retry window.
+// (tasks survive hub restarts in the event queue), and 7 days is far
+// beyond the longest retry window (see eventqueue.NakDelay).
 func (s *PgStore) Prune(ctx context.Context, retention time.Duration) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `
 		DELETE FROM invocations WHERE start_time < now() - make_interval(secs => $1)
