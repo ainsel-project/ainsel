@@ -313,7 +313,7 @@ back inside the result as `isError`, the same as any other MCP tool.
 |------|------|-----------------|
 | `list_invocations` | read | Recent invocations (optional `agent`, `trigger`, `since`, `until`, `limit`). |
 | `get_invocation` | read | One invocation by id: prompt, model output, tool calls, token usage, errors. |
-| `summarize_agent_activity` | read | Per-agent rollup over a window (default 24h): invocation counts by status, token usage, cost, recent errors. |
+| `summarize_agent_activity` | read | Per-agent rollup over a window (default 24h): invocation counts by status and recent errors. Token usage and cost are not invocation fields — use `get_token_usage`. |
 
 ### Cost & errors
 
