@@ -1,0 +1,61 @@
+name: PR sign-off
+
+# Every commit on a PR must carry a `Signed-off-by:` trailer — the developer's
+# Certificate of Origin assertion that they are entitled to submit the change
+# under this project's licence. GitHub's terms grant a licence for public repos;
+# they do not establish that the person pushing had the right to, and nothing
+# else in the pipeline records the claim. The trailer is the record.
+#
+# See scripts/check-signed-off.py for the rules (what counts as a trailer, which
+# commits are exempt) and its test, scripts/test_check_signed_off.py.
+#
+# Interaction with dependabot-auto-merge.yml: that gate refuses to merge a PR
+# with any red check, and Dependabot commits are written by an app that cannot
+# certify anything — upstream licensing is what the dependency licence policy
+# tracks (issue #4). So bot-authored PRs pass here with a note rather than
+# blocking the auto-merge path.
+#
+# Squash-merge means the trailers stay on the PR's commit list rather than
+# landing on `main`. That is still the record (it is what a DCO app checks), and
+# an author who wants it on the merge commit adds the line to the PR body.
+#
+# No third-party action: the commit list comes from the API with the runner
+# token, and the rule lives in a tested script.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read # checkout the script
+  pull-requests: read # list the PR's commits
+
+jobs:
+  signed-off:
+    name: Every commit signed off
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COMMITS_URL: ${{ github.event.pull_request.commits_url }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check every commit is signed off
+        run: |
+          set -euo pipefail
+
+          # A bot cannot certify origin, and failing here would stop
+          # dependabot-auto-merge from ever merging its PRs (see header).
+          case "$PR_AUTHOR" in
+            *'[bot]')
+              echo "ok: author '$PR_AUTHOR' is an app; origin is not theirs to certify"
+              exit 0
+              ;;
+          esac
+
+          # --paginate follows the Link headers; the endpoint caps a page at 100
+          # commits and gh emits the pages back to back, which the script
+          # flattens. Stopping at the first page would silently pass the commits
+          # past number 100 — the failure mode this check must not have.
+          gh api --paginate "$COMMITS_URL?per_page=100" | python3 scripts/check-signed-off.py

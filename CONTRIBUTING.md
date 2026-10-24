@@ -163,6 +163,7 @@ rolling them out is left to whatever pipeline owns the environment.
 | --- | --- | --- |
 | `ci-<component>.yml` (10) | PR based on `main`, path-filtered | build, test, lint that component |
 | `pr-title.yml` | PR opened, edited or updated | reject a PR title release-please could not parse |
+| `pr-signed-off.yml` | PR opened, updated or reopened | reject a PR whose commits lack a `Signed-off-by:` trailer (see [conventions](docs/conventions.md#sign-off)) |
 | `dependabot-auto-merge.yml` | PR by `dependabot[bot]`, or dispatch with a PR number | wait for every other check on the PR, then squash-merge it; refuse on any red check |
 | `ci-chart.yml` | same, for `chart/**` and `operators/*/config/crd/**` | helm lint, template with default/example/medium/large values, CRD sync check |
 | `ci-workflows.yml` | same, for `dev-image-*.yml` and their test | assert the publish decision for every event/branch combination |
@@ -232,6 +233,11 @@ Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `revert`.
 - Imperative mood ("add login page", not "added login page").
 - Body is optional, separated by a blank line; explain *why* the change is
   needed, not just *what* changed.
+- Sign every commit: `git commit -s`. The `Signed-off-by:` trailer is the
+  Certificate of Origin assertion that you may submit the change; a PR with an
+  unsigned commit fails `pr-signed-off.yml`. See
+  [`docs/conventions.md`](docs/conventions.md#sign-off) for the rules and the
+  exemptions.
 
 release-please reads these commits to compute the next version and to write
 `CHANGELOG.md`, so the format is load-bearing rather than stylistic. Two rules
