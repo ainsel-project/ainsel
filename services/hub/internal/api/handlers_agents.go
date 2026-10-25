@@ -167,6 +167,12 @@ type SimpleAgentResponse struct {
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
 	Status         *SimpleAgentStatus       `json:"status,omitempty"`
 	UpdatedAt      string                   `json:"updatedAt,omitempty"`
+	// GroupID is the authz group this agent belongs to. Populated on the list
+	// endpoint (batched lookup); empty elsewhere and when authz is disabled.
+	GroupID string `json:"groupId,omitempty"`
+	// GroupName is the display name of GroupID, for roster rendering. Falls
+	// back to empty when the group cannot be resolved; the UI shows the id.
+	GroupName string `json:"groupName,omitempty"`
 }
 
 type AgentLLMInfo struct {
@@ -608,16 +614,46 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 		return list.Items[i].Name < list.Items[j].Name
 	})
 
-	// Filter to resources the caller can access (own groups + optional public).
-	if s.authzStore != nil && !s.callerIsAdmin(r) {
+	// Filter to resources the caller can access (own groups + optional
+	// public), then narrow to an explicit groupId if the caller asked for
+	// one. Both filters run before pagination so Pager totals describe the
+	// filtered set, and a group filter can never widen what authz scoped out.
+	groupID := strings.TrimSpace(r.URL.Query().Get("groupId"))
+	if s.authzStore != nil {
 		names := make([]string, len(list.Items))
 		for i, a := range list.Items {
 			names[i] = a.Name
 		}
-		set := toAccessSet(s.filterByAccess(r, "agent", names))
+		if !s.callerIsAdmin(r) {
+			names = s.filterByAccess(r, "agent", names)
+		}
+		if groupID != "" {
+			inGroup, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", []string{groupID}, false)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			names = intersectNames(names, inGroup)
+		}
+		set := toAccessSet(names)
 		filtered := list.Items[:0]
 		for _, a := range list.Items {
 			if set[a.Name] {
+				filtered = append(filtered, a)
+			}
+		}
+		list.Items = filtered
+	}
+
+	// Case-insensitive substring filter on display name, resource name and
+	// description. Applied before pagination for the same reason as the
+	// group filter: paging over an unfiltered set would drop matches.
+	if search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("search"))); search != "" {
+		filtered := list.Items[:0]
+		for _, a := range list.Items {
+			if strings.Contains(strings.ToLower(a.Spec.DisplayName), search) ||
+				strings.Contains(strings.ToLower(a.Name), search) ||
+				strings.Contains(strings.ToLower(a.Spec.Description), search) {
 				filtered = append(filtered, a)
 			}
 		}
@@ -638,9 +674,35 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 
 	total := len(list.Items)
 	lo, hi := page.Slice(total)
+
+	// Build agent name→group and group id→name maps for the Group column.
+	// Two batched store calls mirror the image display-name map above —
+	// never one Get per row.
+	agentGroupIDs := make(map[string]string)
+	groupNames := make(map[string]string)
+	if s.authzStore != nil {
+		if m, err := s.authzStore.ListResourceGroupsByType(r.Context(), "agent"); err == nil {
+			agentGroupIDs = m
+		} else {
+			slog.Warn("failed to list agent resource groups for group enrichment", "error", err)
+		}
+		if gs, err := s.authzStore.ListGroups(r.Context()); err == nil {
+			for _, g := range gs {
+				groupNames[g.ID] = g.Name
+			}
+		} else {
+			slog.Warn("failed to list groups for group-name enrichment", "error", err)
+		}
+	}
+
 	items := make([]SimpleAgentResponse, 0, hi-lo)
 	for _, a := range list.Items[lo:hi] {
-		items = append(items, toSimpleAgentResponse(a, imageDisplayNames[a.Spec.ImageRef.Name]))
+		item := toSimpleAgentResponse(a, imageDisplayNames[a.Spec.ImageRef.Name])
+		if gid := agentGroupIDs[a.Name]; gid != "" {
+			item.GroupID = gid
+			item.GroupName = groupNames[gid]
+		}
+		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
