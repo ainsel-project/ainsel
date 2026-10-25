@@ -175,6 +175,53 @@ func TestPgStoreListFiltersAndTotal(t *testing.T) {
 	}
 }
 
+func TestPgStoreListFilterByConnectors(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+
+	first := s.Record(invocations.Invocation{AgentName: "a", Connector: "c-1"})
+	second := s.Record(invocations.Invocation{AgentName: "b", Connector: "c-2"})
+	s.Record(invocations.Invocation{AgentName: "c", Connector: "c-3"})
+
+	got := s.List(invocations.ListOptions{Connectors: []string{"c-1", "c-3"}})
+	if len(got) != 2 {
+		t.Fatalf("List(c-1,c-3) = %+v, want the c-1 and c-3 rows", got)
+	}
+	seen := map[string]bool{}
+	ids := map[string]bool{}
+	for _, inv := range got {
+		seen[inv.Connector] = true
+		ids[inv.ID] = true
+	}
+	if !seen["c-1"] || !seen["c-3"] {
+		t.Errorf("List(c-1,c-3) returned connectors %v", seen)
+	}
+	if !ids[first.ID] {
+		t.Errorf("List(c-1,c-3) dropped the c-1 row %s", first.ID)
+	}
+
+	items, total := s.ListWithTotal(invocations.ListOptions{Connectors: []string{"c-1", "c-2"}, Limit: 1})
+	if len(items) != 1 || total != 2 {
+		t.Fatalf("ListWithTotal(c-1,c-2, limit=1) = %d items, total %d; want 1 item, total 2", len(items), total)
+	}
+
+	only := s.List(invocations.ListOptions{Connectors: []string{"c-2"}})
+	if len(only) != 1 || only[0].ID != second.ID {
+		t.Fatalf("List(c-2) = %+v, want only the c-2 row", only)
+	}
+
+	if got := s.List(invocations.ListOptions{Connectors: []string{"missing"}}); len(got) != 0 {
+		t.Fatalf("expected 0 for an unknown connector, got %+v", got)
+	}
+
+	// An empty slice means "no restriction", not "match nothing" — same as the
+	// memory store, so a caller cannot get different rows by restarting the hub
+	// onto the other implementation.
+	if got := s.List(invocations.ListOptions{Connectors: []string{}}); len(got) != 3 {
+		t.Fatalf("empty Connectors must not restrict, got %d of 3", len(got))
+	}
+}
+
 func TestPgStorePrune(t *testing.T) {
 	s, cleanup := newTestStore(t)
 	defer cleanup()

@@ -304,6 +304,11 @@ func listFilterClause(opts ListOptions) (string, []any) {
 	if opts.EventID != "" {
 		add("event_id = $%d", opts.EventID)
 	}
+	if len(opts.Connectors) > 0 {
+		// Any of the listed connectors. Served by invocations_connector_start_idx
+		// together with the start_time ordering the query already applies.
+		add("connector = ANY($%d)", opts.Connectors)
+	}
 	if !opts.Since.IsZero() {
 		add("start_time >= $%d", opts.Since)
 	}
