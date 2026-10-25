@@ -71,6 +71,8 @@ func (s *Server) handleGroup(w http.ResponseWriter, r *http.Request) {
 		s.handleGroupRoot(w, r, id)
 	case rest == "members" || strings.HasPrefix(rest, "members"):
 		s.handleGroupMembers(w, r, id, strings.TrimPrefix(rest, "members"))
+	case rest == "resources":
+		s.handleGroupResources(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}
