@@ -43,6 +43,39 @@ for someone reading a changelog, not for someone reviewing a diff. A commit
 whose subject does not parse is left out of the changelog and does not bump the
 version.
 
+### Sign-off
+
+Every commit on a PR carries a `Signed-off-by:` trailer in its last paragraph:
+
+```
+fix(hub): stop dropping the correlation id
+
+Explain the why here.
+
+Signed-off-by: Ada Lovelace <ada@example.com>
+```
+
+`git commit -s` writes it; `--signoff` also works on `commit --amend` and on
+`rebase` (rewrite a whole branch with `git rebase --signoff origin/main`).
+
+The trailer is the Developer Certificate of Origin assertion: that the person
+submitting the change wrote it, or otherwise has the right to submit it under
+this project's licence. GitHub's terms grant a licence for public repositories;
+they do not establish that the person pushing was entitled to, and nothing else
+here records the claim. The trailer is the record.
+
+`.github/workflows/pr-signed-off.yml` enforces it and fails the PR when a commit
+lacks the trailer or gets its shape wrong; `scripts/check-signed-off.py` holds
+the rules and its test pins them. Merge commits are exempt — their content is
+other people's commits, each with its own assertion, and merging `main` into a
+branch is not the merge author's work to certify. PRs authored by an app
+(`dependabot[bot]` and friends) pass with a note: an app cannot certify origin,
+and blocking it would also stop Dependabot's auto-merge path.
+
+Squash-merge does not carry the trailers onto `main`; the record lives on the
+PR's commit list, which is what the check reads. Add a `Signed-off-by:` line to
+the PR body if you want it on the merge commit as well.
+
 ### Versioning
 
 The repository uses [Semantic Versioning](https://semver.org/):
