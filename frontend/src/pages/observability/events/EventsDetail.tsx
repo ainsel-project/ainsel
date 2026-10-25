@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useRecentEvents } from '../../../api/events'
 import type { ActivityEntry, ActivityStatus } from '../../../api/events'
-import { useConnectors } from '../../../api/connectors'
+import { useConnectorNames } from '../../../api/connectors'
 import {
   useObservabilityTimeseries,
   unavailableDetail,
@@ -64,15 +64,9 @@ export function EventsDetail() {
     setParams((prev) => { const p = new URLSearchParams(prev); p.set('page', String(n)); return p }, { replace: true })
 
   const { data, isLoading, error } = useRecentEvents(500)
-  const { data: connectorData } = useConnectors({ pageSize: 200 })
+  const { connectorNameById } = useConnectorNames()
   const timeseries = useObservabilityTimeseries({ range, metric: 'events_consumed' })
   const tokensByEvent = useTokensByEvent(range)
-
-  const connectorNameById = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const c of connectorData?.items ?? []) map.set(c.id, c.name)
-    return map
-  }, [connectorData])
 
   const connectorOptions = useMemo(() => {
     const rows = data ?? []

@@ -1,5 +1,6 @@
 import { useRecentEvents } from '../../api/events'
 import type { ActivityEntry } from '../../api/events'
+import { ConnectorLabel } from '../../components/ConnectorLabel'
 import { Panel } from '../../primitives/Panel'
 import { Tag } from '../../primitives/Tag'
 import { formatRelative } from '../../utils/time'
@@ -37,7 +38,11 @@ export function RecentActivityStream() {
             <div key={e.id} className="stream-row">
               <span className="ts num">{formatRelative(e.timestamp)}</span>
               <span className="desc">
-                {e.connector ? <b>{e.connector}</b> : null}
+                {e.connector ? (
+                  <b>
+                    <ConnectorLabel id={e.connector} />
+                  </b>
+                ) : null}
                 {e.matches && e.matches.length > 0 ? (
                   <>
                     {' '}

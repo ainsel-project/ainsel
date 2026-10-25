@@ -169,4 +169,86 @@ describe('EventJourney', () => {
       '/channels/ch-review-bot',
     )
   })
+
+  // #152 — the home step labels the connector by name, falling back to the id.
+  it('labels the home step with the connector name when it resolves', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/connectors')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [
+                  { id: 'c-f5cc476e', name: 'forgejo-main', signatureHeader: 'x-sig', disabled: false },
+                ],
+                total: 1,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/channels')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    id: 'ch-forgejo-main',
+                    kind: 'connector',
+                    name: 'forgejo-main',
+                    description: '',
+                    entityRef: 'c-f5cc476e',
+                    counts: { events: 0, unmatched: 0, failed: 0 },
+                    bridges: 0,
+                    subscriptions: 0,
+                  },
+                ],
+                total: 1,
+                page: 1,
+                pageSize: 500,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+    renderJourney(
+      <EventJourney connector="c-f5cc476e" timestamp="2026-06-10T08:31:25Z" matches={[]} />,
+    )
+    // name in the home chip (and the unmatched terminal) — never the raw id
+    expect((await screen.findAllByText('forgejo-main')).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('c-f5cc476e')).toBeNull()
+  })
+
+  it('falls back to the connector id with a title for an unknown connector', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/connectors')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }), {
+              status: 200,
+            }),
+          )
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+    renderJourney(
+      <EventJourney connector="c-deleted" timestamp="2026-06-10T08:31:25Z" matches={[]} />,
+    )
+    // no blank cell: the id renders, as a secondary fallback with the full id in title
+    const chips = await screen.findAllByTitle('c-deleted')
+    expect(chips.length).toBeGreaterThanOrEqual(1)
+    expect(chips[0]).toHaveTextContent('c-deleted')
+    // the unmatched terminal names the channel by the same fallback id
+    expect(screen.getByText(/stays in the/i)).toBeInTheDocument()
+  })
 })

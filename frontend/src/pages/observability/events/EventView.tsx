@@ -11,6 +11,7 @@ import {
   type InvocationEntry,
 } from '../../../api/invocations'
 import { EventJourney } from '../../../components/journey/EventJourney'
+import { ConnectorLabel } from '../../../components/ConnectorLabel'
 import { Titleblock } from '../../../layout/Titleblock'
 import { Panel } from '../../../primitives/Panel'
 import { ScrollToTop } from '../../../primitives/ScrollToTop'
@@ -207,7 +208,7 @@ export function EventView() {
                   <span className="label">Connector</span>
                 </div>
                 <div className="figure" style={{ fontSize: 18 }}>
-                  {data.connector ?? '—'}
+                  {data.connector ? <ConnectorLabel id={data.connector} /> : '—'}
                 </div>
               </div>
               <div className="kpi">
