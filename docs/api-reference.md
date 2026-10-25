@@ -990,13 +990,19 @@ Invocations record one dispatch of an event to an agent. They are persisted in t
 
 List recent invocations, newest first. Supports `page`/`pageSize`.
 
-**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger` and `status` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
+**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger`, `status` and `connector` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
 
-**Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `since` / `until` (RFC3339 timestamp), `limit`.
+**Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `connector`, `since` / `until` (RFC3339 timestamp), `limit`.
+
+`connector` keeps invocations produced by any of the listed connectors. Repeat the parameter (`connector=c-1&connector=c-2`) or comma-separate one (`connector=c-1,c-2`) — both spellings mean the same set, and blank entries are ignored. Omitting it (or passing only blanks) restricts nothing.
 
 Every row on the event-scoped list (`event=`) and on the plain list carries a `task` object when an `agent_tasks` row exists for it — including rows recorded before the invocation was enqueued, which are attached from the queue by ID. The queue-state synthesis for `event=` additionally produces a row for tasks that never got an invocation record; those rows carry `status: "queued"` (or `"failure"` for a failed task) and never `"running"`.
 
 The `task` object is the authoritative run state: `status` is the raw queue state (`pending` / `claimed` / `completed` / `failed`) and is ambiguous in per-task Job mode, where the row stays `pending` while the pod works. `runState` is the hub-derived display state — `queued` (no worker yet), `running` (being worked on), `success`, `failure` — and `startedAt` is the first evidence of work (claim or first conversation row). `stuck: true` marks a task queued past the hub's start deadline (`TASK_START_TIMEOUT_SECONDS`, default 900). Clients should render `runState`, not `status`.
+
+A row carries a `subject` object when the dispatched event was about an issue or a pull/merge request: the work item the run is for, read out of the webhook payload when the invocation was recorded, so a "what did the agents work on" view needs one indexed query instead of paging through invocations and fetching each event payload back out. Fields: `repo` (repository full name, e.g. `apps/app`), `kind` (`issue` or `pull`), `number`, `title`, `branch` (a pull's head ref), `url` (the issue's or pull's web URL), and `body` — the issue or pull body, capped at the first 4096 bytes. `repo`, `kind` and `number` are always present together with the object.
+
+`subject` is **absent** when the event names no work item — a `push`, a build, a chat message, a cron tick — and for rows recorded before migration 0031, so treat it as optional rather than checking for an empty value. Rows synthesized from `agent_tasks` (queue-state entries with no invocation record) never carry one.
 
 **Response:** `200 OK`
 ```json
@@ -1012,6 +1018,15 @@ The `task` object is the authoritative run state: `status` is the raw queue stat
       "endTime": "2026-05-20T10:00:14Z",
       "durationMs": 14000,
       "status": "success",
+      "subject": {
+        "repo": "apps/app",
+        "kind": "pull",
+        "number": 88,
+        "title": "Add SSO login",
+        "branch": "feat/sso",
+        "url": "https://git.example/apps/app/pulls/88",
+        "body": "Implements OIDC."
+      },
       "task": {"status": "completed", "attempts": 1, "runState": "success", "startedAt": "2026-05-20T10:00:01Z"}
     }
   ],
@@ -1024,7 +1039,7 @@ The `task` object is the authoritative run state: `status` is the raw queue stat
 
 ### GET /api/v1/invocations/{id}
 
-Fetch one invocation by ID.
+Fetch one invocation by ID. The row carries the same fields as a list row, `subject` included.
 
 **Access:** requires read access to the invocation's agent; `403` otherwise. An invocation carrying no agent cannot be attributed to a resource and is admin-only.
 
