@@ -63,6 +63,38 @@ type Invocation struct {
 	// known. It lets the UI distinguish "queued, not started yet" from
 	// "the agent ran but produced no conversation".
 	Task *TaskState `json:"task,omitempty"`
+
+	// Subject is what the dispatched event was about — the issue or pull this
+	// invocation worked on — extracted from the payload at dispatch time. Nil
+	// when the event is not about an issue or a pull (a push, a build, a chat
+	// message) and for rows recorded before the column existed, so readers must
+	// treat it as optional.
+	Subject *Subject `json:"subject,omitempty"`
+}
+
+// Subject is what an invocation's event was about: one issue or pull/merge request.
+//
+// It is the small, indexed answer to "what did the agents work on": a reader
+// gets repo, number and title from the invocation row instead of paging through
+// invocations and fetching each event payload back out to find them. Only the
+// fields a listing needs are kept — see SubjectFromPayload for where they come
+// from in a payload.
+type Subject struct {
+	// Repo is the repository full name, e.g. "apps/app".
+	Repo string `json:"repo"`
+	// Kind is "issue" or "pull".
+	Kind string `json:"kind"`
+	// Number is the issue or pull number within the repo.
+	Number int `json:"number"`
+	// Title is the issue or pull title.
+	Title string `json:"title,omitempty"`
+	// Branch is a pull's head ref, empty for an issue.
+	Branch string `json:"branch,omitempty"`
+	// URL is the html_url of the issue or pull.
+	URL string `json:"url,omitempty"`
+	// Body is the issue or pull body, capped at 4096 bytes and cut on a UTF-8
+	// boundary so the row stays small and the JSON stays valid.
+	Body string `json:"body,omitempty"`
 }
 
 // TaskState is the queue/dispatch state of the agent_tasks row that
@@ -89,6 +121,15 @@ type TaskState struct {
 	// configured start deadline. It never applies to a started task.
 	Stuck bool `json:"stuck,omitempty"`
 }
+
+// Subject kinds. Values are stable wire values: plugins and the console match
+// on them, so renaming one is a breaking API change.
+const (
+	// SubjectKindIssue is a plain issue.
+	SubjectKindIssue = "issue"
+	// SubjectKindPull is a pull/merge request.
+	SubjectKindPull = "pull"
+)
 
 // IsTerminal returns true if the invocation has reached a final status.
 func (i *Invocation) IsTerminal() bool {

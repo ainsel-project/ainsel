@@ -210,6 +210,11 @@ func (r *Router) routeViaTriggers(ctx context.Context, evt eventqueue.Event, sha
 		slog.Info("event matched", "type", sharedEvt.Headers["type"], "connector", evt.Connector, "matches", len(matches))
 	}
 
+	// What this event is about, read out of the payload once for the whole event:
+	// every invocation dispatched from it works on the same issue or pull, and
+	// parsing per match would repeat the same unmarshal.
+	subject := invocations.SubjectFromPayload(evt.Data)
+
 	for _, m := range matches {
 		// Record an invocation before enqueuing.
 		var invID string
@@ -219,6 +224,7 @@ func (r *Router) routeViaTriggers(ctx context.Context, evt eventqueue.Event, sha
 				TriggerName: m.TriggerName,
 				EventID:     evt.ID,
 				Connector:   evt.Connector,
+				Subject:     subject,
 			})
 			invID = rec.ID
 		}

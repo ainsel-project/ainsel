@@ -93,6 +93,48 @@ func TestPgStoreRecordGetComplete(t *testing.T) {
 	}
 }
 
+func TestPgStoreSubjectRoundTrips(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+
+	subject := &invocations.Subject{
+		Repo:   "apps/app",
+		Kind:   invocations.SubjectKindIssue,
+		Number: 412,
+		Title:  "Login fails with a trailing slash",
+		Body:   "Repro: open /login/ and get a 500.",
+		URL:    "https://git.example/apps/app/issues/412",
+	}
+	withSubject := s.Record(invocations.Invocation{AgentName: "a-subject", Subject: subject})
+	bareRec := s.Record(invocations.Invocation{AgentName: "a-bare"})
+
+	got, ok := s.Get(withSubject.ID)
+	if !ok {
+		t.Fatal("Get after Record missed the record")
+	}
+	if got.Subject == nil {
+		t.Fatal("Get lost the subject")
+	}
+	if *got.Subject != *subject {
+		t.Errorf("Get subject = %+v, want %+v", *got.Subject, *subject)
+	}
+
+	// A row with no subject reads back as nil, not as an empty subject.
+	bare, ok := s.Get(bareRec.ID)
+	if !ok {
+		t.Fatal("Get did not find the subject-less row")
+	}
+	if bare.Subject != nil {
+		t.Errorf("subject-less row read back as %+v, want nil", *bare.Subject)
+	}
+
+	// List reads the subject too — it is the query a plugin listing recent work uses.
+	listed := s.List(invocations.ListOptions{AgentName: "a-subject"})
+	if len(listed) != 1 || listed[0].Subject == nil || listed[0].Subject.Number != 412 {
+		t.Fatalf("List lost the subject: %+v", listed)
+	}
+}
+
 func TestPgStoreListFiltersAndTotal(t *testing.T) {
 	s, cleanup := newTestStore(t)
 	defer cleanup()

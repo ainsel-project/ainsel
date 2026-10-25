@@ -137,6 +137,14 @@ func (s *MemoryStore) Record(inv Invocation) Invocation {
 	}
 
 	stored := inv
+	if inv.Subject != nil {
+		// Own the subject: the router parses one subject per event and hands the
+		// same pointer to every invocation of that event, so a stored row must
+		// copy it rather than alias it — otherwise writing through one row's
+		// subject would rewrite the others'.
+		subject := *inv.Subject
+		stored.Subject = &subject
+	}
 	s.byID[inv.ID] = &stored
 	s.order = append(s.order, inv.ID)
 

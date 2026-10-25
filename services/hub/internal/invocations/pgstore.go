@@ -2,6 +2,7 @@ package invocations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -55,10 +56,25 @@ func (s *PgStore) Record(inv Invocation) Invocation {
 
 	ctx, cancel := withTimeout()
 	defer cancel()
+	// subjectJSON is NULL when the event named no issue or pull, so the column
+	// distinguishes "no subject" from "subject with empty fields". The cast is
+	// explicit because an untyped nil parameter has no type for the server to
+	// infer against a jsonb column.
+	var subjectJSON any
+	if inv.Subject != nil {
+		b, err := json.Marshal(inv.Subject)
+		if err != nil {
+			// Unreachable for Subject's field types; logged rather than dropped
+			// silently, and the row is still written without its subject.
+			slog.Error("invocations: marshal subject failed", "error", err, "invocation_id", inv.ID)
+		} else {
+			subjectJSON = string(b)
+		}
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO invocations (id, agent_name, trigger_name, event_id, connector, status, error, start_time)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, inv.ID, inv.AgentName, inv.TriggerName, inv.EventID, inv.Connector, inv.Status, inv.Error, inv.StartTime)
+		INSERT INTO invocations (id, agent_name, trigger_name, event_id, connector, status, error, start_time, subject)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CAST($9 AS jsonb))
+	`, inv.ID, inv.AgentName, inv.TriggerName, inv.EventID, inv.Connector, inv.Status, inv.Error, inv.StartTime, subjectJSON)
 	if err != nil {
 		slog.Error("invocations: record failed", "error", err, "invocation_id", inv.ID)
 	}
@@ -94,7 +110,7 @@ func (s *PgStore) Get(id string) (Invocation, bool) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, agent_name, trigger_name, event_id, connector, status, error, start_time, end_time, duration_ms
+		SELECT id, agent_name, trigger_name, event_id, connector, status, error, start_time, end_time, duration_ms, subject
 		FROM invocations
 		WHERE id = $1
 	`, id)
@@ -127,7 +143,7 @@ func (s *PgStore) ListWithTotal(opts ListOptions) ([]Invocation, int) {
 		return []Invocation{}, 0
 	}
 
-	query := `SELECT id, agent_name, trigger_name, event_id, connector, status, error, start_time, end_time, duration_ms
+	query := `SELECT id, agent_name, trigger_name, event_id, connector, status, error, start_time, end_time, duration_ms, subject
 		FROM invocations` + where + ` ORDER BY start_time DESC, id DESC`
 	if opts.Limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", opts.Limit)
@@ -234,17 +250,20 @@ func (s *PgStore) AgentRollups(ctx context.Context, since, until time.Time) ([]A
 }
 
 // scanInvocation scans one invocation row via the given scan function (both
-// pgx.Row and pgx.Rows have the matching Scan signature). end_time and
-// duration_ms are nullable; a NULL end_time leaves the record in its running
-// state (EndTime/DurationMs nil).
+// pgx.Row and pgx.Rows have the matching Scan signature). end_time,
+// duration_ms and subject are nullable; a NULL end_time leaves the record in its
+// running state (EndTime/DurationMs nil) and a NULL subject leaves the
+// invocation without one (rows written before the column, and events that are
+// not about an issue or a pull).
 func scanInvocation(scan func(dest ...any) error) (Invocation, error) {
 	var inv Invocation
 	var startTime time.Time
 	var endTime *time.Time
 	var durationMs *int64
+	var subjectJSON []byte
 	if err := scan(
 		&inv.ID, &inv.AgentName, &inv.TriggerName, &inv.EventID, &inv.Connector,
-		&inv.Status, &inv.Error, &startTime, &endTime, &durationMs,
+		&inv.Status, &inv.Error, &startTime, &endTime, &durationMs, &subjectJSON,
 	); err != nil {
 		return Invocation{}, err
 	}
@@ -254,6 +273,13 @@ func scanInvocation(scan func(dest ...any) error) (Invocation, error) {
 		inv.EndTime = &t
 	}
 	inv.DurationMs = durationMs
+	if len(subjectJSON) > 0 {
+		var s Subject
+		if err := json.Unmarshal(subjectJSON, &s); err != nil {
+			return Invocation{}, fmt.Errorf("invocation %s: subject: %w", inv.ID, err)
+		}
+		inv.Subject = &s
+	}
 	return inv, nil
 }
 

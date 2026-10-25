@@ -347,6 +347,61 @@ func TestStore_ListFilterByEventID(t *testing.T) {
 	}
 }
 
+// TestStore_SubjectRoundTrips checks the subject survives Record and reads back
+// from Get and List — the whole point of storing it is that a listing needs no
+// second query to name the issue or pull a run was about.
+func TestStore_SubjectRoundTrips(t *testing.T) {
+	s := NewMemoryStore(10)
+	subject := &Subject{
+		Repo:   "apps/app",
+		Kind:   SubjectKindPull,
+		Number: 88,
+		Title:  "Add SSO login",
+		Branch: "feat/sso",
+		URL:    "https://git.example/apps/app/pulls/88",
+	}
+	rec := s.Record(Invocation{AgentName: "a", Subject: subject})
+
+	got, ok := s.Get(rec.ID)
+	if !ok {
+		t.Fatal("Get after Record missed the record")
+	}
+	if got.Subject == nil {
+		t.Fatal("Get lost the subject")
+	}
+	if *got.Subject != *subject {
+		t.Errorf("Get subject = %+v, want %+v", *got.Subject, *subject)
+	}
+
+	listed := s.List(ListOptions{AgentName: "a"})
+	if len(listed) != 1 || listed[0].Subject == nil || listed[0].Subject.Number != 88 {
+		t.Errorf("List lost the subject: %+v", listed)
+	}
+
+	// An invocation with no subject stays without one, rather than an empty one.
+	bare := s.Record(Invocation{AgentName: "bare"})
+	if got, ok := s.Get(bare.ID); !ok || got.Subject != nil {
+		t.Errorf("subject-less invocation = %+v", got)
+	}
+}
+
+// TestStore_SubjectIsNotSharedBetweenRecords guards the copy contract: the
+// router hands one parsed subject to every invocation of an event, so the store
+// must not let one row's subject alias another's.
+func TestStore_SubjectIsNotSharedBetweenRecords(t *testing.T) {
+	s := NewMemoryStore(10)
+	subject := &Subject{Repo: "apps/app", Kind: SubjectKindIssue, Number: 1}
+	first := s.Record(Invocation{AgentName: "a", Subject: subject})
+	second := s.Record(Invocation{AgentName: "b", Subject: subject})
+
+	a, _ := s.Get(first.ID)
+	b, _ := s.Get(second.ID)
+	a.Subject.Title = "mutated"
+	if b.Subject.Title != "" {
+		t.Errorf("sibling invocation subject changed through a shared pointer: %+v", *b.Subject)
+	}
+}
+
 func TestStore_AgentRollupsCountsAndAverages(t *testing.T) {
 	s := NewMemoryStore(10)
 	now := time.Now().UTC()

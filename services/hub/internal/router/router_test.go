@@ -233,3 +233,72 @@ func TestHandleEvent_BroadcastStatsSurvivesCanceledCallerCtx(t *testing.T) {
 		t.Errorf("BroadcastStats ctx did not preserve caller value: got %q, want %q", v, val)
 	}
 }
+
+// TestHandleEvent_RecordsInvocationSubject covers the subject the router stores
+// on each invocation: a plugin listing "what the agents worked on" reads it off
+// the invocation row, so it has to be there from the moment the run is recorded.
+func TestHandleEvent_RecordsInvocationSubject(t *testing.T) {
+	q := &mockQueue{}
+	idx := triggerindex.NewIndex()
+	idx.Update(newValidTrigger("trig-1", "conn-1", "issue.opened", "agent-1"))
+	idx.Update(newValidTrigger("trig-2", "conn-1", "issue.opened", "agent-2"))
+
+	store := invocations.NewMemoryStore(10)
+	r := &Router{
+		eq:          q,
+		index:       idx,
+		invocations: store,
+		broadcaster: &stubBroadcaster{},
+	}
+
+	evt := newTestQueueEvent()
+	evt.Data = json.RawMessage(`{
+		"action": "opened",
+		"repository": {"full_name": "apps/app"},
+		"issue": {"number": 412, "title": "Login fails with a trailing slash"}
+	}`)
+	r.handleEvent(context.Background(), evt)
+
+	list := store.List(invocations.ListOptions{})
+	if len(list) != 2 {
+		t.Fatalf("expected 2 recorded invocations, got %d", len(list))
+	}
+	for _, inv := range list {
+		if inv.Subject == nil {
+			t.Fatalf("invocation %s has no subject", inv.ID)
+		}
+		if inv.Subject.Repo != "apps/app" || inv.Subject.Number != 412 || inv.Subject.Kind != "issue" {
+			t.Errorf("invocation %s subject = %+v, want apps/app#412 as an issue", inv.ID, *inv.Subject)
+		}
+		if inv.Subject.Title != "Login fails with a trailing slash" {
+			t.Errorf("invocation %s subject title = %q", inv.ID, inv.Subject.Title)
+		}
+	}
+}
+
+// TestHandleEvent_RecordsNoSubjectForNonWorkItemEvent: an event that is not
+// about an issue or a pull records no subject rather than an empty one.
+func TestHandleEvent_RecordsNoSubjectForNonWorkItemEvent(t *testing.T) {
+	idx := triggerindex.NewIndex()
+	idx.Update(newValidTrigger("trig-1", "conn-1", "push", "agent-1"))
+
+	store := invocations.NewMemoryStore(10)
+	r := &Router{
+		eq:          &mockQueue{},
+		index:       idx,
+		invocations: store,
+		broadcaster: &stubBroadcaster{},
+	}
+
+	evt := newTestQueueEvent()
+	evt.Data = json.RawMessage(`{"ref":"refs/heads/main","repository":{"full_name":"apps/app"}}`)
+	r.handleEvent(context.Background(), evt)
+
+	list := store.List(invocations.ListOptions{})
+	if len(list) != 1 {
+		t.Fatalf("expected 1 recorded invocation, got %d", len(list))
+	}
+	if list[0].Subject != nil {
+		t.Errorf("push event recorded subject %+v, want none", *list[0].Subject)
+	}
+}
