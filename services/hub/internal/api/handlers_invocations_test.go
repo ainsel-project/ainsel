@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -332,6 +333,79 @@ func TestInvocations_ListFilterByEvent(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 		if len(resp.Invocations) != c.wantPage {
 			t.Errorf("[%s] expected %d items, got %d", c.query, c.wantPage, len(resp.Invocations))
+		}
+	}
+}
+
+// recordingInvocationStore captures the ListOptions the handler builds, so a
+// test can assert on the filter the handler produced and not only on the rows
+// that came back from it.
+type recordingInvocationStore struct {
+	invocations.Store
+	opts []invocations.ListOptions
+}
+
+func (s *recordingInvocationStore) ListWithTotal(opts invocations.ListOptions) ([]invocations.Invocation, int) {
+	s.opts = append(s.opts, opts)
+	return s.Store.ListWithTotal(opts)
+}
+
+// TestInvocations_ListFilterByConnector covers the connector query parameter in
+// both spellings clients use — repeated and comma-separated.
+func TestInvocations_ListFilterByConnector(t *testing.T) {
+	for _, query := range []string{"connector=c-1&connector=c-2", "connector=c-1,c-2"} {
+		s := testServer(t)
+		store := &recordingInvocationStore{Store: invocations.NewMemoryStore(100)}
+		s.invocations = store
+		s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
+
+		now := time.Now().UTC()
+		store.Record(invocations.Invocation{
+			AgentName: "agent-a",
+			Connector: "c-1",
+			StartTime: now.Add(-3 * time.Minute),
+		})
+		store.Record(invocations.Invocation{
+			AgentName: "agent-b",
+			Connector: "c-2",
+			StartTime: now.Add(-2 * time.Minute),
+		})
+		store.Record(invocations.Invocation{
+			AgentName: "agent-c",
+			Connector: "c-3",
+			StartTime: now.Add(-1 * time.Minute),
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?"+query, nil)
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("[%s] expected 200, got %d: %s", query, rec.Code, rec.Body.String())
+		}
+		if len(store.opts) != 1 {
+			t.Fatalf("[%s] expected 1 ListWithTotal call, got %d", query, len(store.opts))
+		}
+		if got := store.opts[0].Connectors; !slices.Equal(got, []string{"c-1", "c-2"}) {
+			t.Errorf("[%s] ListOptions.Connectors = %v, want [c-1 c-2]", query, got)
+		}
+
+		var resp struct {
+			Invocations []struct {
+				AgentName string `json:"agentName"`
+			} `json:"invocations"`
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("[%s] decode: %v", query, err)
+		}
+		if resp.Total != 2 || len(resp.Invocations) != 2 {
+			t.Fatalf("[%s] expected 2 filtered invocations, got %d (total %d)", query, len(resp.Invocations), resp.Total)
+		}
+		for _, inv := range resp.Invocations {
+			if inv.AgentName == "agent-c" {
+				t.Errorf("[%s] c-3 row survived the connector filter", query)
+			}
 		}
 	}
 }

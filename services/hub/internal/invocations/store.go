@@ -187,6 +187,11 @@ type ListOptions struct {
 	// an empty slice applies no restriction, so a caller that may read no
 	// agents must not query at all.
 	AgentNames []string
+	// Connectors, if non-empty, restricts results to invocations produced by any
+	// of these connectors — the query a channel's "recent work" view runs, and
+	// the reason the row carries (connector, start_time) in an index. An empty
+	// slice applies no restriction, so it must never be read as "match nothing".
+	Connectors []string
 	// Status, if non-empty, restricts results to invocations with this status.
 	Status string
 	// TriggerName, if non-empty, restricts results to invocations dispatched by this trigger.
@@ -227,6 +232,9 @@ func (s *MemoryStore) ListWithTotal(opts ListOptions) ([]Invocation, int) {
 			continue
 		}
 		if len(opts.AgentNames) > 0 && !slices.Contains(opts.AgentNames, rec.AgentName) {
+			continue
+		}
+		if len(opts.Connectors) > 0 && !slices.Contains(opts.Connectors, rec.Connector) {
 			continue
 		}
 		if opts.Status != "" && rec.Status != opts.Status {

@@ -990,9 +990,11 @@ Invocations record one dispatch of an event to an agent. They are persisted in t
 
 List recent invocations, newest first. Supports `page`/`pageSize`.
 
-**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger` and `status` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
+**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger`, `status` and `connector` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
 
-**Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `since` / `until` (RFC3339 timestamp), `limit`.
+**Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `connector`, `since` / `until` (RFC3339 timestamp), `limit`.
+
+`connector` keeps invocations produced by any of the listed connectors. Repeat the parameter (`connector=c-1&connector=c-2`) or comma-separate one (`connector=c-1,c-2`) — both spellings mean the same set, and blank entries are ignored. Omitting it (or passing only blanks) restricts nothing.
 
 Every row on the event-scoped list (`event=`) and on the plain list carries a `task` object when an `agent_tasks` row exists for it — including rows recorded before the invocation was enqueued, which are attached from the queue by ID. The queue-state synthesis for `event=` additionally produces a row for tasks that never got an invocation record; those rows carry `status: "queued"` (or `"failure"` for a failed task) and never `"running"`.
 

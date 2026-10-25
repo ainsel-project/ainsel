@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -191,11 +192,13 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 		Status:      q.Get("status"),
 		TriggerName: q.Get("trigger"),
 		EventID:     q.Get("event"),
+		Connectors:  connectorFilter(q),
 	}
 
 	// An invocation belongs to the agent that ran it. Naming one requires read
 	// access to that agent; an unfiltered query is restricted to the agents the
-	// caller may read. The other filters narrow within that scope.
+	// caller may read. The other filters — connector included — narrow within that
+	// scope and never widen it.
 	scope := s.telemetryScopeFor(r)
 	if opts.AgentName != "" {
 		if !s.requireRead(w, r, "agent", opts.AgentName) {
@@ -264,6 +267,24 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 		"pageSize":    page.PageSize,
 		"totalPages":  page.TotalPages(len(list)),
 	})
+}
+
+// connectorFilter reads the connector query parameter into a list of connector
+// IDs. Both spellings clients reach for are accepted — repeated
+// (connector=c-1&connector=c-2) and comma-separated (connector=c-1,c-2) — because
+// a caller listing one channel and a caller listing twenty should not need two
+// endpoints. Blank entries are dropped, so "c-1,,c-2" reads as two connectors,
+// and no connector at all yields nil: the filter stays off.
+func connectorFilter(q url.Values) []string {
+	var out []string
+	for _, raw := range q["connector"] {
+		for _, part := range strings.Split(raw, ",") {
+			if v := strings.TrimSpace(part); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 func (s *Server) getInvocation(w http.ResponseWriter, r *http.Request, id string) {
