@@ -115,7 +115,7 @@ Apache-2.0 election) are recorded in [NOTICE](NOTICE).
 | `dagre-d3-es` | 7.0.14 | MIT | [LICENSE.md](LICENSES/dagre-d3-es@7.0.14/LICENSE.md) |
 | `dayjs` | 1.11.23 | MIT | [LICENSE](LICENSES/dayjs@1.11.23/LICENSE) |
 | `delaunator` | 5.1.0 | ISC | [LICENSE](LICENSES/delaunator@5.1.0/LICENSE) |
-| `dompurify` | 3.4.16 | (MPL-2.0 OR Apache-2.0) — Apache-2.0 elected (see NOTICE) | [LICENSE](LICENSES/dompurify@3.4.16/LICENSE), [LICENSE-MPL](LICENSES/dompurify@3.4.16/LICENSE-MPL) |
+| `dompurify` | 3.4.17 | (MPL-2.0 OR Apache-2.0) — Apache-2.0 elected (see NOTICE) | [LICENSE](LICENSES/dompurify@3.4.17/LICENSE), [LICENSE-MPL](LICENSES/dompurify@3.4.17/LICENSE-MPL) |
 | `elkjs` | 0.9.3 | EPL-2.0 | [LICENSE.md](LICENSES/elkjs@0.9.3/LICENSE.md) |
 | `es-toolkit` | 1.52.0 | MIT | [LICENSE](LICENSES/es-toolkit@1.52.0/LICENSE), [NOTICE](LICENSES/es-toolkit@1.52.0/NOTICE) |
 | `hachure-fill` | 0.5.2 | MIT | [LICENSE](LICENSES/hachure-fill@0.5.2/LICENSE) |
@@ -150,7 +150,7 @@ Apache-2.0 election) are recorded in [NOTICE](NOTICE).
 | `tinyexec` | 1.3.1 | MIT | [LICENSE](LICENSES/tinyexec@1.3.1/LICENSE) |
 | `ts-dedent` | 2.3.0 | MIT | [LICENSE](LICENSES/ts-dedent@2.3.0/LICENSE) |
 | `uuid` | 14.0.3 | MIT | [LICENSE.md](LICENSES/uuid@14.0.3/LICENSE.md) |
-| `zod` | 4.6.5 | MIT | [LICENSE](LICENSES/zod@4.6.5/LICENSE) |
+| `zod` | 4.6.7 | MIT | [LICENSE](LICENSES/zod@4.6.7/LICENSE) |
 
 ## Node.js - pi runtime extensions (pi/pi-extensions)
 
