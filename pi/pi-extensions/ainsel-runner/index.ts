@@ -25,7 +25,8 @@
  *   OLLAMA_CLOUD_MODEL (accepted for one release, issue #96).
  *
  * Optional env:
- *   NAK_DELAY_MS           default 60000 — NACK backoff (ms) before retry
+ *   NAK_DELAY_MS           default 60000 — base NACK backoff (ms); the hub
+ *                          doubles it per attempt and caps it at 30 minutes
  *   TOOL_RESULT_MAX_CHARS  default 16000 — per-text-block cap for toolResult
  *                          transcript content (chars, UTF-16 code units)
  *   EVENT_DATA_MAX_CHARS   default 16000 — cap for the raw event payload
@@ -1467,7 +1468,7 @@ async function processTask(
 			logError("event failed, nacked with delay", {
 				event_type: evCtx.type,
 				duration_ms: durationMs,
-				nak_delay_ms: NAK_DELAY_MS,
+				nak_base_delay_ms: NAK_DELAY_MS,
 				task_id: task.id,
 			});
 			// Report the failure to the hub as an error-level task log so it
