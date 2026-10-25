@@ -35,4 +35,8 @@ type SkillSummary struct {
 // Returned by Service.Delete when the delete is refused.
 type Referrer struct {
 	AgentImageName string `json:"agentImageName"`
+	// AgentImageID is the image's API id (its resource name) — the route key
+	// the console links a referrer onto. Same value as AgentImageName today;
+	// carried explicitly so views never have to assume it.
+	AgentImageID string `json:"agentImageId,omitempty"`
 }

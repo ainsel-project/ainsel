@@ -35,6 +35,11 @@ type Invocation struct {
 	// AgentName is the name of the agent the event was dispatched to.
 	AgentName string `json:"agentName"`
 
+	// AgentID is the agent's API id (its resource name) — the route key the
+	// console links an invocation onto. The API layer fills it from AgentName
+	// when empty, so records written before the field existed still carry it.
+	AgentID string `json:"agentId,omitempty"`
+
 	// TriggerName is the name of the trigger that matched.
 	TriggerName string `json:"triggerName"`
 

@@ -410,6 +410,10 @@ func TestTokensBySubject_AggregatesRows(t *testing.T) {
 	if architect.AgentName != "Architect Bot" {
 		t.Errorf("architect agentName wrong: got %q", architect.AgentName)
 	}
+	// agentId is the agent's resource name (the route key), not the display name.
+	if architect.AgentID != "architect" {
+		t.Errorf("architect agentId wrong: got %q", architect.AgentID)
+	}
 	if architect.InputTokens != 5000 || architect.OutputTokens != 1500 {
 		t.Errorf("architect input/output wrong: %+v", architect)
 	}
@@ -424,6 +428,9 @@ func TestTokensBySubject_AggregatesRows(t *testing.T) {
 	}
 	if developer.AgentName != "Developer Bot" {
 		t.Errorf("developer agentName wrong: got %q", developer.AgentName)
+	}
+	if developer.AgentID != "developer" {
+		t.Errorf("developer agentId wrong: got %q", developer.AgentID)
 	}
 	if developer.InputTokens != 10000 || developer.OutputTokens != 2000 {
 		t.Errorf("developer input/output wrong: %+v", developer)

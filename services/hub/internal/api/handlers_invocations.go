@@ -43,6 +43,18 @@ func taskStateFromTask(task eventqueue.Task, now time.Time, stuckAfter time.Dura
 	}
 }
 
+// withAgentIDs fills AgentID from AgentName on every record that lacks one.
+// An agent's API id is its resource name (the same value /agents/{id} routes
+// on), so records written before the field existed — and synthesized task
+// rows — still report an id the console can link on.
+func withAgentIDs(list []invocations.Invocation) {
+	for i := range list {
+		if list[i].AgentID == "" {
+			list[i].AgentID = list[i].AgentName
+		}
+	}
+}
+
 // enrichWithTasks attaches the queue state of the agent_tasks row matching
 // each invocation by ID, and appends synthetic invocation records for tasks
 // whose invocation is missing from the in-memory store (pre-restart history
@@ -256,6 +268,7 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 	if s.eventQueue != nil && opts.EventID == "" {
 		s.attachTasksToPage(r, pageItems)
 	}
+	withAgentIDs(pageItems)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"invocations": pageItems,
 		"total":       total,
@@ -285,6 +298,9 @@ func (s *Server) getInvocation(w http.ResponseWriter, r *http.Request, id string
 		}
 	} else if !s.requireRead(w, r, "agent", inv.AgentName) {
 		return
+	}
+	if inv.AgentID == "" {
+		inv.AgentID = inv.AgentName
 	}
 	writeJSON(w, http.StatusOK, inv)
 }

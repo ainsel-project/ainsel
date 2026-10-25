@@ -42,7 +42,7 @@ func (l *kubeAgentLister) ListReferrers(ctx context.Context, personaID string) (
 			continue
 		}
 		if id == personaID {
-			refs = append(refs, Referrer{AgentName: item.GetName()})
+			refs = append(refs, Referrer{AgentName: item.GetName(), AgentID: item.GetName()})
 		}
 	}
 	return refs, nil

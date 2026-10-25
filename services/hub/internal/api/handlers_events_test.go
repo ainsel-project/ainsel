@@ -180,6 +180,13 @@ func TestListEvents_StatusDerivation(t *testing.T) {
 	if len(byID["evt-error"].Matches) != 2 {
 		t.Errorf("evt-error: expected 2 matches, got %d", len(byID["evt-error"].Matches))
 	}
+	// Each match carries the agent's API id (its resource name) so the console
+	// can link the match without assuming name == id.
+	for _, m := range byID["evt-error"].Matches {
+		if m.AgentID == "" || m.AgentID != m.Agent {
+			t.Errorf("evt-error: match %q carries agentId %q, want the agent resource name", m.Agent, m.AgentID)
+		}
+	}
 	if len(byID["evt-unmatched"].Matches) != 0 {
 		t.Errorf("evt-unmatched: expected 0 matches, got %d", len(byID["evt-unmatched"].Matches))
 	}

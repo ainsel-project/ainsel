@@ -27,6 +27,31 @@ func newUnstructuredAgentImage(name, namespace string, enabledSkills []string) *
 	return obj
 }
 
+func TestKubeAgentImageLister_ListReferrersCarriesID(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+
+	ref := newUnstructuredAgentImage("img-ref", ns, []string{"my-skill", "other"})
+	other := newUnstructuredAgentImage("img-other", ns, []string{"different"})
+
+	scheme := runtime.NewScheme()
+	client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(ref, other).Build()
+	lister := &kubeAgentImageLister{client: client, namespace: ns}
+
+	refs, err := lister.ListReferrers(ctx, "my-skill")
+	if err != nil {
+		t.Fatalf("ListReferrers: %v", err)
+	}
+	if len(refs) != 1 || refs[0].AgentImageName != "img-ref" {
+		t.Fatalf("expected one referrer img-ref, got %+v", refs)
+	}
+	// The referrer carries the image's API id (its resource name) so the
+	// console can link the delete-409 referrer to the image detail page.
+	if refs[0].AgentImageID != "img-ref" {
+		t.Errorf("expected referrer agentImageId img-ref, got %q", refs[0].AgentImageID)
+	}
+}
+
 func TestKubeAgentImageLister_AssignIdempotent(t *testing.T) {
 	ctx := context.Background()
 	ns := "test-ns"
