@@ -1832,6 +1832,48 @@ Each message has the fields `id` (number), `invocationId`, `correlationId`, `age
 
 ---
 
+## Groups
+
+Groups are the authorization unit for every resource (see
+[access control](./access-control.md)). The group CRUD and member endpoints are
+under `/api/v1/groups`; the resources view is documented here.
+
+### GET /api/v1/groups/{id}/resources
+
+List every resource whose group mapping points at this group, across all group
+resource types (`agent`, `agent-image`, `connector`, `persona`, `skill`,
+`channel`, `mcp-server`, `trigger`, `cron-trigger`). Names are resolved
+server-side from the owning stores, so items always carry a display name
+(falling back to the identifier) rather than a bare id. Rows whose object no
+longer exists are dropped.
+
+Access control matches the per-type list endpoints: a caller sees a resource
+when they can read it — member of the group, public when `?includePublic=true`
+is passed, or admin. A non-member therefore sees only the public items (or
+nothing). Derived channels (connector/agent channels) have no group mapping of
+their own — they belong to their connector/agent and appear through those
+panels, never double-counted here. Agent-owned personas are likewise omitted;
+they are addressed through their owning agent. Results are capped at 200 items
+per type.
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {"type": "agent", "id": "review-bot", "name": "Review Bot", "public": false},
+    {"type": "trigger", "id": "t-01ABC", "name": "On issues", "public": false, "agentRef": "review-bot"}
+  ]
+}
+```
+
+`agentRef` is populated for `trigger` and `cron-trigger` items only. If one
+type's backing store fails, that type is omitted from the response rather than
+failing the whole summary.
+
+**Status codes:** `200`, `404` for an unknown group, `405` for non-GET methods.
+
+---
+
 ## Users
 
 The user registry backs authentication and authorization. Local users carry
