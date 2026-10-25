@@ -190,7 +190,7 @@ func TestListAgents_SearchFiltersBeforePaging(t *testing.T) {
 
 	// Search composes with pagination: total reflects the filtered set and
 	// page 2 of the filtered set is the second match.
-	code, page = listAgentsAs(t, s, "", "search=alpha&page=1&pageSize=1")
+	_, page = listAgentsAs(t, s, "", "search=alpha&page=1&pageSize=1")
 	if page.Total != 2 || page.TotalPages != 2 || len(page.Items) != 1 {
 		t.Fatalf("expected filtered total=2 totalPages=2, got %+v", page)
 	}
