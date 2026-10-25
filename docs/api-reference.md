@@ -59,7 +59,16 @@ The Agents endpoints expose a simplified projection of the `Agent` CRD. The full
 
 List all Agents in the configured namespace, sorted by resource name.
 
-**Query parameters:** `page`, `pageSize` (see top of file).
+**Query parameters:** `page`, `pageSize` (see top of file), plus:
+
+| Param | Effect |
+| --- | --- |
+| `search` | Case-insensitive substring match on the agent's display name, resource name and description. Applied server-side **before** pagination, so `total` reflects the filtered set. |
+| `groupId` | Restrict to agents whose authz group matches. Intersected with the caller's authz scope: naming a group the caller cannot read yields an empty result, never another group's agents. Ignored when authz is disabled. |
+
+List rows additionally carry `groupId` and `groupName` (the authz group's display
+name; `groupName` is absent when the group cannot be resolved — render the id then).
+Both are populated on the list endpoint only, and are empty when authz is disabled.
 
 **Response:** `200 OK`
 ```json
@@ -81,6 +90,8 @@ List all Agents in the configured namespace, sorted by resource name.
       "skills": {"items": ["git-review"]},
       "mcp": {"servers": [{"name": "github", "url": "https://mcp.github.com/sse", "tokenFromEnv": "GITHUB_TOKEN"}]},
       "env": [{"name": "LOG_LEVEL", "value": "debug"}, {"name": "API_TOKEN", "value": "", "secret": true}],
+      "groupId": "g-platform",
+      "groupName": "Platform",
       "updatedAt": "2026-06-22T00:05:00Z"
     }
   ],

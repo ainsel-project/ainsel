@@ -38,7 +38,7 @@ describe('AgentList', () => {
             ),
           )
         }
-        return Promise.resolve(new Response('{}', { status: 200 }))
+        return Promise.resolve(new Response('[]', { status: 200 }))
       }),
     )
   })
@@ -85,7 +85,7 @@ describe('AgentList', () => {
             ),
           )
         }
-        return Promise.resolve(new Response('{}', { status: 200 }))
+        return Promise.resolve(new Response('[]', { status: 200 }))
       }),
     )
     renderWithProviders(<AgentList />, { route: '/agents' })
@@ -163,7 +163,7 @@ describe('AgentList', () => {
             ),
           )
         }
-        return Promise.resolve(new Response('{}', { status: 200 }))
+        return Promise.resolve(new Response('[]', { status: 200 }))
       }),
     )
 
@@ -206,7 +206,7 @@ describe('AgentList', () => {
             ),
           )
         }
-        return Promise.resolve(new Response('{}', { status: 200 }))
+        return Promise.resolve(new Response('[]', { status: 200 }))
       }),
     )
 
@@ -215,5 +215,130 @@ describe('AgentList', () => {
     expect(await screen.findByText('doc-writer')).toBeInTheDocument()
     expect(screen.getByText('Paused')).toBeInTheDocument()
     expect(screen.queryByText('Ready')).not.toBeInTheDocument()
+  })
+
+  // --- roster filters (#153) ---------------------------------------------
+
+  const groupsResponse = [
+    { id: 'g-platform', name: 'Platform', description: '', createdAt: '', updatedAt: '' },
+    { id: 'g-data', name: 'Data', description: '', createdAt: '', updatedAt: '' },
+  ]
+
+  const stubAgentFetch = () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/groups')) {
+          return Promise.resolve(new Response(JSON.stringify(groupsResponse), { status: 200 }))
+        }
+        if (url.includes('/agents')) {
+          const filtered = url.includes('search=triage')
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: filtered
+                  ? [
+                      {
+                        id: 'a2',
+                        name: 'triage-bot',
+                        groupId: 'g-platform',
+                        groupName: 'Platform',
+                        llm: { model: 'claude-sonnet-4-6' },
+                        status: { ready: true },
+                      },
+                    ]
+                  : [
+                      {
+                        id: 'a1',
+                        name: 'doc-writer',
+                        groupId: 'g-platform',
+                        groupName: 'Platform',
+                        llm: { model: 'claude-opus-4-7' },
+                        status: { ready: true },
+                      },
+                      {
+                        id: 'a2',
+                        name: 'triage-bot',
+                        // Group name unavailable: the id is the fallback.
+                        groupId: 'g-data',
+                        llm: { model: 'claude-sonnet-4-6' },
+                        status: { ready: true },
+                      },
+                    ],
+                total: filtered ? 1 : 2,
+                page: 1,
+                pageSize: 20,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('[]', { status: 200 }))
+      }),
+    )
+  }
+
+  it('renders a Group column with the group name, falling back to the id', async () => {
+    stubAgentFetch()
+    renderWithProviders(<AgentList />, { route: '/agents' })
+    await screen.findByText('doc-writer')
+    // The row shows the group name, never the bare id, when a name exists;
+    // a row whose group name is unavailable falls back to the id.
+    expect(screen.queryByText('g-platform')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Platform').length).toBeGreaterThan(0)
+    expect(screen.getByText('g-data')).toBeInTheDocument()
+  })
+
+  it('typing in the search field fetches with the search param and narrows the roster', async () => {
+    stubAgentFetch()
+    renderWithProviders(<AgentList />, { route: '/agents' })
+    await screen.findByText('doc-writer')
+
+    await userEvent.type(screen.getByLabelText('Search agents'), 'triage')
+
+    await waitFor(() =>
+      expect(
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(
+          ([url]) => String(url).includes('search=triage'),
+        ),
+      ).toBe(true),
+    )
+    await waitFor(() => expect(screen.queryByText('doc-writer')).not.toBeInTheDocument())
+    expect(screen.getByText('triage-bot')).toBeInTheDocument()
+  })
+
+  it('selecting a group fetches with the groupId param and resets the page', async () => {
+    stubAgentFetch()
+    renderWithProviders(<AgentList />, { route: '/agents?page=2' })
+    await screen.findByText('doc-writer')
+
+    const select = screen.getByRole('combobox', { name: /filter by group/i })
+    expect(select).toHaveValue('')
+    await userEvent.selectOptions(select, 'g-platform')
+
+    await waitFor(() => {
+      const agentCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.includes('/agents'))
+      const last = agentCalls[agentCalls.length - 1]
+      expect(last).toContain('groupId=g-platform')
+      // Filter changes drop `page`: page 1 of the filtered set, not page 2.
+      expect(last).not.toContain('page=2')
+    })
+  })
+
+  it('restores filters from the URL so a filtered view is linkable', async () => {
+    stubAgentFetch()
+    renderWithProviders(<AgentList />, { route: '/agents?search=triage&groupId=g-platform' })
+
+    expect(await screen.findByText('triage-bot')).toBeInTheDocument()
+    expect(screen.getByLabelText('Search agents')).toHaveValue('triage')
+    expect(screen.getByRole('combobox', { name: /filter by group/i })).toHaveValue('g-platform')
+    const firstCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.includes('/agents'))
+    expect(firstCall).toContain('search=triage')
+    expect(firstCall).toContain('groupId=g-platform')
   })
 })
