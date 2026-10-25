@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useConnector, useDeleteConnector, useUpdateConnector, useRotateConnectorSecret } from '../../api/connectors'
+import { useGroups } from '../../api/groups'
+import { EntityLink } from '../../components/EntityLink'
+import { groupPath } from '../../components/entityPaths'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Dot } from '../../primitives/Dot'
@@ -15,6 +18,10 @@ export function ConnectorDetail() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [generatedSecret, setGeneratedSecret] = useState<string | null>(null)
   const { data, isLoading, error } = useConnector(id)
+  // Side list decides whether the group reference is linkable and supplies its
+  // display name: a deleted group renders nothing, not a 404.
+  const { data: groups } = useGroups()
+  const groupById = new Map((groups ?? []).map((g) => [g.id, g.name]))
   const remove = useDeleteConnector()
   const toggle = useUpdateConnector()
   const rotate = useRotateConnectorSecret()
@@ -86,6 +93,19 @@ export function ConnectorDetail() {
                     <span className="num">{data.signatureHeader}</span>
                   </div>
                 </div>
+                {data.groupId && groupById.has(data.groupId) ? (
+                  <div>
+                    <div className="k">Group</div>
+                    <div className="v">
+                      <EntityLink
+                        id={data.groupId}
+                        known={new Set(groupById.keys())}
+                        label={groupById.get(data.groupId)!}
+                        path={groupPath}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </Panel>
 

@@ -69,7 +69,7 @@ List all Agents in the configured namespace, sorted by resource name.
       "id": "a-3f9a2b",
       "name": "Code Reviewer",
       "description": "...",
-      "imageRef": {"name": "img-claude-coder"},
+      "imageRef": {"id": "img-claude-coder", "name": "img-claude-coder"},
       "runtime": {"provider": "ollama-cloud"},
       "llm": {"model": "unsloth/gpt-oss-120b-GGUF:F16", "maxTurns": 25, "vision": false},
       "persona": {"inline": "..."},
@@ -391,7 +391,9 @@ the per-connector receiver Deployment, Service and ingress path.
 ### GET /api/v1/connectors/{id}
 
 Fetch one connector. The path parameter is the connector's **id** (`c-…`, the
-CR name) — not the display name.
+CR name) — not the display name. The response carries `groupId` when the
+connector belongs to an authz group (recorded at create time) — the route key
+for `GET /api/v1/groups/{id}`; omitted when the connector has no group.
 
 **Response:** `200 OK` or `404 Not Found`.
 
@@ -1005,6 +1007,7 @@ The `task` object is the authoritative run state: `status` is the raw queue stat
     {
       "id": "inv-1a2b3c4d",
       "agentName": "a-3f9a2b",
+      "agentId": "a-3f9a2b",
       "triggerName": "t-9c1d2e",
       "eventId": "evt-abc123",
       "connector": "c-1a2b3c",
@@ -1021,6 +1024,11 @@ The `task` object is the authoritative run state: `status` is the raw queue stat
 ```
 
 **Status codes:** `200`, `400` (invalid `page`/`pageSize`), `503` (invocation store not configured).
+
+Each record carries `agentId` — the agent's API id (its resource name), the
+route key for `GET /api/v1/agents/{id}`. Same value as `agentName` for agents
+managed by the hub; carried explicitly so views never have to assume it.
+Records written before the field existed omit it.
 
 ### GET /api/v1/invocations/{id}
 
@@ -1277,9 +1285,13 @@ The hub refuses the delete with `409 Conflict` if any Agent CR references the pe
 ```json
 {
   "error": "persona in use",
-  "referrers": [{"agentName": "code-reviewer-agent"}]
+  "referrers": [{"agentName": "code-reviewer-agent", "agentId": "code-reviewer-agent"}]
 }
 ```
+
+`agentId` is the agent's API id (its resource name) — the route key for
+`GET /api/v1/agents/{id}`. Same value as `agentName` today; carried explicitly
+so callers never have to assume it.
 
 **Response:** `204 No Content`, `404 Not Found`, `409 Conflict` (with `referrers`), or `500`.
 
@@ -1402,7 +1414,21 @@ Update a skill. All fields are optional; only provided fields are updated.
 
 Delete a skill.
 
-**Response:** `204 No Content`, `400` if the ID is missing, `404 Not Found`.
+The hub refuses the delete with `409 Conflict` if any `AgentImage` still lists
+the skill in `spec.enabledSkills`. The response body lists the referrers so the
+caller can act on them:
+
+```json
+{
+  "error": "skill in use",
+  "referrers": [{"agentImageName": "img-claude-coder", "agentImageId": "img-claude-coder"}]
+}
+```
+
+`agentImageId` is the image's API id (its resource name) — the route key for
+`GET /api/v1/agent-images/{id}`.
+
+**Response:** `204 No Content`, `400` if the ID is missing, `404 Not Found`, `409 Conflict` (with `referrers`).
 
 ### Skill catalogue MCP (internal)
 
@@ -1496,7 +1522,7 @@ List recent events (the console's Activity page), newest first.
       "connector": "c-1a2b3c",
       "channelId": "ch-9f3c1a02",
       "status": "matched",
-      "matches": [{"trigger": "t-9c1d2e", "agent": "a-3f9a2b", "runStatus": "success", "runState": "success", "taskStatus": "completed", "startedAt": "2026-05-20T10:00:01Z", "durationMs": 14000}],
+      "matches": [{"trigger": "t-9c1d2e", "agent": "a-3f9a2b", "agentId": "a-3f9a2b", "runStatus": "success", "runState": "success", "taskStatus": "completed", "startedAt": "2026-05-20T10:00:01Z", "durationMs": 14000}],
       "payload": {"action": "opened", "issue": {"number": 42}}
     }
   ],
@@ -1510,7 +1536,10 @@ status (`runStatus`, within retention) plus the hub-derived `runState` —
 `queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
 from the task row, the start evidence (claim or first conversation row) and the
 invocation record, so every view agrees on one value; `stuck: true` marks a task
-queued past the hub's start deadline. `timeout` only occurs when no task backs
+queued past the hub's start deadline. Each match also carries `agentId` — the
+agent's API id (its resource name), the route key for
+`GET /api/v1/agents/{id}` — so callers can link the match without assuming
+`agent` is the id. `timeout` only occurs when no task backs
 the match and the invocation record itself is terminal; rows with nothing behind
 them at all are `unknown`. `outcome` filters on that derived state in SQL, so
 the console's Outcome filter walks the whole history, not just the loaded page.
@@ -1735,12 +1764,15 @@ empty string.
 {
   "range": "24h",
   "rows": [
-    {"agent": "a-3f9a2b", "repo": "ainsel-project/ainsel", "eventType": "issue.opened", "model": "gpt-4", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31, "cacheReported": true, "costReported": true}
+    {"agent": "a-3f9a2b", "agentId": "a-3f9a2b", "repo": "ainsel-project/ainsel", "eventType": "issue.opened", "model": "gpt-4", "inputTokens": 2400, "outputTokens": 900, "cacheReadTokens": 38000, "cacheWriteTokens": 1500, "totalTokens": 42800, "costUsd": 0.31, "cacheReported": true, "costReported": true}
   ],
   "updatedAt": "2026-05-20T10:00:00Z",
   "source": "postgres"
 }
 ```
+
+Each row carries `agentId` — the agent's API id (its resource name), the route
+key for `GET /api/v1/agents/{id}`. Rows for agents that no longer exist omit it.
 
 ### GET /api/v1/observability/metrics/query
 

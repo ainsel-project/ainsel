@@ -9,6 +9,9 @@ import {
   type PauseAgentRequest
 } from '../../api/agents'
 import { ApiError } from '../../api/client'
+import { useAgentImages } from '../../api/agentImages'
+import { EntityLink } from '../../components/EntityLink'
+import { agentImagePath } from '../../components/entityPaths'
 import { useAgentPersona } from '../../api/personas'
 import { usePlugins } from '../../api/plugins'
 import { recordAgentView, recentsScope } from '../../agentRecents'
@@ -22,6 +25,7 @@ import { Tabs } from '../../primitives/Tabs'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
 import { AgentChannelTab } from '../channels/AgentChannelTab'
+import { AgentTriggers } from './AgentTriggers'
 import { AgentPersonaSection } from './AgentPersonaSection'
 import {
   AgentImageSection,
@@ -37,6 +41,7 @@ import { activePlugins, slotContributions } from '../../plugins/registry'
 const BUILT_IN_TABS = [
   { value: 'overview', label: 'Overview' },
   { value: 'channel', label: 'Channel' },
+  { value: 'triggers', label: 'Triggers' },
   { value: 'persona', label: 'Persona' },
   { value: 'runtime', label: 'Runtime' },
   { value: 'tools', label: 'Tools' },
@@ -64,6 +69,13 @@ export function AgentDetail() {
   const [pauseDuration, setPauseDuration] = useState('8h')
   const [pauseError, setPauseError] = useState<string | null>(null)
   const { data, isLoading, error } = useAgent(id)
+  // Side list decides whether the image reference is linkable: an image that
+  // was deleted renders the plain switch-to-runtime control, not a 404.
+  const { data: imageData } = useAgentImages({ pageSize: 200 })
+  const imageIds = useMemo(
+    () => new Set((imageData?.items ?? []).map((i) => i.id)),
+    [imageData],
+  )
   const remove = useDeleteAgent()
   const pause = usePauseAgent()
   const resume = useResumeAgent()
@@ -230,9 +242,18 @@ export function AgentDetail() {
                     <div className="k">Image</div>
                     <div className="v">
                       {data.imageRef ? (
-                        <Button variant="ghost" onClick={() => onTabChange('runtime')}>
-                          {data.imageRef.displayName ?? data.imageRef.name}
-                        </Button>
+                        data.imageRef.id && imageIds.has(data.imageRef.id) ? (
+                          <EntityLink
+                            id={data.imageRef.id}
+                            known={imageIds}
+                            label={data.imageRef.displayName ?? data.imageRef.name}
+                            path={agentImagePath}
+                          />
+                        ) : (
+                          <Button variant="ghost" onClick={() => onTabChange('runtime')}>
+                            {data.imageRef.displayName ?? data.imageRef.name}
+                          </Button>
+                        )
                       ) : (
                         '—'
                       )}
@@ -299,6 +320,10 @@ export function AgentDetail() {
 
           {data && tab === 'channel' ? (
             <AgentChannelTab agentId={data.id} agentName={data.name} />
+          ) : null}
+
+          {data && tab === 'triggers' ? (
+            <AgentTriggers agentId={data.id} agentName={data.name} />
           ) : null}
         </div>
       </div>

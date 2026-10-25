@@ -78,6 +78,9 @@ export type InvocationEntry = {
   id: string
   agent: string
   agentName?: string
+  /** The agent's API id (its resource name) — the route key for
+   *  /agents/:id. Absent on hubs that predate the field: render plain text. */
+  agentId?: string
   trigger?: string
   triggerName?: string
   timestamp: string

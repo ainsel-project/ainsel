@@ -13,6 +13,9 @@ import { TimeSeriesChart, type SeriesStyle } from '../../../primitives/TimeSerie
 import { RangeSelector } from '../RangeSelector'
 import { formatRelative } from '../../../utils/time'
 import { eventsLink } from '../../../utils/obsLinks'
+import { EntityLink } from '../../../components/EntityLink'
+import { agentPath } from '../../../components/entityPaths'
+import { useAgents } from '../../../api/agents'
 import type { InvocationEntry } from '../../../api/invocations'
 
 const VALID_RANGES = ['1h', '6h', '24h', '7d'] as const
@@ -40,6 +43,13 @@ export function RoutingDetail() {
   const matched = useObservabilityTimeseries({ range, metric: 'triggers_matched' })
   const routed = useObservabilityTimeseries({ range, metric: 'events_routed' })
   const invocations = useInvocations({ pageSize: 100 })
+  // Side list decides which invocation rows are linkable: an agent that was
+  // deleted (or is not readable by this caller) renders plain text, not a 404.
+  const { data: agentData } = useAgents({ pageSize: 200 })
+  const agentIds = useMemo(
+    () => new Set((agentData?.items ?? []).map((a) => a.id)),
+    [agentData],
+  )
 
   const chartState =
     matched.isLoading || routed.isLoading ? 'loading'
@@ -66,7 +76,14 @@ export function RoutingDetail() {
       key: 'agent',
       header: 'Agent',
       width: 160,
-      cell: (r) => r.agentName ?? r.agent,
+      cell: (r) => (
+        <EntityLink
+          id={r.agentId}
+          known={agentIds}
+          label={r.agentName ?? r.agent}
+          path={agentPath}
+        />
+      ),
     },
     {
       key: 'trigger',

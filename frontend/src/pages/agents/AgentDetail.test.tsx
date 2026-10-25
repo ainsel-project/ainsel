@@ -299,7 +299,7 @@ function defaultFetch(url: string, init?: RequestInit): Response {
         name: 'doc-writer',
         description: 'Writes documentation.',
         llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
-        imageRef: { name: 'claude-tooling-base:1.4' },
+        imageRef: { id: 'claude-tooling-base:1.4', name: 'claude-tooling-base:1.4' },
         enabledTools: ['read_file', 'run_shell'],
         persona: { id: '01HXTEST00000000000000000' },
         replicas: 3,
@@ -334,6 +334,32 @@ describe('AgentDetail', () => {
     expect(screen.getByText('claude-opus-4-7')).toBeInTheDocument()
     expect(screen.getByText('Ollama Cloud')).toBeInTheDocument()
     expect(screen.getByText('claude-tooling-base:1.4')).toBeInTheDocument()
+  })
+
+  // #154: the image reference links to the image detail page when the payload
+  // carries imageRef.id and the image list resolves it.
+  it('links the image reference to the image detail page', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    const link = await screen.findByRole('link', { name: 'claude-tooling-base:1.4' })
+    expect(link).toHaveAttribute('href', '/agent-images/claude-tooling-base%3A1.4')
+  })
+
+  // #154 prerequisite: the agent's triggers are reachable from the agent page.
+  it('shows the agent triggers on a Triggers tab', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(screen.getByRole('tab', { name: /^triggers$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('tab', { name: /^triggers$/i }))
+    await waitFor(() => expect(screen.getByText('on-doc-issue')).toBeInTheDocument())
   })
 
   it('shows image input as off when the agent does not accept images', async () => {

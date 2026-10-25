@@ -208,6 +208,78 @@ describe('PersonaDetail', () => {
     ).toBe(true)
   })
 
+  // #154: the delete-409 referrer list links each agent to its detail page
+  // when the payload carries the agent id and the agent list resolves it.
+  it('links delete-409 referrers that resolve in the agent list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.match(/\/api\/v1\/personas\/01HX1$/) && init?.method === 'DELETE') {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: 'persona in use',
+                referrers: [
+                  { agentName: 'code-reviewer-agent', agentId: 'a1' },
+                  { agentName: 'ghost-agent', agentId: 'ghost' },
+                ],
+              }),
+              { status: 409 },
+            ),
+          )
+        }
+        if (url.match(/\/api\/v1\/personas\/01HX1$/)) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: '01HX1',
+                name: 'code-reviewer',
+                description: 'reviews PRs',
+                currentVersion: 2,
+                text: '# Persona',
+                createdAt: '2026-05-01T00:00:00Z',
+                updatedAt: '2026-05-02T00:00:00Z',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/agents')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [{ id: 'a1', name: 'code-reviewer-agent' }],
+                total: 1,
+                page: 1,
+                pageSize: 100,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/personas/:id" element={<PersonaDetail />} />
+      </Routes>,
+      { route: '/personas/01HX1' },
+    )
+    await waitFor(() =>
+      expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const deleteButtons = screen.getAllByRole('button', { name: /^delete$/i })
+    await userEvent.click(deleteButtons[deleteButtons.length - 1])
+    const link = await screen.findByRole('link', { name: 'code-reviewer-agent' })
+    expect(link).toHaveAttribute('href', '/agents/a1')
+    // An id the side list does not resolve stays plain text.
+    expect(screen.getByText('ghost-agent')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'ghost-agent' })).not.toBeInTheDocument()
+  })
+
   describe('plugin slots', () => {
     it('adds a Mem0 tab and renders the plugin when selected', async () => {
       renderWithProviders(

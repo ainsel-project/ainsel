@@ -148,6 +148,53 @@ describe('Dashboard', () => {
     expect(screen.getByText('ERR')).toBeInTheDocument()
   })
 
+  // #154: each stream row is a stretched link to the event detail, and the
+  // nested connector/agent references link to their own detail pages when the
+  // side lists resolve their ids.
+  it('links stream rows to the event, connector, and agent detail pages', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/agents')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [{ id: 'doc-writer', name: 'Doc Writer' }],
+                total: 1,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/events')) {
+          const events = [
+            {
+              id: 'e1',
+              timestamp: new Date().toISOString(),
+              connector: 'c1',
+              status: 'matched',
+              matches: [{ trigger: 't1', agent: 'doc-writer', agentId: 'doc-writer' }],
+            },
+          ]
+          return Promise.resolve(new Response(JSON.stringify({ events, total: 1 }), { status: 200 }))
+        }
+        return Promise.resolve(routeResponse(url))
+      }),
+    )
+    renderWithProviders(<Dashboard />)
+    // The stretched link makes the whole row open the event detail.
+    const rowLink = await screen.findByRole('link', { name: 'Open event e1' })
+    expect(rowLink).toHaveAttribute('href', '/observability/events/e1')
+    // Nested entity links stay independently clickable.
+    const connLink = await screen.findByRole('link', { name: 'c1' })
+    expect(connLink).toHaveAttribute('href', '/connectors/c1')
+    const agentLink = await screen.findByRole('link', { name: 'doc-writer' })
+    expect(agentLink).toHaveAttribute('href', '/agents/doc-writer')
+  })
+
   it('renders the throughput chart SVG', async () => {
     const { container } = renderWithProviders(<Dashboard />)
     await waitFor(() => {

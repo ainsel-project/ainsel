@@ -62,8 +62,8 @@ const sampleEvent = {
   connector: 'c-111',
   status: 'matched',
   matches: [
-    { trigger: 't1', agent: 'doc-writer' },
-    { trigger: 't2', agent: 'review-bot' },
+    { trigger: 't1', agent: 'doc-writer', agentId: 'doc-writer' },
+    { trigger: 't2', agent: 'review-bot', agentId: 'review-bot' },
   ],
   payload: { action: 'opened', repository: { full_name: 'ainsel-project/ainsel' } },
 }
@@ -74,6 +74,7 @@ const sampleInvocations = {
       id: 'inv-1',
       agent: 'review-bot',
       agentName: 'review-bot',
+      agentId: 'review-bot',
       trigger: 't1',
       triggerName: 't1',
       status: 'success',
@@ -177,6 +178,64 @@ describe('EventView', () => {
     await waitFor(() => expect(screen.getAllByText('doc-writer').length).toBeGreaterThanOrEqual(2))
     // review-bot appears in the matches list and in the invocation summary
     expect(screen.getAllByText('review-bot').length).toBeGreaterThanOrEqual(2)
+  })
+
+  // #154: match agents and the connector link to their detail pages when the
+  // payload carries the id and the side list resolves it.
+  it('links match agents and the connector when the side lists resolve them', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/agents')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [
+                  { id: 'doc-writer', name: 'doc-writer' },
+                  { id: 'review-bot', name: 'review-bot' },
+                ],
+                total: 2,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/connectors')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [
+                  { id: 'c-111', name: 'monorepo', signatureHeader: 'X-Hub-Signature-256', disabled: false },
+                ],
+                total: 1,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/invocations') && url.includes('event=')) {
+          return Promise.resolve(new Response(JSON.stringify(sampleInvocations), { status: 200 }))
+        }
+        if (url.includes('/events/evt-')) {
+          return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+    renderEventView('/observability/events/evt-1234567890000000000')
+    const docLink = await screen.findByRole('link', { name: 'doc-writer' })
+    expect(docLink).toHaveAttribute('href', '/agents/doc-writer')
+    const connLink = await screen.findByRole('link', { name: 'c-111' })
+    expect(connLink).toHaveAttribute('href', '/connectors/c-111')
+    // The invocation's Agent KPI links too (match list + KPI → two links).
+    const reviewLinks = await screen.findAllByRole('link', { name: 'review-bot' })
+    expect(reviewLinks[0]).toHaveAttribute('href', '/agents/review-bot')
   })
 
   it('renders payload as formatted JSON', async () => {
