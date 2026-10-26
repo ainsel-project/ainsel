@@ -33,10 +33,6 @@ export function listTriggers(params: ListTriggersParams = {}) {
   return request<Paginated<TriggerSummary>>('/triggers', { query: params })
 }
 
-export function getTrigger(id: string) {
-  return request<TriggerResponse>(`/triggers/${encodeURIComponent(id)}`)
-}
-
 export function createTrigger(body: TriggerRequest) {
   return request<TriggerResponse>('/triggers', { method: 'POST', body })
 }
@@ -57,14 +53,6 @@ export function useTriggers(params: ListTriggersParams = {}) {
     queryKey: ['triggers', params],
     queryFn: () => listTriggers(params),
     placeholderData: keepPreviousData,
-  })
-}
-
-export function useTrigger(id: string | undefined) {
-  return useQuery({
-    queryKey: ['triggers', 'detail', id],
-    queryFn: () => getTrigger(id!),
-    enabled: id !== undefined,
   })
 }
 
