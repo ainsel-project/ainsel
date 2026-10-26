@@ -8,6 +8,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggerindex"
 )
 
@@ -61,7 +62,7 @@ func TestHandleEvent_TransfersAlongBridgesAfterTriggerMatching(t *testing.T) {
 	r := &Router{
 		eq:          q,
 		index:       idx,
-		invocations: invocations.NewMemoryStore(10),
+		invocations: invocationstest.New(10),
 		broadcaster: &stubBroadcaster{},
 		transfers:   tr,
 	}
@@ -116,7 +117,7 @@ func TestHandleEvent_TransfersWithoutAnyTriggerMatch(t *testing.T) {
 	r := &Router{
 		eq:          q,
 		index:       triggerindex.NewIndex(),
-		invocations: invocations.NewMemoryStore(10),
+		invocations: invocationstest.New(10),
 		broadcaster: &stubBroadcaster{},
 		transfers:   tr,
 	}
@@ -143,7 +144,7 @@ func TestHandleEvent_SkipsTransferWithoutBirthChannel(t *testing.T) {
 	r := &Router{
 		eq:          q,
 		index:       triggerindex.NewIndex(),
-		invocations: invocations.NewMemoryStore(10),
+		invocations: invocationstest.New(10),
 		broadcaster: &stubBroadcaster{},
 		transfers:   tr,
 	}
@@ -169,7 +170,7 @@ func TestHandleEvent_WithoutTransferWiringIsUnchanged(t *testing.T) {
 	r := &Router{
 		eq:          q,
 		index:       idx,
-		invocations: invocations.NewMemoryStore(10),
+		invocations: invocationstest.New(10),
 		broadcaster: &stubBroadcaster{},
 	}
 	r.handleEvent(context.Background(), channelEvent(t, "evt-1", "conn-1", "ch-src"))
@@ -187,7 +188,7 @@ func TestHandleEvent_BridgeTaskFailureStillRoutesTheEvent(t *testing.T) {
 	r := &Router{
 		eq:          q,
 		index:       triggerindex.NewIndex(),
-		invocations: invocations.NewMemoryStore(10),
+		invocations: invocationstest.New(10),
 		broadcaster: &stubBroadcaster{},
 		transfers:   tr,
 	}
@@ -212,7 +213,7 @@ func TestHandleEvent_TransferErrorDoesNotBlockRouting(t *testing.T) {
 	r := &Router{
 		eq:          q,
 		index:       idx,
-		invocations: invocations.NewMemoryStore(10),
+		invocations: invocationstest.New(10),
 		broadcaster: bc,
 		transfers:   tr,
 	}
@@ -230,7 +231,7 @@ func TestHandleEvent_TransferErrorDoesNotBlockRouting(t *testing.T) {
 
 func TestHandleEvent_BridgeDeliveryRecordsInvocation(t *testing.T) {
 	q := &mockQueue{}
-	inv := invocations.NewMemoryStore(10)
+	inv := invocationstest.New(10)
 	tr := &fakeTransfer{deliveries: []channels.TransferResult{
 		{AgentName: "agent-2", BridgeID: "br-1", BridgeName: "bundle", InvocationID: "inv-1"},
 	}}
@@ -261,7 +262,7 @@ func TestRouterIgnoresClientSuppliedChannelOnUnstampedEvents(t *testing.T) {
 	r := &Router{
 		eq:          q,
 		index:       triggerindex.NewIndex(),
-		invocations: invocations.NewMemoryStore(10),
+		invocations: invocationstest.New(10),
 		broadcaster: &stubBroadcaster{},
 		transfers:   tr,
 	}

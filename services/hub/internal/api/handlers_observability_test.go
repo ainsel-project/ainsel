@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -483,7 +483,7 @@ func TestObservability_RejectsNonGet(t *testing.T) {
 // from the mux's plaintext "page not found".
 
 func TestObservability_LegacyMetricPathsReturn404(t *testing.T) {
-	s := New(newFakeClient(), "test-ns", ConnectorConfig{}, nil, invocations.NewMemoryStore(100), nil, nil, nil, &Config{})
+	s := New(newFakeClient(), "test-ns", ConnectorConfig{}, nil, invocationstest.New(100), nil, nil, nil, &Config{})
 	for _, path := range []string{
 		"/api/v1/metrics/summary",
 		"/api/v1/metrics/timeseries",

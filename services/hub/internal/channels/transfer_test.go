@@ -8,6 +8,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 )
 
 // recordedQueue captures the tasks a transfer enqueues, so the assertions are
@@ -35,12 +36,12 @@ func taskHeaders(t *testing.T, task eventqueue.Task) map[string]string {
 	return h
 }
 
-func newTestTransfer(t *testing.T) (*Transfer, *Service, *Store, *recordedQueue, *invocations.MemoryStore) {
+func newTestTransfer(t *testing.T) (*Transfer, *Service, *Store, *recordedQueue, *invocationstest.Store) {
 	t.Helper()
 	s, eq := stores(t)
 	svc := NewService(s, eq, fakeTriggers{})
 	queue := &recordedQueue{}
-	inv := invocations.NewMemoryStore(64)
+	inv := invocationstest.New(64)
 	return NewTransfer(svc, queue, inv), svc, s, queue, inv
 }
 

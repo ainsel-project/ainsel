@@ -167,7 +167,8 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 	// Invocation history is persisted in Postgres so it survives hub
 	// restarts — the event detail view reaches conversation transcripts
 	// through invocation records, and an in-memory buffer lost them on
-	// every restart. The memory store remains the fallback for tests.
+	// every restart. What is left of the in-memory store lives in the
+	// invocationstest package as a test fake, not as a second supported store.
 	c.invStore = invocations.NewPgStore(pool)
 	slog.Info("invocation history store ready", "backend", "postgres", "retention", invocations.Retention)
 	c.cronEmitter = cron.New(c.eventQueue, c.invStore)

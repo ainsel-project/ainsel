@@ -15,7 +15,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
-	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 )
 
@@ -62,7 +62,7 @@ func channelTestServer(t *testing.T) (*Server, *channels.Store, *eventqueue.Stor
 	s := testServer(t)
 	s.SetEventQueue(eq)
 	s.SetTriggerStore(ts)
-	s.SetChannelService(svc, channels.NewTransfer(svc, eq, invocations.NewMemoryStore(100)))
+	s.SetChannelService(svc, channels.NewTransfer(svc, eq, invocationstest.New(100)))
 	return s, cs, eq, ts
 }
 
