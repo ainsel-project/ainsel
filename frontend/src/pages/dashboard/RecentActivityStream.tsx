@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useRecentEvents } from '../../api/events'
 import type { ActivityEntry } from '../../api/events'
@@ -21,8 +22,8 @@ export function RecentActivityStream() {
   // deleted (or is not readable by this caller) renders plain text, not a 404.
   const { data: agentData } = useAgents({ pageSize: 200 })
   const { data: connectorData } = useConnectors({ pageSize: 200 })
-  const agentIds = new Set((agentData?.items ?? []).map((a) => a.id))
-  const connectorIds = new Set((connectorData?.items ?? []).map((c) => c.id))
+  const agentIds = useMemo(() => new Set((agentData?.items ?? []).map((a) => a.id)), [agentData])
+  const connectorIds = useMemo(() => new Set((connectorData?.items ?? []).map((c) => c.id)), [connectorData])
 
   const errorCount = (data ?? []).filter((e) => e.status === 'error').length
 

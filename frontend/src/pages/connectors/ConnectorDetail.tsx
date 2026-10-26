@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useConnector, useDeleteConnector, useUpdateConnector, useRotateConnectorSecret } from '../../api/connectors'
 import { useGroups } from '../../api/groups'
@@ -21,7 +21,8 @@ export function ConnectorDetail() {
   // Side list decides whether the group reference is linkable and supplies its
   // display name: a deleted group renders nothing, not a 404.
   const { data: groups } = useGroups()
-  const groupById = new Map((groups ?? []).map((g) => [g.id, g.name]))
+  const groupById = useMemo(() => new Map((groups ?? []).map((g) => [g.id, g.name])), [groups])
+  const groupIds = useMemo(() => new Set(groupById.keys()), [groupById])
   const remove = useDeleteConnector()
   const toggle = useUpdateConnector()
   const rotate = useRotateConnectorSecret()
@@ -99,7 +100,7 @@ export function ConnectorDetail() {
                     <div className="v">
                       <EntityLink
                         id={data.groupId}
-                        known={new Set(groupById.keys())}
+                        known={groupIds}
                         label={groupById.get(data.groupId)!}
                         path={groupPath}
                       />
