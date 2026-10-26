@@ -1028,7 +1028,9 @@ The `task` object is the authoritative run state: `status` is the raw queue stat
 Each record carries `agentId` — the agent's API id (its resource name), the
 route key for `GET /api/v1/agents/{id}`. Same value as `agentName` for agents
 managed by the hub; carried explicitly so views never have to assume it.
-Records written before the field existed omit it.
+The API layer fills `agentId` from `agentName`, so it is present on every
+record — including ones written before the field existed — and is omitted only
+when `agentName` itself is empty.
 
 ### GET /api/v1/invocations/{id}
 
@@ -1772,7 +1774,10 @@ empty string.
 ```
 
 Each row carries `agentId` — the agent's API id (its resource name), the route
-key for `GET /api/v1/agents/{id}`. Rows for agents that no longer exist omit it.
+key for `GET /api/v1/agents/{id}`. Rows always carry `agentId` when the agent
+label is known — including for agents that no longer exist — so clients should
+resolve it against the agents list before linking (which is what the console
+does).
 
 ### GET /api/v1/observability/metrics/query
 
