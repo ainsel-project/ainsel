@@ -444,6 +444,27 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// writeAuthzError maps the authz store sentinel errors to their HTTP
+// responses: authz.ErrNotFound becomes 404 "<resource> not found" and
+// authz.ErrAlreadyExists becomes 409 "<resource> already exists". It
+// returns true when it wrote a response, so callers use it as:
+//
+//	if writeAuthzError(w, err, "user") {
+//		return
+//	}
+//	writeError(w, http.StatusInternalServerError, err.Error())
+func writeAuthzError(w http.ResponseWriter, err error, resource string) bool {
+	switch {
+	case errors.Is(err, authz.ErrNotFound):
+		writeError(w, http.StatusNotFound, resource+" not found")
+		return true
+	case errors.Is(err, authz.ErrAlreadyExists):
+		writeError(w, http.StatusConflict, resource+" already exists")
+		return true
+	}
+	return false
+}
+
 func extractName(path, prefix string) string {
 	return strings.TrimPrefix(path, prefix)
 }

@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -81,8 +80,7 @@ func (s *Server) handleGroupRoot(w http.ResponseWriter, r *http.Request, id stri
 	case http.MethodGet:
 		// Any authenticated user can view a group and its members.
 		g, err := s.authzStore.GetGroup(r.Context(), id)
-		if errors.Is(err, authz.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "group not found")
+		if writeAuthzError(w, err, "group") {
 			return
 		}
 		if err != nil {
@@ -114,8 +112,7 @@ func (s *Server) handleGroupRoot(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 		g, err := s.authzStore.UpdateGroup(r.Context(), id, body.Name, body.Description)
-		if errors.Is(err, authz.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "group not found")
+		if writeAuthzError(w, err, "group") {
 			return
 		}
 		if err != nil {
@@ -128,8 +125,7 @@ func (s *Server) handleGroupRoot(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 		if err := s.authzStore.DeleteGroup(r.Context(), id); err != nil {
-			if errors.Is(err, authz.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "group not found")
+			if writeAuthzError(w, err, "group") {
 				return
 			}
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -174,8 +170,7 @@ func (s *Server) handleGroupMembers(w http.ResponseWriter, r *http.Request, grou
 	case rest != "" && r.Method == http.MethodDelete:
 		userID := rest
 		if err := s.authzStore.RemoveGroupMember(r.Context(), groupID, userID); err != nil {
-			if errors.Is(err, authz.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "member not found")
+			if writeAuthzError(w, err, "member") {
 				return
 			}
 			writeError(w, http.StatusInternalServerError, err.Error())
