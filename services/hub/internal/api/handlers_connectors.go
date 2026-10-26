@@ -160,7 +160,11 @@ func (s *Server) getConnector(ctx context.Context, w http.ResponseWriter, name s
 	}
 	resp := toWebhookConnectorResponse(c)
 	if s.authzStore != nil {
-		if rg, err := s.authzStore.GetResourceGroup(ctx, "connector", name); err == nil && rg != nil {
+		rg, err := s.authzStore.GetResourceGroup(ctx, "connector", name)
+		if err != nil {
+			// Group row is best-effort enrichment; degrade to no group but keep it diagnosable.
+			slog.Warn("get connector resource group", "error", err, "connector", name)
+		} else if rg != nil {
 			resp.GroupID = rg.GroupID
 		}
 	}
