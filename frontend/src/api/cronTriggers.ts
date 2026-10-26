@@ -49,10 +49,6 @@ export function listCronTriggers(params: ListCronTriggersParams = {}) {
   return request<Paginated<CronTriggerSummary>>('/cron-triggers', { query: params })
 }
 
-export function getCronTrigger(id: string) {
-  return request<CronTriggerResponse>(`/cron-triggers/${encodeURIComponent(id)}`)
-}
-
 export function createCronTrigger(body: CronTriggerRequest) {
   return request<CronTriggerResponse>('/cron-triggers', { method: 'POST', body })
 }
@@ -73,14 +69,6 @@ export function useCronTriggers(params: ListCronTriggersParams = {}) {
     queryKey: ['cron-triggers', params],
     queryFn: () => listCronTriggers(params),
     placeholderData: keepPreviousData,
-  })
-}
-
-export function useCronTrigger(id: string | undefined) {
-  return useQuery({
-    queryKey: ['cron-triggers', 'detail', id],
-    queryFn: () => getCronTrigger(id!),
-    enabled: id !== undefined,
   })
 }
 
