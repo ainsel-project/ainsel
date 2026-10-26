@@ -2,9 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,5 +410,120 @@ func TestInvocations_ListFilterByConnector(t *testing.T) {
 				t.Errorf("[%s] c-3 row survived the connector filter", query)
 			}
 		}
+	}
+}
+
+// TestInvocations_ConnectorCap covers the per-request cap on connector filter
+// values: exactly maxFilterValues unique connectors is accepted, one more is
+// rejected with 400 naming the max, and the cap is applied after
+// comma-splitting/trimming/dedup so mixed spellings cannot smuggle a request
+// past it.
+func TestInvocations_ConnectorCap(t *testing.T) {
+	unique := func(n int) []string {
+		out := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, fmt.Sprintf("c-%d", i))
+		}
+		return out
+	}
+	// Mixed spellings: first half comma-separated in one parameter, second
+	// half as repeated parameters — together one unique value over the cap.
+	over := unique(maxFilterValues + 1)
+	mixedOverCap := "connector=" + strings.Join(over[:maxFilterValues/2], ",") +
+		"&connector=" + strings.Join(over[maxFilterValues/2:], "&connector=")
+
+	cases := []struct {
+		name     string
+		query    string
+		wantCode int
+	}{
+		{
+			name:     "exactly at cap",
+			query:    "connector=" + strings.Join(unique(maxFilterValues), ","),
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "one over cap",
+			query:    "connector=" + strings.Join(unique(maxFilterValues+1), ","),
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "mixed spellings over cap",
+			query:    mixedOverCap,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "duplicates above raw count dedup under cap",
+			query:    "connector=" + strings.Join(append(unique(maxFilterValues), "c-0"), ","),
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "all blanks stay filter off",
+			query:    "connector=,,&connector=+",
+			wantCode: http.StatusOK,
+		},
+	}
+	for _, c := range cases {
+		s := testServer(t)
+		store := &recordingInvocationStore{Store: invocations.NewMemoryStore(100)}
+		s.invocations = store
+		s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?"+c.query, nil)
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+
+		if rec.Code != c.wantCode {
+			t.Fatalf("[%s] expected %d, got %d: %s", c.name, c.wantCode, rec.Code, rec.Body.String())
+		}
+		if c.wantCode != http.StatusOK {
+			if !strings.Contains(rec.Body.String(), strconv.Itoa(maxFilterValues)) {
+				t.Errorf("[%s] 400 body %q should mention the max (%d)", c.name, rec.Body.String(), maxFilterValues)
+			}
+			if len(store.opts) != 0 {
+				t.Errorf("[%s] store must not be queried when the request is rejected", c.name)
+			}
+			continue
+		}
+		if len(store.opts) != 1 {
+			t.Fatalf("[%s] expected 1 ListWithTotal call, got %d", c.name, len(store.opts))
+		}
+		if strings.HasPrefix(c.query, "connector=,,") && store.opts[0].Connectors != nil {
+			t.Errorf("[%s] blank connectors should leave the filter off, got %v", c.name, store.opts[0].Connectors)
+		}
+	}
+}
+
+// TestInvocations_LimitClampedToMax asserts an oversized `limit` is clamped
+// rather than rejected: a smaller limit still returns correct results, but an
+// unbounded one makes the store materialize the whole table.
+func TestInvocations_LimitClampedToMax(t *testing.T) {
+	s := testServer(t)
+	store := &recordingInvocationStore{Store: invocations.NewMemoryStore(100)}
+	s.invocations = store
+	s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?limit=100000", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.opts) != 1 {
+		t.Fatalf("expected 1 ListWithTotal call, got %d", len(store.opts))
+	}
+	if got := store.opts[0].Limit; got != maxInvocationLimit {
+		t.Errorf("ListOptions.Limit = %d, want clamped to %d", got, maxInvocationLimit)
+	}
+
+	// A limit at the cap passes through untouched.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/invocations?limit=500", nil)
+	rec = httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := store.opts[1].Limit; got != maxInvocationLimit {
+		t.Errorf("ListOptions.Limit = %d, want %d", got, maxInvocationLimit)
 	}
 }
