@@ -69,8 +69,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	// The password came from an admin, not from its owner: arm the forced
 	// change (issue #113) so it cannot outlive the moment it was issued.
 	u, err := s.authzStore.CreateLocalUser(r.Context(), id, strings.TrimSpace(body.Email), body.Username, hash, body.IsAdmin, true)
-	if errors.Is(err, authz.ErrAlreadyExists) {
-		writeError(w, http.StatusConflict, "user already exists")
+	if writeAuthzError(w, err, "user") {
 		return
 	}
 	if err != nil {
@@ -91,8 +90,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		u, err := s.authzStore.GetUser(r.Context(), id)
-		if errors.Is(err, authz.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
+		if writeAuthzError(w, err, "user") {
 			return
 		}
 		if err != nil {
@@ -118,8 +116,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 			// everyone out of user management.
 			if !*body.IsAdmin {
 				target, err := s.authzStore.GetUser(r.Context(), id)
-				if errors.Is(err, authz.ErrNotFound) {
-					writeError(w, http.StatusNotFound, "user not found")
+				if writeAuthzError(w, err, "user") {
 					return
 				}
 				if err != nil {
@@ -139,8 +136,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err := s.authzStore.SetAdmin(r.Context(), id, *body.IsAdmin); err != nil {
-				if errors.Is(err, authz.ErrNotFound) {
-					writeError(w, http.StatusNotFound, "user not found")
+				if writeAuthzError(w, err, "user") {
 					return
 				}
 				writeError(w, http.StatusInternalServerError, err.Error())
@@ -160,8 +156,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				target, err := s.authzStore.GetUser(r.Context(), id)
-				if errors.Is(err, authz.ErrNotFound) {
-					writeError(w, http.StatusNotFound, "user not found")
+				if writeAuthzError(w, err, "user") {
 					return
 				}
 				if err != nil {
@@ -181,8 +176,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err := s.authzStore.SetDisabled(r.Context(), id, *body.Disabled); err != nil {
-				if errors.Is(err, authz.ErrNotFound) {
-					writeError(w, http.StatusNotFound, "user not found")
+				if writeAuthzError(w, err, "user") {
 					return
 				}
 				writeError(w, http.StatusInternalServerError, err.Error())
@@ -208,8 +202,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := s.authzStore.SetPasswordWithFlag(r.Context(), id, hash, true); err != nil {
-				if errors.Is(err, authz.ErrNotFound) {
-					writeError(w, http.StatusNotFound, "user not found")
+				if writeAuthzError(w, err, "user") {
 					return
 				}
 				writeError(w, http.StatusInternalServerError, err.Error())
@@ -243,8 +236,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	target, err := s.authzStore.GetUser(r.Context(), id)
-	if errors.Is(err, authz.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "user not found")
+	if writeAuthzError(w, err, "user") {
 		return
 	}
 	if err != nil {
@@ -353,8 +345,7 @@ func (s *Server) handleUserSync(w http.ResponseWriter, r *http.Request, id strin
 	oidc.ClearUserInfoCacheEntry(id)
 
 	if err := s.authzStore.ClearUsername(r.Context(), id); err != nil {
-		if errors.Is(err, authz.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
+		if writeAuthzError(w, err, "user") {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
