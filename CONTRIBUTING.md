@@ -422,7 +422,9 @@ paths, and anything that touches the canonical event schema.
 
 ## Code style
 
-- **Go**: `gofmt`, `golangci-lint` with the config at repo root. Keep
+- **Go**: `gofmt`, `golangci-lint` with the module-local `.golangci.yml`
+  (each Go module has its own config — that is what CI runs; the root
+  `.golangci.yml` mirrors the same rule set for ad-hoc runs). Keep
   packages small and named for what they do. Tests live next to source.
 - **TypeScript**: Prettier + ESLint with the configs at repo root. Prefer
   composition over inheritance; co-locate component, styles, and tests.
