@@ -347,6 +347,38 @@ func TestStore_ListFilterByEventID(t *testing.T) {
 	}
 }
 
+// TestStore_ListFilterByConnectors keeps "any of these connectors" — the query a
+// per-channel view of recent work runs — and that an empty slice restricts
+// nothing rather than matching nothing.
+func TestStore_ListFilterByConnectors(t *testing.T) {
+	s := NewMemoryStore(10)
+	s.Record(Invocation{AgentName: "a", Connector: "c-1"})
+	s.Record(Invocation{AgentName: "b", Connector: "c-2"})
+	s.Record(Invocation{AgentName: "c", Connector: "c-3"})
+
+	got := s.List(ListOptions{Connectors: []string{"c-1", "c-3"}})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 invocations for c-1/c-3, got %d: %+v", len(got), got)
+	}
+	for _, inv := range got {
+		if inv.Connector != "c-1" && inv.Connector != "c-3" {
+			t.Errorf("unexpected connector %q in filtered result", inv.Connector)
+		}
+	}
+
+	if _, total := s.ListWithTotal(ListOptions{Connectors: []string{"c-2"}, Limit: 5}); total != 1 {
+		t.Errorf("ListWithTotal total = %d, want 1", total)
+	}
+
+	if got := s.List(ListOptions{Connectors: []string{"missing"}}); len(got) != 0 {
+		t.Errorf("expected 0 for an unknown connector, got %d", len(got))
+	}
+
+	if got := s.List(ListOptions{Connectors: []string{}}); len(got) != 3 {
+		t.Errorf("empty Connectors must not restrict, got %d of 3", len(got))
+	}
+}
+
 func TestStore_AgentRollupsCountsAndAverages(t *testing.T) {
 	s := NewMemoryStore(10)
 	now := time.Now().UTC()
