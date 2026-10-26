@@ -1,4 +1,3 @@
-// internal/api/handlers_tokens.go
 package api
 
 import (

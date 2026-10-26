@@ -1,3 +1,7 @@
+// Package mcp assembles the model-context-protocol server exposed by the
+// service. New wires all built-in tools to their hub-backed backends,
+// StartPluginTools keeps the plugin-provided tool set in sync by polling
+// the hub, and StreamableHTTPHandler serves the server over HTTP.
 package mcp
 
 import (

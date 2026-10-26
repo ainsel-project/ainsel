@@ -1,3 +1,8 @@
+// Package controller implements the event-gateway operator's reconcilers.
+// PluginReconciler fetches and validates each plugin's manifest and records
+// what it learned in the Plugin status; WebhookConnectorReconciler turns a
+// WebhookConnector CR into the Deployment, Service and Ingress that receive
+// external webhooks and forward them into the platform event flow.
 package controller
 
 import (

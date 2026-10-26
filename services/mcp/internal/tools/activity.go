@@ -1,3 +1,7 @@
+// Package tools implements the MCP tools the service exposes. Each tool
+// group (agents, channels, plugins, triggers, ...) is a small struct
+// constructed with a hub URL and calls the hub's HTTP API to serve its
+// tools; errors.go maps hub errors to MCP tool errors.
 package tools
 
 import (

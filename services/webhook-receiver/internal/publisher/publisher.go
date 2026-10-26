@@ -1,3 +1,5 @@
+// Package publisher forwards received webhook payloads to the hub's event
+// ingest API as platform events.
 package publisher
 
 import (

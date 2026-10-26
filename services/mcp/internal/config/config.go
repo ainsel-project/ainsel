@@ -1,3 +1,5 @@
+// Package config loads the MCP service's configuration from environment
+// variables, including hub connectivity and OIDC settings.
 package config
 
 import (

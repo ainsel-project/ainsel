@@ -1,3 +1,7 @@
+// Package usertokens manages user API tokens. Store creates, lists and
+// revokes personal access tokens in Postgres, keeping only their SHA-256
+// hashes; middleware.go provides HTTP middleware that authenticates
+// requests carrying such a token.
 package usertokens
 
 import (
