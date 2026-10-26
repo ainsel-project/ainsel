@@ -369,7 +369,7 @@ the queue's ingest log and the console's event history.
 | `data` | `JSONB NOT NULL` | Parsed payload |
 | `raw` | `TEXT NOT NULL DEFAULT ''` | Raw webhook body — the largest column in the schema |
 | `received_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | |
-| `routed_at` | `TIMESTAMPTZ` | Set when the router has processed the event; `NULL` = unrouted |
+| `routed_at` | `TIMESTAMPTZ` | Stamped once the router has processed the event — **including when nothing matched**. `NULL` therefore means "not processed yet" (a restart re-routes these), not "matched nothing" |
 
 Indexes: `idx_events_unrouted (received_at) WHERE routed_at IS NULL` (the
 router's 2s poll), `idx_events_channel (channel_id) WHERE channel_id IS NOT
