@@ -24,11 +24,32 @@ secret (`chart/templates/postgres/secret.yaml`), which the hub reads as
 | When it runs | `db.Migrate(ctx, dsn)` at hub startup; idempotent, safe on every boot |
 | DSN form | URL form only (`postgres://…`); key/value DSNs are rejected outright |
 | Transaction | One implicit transaction **per file** — no `CREATE INDEX CONCURRENTLY` inside a migration |
+| Gap check | `checkMigrationSource` refuses to start if the embedded files skip a version — history must be contiguous |
+| Dirty state | A failed migration leaves `schema_migrations.dirty = true`, which is a hard stop at the next startup |
 | Pool | `pgxpool`: `MaxConns=10`, `MinConns=1`, `MaxConnLifetime=1h`, `MaxConnIdleTime=15m` |
 
 Migrations are append-only. Several tables have been reshaped in place
 (`mcp_servers` in 0005–0007, access control in 0016), so the current shape is
 only readable as the sum of the files — §8 summarises that history.
+
+### History integrity
+
+`schema_migrations` records only the *highest* applied version. A database at
+version 30 therefore cannot tell that the file behind version 26 was edited or
+renumbered after deploy: `Up()` sees a database already at the newest version,
+does nothing, and the schema keeps a permanent, invisible hole while the hub
+starts up looking healthy.
+
+The hub closes that gap with a second table of its own, `schema_history`
+(`version BIGINT PK`, `checksum TEXT`, `applied_at TIMESTAMPTZ`), maintained by
+`internal/db/history.go`: the sha256 of each `up.sql` as it was applied, compared
+against the embedded files on every startup. A version whose recorded checksum
+differs from the shipping file is drift, and the hub refuses to start. Note that
+the table is created by the hub rather than by a migration — a database migrated
+before it existed is baselined on first start, not flagged — and that recorded
+versions with no matching file are accepted, because that is what a rollback looks
+like. Recovery steps are in the
+[Upgrade Guide](upgrade-guide.md#database-migrations).
 
 ---
 
@@ -43,6 +64,10 @@ Twenty-one tables in five domains:
 | Chat | `chat_sessions`, `chat_messages` | User history; deleted by user action only |
 | Event queue | `events`, `agent_tasks` | Hot path; high churn; **never pruned** |
 | Observability & audit | `invocations`, `task_logs`, `task_conversations`, `auth_events` | Append-only telemetry; time-pruned (see §7) |
+
+Two more tables live in the same database but are **not** part of the migration
+set: `schema_migrations` (golang-migrate's version marker) and `schema_history`
+(the hub's own per-version checksum record, §1).
 
 ```mermaid
 erDiagram
@@ -660,6 +685,9 @@ psql "$HUB_DB_URL" -c "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER
 
 # Current migration version
 psql "$HUB_DB_URL" -c "SELECT version, dirty FROM schema_migrations;"
+
+# Per-version checksums the hub compares against the image on startup (§1)
+psql "$HUB_DB_URL" -c "SELECT version, left(checksum, 8) AS ck, applied_at FROM schema_history ORDER BY version DESC LIMIT 10;"
 
 # Every index behind the hot paths
 psql "$HUB_DB_URL" -c "\di idx_*"
