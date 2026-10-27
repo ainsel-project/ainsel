@@ -3,7 +3,6 @@ package api
 import (
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -187,12 +186,18 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	connectors, err := parseMultiValueFilter(q, "connector", maxFilterValues)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	opts := invocations.ListOptions{
 		AgentName:   q.Get("agent"),
 		Status:      q.Get("status"),
 		TriggerName: q.Get("trigger"),
 		EventID:     q.Get("event"),
-		Connectors:  connectorFilter(q),
+		Connectors:  connectors,
 	}
 
 	// An invocation belongs to the agent that ran it. Naming one requires read
@@ -230,6 +235,12 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			// Clamp rather than reject: a smaller limit still returns correct
+			// results (the page slice already caps what the caller sees), and
+			// an unbounded limit makes the store materialize the whole table.
+			if n > maxInvocationLimit {
+				n = maxInvocationLimit
+			}
 			opts.Limit = n
 		}
 	}
@@ -267,24 +278,6 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 		"pageSize":    page.PageSize,
 		"totalPages":  page.TotalPages(len(list)),
 	})
-}
-
-// connectorFilter reads the connector query parameter into a list of connector
-// IDs. Both spellings clients reach for are accepted — repeated
-// (connector=c-1&connector=c-2) and comma-separated (connector=c-1,c-2) — because
-// a caller listing one channel and a caller listing twenty should not need two
-// endpoints. Blank entries are dropped, so "c-1,,c-2" reads as two connectors,
-// and no connector at all yields nil: the filter stays off.
-func connectorFilter(q url.Values) []string {
-	var out []string
-	for _, raw := range q["connector"] {
-		for _, part := range strings.Split(raw, ",") {
-			if v := strings.TrimSpace(part); v != "" {
-				out = append(out, v)
-			}
-		}
-	}
-	return out
 }
 
 func (s *Server) getInvocation(w http.ResponseWriter, r *http.Request, id string) {
