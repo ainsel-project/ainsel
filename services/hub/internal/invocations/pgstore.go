@@ -18,10 +18,12 @@ import (
 // context instead of blocking indefinitely on a stalled database.
 const queryTimeout = 5 * time.Second
 
-// PgStore is the Postgres-backed invocation history. Unlike MemoryStore it
-// survives hub restarts, so past events keep showing their invocations — and
-// therefore their conversation transcripts — until records age out via
-// Prune (see Retention, aligned with the conversation retention in tasklogs).
+// PgStore is the Postgres-backed invocation history, and the only invocation
+// store the hub ships. It survives hub restarts, so past events keep showing
+// their invocations — and therefore their conversation transcripts — until
+// records age out via Prune (see Retention, aligned with the conversation
+// retention in tasklogs). The in-memory ring buffer some tests use is not a
+// second store; see the invocationstest package.
 type PgStore struct {
 	pool *pgxpool.Pool
 }
@@ -40,11 +42,11 @@ func withTimeout() (context.Context, context.CancelFunc) {
 // Record inserts a new invocation row and returns the stored record with ID,
 // StartTime and Status populated. An insert failure is logged and the record
 // returned as-is: the invocation ID is referenced by the already-enqueued
-// task, so the enqueue path must not block or retry (matches MemoryStore,
-// which never fails).
+// task, so the enqueue path must not block or retry (the in-memory test fake,
+// which this mirrors, never fails).
 func (s *PgStore) Record(inv Invocation) Invocation {
 	if inv.ID == "" {
-		inv.ID = generateID()
+		inv.ID = NewID()
 	}
 	if inv.StartTime.IsZero() {
 		inv.StartTime = time.Now().UTC()

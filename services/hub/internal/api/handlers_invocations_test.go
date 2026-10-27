@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 )
 
 func TestInvocations_ListReturnsAll(t *testing.T) {
@@ -355,7 +356,7 @@ func (s *recordingInvocationStore) ListWithTotal(opts invocations.ListOptions) (
 func TestInvocations_ListFilterByConnector(t *testing.T) {
 	for _, query := range []string{"connector=c-1&connector=c-2", "connector=c-1,c-2"} {
 		s := testServer(t)
-		store := &recordingInvocationStore{Store: invocations.NewMemoryStore(100)}
+		store := &recordingInvocationStore{Store: invocationstest.New(100)}
 		s.invocations = store
 		s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
 

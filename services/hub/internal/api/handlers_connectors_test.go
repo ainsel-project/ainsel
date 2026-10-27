@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +28,7 @@ func testServer(t *testing.T, objects ...runtime.Object) *Server {
 		mux:                http.NewServeMux(),
 		ns:                 "test-ns",
 		observabilityCache: newPromCache(observabilityCacheTTL),
-		invocations:        invocations.NewMemoryStore(100),
+		invocations:        invocationstest.New(100),
 	}
 }
 

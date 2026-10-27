@@ -14,6 +14,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -200,7 +201,7 @@ func newTelemetryEnv(t *testing.T, admins ...string) *telemetryEnv {
 
 	taskLogStore := tasklogs.NewStore(pool)
 	eventStore := eventqueue.NewStore(pool)
-	invStore := invocations.NewMemoryStore(100)
+	invStore := invocationstest.New(100)
 	s.taskLogs = taskLogStore
 	s.eventQueue = eventStore
 	s.invocations = invStore
