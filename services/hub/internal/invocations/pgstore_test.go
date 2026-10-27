@@ -180,6 +180,18 @@ func TestPgStoreListFilterByConnectors(t *testing.T) {
 	}
 }
 
+func TestPgStoreListFilterByAgentNames(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	// Runs the shared AgentNames authorization contract (restricted scope,
+	// empty-means-unrestricted, scoped totals, AND composition) against the
+	// Postgres store — the same assertions as TestMemoryStoreListAgentNamesSemantics.
+	// Regression guard for issue #178: listFilterClause had no clause for
+	// opts.AgentNames, so a restricted telemetry scope could list rows for
+	// agents the caller cannot read.
+	assertListAgentNamesSemantics(t, s)
+}
+
 func TestPgStorePrune(t *testing.T) {
 	s, cleanup := newTestStore(t)
 	defer cleanup()

@@ -271,6 +271,17 @@ func listFilterClause(opts ListOptions) (string, []any) {
 	if opts.AgentName != "" {
 		add("agent_name = $%d", opts.AgentName)
 	}
+	if len(opts.AgentNames) > 0 {
+		// Authorization scope: restrict to the agents the caller may read.
+		// This is server-derived (see handlers_invocations.go), never
+		// request-supplied, so it is deliberately exempt from the request-level
+		// maxFilterValues cap — dropping scope values would return rows the
+		// caller may not see. The len guard is load-bearing: an unrestricted
+		// caller passes an empty slice, and an unguarded = ANY('{}') would
+		// match nothing instead of everything. Mirrors MemoryStore semantics;
+		// served by idx_invocations_agent (agent_name, start_time).
+		add("agent_name = ANY($%d)", opts.AgentNames)
+	}
 	if opts.Status != "" {
 		add("status = $%d", opts.Status)
 	}
