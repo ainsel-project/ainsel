@@ -7,7 +7,10 @@ WORKDIR /workspace
 
 # Build context = monorepo root. Copy only the modules we need and
 # initialize a focused go.work so Go resolves shared/api locally.
+# shared/testutil is test-only but is a `replace`d requirement of the
+# operator module, so its go.mod must exist for the module graph to load.
 COPY shared/api ./shared/api
+COPY shared/testutil ./shared/testutil
 COPY operators/event-gateway ./operators/event-gateway
 RUN go work init ./shared/api ./operators/event-gateway
 

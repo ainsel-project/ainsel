@@ -9,4 +9,5 @@ use (
 	./services/webhook-receiver
 	./shared/api
 	./shared/auth/oidc
+	./shared/testutil
 )

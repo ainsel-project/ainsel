@@ -1,0 +1,40 @@
+name: CI - shared/testutil
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shared/testutil/**'
+      - 'go.work'
+      - '.github/workflows/ci-shared-testutil.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'shared/testutil/**'
+      - 'go.work'
+      - '.github/workflows/ci-shared-testutil.yml'
+
+jobs:
+  ci:
+    name: Lint, Test, Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      # Every file in this module is behind `//go:build e2e`, so lint and vet
+      # must run with the e2e tag or they silently compile nothing at all.
+      - name: Lint
+        working-directory: shared/testutil
+        run: golangci-lint run --build-tags e2e ./...
+      - name: Test
+        working-directory: shared/testutil
+        run: go test -tags e2e ./...
+      - name: Build
+        working-directory: shared/testutil
+        run: go build -tags e2e ./...
