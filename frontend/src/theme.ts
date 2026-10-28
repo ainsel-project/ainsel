@@ -26,12 +26,6 @@ export function applyTheme(theme: Theme | null) {
   document.documentElement.style.colorScheme = resolved === 'light' ? 'light' : 'dark'
 }
 
-export function toggleTheme() {
-  const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
-  const next = current === 'dark' ? 'light' : 'dark'
-  setStoredTheme(next)
-}
-
 export function initTheme() {
   applyTheme(getStoredTheme())
 
