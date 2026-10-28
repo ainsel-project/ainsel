@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 )
 
 // assertListAgentNamesSemantics pins the ListOptions.AgentNames contract from
@@ -91,5 +92,5 @@ func assertListAgentNamesSemantics(t *testing.T, s invocations.Store) {
 // here; pinning it in the same helper as the Postgres run is what keeps the
 // two implementations honest.
 func TestMemoryStoreListAgentNamesSemantics(t *testing.T) {
-	assertListAgentNamesSemantics(t, invocations.NewMemoryStore(0))
+	assertListAgentNamesSemantics(t, invocationstest.New(0))
 }

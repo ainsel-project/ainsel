@@ -466,7 +466,7 @@ func TestInvocations_ConnectorCap(t *testing.T) {
 	}
 	for _, c := range cases {
 		s := testServer(t)
-		store := &recordingInvocationStore{Store: invocations.NewMemoryStore(100)}
+		store := &recordingInvocationStore{Store: invocationstest.New(100)}
 		s.invocations = store
 		s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
 
@@ -500,7 +500,7 @@ func TestInvocations_ConnectorCap(t *testing.T) {
 // unbounded one makes the store materialize the whole table.
 func TestInvocations_LimitClampedToMax(t *testing.T) {
 	s := testServer(t)
-	store := &recordingInvocationStore{Store: invocations.NewMemoryStore(100)}
+	store := &recordingInvocationStore{Store: invocationstest.New(100)}
 	s.invocations = store
 	s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
 
