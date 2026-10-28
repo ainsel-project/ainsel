@@ -377,11 +377,6 @@ func (s *Service) InboxChannelFor(ctx context.Context, agentName string) (string
 	return ch.ID, nil
 }
 
-// EntityChannel returns the channel provisioned for a registry entity, if any.
-func (s *Service) EntityChannel(ctx context.Context, kind Kind, entityRef string) (*Channel, error) {
-	return s.store.GetByEntity(ctx, kind, entityRef)
-}
-
 // Deliveries returns the transfers to perform for an event born in the given
 // channel, skipping agents the trigger registry already matched so an event is
 // delivered once per inbox whatever the number of paths into it.

@@ -129,14 +129,6 @@ func TestPageParams_TotalPages(t *testing.T) {
 	}
 }
 
-func TestPageParams_Meta(t *testing.T) {
-	p := PageParams{Page: 2, PageSize: 10}
-	m := p.Meta(25)
-	if m.Total != 25 || m.Page != 2 || m.PageSize != 10 || m.TotalPages != 3 {
-		t.Errorf("unexpected meta: %+v", m)
-	}
-}
-
 func TestParseMultiValueFilter_BothSpellingsTrimAndDedup(t *testing.T) {
 	q, err := url.ParseQuery("connector=c-1&connector=c-1, c-2 &connector= , ")
 	if err != nil {

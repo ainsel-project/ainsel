@@ -61,29 +61,9 @@ func (c *GroupCache) UserRole(_ context.Context, userID, groupID string) (GroupR
 	return roles[groupID], nil
 }
 
-// GroupIDs returns all group IDs the user belongs to (convenience method).
-func (c *GroupCache) GroupIDs(userID string) ([]string, error) {
-	roles, err := c.UserRoles(userID)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(roles))
-	for gid := range roles {
-		ids = append(ids, gid)
-	}
-	return ids, nil
-}
-
 // Invalidate removes a user's cached entry.
 func (c *GroupCache) Invalidate(userID string) {
 	c.mu.Lock()
 	delete(c.items, userID)
-	c.mu.Unlock()
-}
-
-// InvalidateAll clears the entire cache.
-func (c *GroupCache) InvalidateAll() {
-	c.mu.Lock()
-	c.items = make(map[string]cacheEntry)
 	c.mu.Unlock()
 }
