@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { EventView } from './EventView'
 import { renderWithProviders } from '../../../test/renderWithProviders'
@@ -131,6 +131,22 @@ function mockFetch() {
           new Response(JSON.stringify(sampleEvent), { status: 200 }),
         )
       }
+      if (url.includes('/connectors')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                { id: 'c-111', name: 'forgejo-main', signatureHeader: 'x-ainsel-signature', disabled: false },
+              ],
+              total: 1,
+              page: 1,
+              pageSize: 200,
+              totalPages: 1,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
       return Promise.resolve(new Response('{}', { status: 200 }))
     }),
   )
@@ -159,9 +175,48 @@ describe('EventView', () => {
 
   it('renders event metadata', async () => {
     renderEventView('/observability/events/evt-1234567890000000000')
-    // connector appears in the KPI figure and again as the journey's home channel
-    await waitFor(() => expect(screen.getAllByText('c-111').length).toBeGreaterThanOrEqual(2))
+    // connector name resolves in the KPI figure and again as the journey's home channel
+    await waitFor(() =>
+      expect(screen.getAllByText('forgejo-main').length).toBeGreaterThanOrEqual(2),
+    )
     expect(screen.getByText('MATCH')).toBeInTheDocument()
+  })
+
+  // #152 — the Connector KPI must show the connector's name, not its raw id.
+  it('shows the connector name in the Connector KPI', async () => {
+    renderEventView('/observability/events/evt-1234567890000000000')
+    const kpi = await waitFor(
+      () => screen.getByText('Connector').closest('.kpi') as HTMLElement,
+    )
+    await waitFor(() => expect(within(kpi).getByText('forgejo-main')).toBeInTheDocument())
+    expect(within(kpi).queryByText('c-111')).toBeNull()
+  })
+
+  // #152 — an unknown/deleted connector still renders its id, as a secondary
+  // fallback carrying the full id in `title`.
+  it('falls back to the connector id with a title when the name cannot be resolved', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/events/evt-')) {
+          return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
+        }
+        if (url.includes('/connectors')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }), {
+              status: 200,
+            }),
+          )
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+    renderEventView('/observability/events/evt-1234567890000000000')
+    const kpi = await waitFor(
+      () => screen.getByText('Connector').closest('.kpi') as HTMLElement,
+    )
+    const el = await waitFor(() => within(kpi).getByText('c-111'))
+    expect(el).toHaveAttribute('title', 'c-111')
   })
 
   it('renders the absolute timestamp in the When KPI', async () => {

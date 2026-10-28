@@ -1,4 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useMemo } from 'react'
 import { request } from './client'
 import type { Paginated } from './types'
 
@@ -75,6 +76,29 @@ export function useConnectors(params: ListConnectorsParams = {}) {
     queryFn: () => listConnectors(params),
     placeholderData: keepPreviousData,
   })
+}
+
+/**
+ * Single source of truth for connector id → display name. Every surface that
+ * renders a connector should resolve through this hook instead of building its
+ * own `connectorNameById` memo: one query, one map, one fallback rule
+ * (`name ?? id`). Resolution stays client-side on purpose — persisting a name
+ * onto stored events would freeze a snapshot of a value users can rename.
+ */
+export function useConnectorNames() {
+  const { data, isLoading, error } = useConnectors({ pageSize: 200 })
+  const connectorNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const c of data?.items ?? []) map.set(c.id, c.name)
+    return map
+  }, [data])
+  /** Passthrough label: the connector's name when known, the raw id otherwise. */
+  const connectorLabel = useCallback(
+    (id: string | undefined): string | undefined =>
+      id === undefined ? undefined : connectorNameById.get(id) ?? id,
+    [connectorNameById],
+  )
+  return { connectorNameById, connectorLabel, isLoading, error }
 }
 
 export function useConnector(id: string | undefined) {

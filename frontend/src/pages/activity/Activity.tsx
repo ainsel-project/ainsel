@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useUrlFilters } from '../../hooks/useUrlFilters'
 import { useEventsPage } from '../../api/events'
 import type { ActivityEntry, ActivityStatus, ListEventsParams } from '../../api/events'
-import { useConnectors } from '../../api/connectors'
+import { useConnectorNames } from '../../api/connectors'
 import { useTriggers } from '../../api/triggers'
 import { useAgents } from '../../api/agents'
 import { Pager } from '../../primitives/Pager'
@@ -86,7 +86,7 @@ export function Activity() {
     agent: filterAgent || undefined,
     outcome: filterOutcome ? (filterOutcome as ListEventsParams['outcome']) : undefined,
   })
-  const { data: connectorData } = useConnectors({ pageSize: 200 })
+  const { connectorNameById } = useConnectorNames()
   const { data: triggerData } = useTriggers({ pageSize: 200 })
   const { data: agentData } = useAgents({ pageSize: 200 })
 
@@ -125,14 +125,6 @@ export function Activity() {
       return next
     })
 
-  const connectorNameById = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const c of connectorData?.items ?? []) {
-      map.set(c.id, c.name)
-    }
-    return map
-  }, [connectorData])
-
   const triggerNameById = useMemo(() => {
     const map = new Map<string, string>()
     for (const t of triggerData?.items ?? []) {
@@ -151,10 +143,9 @@ export function Activity() {
 
   const connectorOptions = useMemo(
     () =>
-      (connectorData?.items ?? [])
-        .map((c) => ({ value: c.id, label: c.name }))
+      Array.from(connectorNameById, ([id, name]) => ({ value: id, label: name }))
         .sort((a, b) => a.label.localeCompare(b.label)),
-    [connectorData],
+    [connectorNameById],
   )
 
   const agentOptions = useMemo(
