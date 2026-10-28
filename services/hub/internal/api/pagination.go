@@ -144,23 +144,3 @@ func (p PageParams) TotalPages(total int) int {
 	}
 	return pages
 }
-
-// PageMeta is the pagination envelope embedded in every list response. The
-// fields mirror the request parameters so the frontend can build "next"/"prev"
-// links without tracking its own state.
-type PageMeta struct {
-	Total      int `json:"total"`
-	Page       int `json:"page"`
-	PageSize   int `json:"pageSize"`
-	TotalPages int `json:"totalPages"`
-}
-
-// Meta builds a PageMeta for a result set of size `total`.
-func (p PageParams) Meta(total int) PageMeta {
-	return PageMeta{
-		Total:      total,
-		Page:       p.Page,
-		PageSize:   p.PageSize,
-		TotalPages: p.TotalPages(total),
-	}
-}

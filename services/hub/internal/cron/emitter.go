@@ -77,7 +77,16 @@ type Emitter struct {
 	// names.
 	channels InboxResolver
 	transfer Transferer
+
+	// saveRunTimes is optional. Without it the emitter keeps last/next run
+	// times in memory only; with it each fire persists them so the API and UI
+	// do not serve stale values.
+	saveRunTimes runTimesSaver
 }
+
+// runTimesSaver persists a trigger's last and next run times after a fire.
+// Implemented by the triggers store via SetRunTimesSaver.
+type runTimesSaver func(ctx context.Context, id string, lastRun, nextRun time.Time) error
 
 // SetChannels wires the channel registry and the transfer step, so a scheduled
 // prompt is recorded as born in its agent's inbox and is carried along any
@@ -235,11 +244,19 @@ func (e *Emitter) fireEntry(en *entry) {
 	)
 
 	e.mu.Lock()
+	var nextRun time.Time
 	if cur, ok := e.entries[en.id]; ok {
 		cur.lastFired = fireTime
-		cur.nextRun = cur.schedule.Next(fireTime)
+		nextRun = cur.schedule.Next(fireTime)
+		cur.nextRun = nextRun
 	}
 	e.mu.Unlock()
+
+	if e.saveRunTimes != nil && !nextRun.IsZero() {
+		if err := e.saveRunTimes(context.Background(), en.id, fireTime, nextRun); err != nil {
+			slog.Warn("cron fire: could not persist run times", "trigger", en.id, "error", err)
+		}
+	}
 }
 
 // publish inserts the cron event into the events table and enqueues a task
@@ -328,6 +345,14 @@ func (e *Emitter) SetNow(fn func() time.Time) { e.now = fn }
 
 // SetFire replaces the publish function. For tests.
 func (e *Emitter) SetFire(fn fireFn) { e.fire = fn }
+
+// SetRunTimesSaver wires the persistence of last/next run times after each
+// fire, so the cron_triggers row reflects the emitter's schedule. Optional:
+// without it the run times stay in memory only, which is what unit tests
+// without a database rely on.
+func (e *Emitter) SetRunTimesSaver(fn func(ctx context.Context, id string, lastRun, nextRun time.Time) error) {
+	e.saveRunTimes = fn
+}
 
 // EntryCount returns the number of scheduled entries. For tests/inspection.
 func (e *Emitter) EntryCount() int {

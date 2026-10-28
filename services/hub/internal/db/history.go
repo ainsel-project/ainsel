@@ -232,10 +232,6 @@ type HistoryDriftError struct {
 	recorded migrationSet
 }
 
-// Versions returns the migration versions whose recorded checksum differs from
-// the file shipping now.
-func (e *HistoryDriftError) Versions() []int { return e.drift.Mismatched }
-
 func (e *HistoryDriftError) Error() string {
 	var b strings.Builder
 	b.WriteString("migration history drift: ")
