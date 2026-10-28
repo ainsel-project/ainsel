@@ -20,6 +20,9 @@ PostgreSQL instance (migration `0014_create_event_queue`):
 - The **`agent_tasks`** table stores one delivery per matched
   `(event, agent)` pair — the event fan-out.
 
+Column-by-column detail for these and every other hub table — indexes, defaults,
+retention — is in [Database Schema](database-schema.md).
+
 ```mermaid
 graph TD
     FORGE[Forgejo Instance] -->|webhook POST| FC[services/webhook-receiver]

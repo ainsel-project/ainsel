@@ -297,6 +297,7 @@ in the same style as the in-app Docs page.
 - [`docs/api-reference.md`](docs/api-reference.md) — hub REST API endpoints
 - [`docs/mcp.md`](docs/mcp.md) — AInsel MCP server: connect a local agent to control the platform
 - [`docs/event-schema.md`](docs/event-schema.md) — event envelope and trigger matching
+- [`docs/database-schema.md`](docs/database-schema.md) — the hub's Postgres tables: columns, indexes, retention, and what the migrations alone cannot tell you
 
 ## AI full disclosure
 
