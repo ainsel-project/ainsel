@@ -819,7 +819,8 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 	}
 	if req.Env != nil {
 		// Present-but-empty clears the overrides: the agent then runs on the
-		// referenced image's env alone.
+		// referenced image's env alone. agentEnvFromRequest returns nil for an
+		// empty input list, so create never writes an empty non-nil spec.Env.
 		spec.Env = res.agentEnv
 	}
 	if req.LLM != nil {
@@ -1078,6 +1079,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 	writeJSON(w, http.StatusOK, toSimpleAgentResponse(existing, imageDisplayName))
 }
+
 func (s *Server) deleteAgent(ctx context.Context, w http.ResponseWriter, name string) {
 	agent := &agentv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns},
