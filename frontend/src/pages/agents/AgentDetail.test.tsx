@@ -922,7 +922,7 @@ describe('AgentDetail', () => {
 
       await userEvent.click(screen.getByRole('tab', { name: /mem0/i }))
       await waitFor(() =>
-        expect(screen.getByText('agentName=doc-writer')).toBeInTheDocument(),
+        expect(screen.getByText('agentName=a1')).toBeInTheDocument(),
       )
     })
 
@@ -934,7 +934,7 @@ describe('AgentDetail', () => {
         { route: '/agents/a1?tab=plugin:mem0' },
       )
       await waitFor(() =>
-        expect(screen.getByText('agentName=doc-writer')).toBeInTheDocument(),
+        expect(screen.getByText('agentName=a1')).toBeInTheDocument(),
       )
     })
   })

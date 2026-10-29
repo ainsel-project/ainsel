@@ -270,7 +270,9 @@ export function AgentPanel({ agentName }) {
 Pages are the components your manifest names: the default export, or
 `pages[].component`. Slots pass props — `agent.panel` gets `{ agentName }`,
 `invocation.panel` gets `{ invocationId, agentName }`, and so on; the full
-catalogue is in the [reference](plugin-reference.md#slot-catalogue).
+catalogue is in the [reference](plugin-reference.md#slot-catalogue). In both
+agent slots, `agentName` is the agent's id (`metadata.name`), not its display
+name.
 
 **Primitives.** Render with the console's own components so your UI matches it
 and follows the theme: `Button`, `Panel`, `Tabs`, `Tag`, `Notice`, `Field`,
