@@ -22,12 +22,13 @@ linters:
         - "-ST1022"
         - "-ST1023"
     gosec:
+      # v1-style keys (exclude-generated, nosec) are intentionally absent:
+      # in golangci-lint v2 they are inert here, and an explicit
+      # config.global.nosec value is passed to gosec as a tag suffix, which
+      # breaks #nosec suppression. nosec suppression is on by default.
       excludes:
         - G706  # Log injection — false positive with slog structured logging
         - G705  # XSS — false positive with JSON API responses
-      config:
-        nosec: true
-        exclude_generated: true
 
 issues:
   max-issues-per-linter: 0
