@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -177,6 +178,16 @@ func (f *fakeAuthzStore) DeleteResourceGroup(_ context.Context, _, _ string) err
 func (f *fakeAuthzStore) SetResourcePublic(_ context.Context, _, _ string, _ bool) error { return nil }
 func (f *fakeAuthzStore) ListResourcesByGroups(_ context.Context, _ string, _ []string, _ bool) ([]string, error) {
 	return nil, nil
+}
+func (f *fakeAuthzStore) ListResourceGroupsByType(_ context.Context, resourceType string) (map[string]string, error) {
+	out := make(map[string]string)
+	prefix := resourceType + ":"
+	for key, groupID := range f.resources {
+		if name, found := strings.CutPrefix(key, prefix); found {
+			out[name] = groupID
+		}
+	}
+	return out, nil
 }
 func (f *fakeAuthzStore) CreateGroup(_ context.Context, id, name string) (*authz.Group, error) {
 	g := authz.Group{ID: id, Name: name, CreatedAt: time.Now(), UpdatedAt: time.Now()}

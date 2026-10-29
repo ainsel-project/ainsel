@@ -60,6 +60,7 @@ type authzStore interface {
 	DeleteResourceGroup(ctx context.Context, resourceType, resourceName string) error
 	SetResourcePublic(ctx context.Context, resourceType, resourceName string, public bool) error
 	ListResourcesByGroups(ctx context.Context, resourceType string, groupIDs []string, includePublic bool) ([]string, error)
+	ListResourceGroupsByType(ctx context.Context, resourceType string) (map[string]string, error)
 }
 
 // authEventsStore is the interface satisfied by *auditevents.Store and test
@@ -627,4 +628,18 @@ func toAccessSet(names []string) map[string]bool {
 		set[n] = true
 	}
 	return set
+}
+
+// intersectNames keeps the entries of names that also appear in subset,
+// preserving the order of names. Used to narrow an already authz-scoped name
+// list by an explicit group filter without ever widening it.
+func intersectNames(names, subset []string) []string {
+	set := toAccessSet(subset)
+	var out []string
+	for _, n := range names {
+		if set[n] {
+			out = append(out, n)
+		}
+	}
+	return out
 }

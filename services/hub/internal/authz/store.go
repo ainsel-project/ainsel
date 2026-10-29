@@ -563,3 +563,25 @@ func (s *Store) ListResourcesByGroups(ctx context.Context, resourceType string, 
 	}
 	return names, rows.Err()
 }
+
+// ListResourceGroupsByType returns a map of resource name → group ID for every
+// resource of the given type. Batched on purpose: list endpoints enrich their
+// rows with group membership without issuing one GetResourceGroup per row.
+func (s *Store) ListResourceGroupsByType(ctx context.Context, resourceType string) (map[string]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT resource_name, group_id FROM resource_groups WHERE resource_type = $1
+	`, resourceType)
+	if err != nil {
+		return nil, fmt.Errorf("authz.ListResourceGroupsByType: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var name, groupID string
+		if err := rows.Scan(&name, &groupID); err != nil {
+			return nil, fmt.Errorf("authz.ListResourceGroupsByType: %w", err)
+		}
+		out[name] = groupID
+	}
+	return out, rows.Err()
+}

@@ -64,6 +64,10 @@ export type AgentSummary = {
   /** When an expiring pause ends (RFC3339). Absent for a running agent and
    *  for an indefinite pause, which must be resumed explicitly. */
   pausedUntil?: string
+  /** Authz group this agent belongs to (list endpoint only). The roster
+   *  shows groupName; the id is the fallback when the name is unavailable. */
+  groupId?: string
+  groupName?: string
 }
 
 /**
@@ -107,6 +111,11 @@ export type AgentRequest = Omit<
 export type ListAgentsParams = {
   page?: number
   pageSize?: number
+  /** Case-insensitive substring match on agent name/description, applied
+   *  server-side before pagination. */
+  search?: string
+  /** Restrict to agents of this authz group. */
+  groupId?: string
 }
 
 export function listAgents(params: ListAgentsParams = {}) {
