@@ -188,9 +188,11 @@ describe('Dashboard', () => {
     // The stretched link makes the whole row open the event detail.
     const rowLink = await screen.findByRole('link', { name: 'Open event e1' })
     expect(rowLink).toHaveAttribute('href', '/observability/events/e1')
-    // Nested entity links stay independently clickable.
-    const connLink = await screen.findByRole('link', { name: 'c1' })
-    expect(connLink).toHaveAttribute('href', '/connectors/c1')
+    // Nested entity links stay independently clickable. The connector link
+    // carries the resolved connector name (#152); the register also links to
+    // the same detail page, so check the stream's link among the matches.
+    const connLinks = await screen.findAllByRole('link', { name: 'insel-monorepo' })
+    expect(connLinks.map((l) => l.getAttribute('href'))).toContain('/connectors/c1')
     const agentLink = await screen.findByRole('link', { name: 'doc-writer' })
     expect(agentLink).toHaveAttribute('href', '/agents/doc-writer')
   })

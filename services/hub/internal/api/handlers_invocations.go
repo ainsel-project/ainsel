@@ -198,16 +198,24 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	connectors, err := parseMultiValueFilter(q, "connector", maxFilterValues)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	opts := invocations.ListOptions{
 		AgentName:   q.Get("agent"),
 		Status:      q.Get("status"),
 		TriggerName: q.Get("trigger"),
 		EventID:     q.Get("event"),
+		Connectors:  connectors,
 	}
 
 	// An invocation belongs to the agent that ran it. Naming one requires read
 	// access to that agent; an unfiltered query is restricted to the agents the
-	// caller may read. The other filters narrow within that scope.
+	// caller may read. The other filters — connector included — narrow within that
+	// scope and never widen it.
 	scope := s.telemetryScopeFor(r)
 	if opts.AgentName != "" {
 		if !s.requireRead(w, r, "agent", opts.AgentName) {
@@ -239,6 +247,12 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			// Clamp rather than reject: a smaller limit still returns correct
+			// results (the page slice already caps what the caller sees), and
+			// an unbounded limit makes the store materialize the whole table.
+			if n > maxInvocationLimit {
+				n = maxInvocationLimit
+			}
 			opts.Limit = n
 		}
 	}

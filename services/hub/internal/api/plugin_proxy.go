@@ -181,9 +181,6 @@ func (s *Server) userPluginContext(r *http.Request, u *oidc.User) (pluginContext
 func (s *Server) getPluginProxyTransport() http.RoundTripper {
 	// Once: concurrent first proxy requests must not race on the field.
 	s.pluginProxyOnce.Do(func() {
-		if s.pluginProxyTransport != nil {
-			return // set by SetPluginProxyTransport
-		}
 		s.pluginProxyTransport = &http.Transport{
 			Proxy: nil,
 			DialContext: (&net.Dialer{
@@ -194,10 +191,4 @@ func (s *Server) getPluginProxyTransport() http.RoundTripper {
 		}
 	})
 	return s.pluginProxyTransport
-}
-
-// SetPluginProxyTransport sets the HTTP transport used by the plugin proxy.
-// Used by tests and production to configure custom transport behavior.
-func (s *Server) SetPluginProxyTransport(rt http.RoundTripper) {
-	s.pluginProxyTransport = rt
 }

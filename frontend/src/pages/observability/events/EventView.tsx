@@ -11,6 +11,7 @@ import {
   type InvocationEntry,
 } from '../../../api/invocations'
 import { EventJourney } from '../../../components/journey/EventJourney'
+import { ConnectorLabel } from '../../../components/ConnectorLabel'
 import { EntityLink } from '../../../components/EntityLink'
 import { agentPath, connectorPath } from '../../../components/entityPaths'
 import { useAgents } from '../../../api/agents'
@@ -235,12 +236,16 @@ export function EventView() {
                   <span className="label">Connector</span>
                 </div>
                 <div className="figure" style={{ fontSize: 18 }}>
-                  <EntityLink
-                    id={data.connector}
-                    known={connectorIds}
-                    label={data.connector ?? '—'}
-                    path={connectorPath}
-                  />
+                  {data.connector ? (
+                    <EntityLink
+                      id={data.connector}
+                      known={connectorIds}
+                      label={<ConnectorLabel id={data.connector} />}
+                      path={connectorPath}
+                    />
+                  ) : (
+                    '—'
+                  )}
                 </div>
               </div>
               <div className="kpi">

@@ -1311,3 +1311,69 @@ func TestAgents_MCPScoped(t *testing.T) {
 		t.Fatalf("expected 400 for unknown mcp server on create, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- Persona patch-semantics characterization tests ---
+//
+// These pin the create-vs-update persona delta the shared assembler relies
+// on: create applies the persona object even when its ID is empty, update
+// only applies it when the ID is non-empty. Note that AgentPersona is a
+// value type, so create's "empty persona object is applied" case is
+// indistinguishable from unset both on the CR and in responses — pinned
+// here so a future refactor cannot silently change the observable half.
+
+func TestAgents_Create_EmptyPersonaObjectIsNoOp(t *testing.T) {
+	img := testAgentImage("img-persona")
+	s := testServer(t, img)
+	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
+	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
+
+	created := createTestAgent(t, s, SimpleAgentCreateRequest{
+		Name:     "Empty Persona",
+		ImageRef: AgentImageRefInfo{Name: "img-persona"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		Persona:  &AgentPersonaInfo{},
+	})
+	var a agentv1alpha1.Agent
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: created.ID, Namespace: s.ns}, &a); err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if a.Spec.Persona.ID != "" {
+		t.Errorf("create with persona:{} must leave spec.persona.id empty, got %q", a.Spec.Persona.ID)
+	}
+	if resp := getTestAgent(t, s, created.ID); resp.Persona != nil {
+		t.Errorf("create with persona:{} must not surface a persona in the response, got %+v", resp.Persona)
+	}
+}
+
+func TestAgents_Update_EmptyPersonaObjectKeepsExisting(t *testing.T) {
+	img := testAgentImage("img-persona2")
+	s := testServer(t, img)
+	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
+	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
+
+	created := createTestAgent(t, s, SimpleAgentCreateRequest{
+		Name:     "Persona Agent",
+		ImageRef: AgentImageRefInfo{Name: "img-persona2"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		Persona:  &AgentPersonaInfo{ID: "persona-keep"},
+	})
+
+	// An update carrying persona:{} (present but empty ID) must not clear
+	// the stored persona — update only applies persona with a non-empty ID.
+	updateReq := SimpleAgentUpdateRequest{Persona: &AgentPersonaInfo{}}
+	ubody, _ := json.Marshal(updateReq)
+	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
+	ureq.Header.Set("Content-Type", "application/json")
+	urec := httptest.NewRecorder()
+	s.mux.ServeHTTP(urec, ureq)
+	if urec.Code != http.StatusOK {
+		t.Fatalf("update: expected 200, got %d: %s", urec.Code, urec.Body.String())
+	}
+	var a agentv1alpha1.Agent
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: created.ID, Namespace: s.ns}, &a); err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if a.Spec.Persona.ID != "persona-keep" {
+		t.Errorf("update with persona:{} must keep the existing persona, got %q", a.Spec.Persona.ID)
+	}
+}

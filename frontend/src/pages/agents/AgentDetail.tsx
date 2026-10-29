@@ -214,7 +214,7 @@ export function AgentDetail() {
           {data && tab.startsWith('plugin:') ? (
             <PluginSlot
               slot="agent.panel"
-              props={{ agentName: data.name }}
+              props={{ agentName: data.id }}
               pluginId={tab.substring('plugin:'.length)}
             />
           ) : null}

@@ -4,6 +4,7 @@ import { useRecentEvents } from '../../api/events'
 import type { ActivityEntry } from '../../api/events'
 import { useAgents } from '../../api/agents'
 import { useConnectors } from '../../api/connectors'
+import { ConnectorLabel } from '../../components/ConnectorLabel'
 import { EntityLink } from '../../components/EntityLink'
 import { agentPath, connectorPath, eventPath } from '../../components/entityPaths'
 import { Panel } from '../../primitives/Panel'
@@ -62,7 +63,7 @@ export function RecentActivityStream() {
                     <EntityLink
                       id={e.connector}
                       known={connectorIds}
-                      label={e.connector}
+                      label={<ConnectorLabel id={e.connector} />}
                       path={connectorPath}
                       stopPropagation
                     />

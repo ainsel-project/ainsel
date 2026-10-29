@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import type { ReactNode } from 'react'
 
 /**
  * Renders an entity name as a link to its detail page — but only when the
@@ -18,7 +19,7 @@ export function EntityLink({
 }: {
   id?: string
   known?: ReadonlySet<string>
-  label: string
+  label: ReactNode
   path: (id: string) => string
   stopPropagation?: boolean
 }) {

@@ -23,6 +23,7 @@ updates:
       - /services/webhook-receiver
       - /shared/api
       - /shared/auth/oidc
+      - /shared/testutil
     schedule:
       interval: weekly
     target-branch: develop

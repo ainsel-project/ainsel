@@ -8,6 +8,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 )
 
 // fakeEventQueue implements the two narrow *eventqueue.Store surfaces
@@ -61,7 +62,7 @@ func retryTestTask() *eventqueue.Task {
 // what the nack handler left behind when the first attempt gave up.
 func retrySeedStore(t *testing.T) invocations.Store {
 	t.Helper()
-	store := invocations.NewMemoryStore(100)
+	store := invocationstest.New(100)
 	store.Record(invocations.Invocation{
 		ID:          "inv-first",
 		AgentName:   "a-b626d516",
@@ -207,7 +208,7 @@ func TestRecordRetryInvocationJobModeSkipsFirstFetch(t *testing.T) {
 // A second fetch while the retried attempt is still running must not record a
 // third invocation — the terminal check keeps the repoint idempotent.
 func TestRecordRetryInvocationJobModeKeepsIdWhenStillRunning(t *testing.T) {
-	rec := invocations.NewMemoryStore(100)
+	rec := invocationstest.New(100)
 	rec.Record(invocations.Invocation{ID: "inv-first", AgentName: "a-b626d516", TriggerName: "t-2a229c25", EventID: "evt_test1"})
 	eq := &fakeEventQueue{}
 	task := retryTestTask()
@@ -224,7 +225,7 @@ func TestRecordRetryInvocationJobModeKeepsIdWhenStillRunning(t *testing.T) {
 func TestRecordRetryInvocationKeepsIdWhenRowMissing(t *testing.T) {
 	// The capacity-pruned case: no invocation row exists for inv-first, so
 	// there is nothing meaningful to supersede — keep the id the task has.
-	rec := invocations.NewMemoryStore(100)
+	rec := invocationstest.New(100)
 	eq := &fakeEventQueue{connectorMissing: true}
 	task := retryTestTask()
 
@@ -237,7 +238,7 @@ func TestRecordRetryInvocationKeepsIdWhenRowMissing(t *testing.T) {
 }
 
 func TestRecordRetryInvocationKeepsIdWhenStillRunning(t *testing.T) {
-	rec := invocations.NewMemoryStore(100)
+	rec := invocationstest.New(100)
 	rec.Record(invocations.Invocation{ID: "inv-first", AgentName: "a-b626d516", TriggerName: "t-2a229c25", EventID: "evt_test1"})
 	eq := &fakeEventQueue{}
 	task := retryTestTask()
@@ -269,7 +270,7 @@ func TestRecordRetryInvocationConnectorLookupError(t *testing.T) {
 func TestRecordRetryInvocationTaskWithoutInvocation(t *testing.T) {
 	// Tasks enqueued without a recorded invocation (channel transfers, chat)
 	// get their first one on a retry claim.
-	rec := invocations.NewMemoryStore(100)
+	rec := invocationstest.New(100)
 	eq := &fakeEventQueue{connectors: map[string]string{"evt_test1": "chat"}}
 	task := retryTestTask()
 	task.InvocationID = ""

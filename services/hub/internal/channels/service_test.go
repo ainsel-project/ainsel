@@ -302,7 +302,7 @@ func TestProvisioningHelpers(t *testing.T) {
 	if inbox == id {
 		t.Error("an agent inbox and a connector stream with the same ref must differ")
 	}
-	ch, err := svc.EntityChannel(ctx, KindAgent, "agent-"+label)
+	ch, err := svc.store.GetByEntity(ctx, KindAgent, "agent-"+label)
 	if err != nil || ch == nil {
 		t.Fatalf("entity channel: %v", err)
 	}

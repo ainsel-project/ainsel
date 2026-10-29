@@ -58,6 +58,10 @@ Plugins can contribute to the following extension points (slots):
 | `agent.panel` | `{ agentName: string }` |
 | `persona.panel` | `{ personaId: string }` |
 
+In both agent slots, `agentName` is the agent's **id** (its resource
+`metadata.name`), not the display name — fetch the agent by id to get the
+display name.
+
 ## Usage
 
 ### Accessing Context

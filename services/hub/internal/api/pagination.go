@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // Pagination defaults applied across collection endpoints. Keeping the bounds
@@ -13,6 +14,52 @@ const (
 	defaultPageSize = 50
 	maxPageSize     = 200
 )
+
+// Input bounds for multi-value filters and list limits. Unlike page sizes,
+// which are clamped (a smaller page is still correct), an oversized filter
+// set is rejected: silently dropping filter values would return rows the
+// caller never asked for. See parseMultiValueFilter.
+const (
+	// maxFilterValues caps how many unique values a single multi-value
+	// filter parameter (e.g. connector=) may contribute per request.
+	maxFilterValues = 50
+	// maxInvocationLimit clamps the invocations `limit` parameter. Clamping
+	// is safe here — a smaller limit still returns correct results — and
+	// matches the max `limit` already documented for event lists.
+	maxInvocationLimit = 500
+)
+
+// parseMultiValueFilter reads a multi-value query parameter into a list of
+// values. Both spellings are accepted — repeated (name=a&name=b) and
+// comma-separated (name=a,b) — and both mean the same set. Entries are
+// trimmed, blanks are dropped, and duplicates are removed while preserving
+// first-seen order, so the result has true set semantics. The cap is applied
+// to the deduplicated set, so repeated spellings cannot smuggle a request
+// past it. More than max unique values returns an error so the handler can
+// respond with 400 rather than reinterpret the request. A parameter that is
+// absent, or present only with blanks, yields a nil slice: the filter stays
+// off.
+func parseMultiValueFilter(q url.Values, name string, max int) ([]string, error) {
+	var out []string
+	seen := map[string]struct{}{}
+	for _, raw := range q[name] {
+		for _, part := range strings.Split(raw, ",") {
+			v := strings.TrimSpace(part)
+			if v == "" {
+				continue
+			}
+			if _, dup := seen[v]; dup {
+				continue
+			}
+			seen[v] = struct{}{}
+			out = append(out, v)
+			if len(out) > max {
+				return nil, fmt.Errorf("too many %s values (%d): at most %d allowed", name, len(out), max)
+			}
+		}
+	}
+	return out, nil
+}
 
 // PageParams is the parsed `page` / `pageSize` query string for a list
 // endpoint. Defaults are applied by ParsePageParams, so handlers can use the
@@ -96,24 +143,4 @@ func (p PageParams) TotalPages(total int) int {
 		pages++
 	}
 	return pages
-}
-
-// PageMeta is the pagination envelope embedded in every list response. The
-// fields mirror the request parameters so the frontend can build "next"/"prev"
-// links without tracking its own state.
-type PageMeta struct {
-	Total      int `json:"total"`
-	Page       int `json:"page"`
-	PageSize   int `json:"pageSize"`
-	TotalPages int `json:"totalPages"`
-}
-
-// Meta builds a PageMeta for a result set of size `total`.
-func (p PageParams) Meta(total int) PageMeta {
-	return PageMeta{
-		Total:      total,
-		Page:       p.Page,
-		PageSize:   p.PageSize,
-		TotalPages: p.TotalPages(total),
-	}
 }

@@ -6,6 +6,7 @@ on:
     paths:
       - 'operators/event-gateway/**'
       - 'shared/api/**'
+      - 'shared/testutil/**'
       - 'go.work'
       - '.github/workflows/ci-operators-event-gateway.yml'
   pull_request:
@@ -14,6 +15,7 @@ on:
     paths:
       - 'operators/event-gateway/**'
       - 'shared/api/**'
+      - 'shared/testutil/**'
       - 'go.work'
       - '.github/workflows/ci-operators-event-gateway.yml'
 
@@ -43,3 +45,8 @@ jobs:
       - name: Build
         working-directory: operators/event-gateway
         run: make build
+      # The e2e suites are behind `//go:build e2e` and invisible to `go test ./...`;
+      # this is the only compile check for operators/*/test/e2e (see shared/testutil).
+      - name: Compile e2e-tagged code
+        working-directory: operators/event-gateway
+        run: go vet -tags e2e ./...

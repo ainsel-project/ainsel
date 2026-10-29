@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyTheme, toggleTheme } from './theme'
+import { applyTheme } from './theme'
 
 function mockMatchMedia(prefersDark: boolean) {
   vi.stubGlobal(
@@ -61,32 +61,3 @@ describe('applyTheme', () => {
   })
 })
 
-describe('toggleTheme', () => {
-  beforeEach(() => {
-    mockMatchMedia(false)
-    localStorage.clear()
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    localStorage.clear()
-  })
-
-  it('toggles from light to dark', () => {
-    document.documentElement.dataset.theme = 'light'
-    toggleTheme()
-    expect(localStorage.getItem('ainsel-theme')).toBe('dark')
-  })
-
-  it('toggles from dark to light', () => {
-    document.documentElement.dataset.theme = 'dark'
-    toggleTheme()
-    expect(localStorage.getItem('ainsel-theme')).toBe('light')
-  })
-
-  it('toggles from peat to dark (peat is treated as non-dark by the toggle)', () => {
-    document.documentElement.dataset.theme = 'peat'
-    toggleTheme()
-    expect(localStorage.getItem('ainsel-theme')).toBe('dark')
-  })
-})

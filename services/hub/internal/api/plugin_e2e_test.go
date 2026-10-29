@@ -40,7 +40,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
-	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
@@ -126,7 +126,7 @@ func newPluginEndToEnd(t *testing.T) *pluginEndToEnd {
 
 	// The production constructor, so the route table is the one a real hub
 	// serves rather than a test's shortlist.
-	s := New(newFakeClient(plugin), "test-ns", ConnectorConfig{}, nil, invocations.NewMemoryStore(100), nil, nil, nil, &Config{})
+	s := New(newFakeClient(plugin), "test-ns", ConnectorConfig{}, nil, invocationstest.New(100), nil, nil, nil, &Config{})
 
 	store := newFakeAuthzStore()
 	ctx := context.Background()
