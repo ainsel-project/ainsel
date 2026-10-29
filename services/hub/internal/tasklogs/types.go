@@ -15,7 +15,7 @@ const (
 )
 
 // ValidLevel reports whether level is one of the four values above. The
-// task_logs_level_check constraint (migration 0031) rejects anything else at
+// task_logs_level_check constraint (migration 0032) rejects anything else at
 // the database; the internal ingest handler uses this to turn a bad agent
 // payload into a 400 instead of a failed insert.
 func ValidLevel(level string) bool {
