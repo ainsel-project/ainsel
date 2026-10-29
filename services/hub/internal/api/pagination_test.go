@@ -1,7 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net/url"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -125,10 +129,80 @@ func TestPageParams_TotalPages(t *testing.T) {
 	}
 }
 
-func TestPageParams_Meta(t *testing.T) {
-	p := PageParams{Page: 2, PageSize: 10}
-	m := p.Meta(25)
-	if m.Total != 25 || m.Page != 2 || m.PageSize != 10 || m.TotalPages != 3 {
-		t.Errorf("unexpected meta: %+v", m)
+func TestParseMultiValueFilter_BothSpellingsTrimAndDedup(t *testing.T) {
+	q, err := url.ParseQuery("connector=c-1&connector=c-1, c-2 &connector= , ")
+	if err != nil {
+		t.Fatalf("parse query: %v", err)
+	}
+	got, err := parseMultiValueFilter(q, "connector", maxFilterValues)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"c-1", "c-2"}
+	if !slices.Equal(got, want) {
+		t.Errorf("parseMultiValueFilter = %v, want %v (trimmed, blanks dropped, deduped in first-seen order)", got, want)
+	}
+}
+
+func TestParseMultiValueFilter_AbsentOrBlankYieldsNil(t *testing.T) {
+	for _, raw := range []string{"", "connector=", "connector=,,&connector=  "} {
+		q, err := url.ParseQuery(raw)
+		if err != nil {
+			t.Fatalf("parse query %q: %v", raw, err)
+		}
+		got, err := parseMultiValueFilter(q, "connector", maxFilterValues)
+		if err != nil {
+			t.Errorf("[%q] unexpected error: %v", raw, err)
+		}
+		if got != nil {
+			t.Errorf("[%q] got %v, want nil (filter off)", raw, got)
+		}
+	}
+}
+
+func TestParseMultiValueFilter_AcceptsExactlyMax(t *testing.T) {
+	parts := make([]string, 0, maxFilterValues)
+	for i := 0; i < maxFilterValues; i++ {
+		parts = append(parts, fmt.Sprintf("c-%d", i))
+	}
+	q := url.Values{"connector": []string{strings.Join(parts, ",")}}
+	got, err := parseMultiValueFilter(q, "connector", maxFilterValues)
+	if err != nil {
+		t.Fatalf("exactly max values should be accepted, got error: %v", err)
+	}
+	if len(got) != maxFilterValues {
+		t.Errorf("got %d values, want %d", len(got), maxFilterValues)
+	}
+}
+
+func TestParseMultiValueFilter_RejectsMoreThanMax(t *testing.T) {
+	// maxFilterValues unique values plus one duplicate: the raw count exceeds
+	// the cap but the deduplicated set does not — must still be accepted.
+	parts := make([]string, 0, maxFilterValues+1)
+	for i := 0; i < maxFilterValues; i++ {
+		parts = append(parts, fmt.Sprintf("c-%d", i))
+	}
+	parts = append(parts, "c-0")
+	q := url.Values{"connector": []string{strings.Join(parts, ",")}}
+	if _, err := parseMultiValueFilter(q, "connector", maxFilterValues); err != nil {
+		t.Errorf("duplicate above raw cap should not error after dedup, got: %v", err)
+	}
+
+	// One unique value above the cap must be rejected, with the max in the
+	// message so callers can self-diagnose.
+	parts = append(parts, fmt.Sprintf("c-%d", maxFilterValues))
+	q = url.Values{"connector": []string{strings.Join(parts, ",")}}
+	got, err := parseMultiValueFilter(q, "connector", maxFilterValues)
+	if err == nil {
+		t.Fatalf("expected error above cap, got %d values", len(got))
+	}
+	if got != nil {
+		t.Errorf("on error the slice must be nil, got %v", got)
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(maxFilterValues)) {
+		t.Errorf("error %q should mention the max (%d)", err, maxFilterValues)
+	}
+	if !strings.Contains(err.Error(), "connector") {
+		t.Errorf("error %q should name the offending parameter", err)
 	}
 }

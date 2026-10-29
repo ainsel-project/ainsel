@@ -22,12 +22,39 @@ export type GroupDetail = {
   members: GroupMember[]
 }
 
+export type GroupResourceType =
+  | 'agent'
+  | 'agent-image'
+  | 'connector'
+  | 'persona'
+  | 'skill'
+  | 'channel'
+  | 'mcp-server'
+  | 'trigger'
+  | 'cron-trigger'
+
+export type GroupResourceItem = {
+  type: GroupResourceType
+  id: string
+  name: string
+  public: boolean
+  agentRef?: string
+}
+
+export type GroupResources = {
+  items: GroupResourceItem[]
+}
+
 export function listGroups() {
   return request<Group[]>('/groups')
 }
 
 export function getGroup(id: string) {
   return request<GroupDetail>(`/groups/${encodeURIComponent(id)}`)
+}
+
+export function getGroupResources(id: string) {
+  return request<GroupResources>(`/groups/${encodeURIComponent(id)}/resources`)
 }
 
 export function createGroup(body: { name: string; description?: string }) {
@@ -64,6 +91,16 @@ export function useGroup(id: string | undefined) {
   return useQuery({
     queryKey: ['groups', id],
     queryFn: () => getGroup(id!),
+    enabled: id !== undefined,
+  })
+}
+
+// Lazy by design: only GroupDetail mounts this, so the fan-out across the
+// per-type stores never runs for the group list page.
+export function useGroupResources(id: string | undefined) {
+  return useQuery({
+    queryKey: ['groups', id, 'resources'],
+    queryFn: () => getGroupResources(id!),
     enabled: id !== undefined,
   })
 }

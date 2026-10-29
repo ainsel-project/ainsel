@@ -182,6 +182,10 @@ curl "https://ainsel.example.com/api/v1/agents?includePublic=true" \
 
 Admins see all resources regardless of group membership.
 
+A single group's resources are browsable at `GET /api/v1/groups/{id}/resources`
+— the same visibility rules apply, so a non-member sees only what the list
+endpoints would show them.
+
 ## Chat Sessions
 
 Chat sessions are **personal** — they belong to the user who created them.

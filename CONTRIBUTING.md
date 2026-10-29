@@ -83,6 +83,10 @@ This is a monorepo organized by *role*, not by language:
   - `operators/event-gateway/` — reconciles `WebhookConnector` CRDs.
 - `shared/api/` — Go module imported by every Go service for the canonical
   event schema and filter engine.
+- `shared/testutil/` — Go module with the kubebuilder-derived e2e helpers
+  (Kind/CertManager setup, command runner) shared by both operators'
+  `test/e2e/` suites. Test-only — its Ginkgo dependency stays out of the
+  runtime modules.
 - `pi/` — pi-native agent runtime.
 - `chart/` — single Helm chart that deploys the whole platform.
 - `docs/` — architecture, CRD reference, deployment guide, conventions.

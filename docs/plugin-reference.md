@@ -165,6 +165,11 @@ the host and are typed as `SlotProps` in the SDK.
 | `agent.panel` | `{ agentName: string }` | under one agent |
 | `persona.panel` | `{ personaId: string }` | under one persona |
 
+In both agent slots, `agentName` is the agent's **id** (its resource
+`metadata.name`, e.g. `a-5950e4c3`) — not the display name. Display names are
+not guaranteed unique and no API resolves them; fetch the agent by id via the
+`hub` client if you need the display name.
+
 ```js
 // ui.slots: { "agent.panel": "AgentPanel" }
 export function AgentPanel({ agentName }) {

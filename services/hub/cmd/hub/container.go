@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/api"
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
@@ -167,7 +168,8 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 	// Invocation history is persisted in Postgres so it survives hub
 	// restarts — the event detail view reaches conversation transcripts
 	// through invocation records, and an in-memory buffer lost them on
-	// every restart. The memory store remains the fallback for tests.
+	// every restart. What is left of the in-memory store lives in the
+	// invocationstest package as a test fake, not as a second supported store.
 	c.invStore = invocations.NewPgStore(pool)
 	slog.Info("invocation history store ready", "backend", "postgres", "retention", invocations.Retention)
 	c.cronEmitter = cron.New(c.eventQueue, c.invStore)
@@ -182,6 +184,11 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 		channels.NewKubeRegistry(c.apiClient, cfg.namespace))
 	c.transfer = channels.NewTransfer(c.channels, c.eventQueue, c.invStore)
 	c.cronEmitter.SetChannels(c.channels, c.transfer)
+	// Persist last/next run times on every fire so the cron-trigger API and the
+	// schedules UI serve live values instead of creation-time ones.
+	c.cronEmitter.SetRunTimesSaver(func(ctx context.Context, id string, lastRun, nextRun time.Time) error {
+		return c.triggerStore.UpdateCronTriggerRunTimes(ctx, id, &lastRun, &nextRun)
+	})
 
 	// --- Service layer ---
 	c.mcpSvc = wireMCP(pool)

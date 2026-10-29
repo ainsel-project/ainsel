@@ -10,6 +10,7 @@
 - [Access Control](access-control)
 - [API Reference](api-reference)
 - [CRD Reference](crd-reference)
+- [Database Schema](database-schema)
 - [Event Schema](event-schema)
 - [MCP Server](mcp)
 - [Plugin Reference](plugin-reference)

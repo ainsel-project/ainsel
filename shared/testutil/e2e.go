@@ -1,8 +1,8 @@
-// Package utils provides helper functions shared by the agent operator's
-// integration test suites: running commands, installing and uninstalling
+// Package testutil provides helper functions shared by the operator
+// end-to-end test suites: running commands, installing and uninstalling
 // cert-manager, loading images into a kind cluster, and locating the
 // project directory.
-package utils
+package testutil
 
 import (
 	"bufio"

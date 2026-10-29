@@ -1,9 +1,13 @@
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   isIdle,
   useAgents
 } from '../../api/agents'
 import type { AgentSummary } from '../../api/agents'
+import { useGroups } from '../../api/groups'
+import { Input } from '../../primitives/Input'
+import { Select } from '../../primitives/Select'
 import { Button } from '../../primitives/Button'
 import { Dot } from '../../primitives/Dot'
 import { Pager } from '../../primitives/Pager'
@@ -22,8 +26,60 @@ export function AgentList() {
   const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeParam)
     ? pageSizeParam
     : 20
+  const searchParam = params.get('search') ?? ''
+  const groupParam = params.get('groupId') ?? ''
 
-  const { data, isLoading, error } = useAgents({ page, pageSize })
+  const [searchInput, setSearchInput] = useState(searchParam)
+
+  // Sync local input when the URL changes externally (e.g. back/forward).
+  useEffect(() => {
+    setSearchInput(searchParam)
+  }, [searchParam])
+
+  // Debounce search input → URL param. Filters drop `page` so the view
+  // returns to page 1 of the filtered set instead of stranding the caller
+  // on a page that may no longer exist.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== searchParam) {
+        setParams((prev) => {
+          const next = new URLSearchParams(prev)
+          if (searchInput) {
+            next.set('search', searchInput)
+          } else {
+            next.delete('search')
+          }
+          next.delete('page')
+          return next
+        }, { replace: true })
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput])
+
+  const setGroup = (v: string) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (v) {
+        next.set('groupId', v)
+      } else {
+        next.delete('groupId')
+      }
+      next.delete('page')
+      return next
+    }, { replace: true })
+  }
+
+  const { data: groups = [] } = useGroups()
+  const groupOptions = groups.map((g) => ({ value: g.id, label: g.name }))
+
+  const { data, isLoading, error } = useAgents({
+    page,
+    pageSize,
+    search: searchParam || undefined,
+    groupId: groupParam || undefined,
+  })
 
   const setPage = (p: number) => {
     const next = new URLSearchParams(params)
@@ -67,6 +123,14 @@ export function AgentList() {
       header: 'Image',
       width: 200,
       cell: (a) => a.imageRef?.displayName ?? a.imageRef?.name ?? '—',
+    },
+    {
+      key: 'group',
+      header: 'Group',
+      width: 160,
+      // Prefer the group's display name; fall back to the bare id only when
+      // the name is unavailable (deleted group, authz disabled).
+      cell: (a) => a.groupName || a.groupId || '—',
     },
     {
       key: 'status',
@@ -129,6 +193,27 @@ export function AgentList() {
         }
       />
       <div style={{ padding: '28px 32px' }}>
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <div className="field">
+            <span className="label">Search</span>
+            <Input
+              placeholder="Search agents…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              aria-label="Search agents"
+            />
+          </div>
+          <div className="field">
+            <span className="label">Group</span>
+            <Select
+              aria-label="Filter by group"
+              value={groupParam}
+              onChange={setGroup}
+              options={groupOptions}
+              emptyLabel="All groups"
+            />
+          </div>
+        </div>
         <Panel className="cropped">
           {isLoading ? (
             <div className="label" style={{ padding: 14 }}>

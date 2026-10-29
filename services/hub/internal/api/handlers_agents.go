@@ -167,6 +167,12 @@ type SimpleAgentResponse struct {
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
 	Status         *SimpleAgentStatus       `json:"status,omitempty"`
 	UpdatedAt      string                   `json:"updatedAt,omitempty"`
+	// GroupID is the authz group this agent belongs to. Populated on the list
+	// endpoint (batched lookup); empty elsewhere and when authz is disabled.
+	GroupID string `json:"groupId,omitempty"`
+	// GroupName is the display name of GroupID, for roster rendering. Falls
+	// back to empty when the group cannot be resolved; the UI shows the id.
+	GroupName string `json:"groupName,omitempty"`
 }
 
 type AgentLLMInfo struct {
@@ -608,16 +614,46 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 		return list.Items[i].Name < list.Items[j].Name
 	})
 
-	// Filter to resources the caller can access (own groups + optional public).
-	if s.authzStore != nil && !s.callerIsAdmin(r) {
+	// Filter to resources the caller can access (own groups + optional
+	// public), then narrow to an explicit groupId if the caller asked for
+	// one. Both filters run before pagination so Pager totals describe the
+	// filtered set, and a group filter can never widen what authz scoped out.
+	groupID := strings.TrimSpace(r.URL.Query().Get("groupId"))
+	if s.authzStore != nil {
 		names := make([]string, len(list.Items))
 		for i, a := range list.Items {
 			names[i] = a.Name
 		}
-		set := toAccessSet(s.filterByAccess(r, "agent", names))
+		if !s.callerIsAdmin(r) {
+			names = s.filterByAccess(r, "agent", names)
+		}
+		if groupID != "" {
+			inGroup, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", []string{groupID}, false)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			names = intersectNames(names, inGroup)
+		}
+		set := toAccessSet(names)
 		filtered := list.Items[:0]
 		for _, a := range list.Items {
 			if set[a.Name] {
+				filtered = append(filtered, a)
+			}
+		}
+		list.Items = filtered
+	}
+
+	// Case-insensitive substring filter on display name, resource name and
+	// description. Applied before pagination for the same reason as the
+	// group filter: paging over an unfiltered set would drop matches.
+	if search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("search"))); search != "" {
+		filtered := list.Items[:0]
+		for _, a := range list.Items {
+			if strings.Contains(strings.ToLower(a.Spec.DisplayName), search) ||
+				strings.Contains(strings.ToLower(a.Name), search) ||
+				strings.Contains(strings.ToLower(a.Spec.Description), search) {
 				filtered = append(filtered, a)
 			}
 		}
@@ -638,9 +674,35 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 
 	total := len(list.Items)
 	lo, hi := page.Slice(total)
+
+	// Build agent name→group and group id→name maps for the Group column.
+	// Two batched store calls mirror the image display-name map above —
+	// never one Get per row.
+	agentGroupIDs := make(map[string]string)
+	groupNames := make(map[string]string)
+	if s.authzStore != nil {
+		if m, err := s.authzStore.ListResourceGroupsByType(r.Context(), "agent"); err == nil {
+			agentGroupIDs = m
+		} else {
+			slog.Warn("failed to list agent resource groups for group enrichment", "error", err)
+		}
+		if gs, err := s.authzStore.ListGroups(r.Context()); err == nil {
+			for _, g := range gs {
+				groupNames[g.ID] = g.Name
+			}
+		} else {
+			slog.Warn("failed to list groups for group-name enrichment", "error", err)
+		}
+	}
+
 	items := make([]SimpleAgentResponse, 0, hi-lo)
 	for _, a := range list.Items[lo:hi] {
-		items = append(items, toSimpleAgentResponse(a, imageDisplayNames[a.Spec.ImageRef.Name]))
+		item := toSimpleAgentResponse(a, imageDisplayNames[a.Spec.ImageRef.Name])
+		if gid := agentGroupIDs[a.Name]; gid != "" {
+			item.GroupID = gid
+			item.GroupName = groupNames[gid]
+		}
+		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
@@ -661,6 +723,283 @@ func (s *Server) getAgent(ctx context.Context, w http.ResponseWriter, name strin
 	writeJSON(w, http.StatusOK, toSimpleAgentResponse(agent, imageDisplayName))
 }
 
+// agentValidationInput carries the pre-normalized effective values for the
+// validation pipeline shared by createAgent and updateAgent. Callers resolve
+// the create-vs-update patch semantics before calling: create always
+// validates the image ref and resolves env against a nil existing env;
+// update passes the effective image ref/tools, validates the image only when
+// either is being changed, and resolves env against the stored spec.
+type agentValidationInput struct {
+	validateImage bool
+	imageRef      string
+	enabledTools  []string
+	skills        *AgentSkillsInfo
+	mcp           *AgentMCPRequest
+	resolveEnv    bool
+	env           []AgentImageEnvVarInfo
+	// existingEnv supplies the values of secret env entries whose request
+	// value is empty ("keep the existing value"); nil on create.
+	existingEnv []agentv1alpha1.AgentEnvVar
+	// groupCheck, when non-nil, runs after image-ref validation and before
+	// skills validation. createAgent uses it for the group-membership check
+	// so the error precedence (image → group → skills → MCP → env) matches
+	// the previous inline sequence; it is the only validation step that
+	// needs the request, so it stays caller-side.
+	groupCheck func() bool
+}
+
+// agentValidationResult carries what the validation pipeline derived; the
+// spec assembler consumes it.
+type agentValidationResult struct {
+	// displayName is the validated image's display name; empty when
+	// validateImage was false.
+	displayName string
+	// mcpSelection is nil when no MCP selection was requested (inherit from
+	// the image); non-nil is an explicit selection, possibly with no servers.
+	mcpSelection *agentv1alpha1.AgentMCP
+	// agentEnv is the resolved env overrides; nil means no overrides, which
+	// is also what an empty request list produces (image defaults).
+	agentEnv []agentv1alpha1.AgentEnvVar
+}
+
+// validateAgentRequest runs the shared validate-then-resolve sequence both
+// createAgent and updateAgent used to inline: image ref → (optional group
+// check) → enabled skills → MCP selection → env overrides. Each step writes
+// its own HTTP error; ok=false means a response has been written and the
+// caller must return without further output.
+func (s *Server) validateAgentRequest(ctx context.Context, w http.ResponseWriter, in agentValidationInput) (*agentValidationResult, bool) {
+	res := &agentValidationResult{}
+	if in.validateImage {
+		displayName, code, msg := s.validateAgentImageRef(ctx, in.imageRef, in.enabledTools)
+		if code != 0 {
+			http.Error(w, msg, code)
+			return nil, false
+		}
+		res.displayName = displayName
+	}
+	if in.groupCheck != nil && !in.groupCheck() {
+		return nil, false
+	}
+	if in.skills != nil {
+		if err := s.validateEnabledSkills(ctx, w, in.skills.Items); err != nil {
+			return nil, false
+		}
+	}
+	mcpSelection, err := s.resolveMCPRequest(ctx, w, in.mcp)
+	if err != nil {
+		return nil, false
+	}
+	res.mcpSelection = mcpSelection
+	if in.resolveEnv {
+		agentEnv, err := agentEnvFromRequest(w, in.env, in.existingEnv)
+		if err != nil {
+			return nil, false
+		}
+		res.agentEnv = agentEnv
+	}
+	return res, true
+}
+
+// toUpdateFields converts a create request into the pointer-shaped field set
+// applyAgentRequest consumes, with every field "present" so the assembler
+// writes all of them — reproducing create's unconditional assignment against
+// a zero spec.
+func (r *SimpleAgentCreateRequest) toUpdateFields() *SimpleAgentUpdateRequest {
+	return &SimpleAgentUpdateRequest{
+		Name:           &r.Name,
+		Description:    &r.Description,
+		ImageRef:       &r.ImageRef,
+		LLM:            &r.LLM,
+		Persona:        r.Persona,
+		EnabledTools:   &r.EnabledTools,
+		Skills:         r.Skills,
+		Env:            &r.Env,
+		Replicas:       r.Replicas,
+		Memory:         r.Memory,
+		OllamaCloud:    r.OllamaCloud,
+		OpenCode:       r.OpenCode,
+		AlibabaCloud:   r.AlibabaCloud,
+		CustomProvider: r.CustomProvider,
+	}
+}
+
+// putAgentSecret stores a provider API key under name, creating the secret or
+// replacing an existing one (upsert). Provider keys never live in the CR:
+// each becomes a {agent-name}-{suffix}-key Secret and the spec stores only a
+// SecretKeySelector. Update needs the replace path to rotate keys; on create
+// the name embeds a freshly generated agent id, so the create path always
+// takes the Create branch.
+func (s *Server) putAgentSecret(ctx context.Context, name, value string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: s.ns,
+		},
+		StringData: map[string]string{
+			"api-key": value,
+		},
+	}
+	if err := s.client.Create(ctx, secret); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		return s.client.Update(ctx, secret)
+	}
+	return nil
+}
+
+// applyAgentRequest assembles the requested fields onto spec, shared by
+// createAgent (fresh zero spec, newAgent=true, req from
+// SimpleAgentCreateRequest.toUpdateFields) and updateAgent (existing.Spec,
+// newAgent=false, req decoded from the update body). The pointer-shaped req
+// encodes patch semantics: a nil field means "leave unchanged" on update and
+// is never nil on create. newAgent covers the one delta pointer presence
+// does not: persona is applied on create even with an empty ID, on update
+// only with a non-empty one. res carries the MCP selection and resolved env
+// from validateAgentRequest; name is the agent resource name used for
+// provider secret names. It returns false after writing an HTTP error.
+func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, spec *agentv1alpha1.AgentSpec, req *SimpleAgentUpdateRequest, res *agentValidationResult, name string, newAgent bool) bool {
+	if req.Name != nil {
+		spec.DisplayName = *req.Name
+	}
+	if req.Description != nil {
+		spec.Description = *req.Description
+	}
+	if req.ImageRef != nil {
+		spec.ImageRef = agentv1alpha1.AgentImageRef{Name: req.ImageRef.Name}
+	}
+	if req.EnabledTools != nil {
+		spec.EnabledTools = *req.EnabledTools
+	}
+	if req.Skills != nil {
+		items := make([]string, len(req.Skills.Items))
+		copy(items, req.Skills.Items)
+		spec.Skills = &agentv1alpha1.AgentSkills{Items: items}
+	}
+	if res.mcpSelection != nil {
+		spec.MCP = res.mcpSelection
+	}
+	if req.Env != nil {
+		// Present-but-empty clears the overrides: the agent then runs on the
+		// referenced image's env alone. agentEnvFromRequest returns nil for an
+		// empty input list, so create never writes an empty non-nil spec.Env.
+		spec.Env = res.agentEnv
+	}
+	if req.LLM != nil {
+		if req.LLM.Model != "" {
+			spec.LLM.Model = req.LLM.Model
+		}
+		if req.LLM.Provider != "" {
+			spec.LLM.Provider = req.LLM.Provider
+		}
+		if req.LLM.MaxTurns != 0 {
+			spec.LLM.MaxTurns = req.LLM.MaxTurns
+		}
+		if req.LLM.Temperature != nil {
+			spec.LLM.Temperature = req.LLM.Temperature
+		}
+		if req.LLM.Vision != nil {
+			spec.LLM.Vision = req.LLM.Vision
+		}
+		if req.LLM.ContextWindow != nil {
+			spec.LLM.ContextWindow = req.LLM.ContextWindow
+		}
+	}
+	if req.Persona != nil && (newAgent || req.Persona.ID != "") {
+		spec.Persona = agentv1alpha1.AgentPersona{ID: req.Persona.ID}
+	}
+	if req.Replicas != nil {
+		if spec.Scaling == nil {
+			spec.Scaling = &agentv1alpha1.AgentScaling{}
+		}
+		spec.Scaling.Replicas = req.Replicas
+	}
+	if msg := scalingProblem(spec.Scaling); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return false
+	}
+	if req.Memory != nil {
+		spec.Memory = &agentv1alpha1.AgentMemory{
+			Enabled:  req.Memory.Enabled,
+			Provider: req.Memory.Provider,
+		}
+	}
+
+	// Provider API keys: a non-empty key stores a secret and points the spec
+	// at it. The secret names embed the agent name, so repeated updates
+	// rotate the value in place. API keys are never returned in responses.
+	if req.OllamaCloud != nil && req.OllamaCloud.APIKey != "" {
+		secretName := fmt.Sprintf("%s-llm-key", name)
+		if err := s.putAgentSecret(ctx, secretName, req.OllamaCloud.APIKey); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create Ollama Cloud secret: "+err.Error())
+			return false
+		}
+		spec.OllamaCloud = &agentv1alpha1.AgentOllamaCloud{
+			APIKeySecretRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			},
+		}
+	}
+	if req.OpenCode != nil && req.OpenCode.APIKey != "" {
+		secretName := fmt.Sprintf("%s-opencode-key", name)
+		if err := s.putAgentSecret(ctx, secretName, req.OpenCode.APIKey); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create OpenCode secret: "+err.Error())
+			return false
+		}
+		spec.OpenCode = &agentv1alpha1.AgentOpenCode{
+			APIKeySecretRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			},
+		}
+	}
+	if req.AlibabaCloud != nil && req.AlibabaCloud.APIKey != "" {
+		secretName := fmt.Sprintf("%s-alibaba-key", name)
+		if err := s.putAgentSecret(ctx, secretName, req.AlibabaCloud.APIKey); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create Alibaba Token Plan secret: "+err.Error())
+			return false
+		}
+		spec.AlibabaCloud = &agentv1alpha1.AgentAlibabaCloud{
+			APIKeySecretRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			},
+		}
+	}
+
+	// Custom provider (URL and optional API key). When the agent has no
+	// existing custom provider, URL is required: otherwise we'd create an
+	// orphan API-key secret while leaving spec.CustomProvider nil (and
+	// dereferencing it crashed the handler). On create the spec starts
+	// empty, so this rule reproduces create's former "URL required whenever
+	// customProvider is present".
+	if req.CustomProvider != nil {
+		if spec.CustomProvider == nil {
+			if req.CustomProvider.URL == "" {
+				writeError(w, http.StatusBadRequest, "custom provider URL is required")
+				return false
+			}
+			spec.CustomProvider = &agentv1alpha1.AgentCustomProvider{}
+		}
+		if req.CustomProvider.URL != "" {
+			spec.CustomProvider.URL = req.CustomProvider.URL
+		}
+		if req.CustomProvider.APIKey != "" {
+			secretName := fmt.Sprintf("%s-custom-provider-key", name)
+			if err := s.putAgentSecret(ctx, secretName, req.CustomProvider.APIKey); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to create custom provider secret: "+err.Error())
+				return false
+			}
+			spec.CustomProvider.APIKeySecretRef = &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  "api-key",
+			}
+		}
+	}
+	return true
+}
+
 func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req SimpleAgentCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -668,34 +1007,29 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
-	imageDisplayName, code, msg := s.validateAgentImageRef(ctx, req.ImageRef.Name, req.EnabledTools)
-	if code != 0 {
-		http.Error(w, msg, code)
-		return
+	// Validate group membership for resource creation. The check runs
+	// between image-ref and skills validation to keep the error precedence
+	// of the previous inline sequence.
+	in := agentValidationInput{
+		validateImage: true,
+		imageRef:      req.ImageRef.Name,
+		enabledTools:  req.EnabledTools,
+		skills:        req.Skills,
+		mcp:           req.MCP,
+		resolveEnv:    true,
+		env:           req.Env,
 	}
-
-	// Validate group membership for resource creation.
 	if s.authzChecker != nil {
-		if req.GroupID == "" {
-			writeError(w, http.StatusBadRequest, "groupId is required")
-			return
-		}
-		if !s.requireGroupWrite(w, r, req.GroupID) {
-			return
-		}
-	}
-
-	if req.Skills != nil {
-		if err := s.validateEnabledSkills(ctx, w, req.Skills.Items); err != nil {
-			return
+		in.groupCheck = func() bool {
+			if req.GroupID == "" {
+				writeError(w, http.StatusBadRequest, "groupId is required")
+				return false
+			}
+			return s.requireGroupWrite(w, r, req.GroupID)
 		}
 	}
-	mcpSelection, err := s.resolveMCPRequest(ctx, w, req.MCP)
-	if err != nil {
-		return
-	}
-	agentEnv, err := agentEnvFromRequest(w, req.Env, nil)
-	if err != nil {
+	res, ok := s.validateAgentRequest(ctx, w, in)
+	if !ok {
 		return
 	}
 
@@ -713,153 +1047,8 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	agent.APIVersion = "ainsel.dev/v1alpha1"
 	agent.Kind = "Agent"
 
-	agent.Spec.DisplayName = req.Name
-	agent.Spec.Description = req.Description
-	agent.Spec.ImageRef = agentv1alpha1.AgentImageRef{Name: req.ImageRef.Name}
-	agent.Spec.EnabledTools = req.EnabledTools
-	agent.Spec.LLM = agentv1alpha1.AgentLLM{
-		Model:         req.LLM.Model,
-		Provider:      req.LLM.Provider,
-		MaxTurns:      req.LLM.MaxTurns,
-		Temperature:   req.LLM.Temperature,
-		Vision:        req.LLM.Vision,
-		ContextWindow: req.LLM.ContextWindow,
-	}
-	if req.Persona != nil {
-		agent.Spec.Persona = agentv1alpha1.AgentPersona{
-			ID: req.Persona.ID,
-		}
-	}
-	if req.Skills != nil {
-		items := make([]string, len(req.Skills.Items))
-		copy(items, req.Skills.Items)
-		agent.Spec.Skills = &agentv1alpha1.AgentSkills{Items: items}
-	}
-	if mcpSelection != nil {
-		agent.Spec.MCP = mcpSelection
-	}
-	if len(agentEnv) > 0 {
-		agent.Spec.Env = agentEnv
-	}
-	if req.Replicas != nil {
-		agent.Spec.Scaling = &agentv1alpha1.AgentScaling{Replicas: req.Replicas}
-	}
-	if msg := scalingProblem(agent.Spec.Scaling); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
+	if !s.applyAgentRequest(ctx, w, &agent.Spec, req.toUpdateFields(), res, id, true) {
 		return
-	}
-	if req.Memory != nil {
-		agent.Spec.Memory = &agentv1alpha1.AgentMemory{
-			Enabled:  req.Memory.Enabled,
-			Provider: req.Memory.Provider,
-		}
-	}
-
-	// Handle Ollama Cloud API key - create secret if provided
-	if req.OllamaCloud != nil && req.OllamaCloud.APIKey != "" {
-		secretName := fmt.Sprintf("%s-llm-key", agent.Name)
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: s.ns,
-			},
-			StringData: map[string]string{
-				"api-key": req.OllamaCloud.APIKey,
-			},
-		}
-		if err := s.client.Create(ctx, secret); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create Ollama Cloud secret: "+err.Error())
-			return
-		}
-		agent.Spec.OllamaCloud = &agentv1alpha1.AgentOllamaCloud{
-			APIKeySecretRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  "api-key",
-			},
-		}
-	}
-
-	// Handle OpenCode API key - create secret if provided
-	if req.OpenCode != nil && req.OpenCode.APIKey != "" {
-		secretName := fmt.Sprintf("%s-opencode-key", agent.Name)
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: s.ns,
-			},
-			StringData: map[string]string{
-				"api-key": req.OpenCode.APIKey,
-			},
-		}
-		if err := s.client.Create(ctx, secret); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create OpenCode secret: "+err.Error())
-			return
-		}
-		agent.Spec.OpenCode = &agentv1alpha1.AgentOpenCode{
-			APIKeySecretRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  "api-key",
-			},
-		}
-	}
-
-	// Handle Alibaba Token Plan API key - create secret if provided
-	if req.AlibabaCloud != nil && req.AlibabaCloud.APIKey != "" {
-		secretName := fmt.Sprintf("%s-alibaba-key", agent.Name)
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: s.ns,
-			},
-			StringData: map[string]string{
-				"api-key": req.AlibabaCloud.APIKey,
-			},
-		}
-		if err := s.client.Create(ctx, secret); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create Alibaba Token Plan secret: "+err.Error())
-			return
-		}
-		agent.Spec.AlibabaCloud = &agentv1alpha1.AgentAlibabaCloud{
-			APIKeySecretRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  "api-key",
-			},
-		}
-	}
-
-	// Handle custom provider - create secret + store URL if provided
-	if req.CustomProvider != nil {
-		// URL is required for custom providers
-		if req.CustomProvider.URL == "" {
-			writeError(w, http.StatusBadRequest, "custom provider URL is required")
-			return
-		}
-
-		agent.Spec.CustomProvider = &agentv1alpha1.AgentCustomProvider{
-			URL: req.CustomProvider.URL,
-		}
-
-		// API key is optional on the wire; create a secret only if provided.
-		if req.CustomProvider.APIKey != "" {
-			secretName := fmt.Sprintf("%s-custom-provider-key", agent.Name)
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: s.ns,
-				},
-				StringData: map[string]string{
-					"api-key": req.CustomProvider.APIKey,
-				},
-			}
-			if err := s.client.Create(ctx, secret); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to create custom provider secret: "+err.Error())
-				return
-			}
-			agent.Spec.CustomProvider.APIKeySecretRef = &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  "api-key",
-			}
-		}
 	}
 
 	if err := s.client.Create(ctx, &agent); err != nil {
@@ -878,7 +1067,7 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, imageDisplayName))
+	writeJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, res.displayName))
 }
 
 func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
@@ -893,7 +1082,8 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
-	// Validate imageRef/enabledTools if either is being changed.
+	// Validate imageRef/enabledTools if either is being changed, against the
+	// effective combination of stored and requested values.
 	effectiveRef := existing.Spec.ImageRef.Name
 	if req.ImageRef != nil {
 		effectiveRef = req.ImageRef.Name
@@ -902,242 +1092,27 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	if req.EnabledTools != nil {
 		effectiveTools = *req.EnabledTools
 	}
-	var validatedDisplayName string
-	if req.ImageRef != nil || req.EnabledTools != nil {
-		var code int
-		var msg string
-		validatedDisplayName, code, msg = s.validateAgentImageRef(ctx, effectiveRef, effectiveTools)
-		if code != 0 {
-			http.Error(w, msg, code)
-			return
-		}
-	}
-
-	if req.Skills != nil {
-		if err := s.validateEnabledSkills(ctx, w, req.Skills.Items); err != nil {
-			return
-		}
-	}
-	mcpSelection, err := s.resolveMCPRequest(ctx, w, req.MCP)
-	if err != nil {
-		return
-	}
-	// Env overrides are resolved against the current spec so a secret entry
-	// submitted with an empty value keeps its stored value.
-	var agentEnv []agentv1alpha1.AgentEnvVar
-	if req.Env != nil {
-		agentEnv, err = agentEnvFromRequest(w, *req.Env, existing.Spec.Env)
-		if err != nil {
-			return
-		}
-	}
-
-	if req.Name != nil {
-		existing.Spec.DisplayName = *req.Name
-	}
-	if req.Description != nil {
-		existing.Spec.Description = *req.Description
-	}
-	if req.ImageRef != nil {
-		existing.Spec.ImageRef = agentv1alpha1.AgentImageRef{Name: req.ImageRef.Name}
-	}
-	if req.EnabledTools != nil {
-		existing.Spec.EnabledTools = *req.EnabledTools
-	}
-	if req.Skills != nil {
-		items := make([]string, len(req.Skills.Items))
-		copy(items, req.Skills.Items)
-		existing.Spec.Skills = &agentv1alpha1.AgentSkills{Items: items}
-	}
-	if mcpSelection != nil {
-		existing.Spec.MCP = mcpSelection
+	in := agentValidationInput{
+		validateImage: req.ImageRef != nil || req.EnabledTools != nil,
+		imageRef:      effectiveRef,
+		enabledTools:  effectiveTools,
+		skills:        req.Skills,
+		mcp:           req.MCP,
+		// Env overrides are resolved against the current spec so a secret
+		// entry submitted with an empty value keeps its stored value.
+		resolveEnv:  req.Env != nil,
+		existingEnv: existing.Spec.Env,
 	}
 	if req.Env != nil {
-		// Present-but-empty clears the overrides: the agent then runs on the
-		// referenced image's env alone.
-		existing.Spec.Env = agentEnv
+		in.env = *req.Env
 	}
-	if req.LLM != nil {
-		if req.LLM.Model != "" {
-			existing.Spec.LLM.Model = req.LLM.Model
-		}
-		if req.LLM.Provider != "" {
-			existing.Spec.LLM.Provider = req.LLM.Provider
-		}
-		if req.LLM.MaxTurns != 0 {
-			existing.Spec.LLM.MaxTurns = req.LLM.MaxTurns
-		}
-		if req.LLM.Temperature != nil {
-			existing.Spec.LLM.Temperature = req.LLM.Temperature
-		}
-		if req.LLM.Vision != nil {
-			existing.Spec.LLM.Vision = req.LLM.Vision
-		}
-		if req.LLM.ContextWindow != nil {
-			existing.Spec.LLM.ContextWindow = req.LLM.ContextWindow
-		}
-	}
-	if req.Persona != nil && req.Persona.ID != "" {
-		existing.Spec.Persona = agentv1alpha1.AgentPersona{ID: req.Persona.ID}
-	}
-	if req.Replicas != nil {
-		if existing.Spec.Scaling == nil {
-			existing.Spec.Scaling = &agentv1alpha1.AgentScaling{}
-		}
-		existing.Spec.Scaling.Replicas = req.Replicas
-	}
-	if msg := scalingProblem(existing.Spec.Scaling); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
+	res, ok := s.validateAgentRequest(ctx, w, in)
+	if !ok {
 		return
 	}
-	if req.Memory != nil {
-		existing.Spec.Memory = &agentv1alpha1.AgentMemory{
-			Enabled:  req.Memory.Enabled,
-			Provider: req.Memory.Provider,
-		}
-	}
 
-	// Handle Ollama Cloud API key update
-	if req.OllamaCloud != nil {
-		if req.OllamaCloud.APIKey != "" {
-			secretName := fmt.Sprintf("%s-llm-key", existing.Name)
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: s.ns,
-				},
-				StringData: map[string]string{
-					"api-key": req.OllamaCloud.APIKey,
-				},
-			}
-			if err := s.client.Create(ctx, secret); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					if err := s.client.Update(ctx, secret); err != nil {
-						writeError(w, http.StatusInternalServerError, "failed to update Ollama Cloud secret: "+err.Error())
-						return
-					}
-				} else {
-					writeError(w, http.StatusInternalServerError, "failed to create Ollama Cloud secret: "+err.Error())
-					return
-				}
-			}
-			existing.Spec.OllamaCloud = &agentv1alpha1.AgentOllamaCloud{
-				APIKeySecretRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-					Key:                  "api-key",
-				},
-			}
-		}
-	}
-
-	// Handle OpenCode API key update
-	if req.OpenCode != nil {
-		if req.OpenCode.APIKey != "" {
-			secretName := fmt.Sprintf("%s-opencode-key", existing.Name)
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: s.ns,
-				},
-				StringData: map[string]string{
-					"api-key": req.OpenCode.APIKey,
-				},
-			}
-			if err := s.client.Create(ctx, secret); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					if err := s.client.Update(ctx, secret); err != nil {
-						writeError(w, http.StatusInternalServerError, "failed to update OpenCode secret: "+err.Error())
-						return
-					}
-				} else {
-					writeError(w, http.StatusInternalServerError, "failed to create OpenCode secret: "+err.Error())
-					return
-				}
-			}
-			existing.Spec.OpenCode = &agentv1alpha1.AgentOpenCode{
-				APIKeySecretRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-					Key:                  "api-key",
-				},
-			}
-		}
-	}
-
-	// Handle Alibaba Token Plan API key update
-	if req.AlibabaCloud != nil {
-		if req.AlibabaCloud.APIKey != "" {
-			secretName := fmt.Sprintf("%s-alibaba-key", existing.Name)
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: s.ns,
-				},
-				StringData: map[string]string{
-					"api-key": req.AlibabaCloud.APIKey,
-				},
-			}
-			if err := s.client.Create(ctx, secret); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					if err := s.client.Update(ctx, secret); err != nil {
-						writeError(w, http.StatusInternalServerError, "failed to update Alibaba Token Plan secret: "+err.Error())
-						return
-					}
-				} else {
-					writeError(w, http.StatusInternalServerError, "failed to create Alibaba Token Plan secret: "+err.Error())
-					return
-				}
-			}
-			existing.Spec.AlibabaCloud = &agentv1alpha1.AgentAlibabaCloud{
-				APIKeySecretRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-					Key:                  "api-key",
-				},
-			}
-		}
-	}
-
-	// Handle custom provider update (URL and optional API key).
-	// When the agent has no existing custom provider, URL is required: otherwise
-	// we'd create an orphan API-key secret while leaving spec.CustomProvider nil
-	// (and dereferencing it crashed the handler).
-	if req.CustomProvider != nil {
-		if existing.Spec.CustomProvider == nil {
-			if req.CustomProvider.URL == "" {
-				writeError(w, http.StatusBadRequest, "custom provider URL is required")
-				return
-			}
-			existing.Spec.CustomProvider = &agentv1alpha1.AgentCustomProvider{}
-		}
-		if req.CustomProvider.URL != "" {
-			existing.Spec.CustomProvider.URL = req.CustomProvider.URL
-		}
-		if req.CustomProvider.APIKey != "" {
-			secretName := fmt.Sprintf("%s-custom-provider-key", existing.Name)
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: s.ns,
-				},
-				StringData: map[string]string{
-					"api-key": req.CustomProvider.APIKey,
-				},
-			}
-			if err := s.client.Create(ctx, secret); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					if err := s.client.Update(ctx, secret); err != nil {
-						writeError(w, http.StatusInternalServerError, "failed to update custom provider secret: "+err.Error())
-						return
-					}
-				} else {
-					writeError(w, http.StatusInternalServerError, "failed to create custom provider secret: "+err.Error())
-					return
-				}
-			}
-			existing.Spec.CustomProvider.APIKeySecretRef = &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  "api-key",
-			}
-		}
+	if !s.applyAgentRequest(ctx, w, &existing.Spec, &req, res, name, false) {
+		return
 	}
 
 	// Stamp the hub-managed updated-at annotation so the list API can surface
@@ -1160,7 +1135,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 
 	// Resolve image display name for the response. If we already validated the
 	// image ref above, reuse that display name; otherwise look it up.
-	imageDisplayName := validatedDisplayName
+	imageDisplayName := res.displayName
 	if imageDisplayName == "" && req.ImageRef == nil {
 		imageDisplayName = s.resolveImageDisplayName(ctx, existing.Spec.ImageRef.Name)
 	}

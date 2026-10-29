@@ -18,10 +18,12 @@ import (
 // context instead of blocking indefinitely on a stalled database.
 const queryTimeout = 5 * time.Second
 
-// PgStore is the Postgres-backed invocation history. Unlike MemoryStore it
-// survives hub restarts, so past events keep showing their invocations — and
-// therefore their conversation transcripts — until records age out via
-// Prune (see Retention, aligned with the conversation retention in tasklogs).
+// PgStore is the Postgres-backed invocation history, and the only invocation
+// store the hub ships. It survives hub restarts, so past events keep showing
+// their invocations — and therefore their conversation transcripts — until
+// records age out via Prune (see Retention, aligned with the conversation
+// retention in tasklogs). The in-memory ring buffer some tests use is not a
+// second store; see the invocationstest package.
 type PgStore struct {
 	pool *pgxpool.Pool
 }
@@ -40,11 +42,11 @@ func withTimeout() (context.Context, context.CancelFunc) {
 // Record inserts a new invocation row and returns the stored record with ID,
 // StartTime and Status populated. An insert failure is logged and the record
 // returned as-is: the invocation ID is referenced by the already-enqueued
-// task, so the enqueue path must not block or retry (matches MemoryStore,
-// which never fails).
+// task, so the enqueue path must not block or retry (the in-memory test fake,
+// which this mirrors, never fails).
 func (s *PgStore) Record(inv Invocation) Invocation {
 	if inv.ID == "" {
-		inv.ID = generateID()
+		inv.ID = NewID()
 	}
 	if inv.StartTime.IsZero() {
 		inv.StartTime = time.Now().UTC()
@@ -269,6 +271,17 @@ func listFilterClause(opts ListOptions) (string, []any) {
 	if opts.AgentName != "" {
 		add("agent_name = $%d", opts.AgentName)
 	}
+	if len(opts.AgentNames) > 0 {
+		// Authorization scope: restrict to the agents the caller may read.
+		// This is server-derived (see handlers_invocations.go), never
+		// request-supplied, so it is deliberately exempt from the request-level
+		// maxFilterValues cap — dropping scope values would return rows the
+		// caller may not see. The len guard is load-bearing: an unrestricted
+		// caller passes an empty slice, and an unguarded = ANY('{}') would
+		// match nothing instead of everything. Mirrors MemoryStore semantics;
+		// served by idx_invocations_agent (agent_name, start_time).
+		add("agent_name = ANY($%d)", opts.AgentNames)
+	}
 	if opts.Status != "" {
 		add("status = $%d", opts.Status)
 	}
@@ -277,6 +290,11 @@ func listFilterClause(opts ListOptions) (string, []any) {
 	}
 	if opts.EventID != "" {
 		add("event_id = $%d", opts.EventID)
+	}
+	if len(opts.Connectors) > 0 {
+		// Any of the listed connectors. Served by invocations_connector_start_idx
+		// together with the start_time ordering the query already applies.
+		add("connector = ANY($%d)", opts.Connectors)
 	}
 	if !opts.Since.IsZero() {
 		add("start_time >= $%d", opts.Since)

@@ -59,7 +59,16 @@ The Agents endpoints expose a simplified projection of the `Agent` CRD. The full
 
 List all Agents in the configured namespace, sorted by resource name.
 
-**Query parameters:** `page`, `pageSize` (see top of file).
+**Query parameters:** `page`, `pageSize` (see top of file), plus:
+
+| Param | Effect |
+| --- | --- |
+| `search` | Case-insensitive substring match on the agent's display name, resource name and description. Applied server-side **before** pagination, so `total` reflects the filtered set. |
+| `groupId` | Restrict to agents whose authz group matches. Intersected with the caller's authz scope: naming a group the caller cannot read yields an empty result, never another group's agents. Ignored when authz is disabled. |
+
+List rows additionally carry `groupId` and `groupName` (the authz group's display
+name; `groupName` is absent when the group cannot be resolved — render the id then).
+Both are populated on the list endpoint only, and are empty when authz is disabled.
 
 **Response:** `200 OK`
 ```json
@@ -81,6 +90,8 @@ List all Agents in the configured namespace, sorted by resource name.
       "skills": {"items": ["git-review"]},
       "mcp": {"servers": [{"name": "github", "url": "https://mcp.github.com/sse", "tokenFromEnv": "GITHUB_TOKEN"}]},
       "env": [{"name": "LOG_LEVEL", "value": "debug"}, {"name": "API_TOKEN", "value": "", "secret": true}],
+      "groupId": "g-platform",
+      "groupName": "Platform",
       "updatedAt": "2026-06-22T00:05:00Z"
     }
   ],
@@ -990,9 +1001,11 @@ Invocations record one dispatch of an event to an agent. They are persisted in t
 
 List recent invocations, newest first. Supports `page`/`pageSize`.
 
-**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger` and `status` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
+**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger`, `status` and `connector` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
 
-**Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `since` / `until` (RFC3339 timestamp), `limit`.
+**Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `connector`, `since` / `until` (RFC3339 timestamp), `limit` (max `500`; larger values are clamped down).
+
+`connector` keeps invocations produced by any of the listed connectors. Repeat the parameter (`connector=c-1&connector=c-2`) or comma-separate one (`connector=c-1,c-2`) — both spellings mean the same set, and blank entries are ignored. Omitting it (or passing only blanks) restricts nothing. A request may name at most **50 unique connectors** (counted after both spellings are merged, trimmed and deduplicated); requests naming more are rejected with `400` rather than silently truncated, so the result set is never smaller than what was asked for.
 
 Every row on the event-scoped list (`event=`) and on the plain list carries a `task` object when an `agent_tasks` row exists for it — including rows recorded before the invocation was enqueued, which are attached from the queue by ID. The queue-state synthesis for `event=` additionally produces a row for tasks that never got an invocation record; those rows carry `status: "queued"` (or `"failure"` for a failed task) and never `"running"`.
 
@@ -1020,7 +1033,7 @@ The `task` object is the authoritative run state: `status` is the raw queue stat
 }
 ```
 
-**Status codes:** `200`, `400` (invalid `page`/`pageSize`), `503` (invocation store not configured).
+**Status codes:** `200`, `400` (invalid `page`/`pageSize`, or more than 50 unique `connector` values), `503` (invocation store not configured).
 
 ### GET /api/v1/invocations/{id}
 
@@ -1829,6 +1842,48 @@ Each message has the fields `id` (number), `invocationId`, `correlationId`, `age
 **`content` encoding:** `content` is always a JSON-encoded string. For `user` and `assistant` messages it decodes to an array of blocks: `{"type":"text","text"}`, `{"type":"thinking","text"}`, and `{"type":"toolCall","id","name","arguments"}`. For `toolResult` messages it decodes to a single object: `{"toolCallId","isError","content"}`.
 
 **Status codes:** `200`, `405` (wrong method), `502` (query failure), `503` (log backend not configured).
+
+---
+
+## Groups
+
+Groups are the authorization unit for every resource (see
+[access control](./access-control.md)). The group CRUD and member endpoints are
+under `/api/v1/groups`; the resources view is documented here.
+
+### GET /api/v1/groups/{id}/resources
+
+List every resource whose group mapping points at this group, across all group
+resource types (`agent`, `agent-image`, `connector`, `persona`, `skill`,
+`channel`, `mcp-server`, `trigger`, `cron-trigger`). Names are resolved
+server-side from the owning stores, so items always carry a display name
+(falling back to the identifier) rather than a bare id. Rows whose object no
+longer exists are dropped.
+
+Access control matches the per-type list endpoints: a caller sees a resource
+when they can read it — member of the group, public when `?includePublic=true`
+is passed, or admin. A non-member therefore sees only the public items (or
+nothing). Derived channels (connector/agent channels) have no group mapping of
+their own — they belong to their connector/agent and appear through those
+panels, never double-counted here. Agent-owned personas are likewise omitted;
+they are addressed through their owning agent. Results are capped at 200 items
+per type.
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {"type": "agent", "id": "review-bot", "name": "Review Bot", "public": false},
+    {"type": "trigger", "id": "t-01ABC", "name": "On issues", "public": false, "agentRef": "review-bot"}
+  ]
+}
+```
+
+`agentRef` is populated for `trigger` and `cron-trigger` items only. If one
+type's backing store fails, that type is omitted from the response rather than
+failing the whole summary.
+
+**Status codes:** `200`, `404` for an unknown group, `405` for non-GET methods.
 
 ---
 

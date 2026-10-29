@@ -371,4 +371,16 @@ kubectl logs -n <namespace> deploy/k8s-event-source-gateway-operator --tail=100
 kubectl get events -n <namespace> --sort-by='.lastTimestamp'
 ```
 
-To read the same history in bulk rather than one task at a time, query the hub's tables directly: `task_logs` holds per-invocation agent output (filter by `agent_name`, `level`, `created_at`), `events` holds every envelope the hub received with its routing outcome, and `activity_log` holds routing decisions as they were made.
+To read the same history in bulk rather than one task at a time, query the hub's tables directly:
+
+- `task_logs` holds per-invocation agent output — filter by `agent_name`, `level`, `created_at`.
+- `events` holds every envelope the hub received. `routed_at` is stamped once the router has
+  processed the event — even when nothing matched — so a null means the event has not been
+  processed yet, not that nothing matched.
+- `agent_tasks` holds one row per matched agent with its delivery status, error and timings.
+  A row stuck at `pending` was matched but never claimed.
+
+An event that matched no trigger gets no `agent_tasks` row at all — its `events` row stays,
+`routed_at` stamped, with no downstream delivery. The router logs it to the hub's stdout as an
+`activity_event` line with `"status":"unmatched"` (see [Observability](observability) for
+the hub's structured log lines).

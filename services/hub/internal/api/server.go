@@ -64,6 +64,7 @@ type authzStore interface {
 	DeleteResourceGroup(ctx context.Context, resourceType, resourceName string) error
 	SetResourcePublic(ctx context.Context, resourceType, resourceName string, public bool) error
 	ListResourcesByGroups(ctx context.Context, resourceType string, groupIDs []string, includePublic bool) ([]string, error)
+	ListResourceGroupsByType(ctx context.Context, resourceType string) (map[string]string, error)
 }
 
 // authEventsStore is the interface satisfied by *auditevents.Store and test
@@ -448,6 +449,27 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// writeAuthzError maps the authz store sentinel errors to their HTTP
+// responses: authz.ErrNotFound becomes 404 "<resource> not found" and
+// authz.ErrAlreadyExists becomes 409 "<resource> already exists". It
+// returns true when it wrote a response, so callers use it as:
+//
+//	if writeAuthzError(w, err, "user") {
+//		return
+//	}
+//	writeError(w, http.StatusInternalServerError, err.Error())
+func writeAuthzError(w http.ResponseWriter, err error, resource string) bool {
+	switch {
+	case errors.Is(err, authz.ErrNotFound):
+		writeError(w, http.StatusNotFound, resource+" not found")
+		return true
+	case errors.Is(err, authz.ErrAlreadyExists):
+		writeError(w, http.StatusConflict, resource+" already exists")
+		return true
+	}
+	return false
+}
+
 func extractName(path, prefix string) string {
 	return strings.TrimPrefix(path, prefix)
 }
@@ -610,4 +632,18 @@ func toAccessSet(names []string) map[string]bool {
 		set[n] = true
 	}
 	return set
+}
+
+// intersectNames keeps the entries of names that also appear in subset,
+// preserving the order of names. Used to narrow an already authz-scoped name
+// list by an explicit group filter without ever widening it.
+func intersectNames(names, subset []string) []string {
+	set := toAccessSet(subset)
+	var out []string
+	for _, n := range names {
+		if set[n] {
+			out = append(out, n)
+		}
+	}
+	return out
 }

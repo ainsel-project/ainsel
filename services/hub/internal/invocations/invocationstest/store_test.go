@@ -1,4 +1,4 @@
-package invocations
+package invocationstest
 
 import (
 	"context"
@@ -6,19 +6,21 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 )
 
 func TestStore_RecordAssignsIDAndDefaults(t *testing.T) {
-	s := NewMemoryStore(10)
-	rec := s.Record(Invocation{
+	s := New(10)
+	rec := s.Record(invocations.Invocation{
 		AgentName:   "dev-agent",
 		TriggerName: "issue-assigned",
 	})
 	if rec.ID == "" {
 		t.Fatal("expected ID to be generated")
 	}
-	if rec.Status != StatusRunning {
-		t.Errorf("expected status %q, got %q", StatusRunning, rec.Status)
+	if rec.Status != invocations.StatusRunning {
+		t.Errorf("expected status %q, got %q", invocations.StatusRunning, rec.Status)
 	}
 	if rec.StartTime.IsZero() {
 		t.Error("expected StartTime to be set")
@@ -29,8 +31,8 @@ func TestStore_RecordAssignsIDAndDefaults(t *testing.T) {
 }
 
 func TestStore_GetReturnsCopy(t *testing.T) {
-	s := NewMemoryStore(10)
-	rec := s.Record(Invocation{AgentName: "a1"})
+	s := New(10)
+	rec := s.Record(invocations.Invocation{AgentName: "a1"})
 	got, ok := s.Get(rec.ID)
 	if !ok {
 		t.Fatal("expected to find invocation")
@@ -47,18 +49,18 @@ func TestStore_GetReturnsCopy(t *testing.T) {
 }
 
 func TestStore_CompleteSetsTerminalFields(t *testing.T) {
-	s := NewMemoryStore(10)
-	rec := s.Record(Invocation{AgentName: "a1"})
+	s := New(10)
+	rec := s.Record(invocations.Invocation{AgentName: "a1"})
 	// Sleep briefly to ensure measurable duration.
 	time.Sleep(2 * time.Millisecond)
 
-	ok := s.Complete(rec.ID, StatusSuccess, "", time.Time{})
+	ok := s.Complete(rec.ID, invocations.StatusSuccess, "", time.Time{})
 	if !ok {
 		t.Fatal("expected Complete to succeed")
 	}
 	got, _ := s.Get(rec.ID)
-	if got.Status != StatusSuccess {
-		t.Errorf("expected status %q, got %q", StatusSuccess, got.Status)
+	if got.Status != invocations.StatusSuccess {
+		t.Errorf("expected status %q, got %q", invocations.StatusSuccess, got.Status)
 	}
 	if got.EndTime == nil {
 		t.Fatal("expected EndTime to be set")
@@ -72,39 +74,39 @@ func TestStore_CompleteSetsTerminalFields(t *testing.T) {
 }
 
 func TestStore_CompleteFailureRecordsError(t *testing.T) {
-	s := NewMemoryStore(10)
-	rec := s.Record(Invocation{AgentName: "a1"})
+	s := New(10)
+	rec := s.Record(invocations.Invocation{AgentName: "a1"})
 	end := time.Now().UTC()
-	if !s.Complete(rec.ID, StatusFailure, "boom", end) {
+	if !s.Complete(rec.ID, invocations.StatusFailure, "boom", end) {
 		t.Fatal("expected Complete to succeed")
 	}
 	got, _ := s.Get(rec.ID)
 	if got.Error != "boom" {
 		t.Errorf("expected error %q, got %q", "boom", got.Error)
 	}
-	if got.Status != StatusFailure {
+	if got.Status != invocations.StatusFailure {
 		t.Errorf("expected status failure, got %q", got.Status)
 	}
 }
 
 func TestStore_CompleteUnknownIDReturnsFalse(t *testing.T) {
-	s := NewMemoryStore(10)
-	if s.Complete("inv-deadbeef", StatusSuccess, "", time.Time{}) {
+	s := New(10)
+	if s.Complete("inv-deadbeef", invocations.StatusSuccess, "", time.Time{}) {
 		t.Error("expected Complete to return false for unknown ID")
 	}
 }
 
 func TestStore_RingBufferEvictsOldest(t *testing.T) {
-	s := NewMemoryStore(3)
-	r1 := s.Record(Invocation{AgentName: "a1"})
-	r2 := s.Record(Invocation{AgentName: "a2"})
-	r3 := s.Record(Invocation{AgentName: "a3"})
+	s := New(3)
+	r1 := s.Record(invocations.Invocation{AgentName: "a1"})
+	r2 := s.Record(invocations.Invocation{AgentName: "a2"})
+	r3 := s.Record(invocations.Invocation{AgentName: "a3"})
 	if s.Len() != 3 {
 		t.Fatalf("expected 3, got %d", s.Len())
 	}
 
 	// Recording a fourth should evict r1.
-	r4 := s.Record(Invocation{AgentName: "a4"})
+	r4 := s.Record(invocations.Invocation{AgentName: "a4"})
 	if s.Len() != 3 {
 		t.Fatalf("expected 3 after eviction, got %d", s.Len())
 	}
@@ -119,14 +121,14 @@ func TestStore_RingBufferEvictsOldest(t *testing.T) {
 }
 
 func TestStore_ListNewestFirst(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	for i := 0; i < 5; i++ {
-		s.Record(Invocation{
+		s.Record(invocations.Invocation{
 			AgentName: fmt.Sprintf("a%d", i),
 			StartTime: time.Now().Add(time.Duration(i) * time.Millisecond).UTC(),
 		})
 	}
-	list := s.List(ListOptions{})
+	list := s.List(invocations.ListOptions{})
 	if len(list) != 5 {
 		t.Fatalf("expected 5, got %d", len(list))
 	}
@@ -138,33 +140,33 @@ func TestStore_ListNewestFirst(t *testing.T) {
 }
 
 func TestStore_ListFiltersAndLimit(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	now := time.Now().UTC()
-	a := s.Record(Invocation{AgentName: "agent-a", StartTime: now.Add(-30 * time.Minute), Status: StatusRunning})
-	b := s.Record(Invocation{AgentName: "agent-b", StartTime: now.Add(-20 * time.Minute), Status: StatusRunning})
-	c := s.Record(Invocation{AgentName: "agent-a", StartTime: now.Add(-10 * time.Minute), Status: StatusRunning})
-	s.Complete(b.ID, StatusFailure, "x", now)
+	a := s.Record(invocations.Invocation{AgentName: "agent-a", StartTime: now.Add(-30 * time.Minute), Status: invocations.StatusRunning})
+	b := s.Record(invocations.Invocation{AgentName: "agent-b", StartTime: now.Add(-20 * time.Minute), Status: invocations.StatusRunning})
+	c := s.Record(invocations.Invocation{AgentName: "agent-a", StartTime: now.Add(-10 * time.Minute), Status: invocations.StatusRunning})
+	s.Complete(b.ID, invocations.StatusFailure, "x", now)
 
 	// Filter by agent.
-	gotA := s.List(ListOptions{AgentName: "agent-a"})
+	gotA := s.List(invocations.ListOptions{AgentName: "agent-a"})
 	if len(gotA) != 2 {
 		t.Errorf("expected 2 for agent-a, got %d", len(gotA))
 	}
 
 	// Filter by status (b is failure now).
-	gotF := s.List(ListOptions{Status: StatusFailure})
+	gotF := s.List(invocations.ListOptions{Status: invocations.StatusFailure})
 	if len(gotF) != 1 || gotF[0].ID != b.ID {
 		t.Errorf("expected only b for status=failure, got %+v", gotF)
 	}
 
 	// Filter by since (only c is within last 15m).
-	gotS := s.List(ListOptions{Since: now.Add(-15 * time.Minute)})
+	gotS := s.List(invocations.ListOptions{Since: now.Add(-15 * time.Minute)})
 	if len(gotS) != 1 || gotS[0].ID != c.ID {
 		t.Errorf("expected only c for since=-15m, got %+v", gotS)
 	}
 
 	// Limit.
-	gotL := s.List(ListOptions{Limit: 2})
+	gotL := s.List(invocations.ListOptions{Limit: 2})
 	if len(gotL) != 2 {
 		t.Errorf("expected limit 2, got %d", len(gotL))
 	}
@@ -174,21 +176,21 @@ func TestStore_ListFiltersAndLimit(t *testing.T) {
 }
 
 func TestStore_ListWithTotalReportsPreLimitCount(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	now := time.Now().UTC()
 	for i := 0; i < 5; i++ {
-		s.Record(Invocation{AgentName: "agent-a", StartTime: now.Add(time.Duration(-i) * time.Minute)})
+		s.Record(invocations.Invocation{AgentName: "agent-a", StartTime: now.Add(time.Duration(-i) * time.Minute)})
 	}
-	s.Record(Invocation{AgentName: "agent-b", StartTime: now})
+	s.Record(invocations.Invocation{AgentName: "agent-b", StartTime: now})
 
 	// Without a limit, items and total agree.
-	items, total := s.ListWithTotal(ListOptions{})
+	items, total := s.ListWithTotal(invocations.ListOptions{})
 	if len(items) != 6 || total != 6 {
 		t.Errorf("expected 6/6 without limit, got %d/%d", len(items), total)
 	}
 
 	// With a limit, items are capped but total still reflects all matches.
-	items, total = s.ListWithTotal(ListOptions{Limit: 2})
+	items, total = s.ListWithTotal(invocations.ListOptions{Limit: 2})
 	if len(items) != 2 {
 		t.Errorf("expected 2 items with limit=2, got %d", len(items))
 	}
@@ -197,7 +199,7 @@ func TestStore_ListWithTotalReportsPreLimitCount(t *testing.T) {
 	}
 
 	// Filters are applied before the limit: only agent-a matches.
-	items, total = s.ListWithTotal(ListOptions{AgentName: "agent-a", Limit: 2})
+	items, total = s.ListWithTotal(invocations.ListOptions{AgentName: "agent-a", Limit: 2})
 	if len(items) != 2 {
 		t.Errorf("expected 2 items for agent-a with limit=2, got %d", len(items))
 	}
@@ -207,13 +209,13 @@ func TestStore_ListWithTotalReportsPreLimitCount(t *testing.T) {
 }
 
 func TestStore_ListFilterByTriggerName(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	now := time.Now().UTC()
-	s.Record(Invocation{AgentName: "agent-a", TriggerName: "trigger-1", StartTime: now.Add(-2 * time.Minute)})
-	s.Record(Invocation{AgentName: "agent-b", TriggerName: "trigger-2", StartTime: now.Add(-1 * time.Minute)})
-	s.Record(Invocation{AgentName: "agent-a", TriggerName: "trigger-1", StartTime: now})
+	s.Record(invocations.Invocation{AgentName: "agent-a", TriggerName: "trigger-1", StartTime: now.Add(-2 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "agent-b", TriggerName: "trigger-2", StartTime: now.Add(-1 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "agent-a", TriggerName: "trigger-1", StartTime: now})
 
-	got := s.List(ListOptions{TriggerName: "trigger-1"})
+	got := s.List(invocations.ListOptions{TriggerName: "trigger-1"})
 	if len(got) != 2 {
 		t.Errorf("expected 2 for trigger-1, got %d", len(got))
 	}
@@ -223,21 +225,21 @@ func TestStore_ListFilterByTriggerName(t *testing.T) {
 		}
 	}
 
-	gotMiss := s.List(ListOptions{TriggerName: "missing"})
+	gotMiss := s.List(invocations.ListOptions{TriggerName: "missing"})
 	if len(gotMiss) != 0 {
 		t.Errorf("expected 0 for missing trigger, got %d", len(gotMiss))
 	}
 }
 
 func TestStore_ListFilterByUntil(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	now := time.Now().UTC()
-	s.Record(Invocation{AgentName: "a", StartTime: now.Add(-30 * time.Minute)})
-	s.Record(Invocation{AgentName: "b", StartTime: now.Add(-10 * time.Minute)})
-	s.Record(Invocation{AgentName: "c", StartTime: now.Add(-1 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "a", StartTime: now.Add(-30 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "b", StartTime: now.Add(-10 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "c", StartTime: now.Add(-1 * time.Minute)})
 
 	// until 15 minutes ago should include a (30m ago) and exclude b (10m ago) and c (1m ago)
-	got := s.List(ListOptions{Until: now.Add(-15 * time.Minute)})
+	got := s.List(invocations.ListOptions{Until: now.Add(-15 * time.Minute)})
 	if len(got) != 1 {
 		t.Fatalf("expected 1 for until=-15m, got %d", len(got))
 	}
@@ -247,14 +249,14 @@ func TestStore_ListFilterByUntil(t *testing.T) {
 }
 
 func TestStore_ListFilterBySinceAndUntil(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	now := time.Now().UTC()
-	s.Record(Invocation{AgentName: "old", StartTime: now.Add(-60 * time.Minute)})
-	s.Record(Invocation{AgentName: "mid", StartTime: now.Add(-20 * time.Minute)})
-	s.Record(Invocation{AgentName: "recent", StartTime: now.Add(-5 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "old", StartTime: now.Add(-60 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "mid", StartTime: now.Add(-20 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "recent", StartTime: now.Add(-5 * time.Minute)})
 
 	// between 30m ago and 10m ago should match only "mid"
-	got := s.List(ListOptions{
+	got := s.List(invocations.ListOptions{
 		Since: now.Add(-30 * time.Minute),
 		Until: now.Add(-10 * time.Minute),
 	})
@@ -267,30 +269,30 @@ func TestStore_ListFilterBySinceAndUntil(t *testing.T) {
 }
 
 func TestStore_ListCombinedFilters(t *testing.T) {
-	s := NewMemoryStore(20)
+	s := New(20)
 	now := time.Now().UTC()
 
 	// Create invocations with different combinations.
-	s.Record(Invocation{AgentName: "agent-a", TriggerName: "t1", Status: StatusSuccess, StartTime: now.Add(-60 * time.Minute)})
-	b := s.Record(Invocation{AgentName: "agent-b", TriggerName: "t1", Status: StatusFailure, StartTime: now.Add(-30 * time.Minute)})
-	s.Record(Invocation{AgentName: "agent-a", TriggerName: "t2", Status: StatusSuccess, StartTime: now.Add(-15 * time.Minute)})
-	s.Record(Invocation{AgentName: "agent-b", TriggerName: "t2", Status: StatusRunning, StartTime: now.Add(-5 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "agent-a", TriggerName: "t1", Status: invocations.StatusSuccess, StartTime: now.Add(-60 * time.Minute)})
+	b := s.Record(invocations.Invocation{AgentName: "agent-b", TriggerName: "t1", Status: invocations.StatusFailure, StartTime: now.Add(-30 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "agent-a", TriggerName: "t2", Status: invocations.StatusSuccess, StartTime: now.Add(-15 * time.Minute)})
+	s.Record(invocations.Invocation{AgentName: "agent-b", TriggerName: "t2", Status: invocations.StatusRunning, StartTime: now.Add(-5 * time.Minute)})
 
 	// Filter: trigger=t1 + status=failure → only b
-	got := s.List(ListOptions{TriggerName: "t1", Status: StatusFailure})
+	got := s.List(invocations.ListOptions{TriggerName: "t1", Status: invocations.StatusFailure})
 	if len(got) != 1 || got[0].ID != b.ID {
 		t.Errorf("expected only b for trigger=t1+status=failure, got %+v", got)
 	}
 
 	// Filter: agent=agent-a + since 20m ago → only one a with t2
-	got2 := s.List(ListOptions{AgentName: "agent-a", Since: now.Add(-20 * time.Minute)})
+	got2 := s.List(invocations.ListOptions{AgentName: "agent-a", Since: now.Add(-20 * time.Minute)})
 	if len(got2) != 1 {
 		t.Errorf("expected 1 for agent-a+since=-20m, got %d", len(got2))
 	}
 }
 
 func TestStore_ConcurrentRecordAndComplete(t *testing.T) {
-	s := NewMemoryStore(1000)
+	s := New(1000)
 	var wg sync.WaitGroup
 	const n = 200
 	ids := make(chan string, n)
@@ -299,7 +301,7 @@ func TestStore_ConcurrentRecordAndComplete(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < n; i++ {
-			rec := s.Record(Invocation{AgentName: "x"})
+			rec := s.Record(invocations.Invocation{AgentName: "x"})
 			ids <- rec.ID
 		}
 		close(ids)
@@ -309,7 +311,7 @@ func TestStore_ConcurrentRecordAndComplete(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for id := range ids {
-			s.Complete(id, StatusSuccess, "", time.Time{})
+			s.Complete(id, invocations.StatusSuccess, "", time.Time{})
 		}
 	}()
 
@@ -318,20 +320,20 @@ func TestStore_ConcurrentRecordAndComplete(t *testing.T) {
 	if s.Len() != n {
 		t.Errorf("expected %d records, got %d", n, s.Len())
 	}
-	for _, inv := range s.List(ListOptions{}) {
-		if inv.Status != StatusSuccess {
+	for _, inv := range s.List(invocations.ListOptions{}) {
+		if inv.Status != invocations.StatusSuccess {
 			t.Errorf("expected all success, found %q", inv.Status)
 		}
 	}
 }
 
 func TestStore_ListFilterByEventID(t *testing.T) {
-	s := NewMemoryStore(10)
-	s.Record(Invocation{AgentName: "a", EventID: "evt-1"})
-	s.Record(Invocation{AgentName: "b", EventID: "evt-2"})
-	s.Record(Invocation{AgentName: "c", EventID: "evt-1"})
+	s := New(10)
+	s.Record(invocations.Invocation{AgentName: "a", EventID: "evt-1"})
+	s.Record(invocations.Invocation{AgentName: "b", EventID: "evt-2"})
+	s.Record(invocations.Invocation{AgentName: "c", EventID: "evt-1"})
 
-	got := s.List(ListOptions{EventID: "evt-1"})
+	got := s.List(invocations.ListOptions{EventID: "evt-1"})
 	if len(got) != 2 {
 		t.Fatalf("expected 2 invocations for evt-1, got %d", len(got))
 	}
@@ -341,29 +343,61 @@ func TestStore_ListFilterByEventID(t *testing.T) {
 		}
 	}
 
-	gotMiss := s.List(ListOptions{EventID: "missing"})
+	gotMiss := s.List(invocations.ListOptions{EventID: "missing"})
 	if len(gotMiss) != 0 {
 		t.Errorf("expected 0 for missing event, got %d", len(gotMiss))
 	}
 }
 
+// TestStore_ListFilterByConnectors keeps "any of these connectors" — the query a
+// per-channel view of recent work runs — and that an empty slice restricts
+// nothing rather than matching nothing.
+func TestStore_ListFilterByConnectors(t *testing.T) {
+	s := New(10)
+	s.Record(invocations.Invocation{AgentName: "a", Connector: "c-1"})
+	s.Record(invocations.Invocation{AgentName: "b", Connector: "c-2"})
+	s.Record(invocations.Invocation{AgentName: "c", Connector: "c-3"})
+
+	got := s.List(invocations.ListOptions{Connectors: []string{"c-1", "c-3"}})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 invocations for c-1/c-3, got %d: %+v", len(got), got)
+	}
+	for _, inv := range got {
+		if inv.Connector != "c-1" && inv.Connector != "c-3" {
+			t.Errorf("unexpected connector %q in filtered result", inv.Connector)
+		}
+	}
+
+	if _, total := s.ListWithTotal(invocations.ListOptions{Connectors: []string{"c-2"}, Limit: 5}); total != 1 {
+		t.Errorf("ListWithTotal total = %d, want 1", total)
+	}
+
+	if got := s.List(invocations.ListOptions{Connectors: []string{"missing"}}); len(got) != 0 {
+		t.Errorf("expected 0 for an unknown connector, got %d", len(got))
+	}
+
+	if got := s.List(invocations.ListOptions{Connectors: []string{}}); len(got) != 3 {
+		t.Errorf("empty Connectors must not restrict, got %d of 3", len(got))
+	}
+}
+
 func TestStore_AgentRollupsCountsAndAverages(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	now := time.Now().UTC()
 
 	// agent-a: one success with a duration, one failure with a duration,
 	// one still running (no duration). The running row must count toward
 	// Invocations (matching List for the same window) but not toward the
 	// duration average.
-	ok := s.Record(Invocation{AgentName: "a", StartTime: now.Add(-3 * time.Hour)})
-	s.Complete(ok.ID, StatusSuccess, "", now.Add(-3*time.Hour).Add(2*time.Second))
-	bad := s.Record(Invocation{AgentName: "a", StartTime: now.Add(-2 * time.Hour)})
-	s.Complete(bad.ID, StatusTimeout, "deadline", now.Add(-2*time.Hour).Add(4*time.Second))
-	s.Record(Invocation{AgentName: "a", StartTime: now.Add(-1 * time.Minute)})
+	ok := s.Record(invocations.Invocation{AgentName: "a", StartTime: now.Add(-3 * time.Hour)})
+	s.Complete(ok.ID, invocations.StatusSuccess, "", now.Add(-3*time.Hour).Add(2*time.Second))
+	bad := s.Record(invocations.Invocation{AgentName: "a", StartTime: now.Add(-2 * time.Hour)})
+	s.Complete(bad.ID, invocations.StatusTimeout, "deadline", now.Add(-2*time.Hour).Add(4*time.Second))
+	s.Record(invocations.Invocation{AgentName: "a", StartTime: now.Add(-1 * time.Minute)})
 
 	// agent-b: one success outside a 1h window.
-	b := s.Record(Invocation{AgentName: "b", StartTime: now.Add(-90 * time.Minute)})
-	s.Complete(b.ID, StatusSuccess, "", now.Add(-90*time.Minute).Add(1*time.Second))
+	b := s.Record(invocations.Invocation{AgentName: "b", StartTime: now.Add(-90 * time.Minute)})
+	s.Complete(b.ID, invocations.StatusSuccess, "", now.Add(-90*time.Minute).Add(1*time.Second))
 
 	got, err := s.AgentRollups(context.Background(), time.Time{}, time.Time{})
 	if err != nil {
@@ -400,7 +434,7 @@ func TestStore_AgentRollupsCountsAndAverages(t *testing.T) {
 }
 
 func TestStore_AgentRollupsEmptyStore(t *testing.T) {
-	s := NewMemoryStore(10)
+	s := New(10)
 	got, err := s.AgentRollups(context.Background(), time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("AgentRollups: %v", err)

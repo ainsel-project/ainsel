@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
+import type { ReactNode } from 'react'
 import { channelPath, isDirectSource, useChannelIds } from '../../api/channels'
+import { ConnectorLabel } from '../ConnectorLabel'
 import { Tag } from '../../primitives/Tag'
 import { formatISO } from '../../utils/time'
 import './EventJourney.css'
@@ -63,7 +65,7 @@ function ChannelChip({
   mark,
   to,
 }: {
-  name: string
+  name: ReactNode
   mark: 'produced' | 'fanout' | 'direct' | 'none'
   to?: string
 }) {
@@ -160,7 +162,9 @@ export function EventJourney({
           <div className="journey-body">
             <div className="journey-headline">
               <ChannelChip
-                name={s.channel}
+                name={
+                  i === 0 && !isDirectSource(s.channel) ? <ConnectorLabel id={s.channel} /> : s.channel
+                }
                 mark={i === 0 ? (isDirectSource(s.channel) ? 'direct' : 'produced') : 'fanout'}
                 to={homeHref(s.channel, i)}
               />
@@ -188,7 +192,10 @@ export function EventJourney({
           </div>
           <div className="journey-body">
             <div className="journey-terminal">
-              Unmatched — no subscription picked this event up. It stays in the <b>{connector}</b>{' '}
+              Unmatched — no subscription picked this event up. It stays in the{' '}
+              <b>
+                {isDirectSource(connector) ? connector : <ConnectorLabel id={connector!} />}
+              </b>{' '}
               channel and will not be delivered to any agent.
             </div>
           </div>

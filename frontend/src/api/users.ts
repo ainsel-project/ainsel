@@ -52,14 +52,6 @@ export function useUsers() {
   return useQuery({ queryKey: ['users'], queryFn: listUsers })
 }
 
-export function useUser(id: string | undefined) {
-  return useQuery({
-    queryKey: ['users', id],
-    queryFn: () => getUser(id!),
-    enabled: id !== undefined,
-  })
-}
-
 export function userDisplayName(user: { id: string; username: string; email: string }): string {
   if (user.username && user.username !== user.id) return user.username
   return user.email || user.id
