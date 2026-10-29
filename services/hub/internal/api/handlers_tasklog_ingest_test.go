@@ -15,7 +15,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
-// Migration 0031 adds CHECK constraints on the enum-like observability columns.
+// Migration 0032 adds CHECK constraints on the enum-like observability columns.
 // The task-log ingest endpoint decodes the request body straight into the row,
 // so it is the one write path where the constrained value is caller-supplied:
 // these tests pin that a bad level is a 400 at the handler (not a 500 from the
@@ -110,14 +110,14 @@ func TestIngestTaskLogRejectsInvalidLevel(t *testing.T) {
 	}
 }
 
-// TestMigration0031ConstraintsRejectBadValues writes through the pool directly
+// TestMigration0032ConstraintsRejectBadValues writes through the pool directly
 // to prove the constraints exist in the schema, not just in handler code.
-func TestMigration0031ConstraintsRejectBadValues(t *testing.T) {
+func TestMigration0032ConstraintsRejectBadValues(t *testing.T) {
 	_, pool := ingestDBServer(t)
 	ctx := context.Background()
 
 	// agent_tasks.event_id has a FK and chat_messages.session_id has a FK; seed
-	// both so a rejection can only come from the 0031 CHECKs, not from a
+	// both so a rejection can only come from the 0032 CHECKs, not from a
 	// constraint unrelated to this migration.
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO events (id, connector, headers, data, raw, received_at)
@@ -125,7 +125,8 @@ func TestMigration0031ConstraintsRejectBadValues(t *testing.T) {
 		t.Fatalf("seed event: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO chat_sessions (id, agent_name, user_id) VALUES ('s1', 'a', 'u1')`); err != nil {
+		// name is NOT NULL since migration 0010; the seed backfill used name = id.
+		`INSERT INTO chat_sessions (id, name, agent_name, user_id) VALUES ('s1', 's1', 'a', 'u1')`); err != nil {
 		t.Fatalf("seed chat session: %v", err)
 	}
 
