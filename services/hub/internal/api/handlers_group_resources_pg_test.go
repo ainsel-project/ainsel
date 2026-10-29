@@ -8,7 +8,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/db"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
-	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -53,7 +53,7 @@ func groupResPGServer(t *testing.T, fake *groupResAuthzFake) *Server {
 	s := groupResTestServer(t, fake)
 	s.SetEventQueue(eq)
 	s.SetTriggerStore(ts)
-	s.SetChannelService(svc, channels.NewTransfer(svc, eq, invocations.NewMemoryStore(100)))
+	s.SetChannelService(svc, channels.NewTransfer(svc, eq, invocationstest.New(100)))
 	s.mcp = mcpservers.NewService(mcpservers.NewStore(pool))
 	return s
 }
