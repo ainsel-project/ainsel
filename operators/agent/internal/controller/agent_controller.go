@@ -1,3 +1,9 @@
+// Package controller implements the agent operator's reconcilers. The
+// AgentReconciler turns an Agent CR into the workload that runs it — a
+// Deployment (or a Job in job mode) with its ConfigMap, secret references,
+// sidecars and scaling configuration — and keeps status conditions and
+// configuration hashes in sync as the CR or its referenced secrets and
+// skills change.
 package controller
 
 import (

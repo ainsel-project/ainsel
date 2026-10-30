@@ -167,7 +167,10 @@ to rename things safely.
 ### Go
 
 - `gofmt` is mandatory; CI fails on unformatted code.
-- `golangci-lint` runs with the config at the repo root.
+- `golangci-lint` runs per module with that module's `.golangci.yml` (this is
+  what CI uses); the root `.golangci.yml` mirrors the same rule set for
+  ad-hoc runs. Every package must carry a `// Package X ...` doc comment
+  (staticcheck ST1000).
 - Tests live next to source as `*_test.go`. Prefer table-driven tests.
 - `go.work` joins every Go module; when you change a file in `shared/api/`,
   downstream modules pick it up automatically — no `replace` directives

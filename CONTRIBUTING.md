@@ -165,7 +165,7 @@ rolling them out is left to whatever pipeline owns the environment.
 
 | workflow | trigger | does |
 | --- | --- | --- |
-| `ci-<component>.yml` (10) | PR based on `main`, path-filtered | build, test, lint that component |
+| `ci-<component>.yml` (11) | PR based on `main`, path-filtered | build, test, lint that component |
 | `pr-title.yml` | PR opened, edited or updated | reject a PR title release-please could not parse |
 | `pr-signed-off.yml` | PR opened, updated or reopened | reject a PR whose commits lack a `Signed-off-by:` trailer (see [conventions](docs/conventions.md#sign-off)) |
 | `dependabot-auto-merge.yml` | PR by `dependabot[bot]`, or dispatch with a PR number | wait for every other check on the PR, then squash-merge it; refuse on any red check |
@@ -426,7 +426,9 @@ paths, and anything that touches the canonical event schema.
 
 ## Code style
 
-- **Go**: `gofmt`, `golangci-lint` with the config at repo root. Keep
+- **Go**: `gofmt`, `golangci-lint` with the module-local `.golangci.yml`
+  (each Go module has its own config — that is what CI runs; the root
+  `.golangci.yml` mirrors the same rule set for ad-hoc runs). Keep
   packages small and named for what they do. Tests live next to source.
 - **TypeScript**: Prettier + ESLint with the configs at repo root. Prefer
   composition over inheritance; co-locate component, styles, and tests.
