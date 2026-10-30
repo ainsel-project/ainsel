@@ -292,6 +292,12 @@ func (r *AgentReconciler) reconcileDeployment(ctx context.Context, agent *ainsel
 // plan.mcpEntries (the MCP_SERVERS value) and plan.missingEnv (token
 // references to env vars the AgentImage does not define), both consumed by
 // later render stages and the Reconcile loop.
+//
+// The pieces are appended in a fixed order that is load-bearing: Kubernetes
+// resolves duplicate env names last-wins, the reserved-name skip in
+// imageProfileEnv depends on the platform vars being appended first, and
+// MCP_SERVER_TOKENS uses $(VAR) substitution that only resolves against vars
+// declared earlier. Any change here must preserve today's append order.
 func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName string, img *ainselv1alpha1.AgentImage, plan *podPlan) ([]corev1.EnvVar, error) {
 	pp, err := resolvePiProvider(agent)
 	if err != nil {
@@ -319,82 +325,94 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 		// platformManagedAgentEnv).
 		{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: resolveHubInternalToken()},
 	}
-	// OLLAMA_API_KEY is required by the pi/Ollama-Cloud runtime.
-	// The secret is created by the hub backend when the agent is
-	// created with an ollamaCloud.apiKey. When spec.ollamaCloud
-	// is unset the reference is optional so the pod still starts.
-	ollamaSecretName := agent.Name + "-ollama-key"
-	if agent.Spec.OllamaCloud != nil && agent.Spec.OllamaCloud.APIKeySecretRef != nil {
-		ollamaSecretName = agent.Spec.OllamaCloud.APIKeySecretRef.Name
+	envs = append(envs, llmProviderEnv(agent)...)
+	envs = append(envs, enabledToolsEnv(agent, img)...)
+
+	// Inject the effective runtime-profile env vars —
+	// the image defaults with this agent's overrides
+	// merged in — as explicit entries (not envFrom)
+	// so they are eligible for Kubernetes $(VAR)
+	// substitution in MCP_SERVER_TOKENS below. Values
+	// are sourced from the operator-managed
+	// <agent>-image-env Secret built by
+	// reconcileImageEnvSecret.
+	profileEnv, imageEnvNames := imageProfileEnv(agent, img, agentName)
+	envs = append(envs, profileEnv...)
+
+	envs = append(envs, mcpEnv(ctx, agent, img, plan, imageEnvNames)...)
+	return envs, nil
+}
+
+// llmProviderEnv renders the four provider API-key secret references and the
+// optional max-turns override. All four providers share one shape: the
+// secret defaults to <agent>-<provider>-key (created by the hub when the
+// agent is created with a key) and is overridden by the spec's
+// apiKeySecretRef when set. Optional is true only when the provider block is
+// absent entirely, so pods start even without a key.
+func llmProviderEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
+	providers := []struct {
+		envName       string
+		defaultSuffix string
+		// providerBlock reports the spec block's presence and its optional
+		// secret ref. present=false means the block is unset entirely.
+		providerBlock func() (ref *corev1.SecretKeySelector, present bool)
+	}{
+		{"OLLAMA_API_KEY", "-ollama-key", func() (*corev1.SecretKeySelector, bool) {
+			if agent.Spec.OllamaCloud == nil {
+				return nil, false
+			}
+			return agent.Spec.OllamaCloud.APIKeySecretRef, true
+		}},
+		{"OPENCODE_API_KEY", "-opencode-key", func() (*corev1.SecretKeySelector, bool) {
+			if agent.Spec.OpenCode == nil {
+				return nil, false
+			}
+			return agent.Spec.OpenCode.APIKeySecretRef, true
+		}},
+		{"ALIBABA_CLOUD_API_KEY", "-alibaba-key", func() (*corev1.SecretKeySelector, bool) {
+			if agent.Spec.AlibabaCloud == nil {
+				return nil, false
+			}
+			return agent.Spec.AlibabaCloud.APIKeySecretRef, true
+		}},
+		{"CUSTOM_PROVIDER_API_KEY", "-custom-provider-key", func() (*corev1.SecretKeySelector, bool) {
+			if agent.Spec.CustomProvider == nil {
+				return nil, false
+			}
+			return agent.Spec.CustomProvider.APIKeySecretRef, true
+		}},
 	}
-	envs = append(envs, corev1.EnvVar{
-		Name: "OLLAMA_API_KEY",
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: ollamaSecretName},
-				Key:                  "api-key",
-				Optional:             ptr.To(agent.Spec.OllamaCloud == nil),
+	envs := make([]corev1.EnvVar, 0, len(providers))
+	for _, p := range providers {
+		ref, present := p.providerBlock()
+		secretName := agent.Name + p.defaultSuffix
+		if present && ref != nil {
+			secretName = ref.Name
+		}
+		envs = append(envs, corev1.EnvVar{
+			Name: p.envName,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+					Key:                  "api-key",
+					Optional:             ptr.To(!present),
+				},
 			},
-		},
-	})
-	// OPENCODE_API_KEY mirrors OLLAMA_API_KEY for agents using the
-	// OpenCode provider. Optional so pods start even without a key.
-	opencodeSecretName := agent.Name + "-opencode-key"
-	if agent.Spec.OpenCode != nil && agent.Spec.OpenCode.APIKeySecretRef != nil {
-		opencodeSecretName = agent.Spec.OpenCode.APIKeySecretRef.Name
+		})
 	}
-	envs = append(envs, corev1.EnvVar{
-		Name: "OPENCODE_API_KEY",
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: opencodeSecretName},
-				Key:                  "api-key",
-				Optional:             ptr.To(agent.Spec.OpenCode == nil),
-			},
-		},
-	})
-	// ALIBABA_CLOUD_API_KEY mirrors OLLAMA_API_KEY for agents using
-	// the Alibaba Token Plan provider. Optional so pods start even without a key.
-	alibabaSecretName := agent.Name + "-alibaba-key"
-	if agent.Spec.AlibabaCloud != nil && agent.Spec.AlibabaCloud.APIKeySecretRef != nil {
-		alibabaSecretName = agent.Spec.AlibabaCloud.APIKeySecretRef.Name
-	}
-	envs = append(envs, corev1.EnvVar{
-		Name: "ALIBABA_CLOUD_API_KEY",
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: alibabaSecretName},
-				Key:                  "api-key",
-				Optional:             ptr.To(agent.Spec.AlibabaCloud == nil),
-			},
-		},
-	})
-	// CUSTOM_PROVIDER_API_KEY is used by agents with a
-	// custom LLM provider (non-standard endpoints). It is
-	// optional so pods start even without a key.
-	customProviderSecretName := agent.Name + "-custom-provider-key"
-	if agent.Spec.CustomProvider != nil && agent.Spec.CustomProvider.APIKeySecretRef != nil {
-		customProviderSecretName = agent.Spec.CustomProvider.APIKeySecretRef.Name
-	}
-	envs = append(envs, corev1.EnvVar{
-		Name: "CUSTOM_PROVIDER_API_KEY",
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: customProviderSecretName},
-				Key:                  "api-key",
-				Optional:             ptr.To(agent.Spec.CustomProvider == nil),
-			},
-		},
-	})
 	if agent.Spec.LLM.MaxTurns > 0 {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "OLLAMA_CLOUD_MAX_TURNS",
 			Value: fmt.Sprintf("%d", agent.Spec.LLM.MaxTurns),
 		})
 	}
-	// Translate spec.enabledTools into AGENT_TOOLS.
-	// claude-cli tool kinds in the AgentImage catalog are
-	// ignored — the runtime no longer supports them.
+	return envs
+}
+
+// enabledToolsEnv translates spec.enabledTools into AGENT_TOOLS. Tools whose
+// kind in the AgentImage catalog is not "container" are silently dropped —
+// the runtime no longer supports them.
+func enabledToolsEnv(agent *ainselv1alpha1.Agent, img *ainselv1alpha1.AgentImage) []corev1.EnvVar {
 	kindByName := make(map[string]ainselv1alpha1.AgentImageToolKind, len(img.Spec.Tools))
 	for _, t := range img.Spec.Tools {
 		kindByName[t.Name] = t.Kind
@@ -406,25 +424,22 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 		}
 		// shell and claude-cli kinds are silently dropped
 	}
-	envs = append(envs,
-		corev1.EnvVar{Name: "AGENT_TOOLS", Value: strings.Join(containerTools, ",")},
-	)
-	// Inject the effective runtime-profile env vars —
-	// the image defaults with this agent's overrides
-	// merged in — as explicit entries (not envFrom)
-	// so they are eligible for Kubernetes $(VAR)
-	// substitution in MCP_SERVER_TOKENS below. Values
-	// are sourced from the operator-managed
-	// <agent>-image-env Secret built by
-	// reconcileImageEnvSecret.
+	return []corev1.EnvVar{{Name: "AGENT_TOOLS", Value: strings.Join(containerTools, ",")}}
+}
+
+// imageProfileEnv renders the effective runtime-profile env vars as explicit
+// entries sourced from the operator-managed <agentName>-image-env Secret, and
+// returns the set of names defined (imageEnvNames), consumed by the
+// MCP_SERVER_TOKENS substitution. Platform-managed names are skipped: their
+// canonical values were already appended by the caller, and skipping here
+// prevents the image entry (added later, wins in k8s) from overriding them.
+func imageProfileEnv(agent *ainselv1alpha1.Agent, img *ainselv1alpha1.AgentImage, agentName string) ([]corev1.EnvVar, map[string]bool) {
 	profileEnv := effectiveEnv(agent, img)
 	imageEnvNames := make(map[string]bool, len(profileEnv))
 	managedEnv := platformManagedAgentEnv()
+	var envs []corev1.EnvVar
 	for _, e := range profileEnv {
 		if _, reserved := managedEnv[e.Name]; reserved {
-			// Platform-owned name: the canonical value is already
-			// injected above. Skipping it here prevents the image
-			// entry (added later, wins in k8s) from overriding it.
 			continue
 		}
 		envs = append(envs, corev1.EnvVar{
@@ -438,6 +453,19 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 		})
 		imageEnvNames[e.Name] = true
 	}
+	return envs, imageEnvNames
+}
+
+// mcpEnv fills plan.mcpEntries (the agent's own MCP definitions or the
+// referenced image's servers, plus sidecar-declared servers and the injected
+// chat-mcp entry) and renders the MCP_SERVERS and MCP_SERVER_TOKENS entries.
+// Token references use $(VAR) substitution against imageEnvNames — the image
+// env entries must have been appended before the returned entries, which is
+// why this runs last. Servers whose tokenFromEnv is missing from the image
+// env are skipped; the controller logs them and records them in
+// plan.missingEnv so a future Degraded condition can surface the
+// misconfiguration to the user.
+func mcpEnv(ctx context.Context, agent *ainselv1alpha1.Agent, img *ainselv1alpha1.AgentImage, plan *podPlan, imageEnvNames map[string]bool) []corev1.EnvVar {
 	// Inject the effective MCP server URLs: the agent's
 	// own definitions (explicit override, empty = none)
 	// or the referenced image's servers (legacy).
@@ -459,16 +487,9 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 	// Inject the chat-mcp sidecar entry unless the AgentImage
 	// already defines one or CHAT_MCP_IMAGE is unset.
 	plan.mcpEntries = append(plan.mcpEntries, chatMCPEntry(img)...)
-	envs = append(envs, corev1.EnvVar{
-		Name:  "MCP_SERVERS",
-		Value: mcpservers.EnvValue(mcpservers.DedupeEntries(plan.mcpEntries)),
-	})
-	// Build MCP_SERVER_TOKENS using $(VAR) references that
-	// Kubernetes substitutes from the image env entries
-	// added above. Servers whose tokenFromEnv is missing
-	// from the image env are skipped; the controller logs
-	// them so a future Degraded condition can surface the
-	// misconfiguration to the user.
+	envs := []corev1.EnvVar{
+		{Name: "MCP_SERVERS", Value: mcpservers.EnvValue(mcpservers.DedupeEntries(plan.mcpEntries))},
+	}
 	tokenValue, me := mcpservers.TokenEnvValueWithPlatform(effectiveMCPServers(agent, img), imageEnvNames, resolveHubURL())
 	if len(me) > 0 {
 		plan.missingEnv = append(plan.missingEnv, me...)
@@ -488,7 +509,7 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 			Value: tokenValue,
 		})
 	}
-	return envs, nil
+	return envs
 }
 
 // renderPodTemplate assembles the pod template from the plan and the rendered
