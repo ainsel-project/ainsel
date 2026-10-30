@@ -86,6 +86,10 @@ func TestAgents_CreateAndList(t *testing.T) {
 	if created.ImageRef.Name != "img-1" {
 		t.Errorf("expected imageRef.name 'img-1', got %s", created.ImageRef.Name)
 	}
+	// imageRef.id is the route key the console links the image onto.
+	if created.ImageRef.ID != "img-1" {
+		t.Errorf("expected imageRef.id 'img-1', got %s", created.ImageRef.ID)
+	}
 	if len(created.EnabledTools) != 1 || created.EnabledTools[0] != "git" {
 		t.Errorf("expected enabledTools [git], got %v", created.EnabledTools)
 	}

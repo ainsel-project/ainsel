@@ -36,6 +36,7 @@ function defaultFetch(url: string, init?: RequestInit): Response {
       { status: 200 },
     )
   }
+  if (url.includes('/groups')) return new Response('[]', { status: 200 })
   return new Response('{}', { status: 200 })
 }
 
@@ -59,6 +60,7 @@ function disabledFetch(url: string, init?: RequestInit): Response {
       { status: 200 },
     )
   }
+  if (url.includes('/groups')) return new Response('[]', { status: 200 })
   return new Response('{}', { status: 200 })
 }
 
@@ -130,6 +132,47 @@ describe('ConnectorDetail', () => {
     )
     await screen.findAllByText('insel-monorepo')
     expect(screen.getByRole('button', { name: /disable/i })).toBeInTheDocument()
+  })
+  // #154: the single-connector GET reports the authz group; the Connection
+  // panel links it when the group list resolves the id.
+  it('links the group when the payload carries a resolvable groupId', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.includes('/groups')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([{ id: 'g1', name: 'Ops', description: '', createdAt: '', updatedAt: '' }]),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/connectors/c1')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: 'c1',
+                name: 'insel-monorepo',
+                groupId: 'g1',
+                signatureHeader: 'X-Hub-Signature-256',
+                disabled: false,
+                status: { ready: true },
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/connectors/:id" element={<ConnectorDetail />} />
+      </Routes>,
+      { route: '/connectors/c1' },
+    )
+    const link = await screen.findByRole('link', { name: 'Ops' })
+    expect(link).toHaveAttribute('href', '/groups/g1')
   })
 })
 

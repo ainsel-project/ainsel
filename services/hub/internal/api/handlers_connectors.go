@@ -34,6 +34,11 @@ type WebhookConnectorResponse struct {
 	WebhookSecretValue string                  `json:"webhookSecretValue,omitempty"`
 	Status             *WebhookConnectorStatus `json:"status,omitempty"`
 	Disabled           bool                    `json:"disabled"`
+	// GroupID is the authz group the connector belongs to, as recorded at
+	// create time. Reported on the single-connector GET only (the list stays
+	// free of per-row ownership lookups); empty when access control is off or
+	// no group was recorded, which leaves the console rendering no group row.
+	GroupID string `json:"groupId,omitempty"`
 }
 
 type WebhookConnectorStatus struct {
@@ -153,7 +158,17 @@ func (s *Server) getConnector(ctx context.Context, w http.ResponseWriter, name s
 		writeError(w, http.StatusNotFound, "connector not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toWebhookConnectorResponse(c))
+	resp := toWebhookConnectorResponse(c)
+	if s.authzStore != nil {
+		rg, err := s.authzStore.GetResourceGroup(ctx, "connector", name)
+		if err != nil {
+			// Group row is best-effort enrichment; degrade to no group but keep it diagnosable.
+			slog.Warn("get connector resource group", "error", err, "connector", name)
+		} else if rg != nil {
+			resp.GroupID = rg.GroupID
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *http.Request) {

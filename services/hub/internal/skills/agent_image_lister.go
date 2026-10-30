@@ -41,7 +41,7 @@ func (l *kubeAgentImageLister) ListReferrers(ctx context.Context, skillID string
 		}
 		for _, s := range skills {
 			if s == skillID {
-				refs = append(refs, Referrer{AgentImageName: item.GetName()})
+				refs = append(refs, Referrer{AgentImageName: item.GetName(), AgentImageID: item.GetName()})
 				break
 			}
 		}

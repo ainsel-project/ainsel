@@ -17,6 +17,9 @@ import { SectionStatus } from '../../../primitives/SectionStatus'
 import { RangeSelector } from '../RangeSelector'
 import { abbreviateNumber, formatUSD } from '../../../utils/format'
 import { eventsLink } from '../../../utils/obsLinks'
+import { EntityLink } from '../../../components/EntityLink'
+import { agentPath } from '../../../components/entityPaths'
+import { useAgents } from '../../../api/agents'
 
 const VALID_RANGES = ['1h', '6h', '24h', '7d'] as const
 const isRange = (s: string | null): s is Range =>
@@ -31,6 +34,13 @@ export function TokensDetail() {
 
   const allTime = useTokensLedger()
   const bySubject = useTokensBySubject(range)
+  // Side list decides which rows are linkable: an agent that was deleted (or
+  // is not readable by this caller) renders plain text, not a 404.
+  const { data: agentData } = useAgents({ pageSize: 200 })
+  const agentIds = useMemo(
+    () => new Set((agentData?.items ?? []).map((a) => a.id)),
+    [agentData],
+  )
 
   const rows: TokensSubjectRow[] = useMemo(
     () => [...(bySubject.data?.rows ?? [])].sort((a, b) => b.totalTokens - a.totalTokens),
@@ -62,7 +72,14 @@ export function TokensDetail() {
         </>
       ),
     },
-    { key: 'agent', header: 'Agent', width: 160, cell: (r) => r.agent },
+    {
+      key: 'agent',
+      header: 'Agent',
+      width: 160,
+      cell: (r) => (
+        <EntityLink id={r.agentId} known={agentIds} label={r.agent} path={agentPath} />
+      ),
+    },
     {
       key: 'model',
       header: 'Model',

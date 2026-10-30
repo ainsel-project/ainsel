@@ -12,6 +12,10 @@ import {
 } from '../../../api/invocations'
 import { EventJourney } from '../../../components/journey/EventJourney'
 import { ConnectorLabel } from '../../../components/ConnectorLabel'
+import { EntityLink } from '../../../components/EntityLink'
+import { agentPath, connectorPath } from '../../../components/entityPaths'
+import { useAgents } from '../../../api/agents'
+import { useConnectors } from '../../../api/connectors'
 import { Titleblock } from '../../../layout/Titleblock'
 import { Panel } from '../../../primitives/Panel'
 import { ScrollToTop } from '../../../primitives/ScrollToTop'
@@ -79,6 +83,11 @@ function transcriptEmptyState(invocation: InvocationEntry): string {
 }
 
 function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
+  const { data: agentData } = useAgents({ pageSize: 200 })
+  const agentIds = useMemo(
+    () => new Set((agentData?.items ?? []).map((a) => a.id)),
+    [agentData],
+  )
   const conversations = useConversations(
     { invocation: invocation.id },
     // Keep polling the transcript while the invocation runs so the
@@ -114,7 +123,14 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
       className="cropped"
     >
       <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-        <Kpi label="Agent">{invocation.agentName ?? invocation.agent}</Kpi>
+        <Kpi label="Agent">
+          <EntityLink
+            id={invocation.agentId}
+            known={agentIds}
+            label={invocation.agentName ?? invocation.agent}
+            path={agentPath}
+          />
+        </Kpi>
         <Kpi label="Trigger">{invocation.triggerName ?? invocation.trigger ?? '—'}</Kpi>
         <Kpi label="Status">
           {/* The derived run state: a task with no worker yet reads queued
@@ -156,6 +172,18 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
 export function EventView() {
   const { id } = useParams<{ id: string }>()
   const { data, isLoading, error } = useEvent(id ?? '')
+  // Side lists decide which references are linkable: an id whose entity was
+  // deleted (or is not readable by this caller) renders plain text, not a 404.
+  const { data: agentData } = useAgents({ pageSize: 200 })
+  const { data: connectorData } = useConnectors({ pageSize: 200 })
+  const agentIds = useMemo(
+    () => new Set((agentData?.items ?? []).map((a) => a.id)),
+    [agentData],
+  )
+  const connectorIds = useMemo(
+    () => new Set((connectorData?.items ?? []).map((c) => c.id)),
+    [connectorData],
+  )
   // Any invocation still running means the event detail is a live view:
   // poll so status flips, new invocations, and the transcript show up.
   const invocations = useInvocations(
@@ -208,7 +236,16 @@ export function EventView() {
                   <span className="label">Connector</span>
                 </div>
                 <div className="figure" style={{ fontSize: 18 }}>
-                  {data.connector ? <ConnectorLabel id={data.connector} /> : '—'}
+                  {data.connector ? (
+                    <EntityLink
+                      id={data.connector}
+                      known={connectorIds}
+                      label={<ConnectorLabel id={data.connector} />}
+                      path={connectorPath}
+                    />
+                  ) : (
+                    '—'
+                  )}
                 </div>
               </div>
               <div className="kpi">
@@ -252,7 +289,14 @@ export function EventView() {
                       <div className="v">{m.trigger}</div>
                     </div>
                     <div>
-                      <div className="v">{m.agent}</div>
+                      <div className="v">
+                        <EntityLink
+                          id={m.agentId}
+                          known={agentIds}
+                          label={m.agent}
+                          path={agentPath}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}

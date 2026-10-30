@@ -38,6 +38,11 @@ var validActivityStatuses = map[string]bool{
 type activityMatch struct {
 	Trigger string `json:"trigger"`
 	Agent   string `json:"agent"`
+	// AgentID is the agent's API id (its resource name) — the route key the
+	// console links a match onto. Carried explicitly so views never have to
+	// assume the display name doubles as the id; empty on hubs that predate
+	// the field, which leaves the link unrendered.
+	AgentID string `json:"agentId,omitempty"`
 	// RunStatus is the raw invocation status, kept for compatibility. Views
 	// should prefer RunState, which is derived from the task and distinguishes
 	// queued from running.
@@ -292,7 +297,7 @@ func (s *Server) buildActivityEntry(evt eventqueue.Event, tasks []eventqueue.Tas
 			if t.Status == "failed" {
 				entry.Status = activityStatusError
 			}
-			m := activityMatch{Trigger: t.TriggerName, Agent: t.AgentName}
+			m := activityMatch{Trigger: t.TriggerName, Agent: t.AgentName, AgentID: t.AgentName}
 			task := t
 			var inv *invocations.Invocation
 			if s.invocations != nil && t.InvocationID != "" {

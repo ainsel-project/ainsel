@@ -52,4 +52,8 @@ type VersionSummary struct {
 // Returned by Service.Delete when the delete is refused.
 type Referrer struct {
 	AgentName string `json:"agentName"`
+	// AgentID is the agent's API id (its resource name) — the route key the
+	// console links a referrer onto. Same value as AgentName today; carried
+	// explicitly so views never have to assume it.
+	AgentID string `json:"agentId,omitempty"`
 }
