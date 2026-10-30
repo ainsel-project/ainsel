@@ -622,6 +622,15 @@ func (s *Server) handleIngestTaskLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The body decodes straight into the row, so the level is agent-supplied
+	// free text. task_logs_level_check (migration 0032) would reject a bad
+	// value at insert; reject it here as a 400 so the agent sees a usable
+	// error instead of a 500.
+	if !tasklogs.ValidLevel(entry.Level) {
+		writeError(w, http.StatusBadRequest, "invalid level: must be debug, info, warn, or error")
+		return
+	}
+
 	if err := s.taskLogs.Insert(r.Context(), &entry); err != nil {
 		slog.Error("task log insert failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to store task log")

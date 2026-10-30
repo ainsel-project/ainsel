@@ -347,7 +347,7 @@ Indexes: `idx_chat_sessions_agent`, `idx_chat_sessions_user`.
 |--------|------|-------|
 | `id` | `BIGSERIAL PK` | |
 | `session_id` | `TEXT NOT NULL` → `chat_sessions(id)` ON DELETE CASCADE | |
-| `role` | `TEXT NOT NULL` | Unconstrained (`user` / `assistant` / …) |
+| `role` | `TEXT NOT NULL` | `user` \| `assistant` \| `status` — CHECK since 0032 |
 | `content` | `TEXT NOT NULL` | |
 | `tokens` | `INTEGER NOT NULL DEFAULT 0` | |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | |
@@ -392,7 +392,7 @@ One row per (event, agent) delivery — the fan-out and the agent inbox.
 | `invocation_id` | `TEXT NOT NULL DEFAULT ''` | Soft reference to `invocations.id` |
 | `headers` | `JSONB NOT NULL DEFAULT '{}'` | |
 | `payload` | `JSONB NOT NULL` | |
-| `status` | `TEXT NOT NULL DEFAULT 'pending'` | `pending` \| `claimed` \| `completed` \| `failed` — no CHECK constraint |
+| `status` | `TEXT NOT NULL DEFAULT 'pending'` | `pending` \| `claimed` \| `completed` \| `failed` — CHECK since 0032 |
 | `attempts` | `INT NOT NULL DEFAULT 0` | |
 | `max_attempts` | `INT NOT NULL DEFAULT 10` | A nack past this flips to `failed` |
 | `retry_after` | `TIMESTAMPTZ` | Backoff window; `retry_after IS NULL OR retry_after <= now()` is applied at query time (now() is not indexable in a predicate) |
@@ -425,7 +425,7 @@ former in-memory ring buffer so transcripts survive a hub restart.
 | `trigger_name` | `TEXT NOT NULL DEFAULT ''` | |
 | `event_id` | `TEXT NOT NULL DEFAULT ''` | Soft reference |
 | `connector` | `TEXT NOT NULL DEFAULT ''` | |
-| `status` | `TEXT NOT NULL DEFAULT 'running'` | Stored: `running` at dispatch, then `success` \| `failure` \| `timeout`. Derived, never stored: `queued` (from the task row) and `unknown` (no task, no terminal record); no CHECK constraint |
+| `status` | `TEXT NOT NULL DEFAULT 'running'` | Stored: `running` at dispatch, then `success` \| `failure` \| `timeout` — CHECK since 0032. Derived, never stored (and not in the CHECK): `queued` (from the task row) and `unknown` (no task, no terminal record) |
 | `error` | `TEXT NOT NULL DEFAULT ''` | |
 | `start_time` | `TIMESTAMPTZ NOT NULL` | Pruning key |
 | `end_time` | `TIMESTAMPTZ` | |
@@ -448,7 +448,7 @@ Structured agent logs (0012).
 | `invocation_id` | `TEXT NOT NULL DEFAULT ''` | Soft reference |
 | `correlation_id` | `TEXT NOT NULL DEFAULT ''` | Groups a run before an invocation id exists |
 | `agent_name` | `TEXT NOT NULL` | |
-| `level` | `TEXT NOT NULL DEFAULT 'info'` | `debug` \| `info` \| `warn` \| `error` (`internal/tasklogs/types.go`); no CHECK |
+| `level` | `TEXT NOT NULL DEFAULT 'info'` | `debug` \| `info` \| `warn` \| `error` (`internal/tasklogs/types.go`) — CHECK since 0032; the internal ingest handler rejects other levels with 400 (`tasklogs.ValidLevel`) |
 | `message` | `TEXT NOT NULL` | |
 | `fields` | `JSONB NOT NULL DEFAULT '{}'` | |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | |
@@ -515,10 +515,10 @@ scope, and the insert helper takes only these fields.
 | `id` | `BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | The only identity column in the schema — everything else uses `BIGSERIAL` |
 | `occurred_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Pruning key |
 | `actor_sub` | `TEXT NOT NULL` | Subject of the acting principal; soft reference |
-| `event_type` | `TEXT NOT NULL` | `auth_login`, `auth_login_failed`, `auth_password_changed`, `user_created`, `user_password_reset`, `user_deleted` — the slog names, so a row correlates 1:1 with its log line; no CHECK |
+| `event_type` | `TEXT NOT NULL` | The six auth slog names (`auth_login`, `auth_login_failed`, `auth_password_changed`, `user_created`, `user_password_reset`, `user_deleted`), so a row correlates 1:1 with its log line, **plus** the plugin management/API-write event types (`plugin_installed`, …, `plugin_api_write`) — CHECK since 0032 over the constants in `internal/auditevents/store.go` |
 | `target` | `TEXT NOT NULL DEFAULT ''` | e.g. the user a password was reset for |
 | `source_ip` | `TEXT NOT NULL DEFAULT ''` | |
-| `outcome` | `TEXT NOT NULL` | |
+| `outcome` | `TEXT NOT NULL` | `success` \| `failure` — CHECK since 0032 |
 
 Indexes: `idx_auth_events_occurred (occurred_at DESC)` (list endpoint),
 `idx_auth_events_actor (actor_sub)`, `idx_auth_events_type_occurred (event_type,
@@ -567,10 +567,12 @@ document.
 is the "absent" marker in the 0012–0014 tables — which is why those indexes test
 `!= ''`.
 
-**Status values are application enums.** No status column has a CHECK
-constraint: `agent_tasks.status`, `invocations.status`, `task_logs.level` and
-`chat_messages.role` are free text. The only value sets the schema enforces are
-`channels.kind`, `group_members.role`, and `channel_bridges`' self-edge check.
+**Status values are schema-enforced enums.** Since 0032 the enum-like columns
+carry CHECK constraints restating the sets the Go write sites already emit:
+`agent_tasks.status`, `invocations.status`, `task_logs.level`,
+`chat_messages.role`, `auth_events.event_type` and `auth_events.outcome`. The
+remaining value sets the schema enforces are `channels.kind`,
+`group_members.role`, and `channel_bridges`' self-edge check.
 
 ---
 
@@ -630,6 +632,8 @@ Useful when reading an old deployment's schema or reviewing a new migration.
 | 0026–0027, 0029 | `users`: `disabled`, `token_version` (local session invalidation), `must_change_password` |
 | 0028 | `auth_events` — the auth audit trail, readable from the API instead of only from logs |
 | 0030 | `skills.managed_by` — plugin-owned skill rows, mirroring `mcp_servers.managed_by` |
+| 0031 | Index on `invocations (connector, start_time DESC)` for the connector filter |
+| 0032 | CHECK constraints on the enum-like columns: `agent_tasks.status`, `invocations.status`, `task_logs.level`, `chat_messages.role`, `auth_events.event_type`/`outcome` (validated `ADD CONSTRAINT`; bad pre-existing rows fail the migration until cleaned) |
 
 ---
 
@@ -655,11 +659,13 @@ or at least consistent behaviour, but a schema review should confirm it:
    uses.
 5. **Money in `DOUBLE PRECISION`.** `cost_usd` is a nullable float; fine for
    display totals and for `SUM`, wrong if anything ever bills on it.
-6. **Status columns are unconstrained text** — `agent_tasks.status`,
-   `invocations.status`, `task_logs.level`, `chat_messages.role` and
-   `auth_events.event_type` (§6). A typo in a writer becomes an unreachable row
-   rather than an error, and the dashboard filters (`WHERE status = 'pending'`)
-   silently under-count.
+6. **Status columns were unconstrained text** — resolved by 0032:
+   `agent_tasks.status`, `invocations.status`, `task_logs.level`,
+   `chat_messages.role` and `auth_events.event_type`/`outcome` now have CHECK
+   constraints, so a typo in a writer is an error instead of an unreachable
+   row. Note the upgrade consequence: a deployment with pre-existing bad rows
+   fails the migration until they are cleaned (plain validated `ADD
+   CONSTRAINT`, no `NOT VALID`).
 7. **Migration-time locks.** 0021, 0024 and 0028 all say so explicitly: no
    `CONCURRENTLY` inside golang-migrate, so a large queue table means a brief
    write pause on upgrade.
