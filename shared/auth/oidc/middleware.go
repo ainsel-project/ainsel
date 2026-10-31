@@ -279,6 +279,8 @@ type UserInfoError struct {
 	StatusCode int
 }
 
+// Error implements the error interface, reporting the upstream userinfo
+// status code.
 func (e *UserInfoError) Error() string {
 	return fmt.Sprintf("userinfo: status %d", e.StatusCode)
 }
