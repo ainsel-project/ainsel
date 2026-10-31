@@ -55,7 +55,6 @@ type Trigger struct {
 // TriggerList is the list form of the frozen Trigger read contract for
 // cmd/migrate-triggers; triggers now live in hub Postgres. Do not extend.
 // +kubebuilder:object:root=true
-
 type TriggerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
