@@ -20,8 +20,29 @@ by resource name for Kubernetes-backed endpoints, by start time for invocations 
 returns the same slice across calls.
 
 Successful mutations return `200 OK` (update) or `201 Created` (create) with a JSON body; a successful
-`DELETE` returns `204 No Content` with an empty body. Asynchronous trigger endpoints
-(e.g. `POST /api/v1/agent-images/{name}/sync`) return `202 Accepted` with no body.
+`DELETE` returns `204 No Content` with an empty body.
+
+## Managed resources (`managedBy`)
+
+Agents, AgentImages, WebhookConnectors, Personas, Skills, and MCP Servers each carry an
+optional `managedBy` field naming the external system that authors them (e.g. `"gitops"`,
+`"helm"`, `"plugin"`). Empty or `"user"` means console-managed; **any other value marks the
+resource externally managed**:
+
+- Reads (`GET` and list responses) expose `managedBy` verbatim; the console renders such
+  resources read-only.
+- **Every mutation** of an externally managed resource is refused with `409 Conflict` and
+  body `{"error": "<kind> is managed by <manager>"}` — e.g. `"agent is managed by gitops"`.
+  This covers updates, deletes, pause/resume, agent-persona writes, image MCP refresh,
+  connector secret rotation, and persona rollback.
+- Clients cannot set or change `managedBy`: it is not part of any create/update request
+  shape, and the stored value is preserved on update. For CRD-backed resources it is
+  `spec.managedBy` (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`), written by external tooling via
+  kubectl/GitOps/Helm; for database-backed rows (personas, skills, MCP servers) only direct
+  DB writes or the owning subsystem (plugin syncer, seed loader) set it.
+
+The point is single authorship: a resource is edited in exactly one place, never from both
+the console and an external pipeline.
 
 ## Health Check
 
@@ -101,6 +122,8 @@ Both are populated on the list endpoint only, and are empty when authz is disabl
 
 Agents carry an `updatedAt` timestamp (RFC3339) in both list and detail responses. The hub stamps it on every create/update via the `ainsel.dev/updated-at` annotation; for agents that predate the annotation it falls back to the resource creation time.
 
+Agents also carry `managedBy` when externally managed (omitted or `"user"` otherwise) — see [Managed resources](#managed-resources-managedby).
+
 Agents also carry an agent-scoped skill selection in `skills`: **present = explicit override** (`{"items": []}` means no skills at all), **absent = inherit** the referenced image's `enabledSkills` (legacy behavior). Every id must exist in the skill library (`/skills`); unknown ids are rejected with `400`. Once set, the selection is explicit — the API does not currently offer a reset-to-inherit.
 
 The same wrapper semantics apply to the agent-scoped MCP selection in `mcp`, with one asymmetry: **requests carry registry names** (`{"servers": ["github"]}`), and the hub resolves each name to its full definition from the MCP registry (`/mcp-servers`, unknown names → `400`) when writing — **responses return the resolved definitions** (`name`, `url`, `tokenFromEnv`). The agent CR holds a snapshot: later registry edits do not rewrite existing agents. Absent `mcp` inherits the referenced image's `mcpServers` (legacy); `{"servers": []}` explicitly connects to none.
@@ -166,13 +189,13 @@ Update an Agent. Body fields are all optional; only fields that are present are 
 
 Re-pointing `persona` away from a persona this agent owns deletes that owned persona afterwards: owned personas are invisible to the persona library, so nothing else would reclaim them. The cleanup is best-effort and never fails the request.
 
-**Response:** `200 OK` with the updated agent, `400` on invalid body, `404` if missing, `500` on K8s failures.
+**Response:** `200 OK` with the updated agent, `400` on invalid body, `404` if missing, `409` if the agent is externally managed (`managedBy`), `500` on K8s failures.
 
 ### DELETE /api/v1/agents/{name}
 
 Delete an Agent, and reclaim the persona it owned if any (best-effort).
 
-**Response:** `204 No Content` or `404 Not Found`.
+**Response:** `204 No Content`, `404 Not Found`, or `409` if the agent is externally managed (`managedBy`).
 
 ### POST /api/v1/agents/{name}/pause
 
@@ -198,7 +221,8 @@ or
   past `until` → `400`.
 
 **Response:** `200 OK` with the updated agent (`paused: true`, `pausedUntil` when the
-pause expires on its own), `404` if the agent does not exist. Gated by `write` on the agent.
+pause expires on its own), `404` if the agent does not exist, `409` if the agent is
+externally managed (`managedBy`). Gated by `write` on the agent.
 
 ### DELETE /api/v1/agents/{name}/pause
 
@@ -206,7 +230,8 @@ Resume the agent — lifts any pause, expired or not — and nudges the queue so
 waiting runtime picks the backlog up immediately.
 
 **Response:** `200 OK` with the updated agent (`paused: false`), `404` if the agent does
-not exist. Gated by `write` on the agent.
+not exist, `409` if the agent is externally managed (`managedBy`). Gated by `write` on the
+agent.
 
 ### GET /api/v1/agents/{name}/persona
 
@@ -257,7 +282,9 @@ spec change. Subsequent calls update that owned persona and bump its version.
   needs no separate permission record.
 
 **Response:** `200 OK`, `400` on validation failure (e.g. empty `text`), `404` if
-the agent does not exist, `500` on K8s failures, `503` without persona storage.
+the agent does not exist, `409` if the agent is externally managed (`managedBy`) or the
+owned persona is itself externally managed, `500` on K8s failures, `503` without persona
+storage.
 Name collisions cannot occur here: uniqueness is enforced among templates only,
 and an owned persona may share a name with the template it was forked from.
 
@@ -318,21 +345,27 @@ Update an `AgentImage`. All body fields are optional. Setting `tools` to a non-n
 
 For secret env vars — top-level and sidecar alike — sending `value: ""` preserves the existing stored value and keeps the `secret` flag, regardless of the flag submitted with the entry. Send a non-empty `value` to replace the secret; an omitted `secret` keeps the stored flag, and only an explicit `secret: false` declassifies it. Drop the entry to remove it.
 
-If any tool is removed and an existing Agent has it in `enabledTools`, the request fails with `409 Conflict` and the response body lists the affected agents and the removed tools.
+If any tool is removed and an existing Agent has it in `enabledTools`, the request fails with `409 Conflict` and the response body lists the affected agents and the removed tools. The request also fails with `409 Conflict` if the image is externally managed (`managedBy`). `managedBy` itself is never changed by this endpoint.
 
-**Response:** `200 OK`, `400`, `404`, `409`, or `500`.
+**Response:** `200 OK`, `400`, `404`, `409` (tool removal in use, or externally managed), or `500`.
 
 ### DELETE /api/v1/agent-images/{name}
 
-Delete an `AgentImage`. Returns `409 Conflict` (with `affectedAgents`) if any Agent still references it via `imageRef.name`.
+Delete an `AgentImage`. Returns `409 Conflict` (with `affectedAgents`) if any Agent still references it via `imageRef.name`, or if the image is externally managed (`managedBy`).
 
 **Response:** `204 No Content`, `404 Not Found`, `409 Conflict`, or `500`.
 
-### POST /api/v1/agent-images/{name}/sync
+### POST /api/v1/agent-images/{name}/refresh-mcp
 
-Trigger a tool sync for an `AgentImage`. The hub schedules a one-off Job that runs `agent --list-tools` against the image; the controller updates the image's `tools` and `status.phase` when the Job completes. Returns `409 Conflict` if a sync Job for this image is still active.
+Re-discover the image's MCP tools: the hub queries each MCP server listed on the image
+(`spec.mcpServers`), lists its tools, and merges them into `spec.tools` — preserving the
+enabled/disabled state of tools that are still present, adding newly discovered ones
+disabled (`isNew: true`), and removing tools the server no longer offers. Fails with `400`
+if the image declares no MCP servers, and with `409 Conflict` if the image is externally
+managed (`managedBy`) — refreshing rewrites `spec.tools`.
 
-**Response:** `202 Accepted` (no body), `404 Not Found`, `409 Conflict`, or `500`.
+**Response:** `200 OK` with `{"image": …, "warnings": […]}` (per-server errors are
+reported as warnings), `400`, `404`, `409`, or `500`.
 
 ---
 
@@ -412,23 +445,26 @@ for `GET /api/v1/groups/{id}`; omitted when the connector has no group.
 
 Update a connector. Body fields are optional; only present fields are
 applied: `name` (new display label) and `disabled` (the enable/disable
-switch).
+switch). Fails with `409 Conflict` if the connector is externally managed
+(`managedBy`).
 
-**Response:** `200 OK`, `400`, `404`, or `500`.
+**Response:** `200 OK`, `400`, `404`, `409` (externally managed), or `500`.
 
 ### POST /api/v1/connectors/{id}/rotate-secret
 
 Rotate the connector's webhook HMAC secret. The new secret is returned once
 as `webhookSecretValue`; update the source's signing config afterwards.
+Fails with `409 Conflict` if the connector is externally managed (`managedBy`).
 
 **Response:** `200 OK` with the connector (including `webhookSecretValue`),
-`404 Not Found`, or `500`.
+`404 Not Found`, `409` (externally managed), or `500`.
 
 ### DELETE /api/v1/connectors/{id}
 
-Delete a connector. The associated webhook secret is deleted as well.
+Delete a connector. The associated webhook secret is deleted as well. Fails
+with `409 Conflict` if the connector is externally managed (`managedBy`).
 
-**Response:** `204 No Content` or `404 Not Found`.
+**Response:** `204 No Content`, `404 Not Found`, or `409` (externally managed).
 
 ---
 
@@ -1179,7 +1215,7 @@ List all registered MCP servers.
 
 ### POST /api/v1/mcp-servers
 
-Register a new MCP server. `managedBy` must be empty or `"user"` (the hub forces it to `"user"` server-side); hub-managed entries cannot be created through this API.
+Register a new MCP server. `managedBy` must be empty or `"user"` (the hub forces it to `"user"` server-side); externally managed entries (e.g. seeded by Helm) cannot be created through this API.
 
 **Request body:** same as the list item shape minus `endpoint`, `status`, `createdAt`, `updatedAt`.
 
@@ -1191,13 +1227,16 @@ Register a new MCP server. `managedBy` must be empty or `"user"` (the hub forces
 
 ### PUT /api/v1/mcp-servers/{name}
 
-Update an MCP server. `managedBy` on the stored record is preserved; the hub does not allow promoting a user-managed entry to hub-managed (or vice versa) through this endpoint.
+Update an MCP server. `managedBy` on the stored record is preserved; the hub does not allow
+promoting a user-managed entry to externally managed (or vice versa) through this endpoint.
+Entries that are externally managed (`managedBy` — e.g. seeded by Helm or a GitOps
+pipeline) cannot be updated from the console: `409 Conflict`.
 
-**Response:** `200 OK`, `400`, `404`, `500`, or `503`.
+**Response:** `200 OK`, `400`, `404`, `409` (externally managed), `500`, or `503`.
 
 ### DELETE /api/v1/mcp-servers/{name}
 
-Delete an MCP server. Returns `409 Conflict` for hub-managed entries.
+Delete an MCP server. Returns `409 Conflict` for externally managed entries (`managedBy`).
 
 **Response:** `204 No Content`, `404 Not Found`, `409 Conflict`, `500`, or `503`.
 
@@ -1225,6 +1264,9 @@ template other agents share.
 Validation: `name` is non-empty and ≤ 200 chars, and unique **among templates**
 (an owned persona may keep the name of the template it was forked from).
 `description` ≤ 2000 chars. `text` is non-empty and ≤ 100 000 chars.
+
+Personas also carry `managedBy` (see [Managed resources](#managed-resources-managedby)):
+externally managed personas (e.g. seeded by Helm/GitOps) are read-only through this API.
 
 ### GET /api/v1/personas
 
@@ -1289,7 +1331,7 @@ Apply a partial update. Any subset of `{name, description, text}` is accepted. I
 {"text": "You are a thorough code reviewer..."}
 ```
 
-**Response:** `200 OK` with the updated persona, `400` on validation failure, `404` if missing, `409` on name collision, `500` on backend failure.
+**Response:** `200 OK` with the updated persona, `400` on validation failure, `404` if missing, `409` on name collision or if the persona is externally managed (`managedBy`), `500` on backend failure.
 
 ### DELETE /api/v1/personas/{id}
 
@@ -1308,7 +1350,7 @@ The hub refuses the delete with `409 Conflict` if any Agent CR references the pe
 `GET /api/v1/agents/{id}`. Same value as `agentName` today; carried explicitly
 so callers never have to assume it.
 
-**Response:** `204 No Content`, `404 Not Found`, `409 Conflict` (with `referrers`), or `500`.
+**Response:** `204 No Content`, `404 Not Found`, `409 Conflict` (with `referrers`, or because the persona is externally managed (`managedBy`)), or `500`.
 
 ### GET /api/v1/personas/{id}/versions
 
@@ -1354,7 +1396,7 @@ Copy the text of an older version into a new current version (incrementing `curr
 {"toVersion": 2}
 ```
 
-**Response:** `200 OK` with the updated persona, `400` if `toVersion` is missing / non-positive, `404` if the persona or target version doesn't exist, `500` on backend failure.
+**Response:** `200 OK` with the updated persona, `400` if `toVersion` is missing / non-positive, `404` if the persona or target version doesn't exist, `409` if the persona is externally managed (`managedBy`), `500` on backend failure.
 
 Requires write access to the persona, same as `PUT /api/v1/personas/{id}`: `401`
 when the caller has no identity, `403` when the caller is not a writer or owner
@@ -1423,7 +1465,7 @@ Update a skill. All fields are optional; only provided fields are updated.
 { "description": "Updated description", "body": "## Updated..." }
 ```
 
-**Response:** `200 OK` with the updated skill, `400` on validation failure, `404 Not Found`.
+**Response:** `200 OK` with the updated skill, `400` on validation failure, `404 Not Found`, `409 Conflict` if the skill is externally managed (`managedBy` — e.g. owned by a plugin or a GitOps pipeline).
 
 ### DELETE /api/v1/skills/{id}
 
@@ -1443,7 +1485,10 @@ caller can act on them:
 `agentImageId` is the image's API id (its resource name) — the route key for
 `GET /api/v1/agent-images/{id}`.
 
-**Response:** `204 No Content`, `400` if the ID is missing, `404 Not Found`, `409 Conflict` (with `referrers`).
+A skill that is externally managed (`managedBy` — e.g. owned by a plugin or a GitOps
+pipeline) cannot be deleted from the console either: `409 Conflict`.
+
+**Response:** `204 No Content`, `400` if the ID is missing, `404 Not Found`, `409 Conflict` (with `referrers`, or because the skill is externally managed).
 
 ### Skill catalogue MCP (internal)
 
