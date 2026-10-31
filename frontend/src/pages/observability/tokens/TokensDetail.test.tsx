@@ -6,6 +6,7 @@ import { renderWithProviders } from '../../../test/renderWithProviders'
 const TOKEN_ROWS = [
   {
     agent: 'doc-writer',
+    agentId: 'doc-writer',
     repo: 'ainsel-project/ainsel',
     eventType: 'pull_request.opened',
     model: 'kimi-k2.6',
@@ -15,6 +16,7 @@ const TOKEN_ROWS = [
   },
   {
     agent: 'triage-bot',
+    agentId: 'triage-bot',
     repo: 'ainsel-project/ainsel',
     model: 'kimi-k2.6',
     inputTokens: 200_000,
@@ -60,6 +62,37 @@ describe('TokensDetail', () => {
   it('renders the breadcrumb link to Observability', () => {
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     expect(screen.getByRole('link', { name: /observability/i })).toBeInTheDocument()
+  })
+
+  // #154: the agent column links to the agent detail page when the payload
+  // carries the agent id and the side list resolves it; unresolved agents
+  // stay plain text.
+  it('links the agent when its id resolves in the side list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/agents')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [{ id: 'doc-writer', name: 'Doc Writer' }],
+                total: 1,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
+    renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
+    const link = await screen.findByRole('link', { name: 'doc-writer' })
+    expect(link).toHaveAttribute('href', '/agents/doc-writer')
+    expect(screen.queryByRole('link', { name: 'triage-bot' })).not.toBeInTheDocument()
+    expect(screen.getByText('triage-bot')).toBeInTheDocument()
   })
 
   it('renders KPI cards for total, input and output', async () => {

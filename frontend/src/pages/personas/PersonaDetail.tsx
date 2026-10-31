@@ -4,6 +4,8 @@ import { useAgents } from '../../api/agents'
 import { ApiError } from '../../api/client'
 import { useDeletePersona, usePersona } from '../../api/personas'
 import { usePlugins } from '../../api/plugins'
+import { EntityLink } from '../../components/EntityLink'
+import { agentPath } from '../../components/entityPaths'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Markdown } from '../../primitives/Markdown'
@@ -25,7 +27,7 @@ export function PersonaDetail() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<string>('overview')
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [referrers, setReferrers] = useState<string[]>([])
+  const [referrers, setReferrers] = useState<{ agentName: string; agentId?: string }[]>([])
   const { data, isLoading, error } = usePersona(id)
   const { data: agents } = useAgents({ pageSize: 100 })
   const del = useDeletePersona()
@@ -33,6 +35,12 @@ export function PersonaDetail() {
 
   const referringAgents = (agents?.items ?? []).filter(
     (a) => a.persona?.id === id,
+  )
+  // Side list decides which delete-409 referrers are linkable: an agent that
+  // was deleted since the 409 renders plain text, not a 404.
+  const agentIds = useMemo(
+    () => new Set((agents?.items ?? []).map((a) => a.id)),
+    [agents],
   )
 
   // Build tabs list with plugin contributions
@@ -59,8 +67,10 @@ export function PersonaDetail() {
       navigate('/personas', { replace: true })
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as { referrers?: { agentName: string }[] } | undefined
-        setReferrers(body?.referrers?.map((r) => r.agentName) ?? [])
+        const body = err.body as
+          | { referrers?: { agentName: string; agentId?: string }[] }
+          | undefined
+        setReferrers(body?.referrers ?? [])
       } else {
         throw err
       }
@@ -192,8 +202,15 @@ export function PersonaDetail() {
                 {referrers.length === 1 ? ' it' : ' them'} before deleting:
               </p>
               <ul>
-                {referrers.map((name) => (
-                  <li key={name}>{name}</li>
+                {referrers.map((r) => (
+                  <li key={r.agentId ?? r.agentName}>
+                    <EntityLink
+                      id={r.agentId}
+                      known={agentIds}
+                      label={r.agentName}
+                      path={agentPath}
+                    />
+                  </li>
                 ))}
               </ul>
             </div>

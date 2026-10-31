@@ -14,6 +14,18 @@ const (
 	LevelError = "error"
 )
 
+// ValidLevel reports whether level is one of the four values above. The
+// task_logs_level_check constraint (migration 0032) rejects anything else at
+// the database; the internal ingest handler uses this to turn a bad agent
+// payload into a 400 instead of a failed insert.
+func ValidLevel(level string) bool {
+	switch level {
+	case LevelDebug, LevelInfo, LevelWarn, LevelError:
+		return true
+	}
+	return false
+}
+
 // Entry is a single structured log line published by an agent.
 type Entry struct {
 	ID            int64          `json:"id"`

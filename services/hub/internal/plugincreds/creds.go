@@ -1,3 +1,7 @@
+// Package plugincreds issues and verifies short-lived credential tokens
+// that identify a plugin to the hub. Issuer signs Claims (including the
+// plugin's group grants) into a token; LooksLike cheaply recognises such
+// tokens so the auth middleware can route them to the right verifier.
 package plugincreds
 
 import (

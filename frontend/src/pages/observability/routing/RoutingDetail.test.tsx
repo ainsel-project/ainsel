@@ -21,6 +21,7 @@ const INVOCATIONS = [
     timestamp: new Date(Date.now() - 60_000).toISOString(),
     agent: 'agent-a',
     agentName: 'Doc Writer',
+    agentId: 'agent-a',
     trigger: 'trig-1',
     triggerName: 'On PR',
     status: 'success',
@@ -31,6 +32,7 @@ const INVOCATIONS = [
     timestamp: new Date(Date.now() - 120_000).toISOString(),
     agent: 'agent-b',
     agentName: 'Triage Bot',
+    agentId: 'agent-b',
     trigger: 'trig-2',
     triggerName: 'On Push',
     status: 'failure',
@@ -76,6 +78,38 @@ describe('RoutingDetail', () => {
   it('renders the breadcrumb link to Observability', () => {
     renderWithProviders(<RoutingDetail />, { route: '/observability/routing' })
     expect(screen.getByRole('link', { name: /observability/i })).toBeInTheDocument()
+  })
+
+  // #154: the agent column links to the agent detail page when the payload
+  // carries the agent id and the side list resolves it. An agent missing from
+  // the list (deleted, or no access) stays plain text — never a link to a 404.
+  it('links the agent when its id resolves in the side list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/agents')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [{ id: 'agent-a', name: 'Doc Writer' }],
+                total: 1,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
+    renderWithProviders(<RoutingDetail />, { route: '/observability/routing' })
+    const link = await screen.findByRole('link', { name: 'Doc Writer' })
+    expect(link).toHaveAttribute('href', '/agents/agent-a')
+    // agent-b is not in the side list: plain text, no link.
+    expect(screen.queryByRole('link', { name: 'Triage Bot' })).not.toBeInTheDocument()
+    expect(screen.getByText('Triage Bot')).toBeInTheDocument()
   })
 
   it('renders invocation rows from API', async () => {

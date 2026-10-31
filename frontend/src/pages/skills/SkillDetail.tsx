@@ -16,15 +16,24 @@ import { Markdown } from '../../primitives/Markdown'
 import { Panel } from '../../primitives/Panel'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
+import { EntityLink } from '../../components/EntityLink'
+import { agentImagePath } from '../../components/entityPaths'
 import { formatISO } from '../../utils/time'
 
 export function SkillDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [referrers, setReferrers] = useState<string[]>([])
+  const [referrers, setReferrers] = useState<{ agentImageName: string; agentImageId?: string }[]>([])
   const { data, isLoading, error } = useSkill(id)
   const del = useDeleteSkill()
+  // Side list decides which delete-409 referrers are linkable: an image that
+  // was deleted since the 409 renders plain text, not a 404.
+  const { data: imagesData } = useAgentImages({ pageSize: 200 })
+  const imageIds = useMemo(
+    () => new Set((imagesData?.items ?? []).map((i) => i.id)),
+    [imagesData],
+  )
 
   const onDelete = async () => {
     if (!id) return
@@ -34,8 +43,10 @@ export function SkillDetail() {
       navigate('/skills', { replace: true })
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as { referrers?: { agentImageName: string }[] } | undefined
-        setReferrers(body?.referrers?.map((r) => r.agentImageName) ?? [])
+        const body = err.body as
+          | { referrers?: { agentImageName: string; agentImageId?: string }[] }
+          | undefined
+        setReferrers(body?.referrers ?? [])
       } else if (err instanceof ApiError) {
         setReferrers([])
         setConfirmOpen(true)
@@ -143,8 +154,15 @@ export function SkillDetail() {
                 {referrers.length === 1 ? ' it' : ' them'} before deleting:
               </p>
               <ul>
-                {referrers.map((name) => (
-                  <li key={name}>{name}</li>
+                {referrers.map((r) => (
+                  <li key={r.agentImageId ?? r.agentImageName}>
+                    <EntityLink
+                      id={r.agentImageId}
+                      known={imageIds}
+                      label={r.agentImageName}
+                      path={agentImagePath}
+                    />
+                  </li>
                 ))}
               </ul>
             </div>

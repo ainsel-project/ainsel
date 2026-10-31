@@ -126,4 +126,49 @@ describe('SkillDetail', () => {
     await waitFor(() => expect(screen.getByText('reviewer-image')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /cannot delete/i })).toBeInTheDocument()
   })
+
+  // #154: the delete-409 referrer list links each image to its detail page
+  // when the payload carries the image id and the image list resolves it.
+  it('links delete-409 referrers that resolve in the image list', async () => {
+    const base = skillFetch(SKILL, 409, {
+      error: 'skill in use',
+      referrers: [
+        { agentImageName: 'reviewer-image', agentImageId: 'reviewer-image' },
+        { agentImageName: 'gone-image', agentImageId: 'gone-image' },
+      ],
+    })
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      if (url.includes('/agent-images')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [{ id: 'reviewer-image', displayName: 'reviewer-image' }],
+              total: 1,
+              page: 1,
+              pageSize: 200,
+              totalPages: 1,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return base(url, init)
+    })
+    renderWithProviders(
+      <Routes>
+        <Route path="/skills/:id" element={<SkillDetail />} />
+        <Route path="/skills" element={<div>SKILL_LIST</div>} />
+      </Routes>,
+      { route: '/skills/code-review' },
+    )
+    await waitFor(() => expect(screen.getByText('reviews PRs')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const deleteButtons = screen.getAllByRole('button', { name: /^delete$/i })
+    await userEvent.click(deleteButtons[deleteButtons.length - 1])
+    const link = await screen.findByRole('link', { name: 'reviewer-image' })
+    expect(link).toHaveAttribute('href', '/agent-images/reviewer-image')
+    // An id the side list does not resolve stays plain text.
+    expect(screen.getByText('gone-image')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'gone-image' })).not.toBeInTheDocument()
+  })
 })

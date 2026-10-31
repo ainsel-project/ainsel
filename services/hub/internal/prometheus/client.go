@@ -1,3 +1,7 @@
+// Package prometheus provides a read-only client for querying a Prometheus
+// HTTP API. Client exposes instant and range queries and returns results as
+// typed series (MetricEntry, SamplePoint, MatrixSeries) for the hub's
+// metrics API endpoints.
 package prometheus
 
 import (

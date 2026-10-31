@@ -2,6 +2,7 @@
 // Postgres tables and the chart installs no CRD for them. The type is kept as
 // the read contract for services/hub/cmd/migrate-triggers (see
 // trigger_types.go for the same note).
+
 package v1alpha1
 
 import (

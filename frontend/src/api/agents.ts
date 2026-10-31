@@ -14,7 +14,13 @@ export type AgentLLM = {
   contextWindow?: number
 }
 export type AgentPersona = { id: string }
-export type AgentImageRef = { name: string; displayName?: string }
+export type AgentImageRef = {
+  /** The AgentImage's API id (its resource name) — the route key for
+   *  /agent-images/:id. Absent on hubs that predate the field. */
+  id?: string
+  name: string
+  displayName?: string
+}
 /** Agent-scoped skill selection: present = explicit override (empty items
  *  = no skills), absent = inherit the runtime image's enabledSkills. */
 export type AgentSkills = { items: string[] }

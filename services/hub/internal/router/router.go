@@ -1,3 +1,7 @@
+// Package router routes ingested events to agents. Router matches an event
+// against the trigger index, broadcasts matches for live consumers,
+// enqueues tasks on the matching agents' inbox streams, and transfers
+// events along channel bridges.
 package router
 
 import (

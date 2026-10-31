@@ -1,3 +1,8 @@
+// Package authz implements the hub's authorization layer. Checker answers
+// whether a principal (see Principal) may perform an action in a group,
+// backed by a Postgres store and a TTL cache of group roles (GroupCache);
+// guard.go adds HTTP middleware that enforces those checks and rejects
+// disabled users.
 package authz
 
 import "time"

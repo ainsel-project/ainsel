@@ -1,9 +1,15 @@
 # golangci-lint configuration for the AInsel monorepo.
 #
-# Enables gosec with a starter set of security rules (issue #307).
-# All Go CI workflows already run `golangci-lint run ./...` and will
-# pick up this root config automatically — golangci-lint walks upward
-# from the working-directory to find the config file.
+# Note: the Go CI workflows run `golangci-lint run ./...` with the module
+# directory as the working-directory, so they use the module-local
+# `.golangci.yml` files (e.g. `services/hub/.golangci.yml`) — not this one.
+# This root config is the fallback for ad-hoc runs and keeps the same rule
+# set so the modules stay consistent.
+#
+# Enables gosec with a starter set of security rules (issue #307) and
+# requires package doc comments (issue #163).
+
+version: "2"
 
 run:
   timeout: 5m
@@ -13,15 +19,29 @@ linters:
   # staticcheck, unused) and add gosec for security scanning.
   enable:
     - gosec
-
-linters-settings:
-  gosec:
-    # Full gosec rule set enabled (issue #307).
-    exclude-generated: true
-    nosec: true
-    excludes:
-      - G706  # Log injection — false positive with slog structured logging
-      - G705  # XSS — false positive with JSON API responses
+  settings:
+    staticcheck:
+      # Require a package doc comment ("// Package X ...") in every package
+      # (issue #163). ST1000 is off by default in golangci-lint v2 (where
+      # stylecheck was merged into staticcheck); keep the other default
+      # ST exclusions.
+      checks:
+        - all
+        - "-ST1003"
+        - "-ST1016"
+        - "-ST1020"
+        - "-ST1021"
+        - "-ST1022"
+        - "-ST1023"
+    gosec:
+      # Full gosec rule set enabled (issue #307).
+      # v1-style keys (exclude-generated, nosec) are intentionally absent:
+      # in golangci-lint v2 they are inert here, and an explicit
+      # config.global.nosec value is passed to gosec as a tag suffix, which
+      # breaks #nosec suppression. nosec suppression is on by default.
+      excludes:
+        - G706  # Log injection — false positive with slog structured logging
+        - G705  # XSS — false positive with JSON API responses
 
 issues:
   # Show all gosec findings so they can be triaged.

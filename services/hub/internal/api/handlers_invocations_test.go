@@ -51,6 +51,13 @@ func TestInvocations_ListReturnsAll(t *testing.T) {
 	if len(resp.Invocations) > 0 && resp.Invocations[0].ID != b.ID {
 		t.Errorf("expected newest first (b=%s), got %s", b.ID, resp.Invocations[0].ID)
 	}
+	// Every record carries the agent's API id (its resource name) so the
+	// console can link the row without assuming name == id.
+	for _, inv := range resp.Invocations {
+		if inv.AgentID == "" || inv.AgentID != inv.AgentName {
+			t.Errorf("invocation %s: agentId %q, want the agent resource name", inv.ID, inv.AgentID)
+		}
+	}
 }
 
 func TestInvocations_ListFilters(t *testing.T) {
@@ -115,6 +122,10 @@ func TestInvocations_GetByID(t *testing.T) {
 	}
 	if got.AgentName != "agent-a" {
 		t.Errorf("expected agent-a, got %s", got.AgentName)
+	}
+	// The single-record response carries the agent's API id too.
+	if got.AgentID != "agent-a" {
+		t.Errorf("expected agentId agent-a, got %q", got.AgentID)
 	}
 }
 

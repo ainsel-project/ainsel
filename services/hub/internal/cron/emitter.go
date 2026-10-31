@@ -1,3 +1,7 @@
+// Package cron fires cron triggers on their schedules. Emitter periodically
+// evaluates enabled cron schedules, emits a synthetic event for each due
+// trigger onto the agent inbox stream, and enqueues the corresponding
+// invocation tasks.
 package cron
 
 import (

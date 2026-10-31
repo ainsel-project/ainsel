@@ -1,3 +1,6 @@
+// Package webhook implements the HTTP endpoint that receives generic
+// webhooks. Handler validates the configured signature header and forwards
+// accepted payloads to a Publisher.
 package webhook
 
 import (
