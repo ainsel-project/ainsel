@@ -424,59 +424,70 @@ func (s *Server) getTokensBySubject(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Records path: group the conversation rows by the subject the runner
-	// reported with each turn. The window is [now-range, now) — the same one
-	// the summary tile sums — so the table's total equals the tile's for the
-	// same range. Rows with no agent name stay out, as on the PromQL path:
-	// they would render as a blank row.
+	var rows []TokenSubjectRow
+	var err error
 	if source == metricsSourcePostgres {
-		rng := supportedRanges[rangeKey]
-		now := time.Now().UTC()
-		storeRows, err := s.taskLogs.TokenUsageBySubject(ctx, now.Add(-rng.Duration), now)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
-			return
-		}
-		out := make([]TokenSubjectRow, 0, len(storeRows))
-		for _, row := range storeRows {
-			if row.AgentName == "" {
-				continue
-			}
-			out = append(out, TokenSubjectRow{
-				Agent:            row.AgentName,
-				AgentName:        row.AgentName,
-				AgentID:          row.AgentName,
-				Repo:             row.Repo,
-				EventType:        row.EventType,
-				Model:            row.Model,
-				InputTokens:      float64(row.InputTokens),
-				OutputTokens:     float64(row.OutputTokens),
-				CacheReadTokens:  float64(row.CacheReadTokens),
-				CacheWriteTokens: float64(row.CacheWriteTokens),
-				TotalTokens:      tokenTotal(float64(row.InputTokens), float64(row.OutputTokens), float64(row.CacheReadTokens), float64(row.CacheWriteTokens)),
-				CostUSD:          row.CostUSD,
-				CacheReported:    row.CacheReported,
-				CostReported:     row.CostReported,
-			})
-		}
-		sortTokenSubjectRows(out)
-
-		resp := TokensBySubject{
-			Range:     rangeKey,
-			Rows:      out,
-			UpdatedAt: time.Now().UTC(),
-			Source:    source,
-		}
-		s.observabilityCache.set(cacheKey, resp)
-		writeJSON(w, http.StatusOK, resp)
+		rows, err = s.tokensBySubjectFromRecords(ctx, rangeKey)
+	} else {
+		rows, err = s.tokensBySubjectFromPrometheus(ctx, rangeKey)
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	s.writeTokensBySubject(w, cacheKey, rangeKey, source, rows)
+}
 
+// tokensBySubjectFromRecords builds the by-subject rows from the Postgres
+// records path: group the conversation rows by the subject the runner reported
+// with each turn. The window is [now-range, now) — the same one the summary
+// tile sums — so the table's total equals the tile's for the same range. Rows
+// with no agent name stay out, as on the PromQL path: they would render as a
+// blank row. AgentName comes from the store row itself.
+func (s *Server) tokensBySubjectFromRecords(ctx context.Context, rangeKey string) ([]TokenSubjectRow, error) {
+	rng := supportedRanges[rangeKey]
+	now := time.Now().UTC()
+	storeRows, err := s.taskLogs.TokenUsageBySubject(ctx, now.Add(-rng.Duration), now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query token records: %s", err)
+	}
+	out := make([]TokenSubjectRow, 0, len(storeRows))
+	for _, row := range storeRows {
+		if row.AgentName == "" {
+			continue
+		}
+		out = append(out, TokenSubjectRow{
+			Agent:            row.AgentName,
+			AgentName:        row.AgentName,
+			AgentID:          row.AgentName,
+			Repo:             row.Repo,
+			EventType:        row.EventType,
+			Model:            row.Model,
+			InputTokens:      float64(row.InputTokens),
+			OutputTokens:     float64(row.OutputTokens),
+			CacheReadTokens:  float64(row.CacheReadTokens),
+			CacheWriteTokens: float64(row.CacheWriteTokens),
+			TotalTokens:      tokenTotal(float64(row.InputTokens), float64(row.OutputTokens), float64(row.CacheReadTokens), float64(row.CacheWriteTokens)),
+			CostUSD:          row.CostUSD,
+			CacheReported:    row.CacheReported,
+			CostReported:     row.CostReported,
+		})
+	}
+	sortTokenSubjectRows(out)
+	return out, nil
+}
+
+// tokensBySubjectFromPrometheus builds the by-subject rows from the two
+// PromQL counters (tokens and cost). AgentName is resolved through
+// agentNameMap here — unlike the records path, which takes it from the store
+// row — because the metric only carries the agent ID label. The returned error
+// carries the exact user-facing message ("failed to query token metrics: " /
+// "failed to query cost metrics: "); the frontend surfaces it.
+func (s *Server) tokensBySubjectFromPrometheus(ctx context.Context, rangeKey string) ([]TokenSubjectRow, error) {
 	tokensQ := fmt.Sprintf(`sum by (agent, repo, event_type, model, token_type) (increase(%s[%s]))`, metricTokensUsed, rangeKey)
 	tokensResult, err := s.prom.Query(ctx, tokensQ)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query token metrics: "+err.Error())
-		return
+		return nil, fmt.Errorf("failed to query token metrics: %s", err)
 	}
 
 	// Cost rides the same subject labels as the token counter, as its own
@@ -486,18 +497,12 @@ func (s *Server) getTokensBySubject(w http.ResponseWriter, r *http.Request) {
 	costQ := fmt.Sprintf(`sum by (agent, repo, event_type, model) (increase(%s[%s]))`, metricCostUsed, rangeKey)
 	costResult, err := s.prom.Query(ctx, costQ)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query cost metrics: "+err.Error())
-		return
+		return nil, fmt.Errorf("failed to query cost metrics: %s", err)
 	}
 
 	rows := map[subjectKey]*TokenSubjectRow{}
 	for _, m := range tokensResult.Data {
-		key := subjectKey{
-			Agent:     m.Labels["agent"],
-			Repo:      m.Labels["repo"],
-			EventType: m.Labels["event_type"],
-			Model:     m.Labels["model"],
-		}
+		key := subjectKeyFromLabels(m.Labels)
 		// Skip rows where the agent label is missing — these are usually a
 		// stale series or a malformed exporter and would render as a blank row.
 		if key.Agent == "" {
@@ -522,12 +527,7 @@ func (s *Server) getTokensBySubject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, m := range costResult.Data {
-		key := subjectKey{
-			Agent:     m.Labels["agent"],
-			Repo:      m.Labels["repo"],
-			EventType: m.Labels["event_type"],
-			Model:     m.Labels["model"],
-		}
+		key := subjectKeyFromLabels(m.Labels)
 		if key.Agent == "" {
 			continue
 		}
@@ -554,10 +554,15 @@ func (s *Server) getTokensBySubject(w http.ResponseWriter, r *http.Request) {
 	}
 	// Stable order so polling on the frontend doesn't shuffle the table.
 	sortTokenSubjectRows(out)
+	return out, nil
+}
 
+// writeTokensBySubject is the shared response tail for both backends: build
+// the response, cache it under the source-scoped cacheKey, and write it.
+func (s *Server) writeTokensBySubject(w http.ResponseWriter, cacheKey, rangeKey, source string, rows []TokenSubjectRow) {
 	resp := TokensBySubject{
 		Range:     rangeKey,
-		Rows:      out,
+		Rows:      rows,
 		UpdatedAt: time.Now().UTC(),
 		Source:    source,
 	}
@@ -587,6 +592,18 @@ type subjectKey struct {
 	Repo      string
 	EventType string
 	Model     string
+}
+
+// subjectKeyFromLabels extracts the subject labels from a Prometheus metric.
+// It does not validate: callers must still skip metrics whose agent label is
+// empty, as both by-subject loops do.
+func subjectKeyFromLabels(labels map[string]string) subjectKey {
+	return subjectKey{
+		Agent:     labels["agent"],
+		Repo:      labels["repo"],
+		EventType: labels["event_type"],
+		Model:     labels["model"],
+	}
 }
 
 // TokenEventRow is one row in the tokens-by-event response — a unique event
