@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -163,7 +164,8 @@ func defaultOwnedPersonaName(agent *agentv1alpha1.Agent) string {
 // cleanupOwnedPersona deletes the persona owned by agentName, if any. Used
 // when the agent is re-pointed at another persona or deleted: owned personas
 // are invisible to the library, so nothing else would ever reclaim them.
-// Best-effort — failures are logged, never surfaced to the caller.
+// Best-effort — failures are logged, never surfaced to the caller. An
+// externally managed persona is deliberately left behind: its manager owns it.
 func (s *Server) cleanupOwnedPersona(ctx context.Context, agentName, keepPersonaID string) {
 	if s.personas == nil {
 		return
@@ -177,6 +179,12 @@ func (s *Server) cleanupOwnedPersona(ctx context.Context, agentName, keepPersona
 		return
 	}
 	if err := s.personas.DeleteOwned(ctx, owned.ID, agentName); err != nil {
+		var mErr *personas.ManagedError
+		if errors.As(err, &mErr) {
+			slog.Info("skip deleting externally managed agent-owned persona",
+				"agent", agentName, "persona", owned.ID, "managedBy", mErr.Manager)
+			return
+		}
 		slog.Error("delete orphaned agent-owned persona",
 			"error", err, "agent", agentName, "persona", owned.ID)
 	}

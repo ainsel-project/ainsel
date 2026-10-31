@@ -61,9 +61,10 @@ func IsManaged(managedBy string) bool {
 	return managedBy != "" && managedBy != ManagedByUser
 }
 
-// ManagedError is returned by Update, Delete, and Rollback when the stored
-// persona is externally managed. handlers map it to HTTP 409 naming the
-// manager, mirroring the plugin-owned refusal for skills and MCP servers.
+// ManagedError is returned by Update, Delete, Rollback, EnsureOwned, and
+// DeleteOwned when the stored persona is externally managed. handlers map it
+// to HTTP 409 naming the manager, mirroring the plugin-owned refusal for
+// skills and MCP servers.
 type ManagedError struct {
 	Manager string
 }
@@ -196,6 +197,10 @@ func (s *Service) OwnedBy(ctx context.Context, agentName string) (*Persona, erro
 // Callers re-point the Agent CR at the returned persona when its ID differs
 // from the current reference. If that write fails the persona is orphaned
 // but reused by the next EnsureOwned call, so the operation is idempotent.
+//
+// An externally managed owned persona is refused with a ManagedError: the
+// guard lives here as well as in Update so every mutation entry point of the
+// service enforces the managed rule directly.
 func (s *Service) EnsureOwned(ctx context.Context, agentName, defaultName string, req UpdateRequest) (*Persona, error) {
 	if req.Text == nil {
 		return nil, &ValidationError{Field: "text", Message: "is required"}
@@ -203,6 +208,9 @@ func (s *Service) EnsureOwned(ctx context.Context, agentName, defaultName string
 	existing, err := s.store.GetByOwner(ctx, agentName)
 	switch {
 	case err == nil:
+		if IsManaged(existing.ManagedBy) {
+			return nil, &ManagedError{Manager: existing.ManagedBy}
+		}
 		return s.Update(ctx, existing.ID, req)
 	case errors.Is(err, ErrNotFound):
 		// No owned persona yet: create one below.
@@ -230,6 +238,9 @@ func (s *Service) EnsureOwned(ctx context.Context, agentName, defaultName string
 // invisible to the library, so leaving it behind would leak an orphan.
 // Deleting a persona that is already gone is a no-op; refusing anything not
 // owned by agentName keeps shared templates and other agents' personas safe.
+// An externally managed persona is refused with a ManagedError — it has
+// exactly one author, and the console is not it, even for the owning agent's
+// cleanup path (the external manager reclaims it).
 func (s *Service) DeleteOwned(ctx context.Context, personaID, agentName string) error {
 	p, err := s.store.Get(ctx, personaID)
 	if errors.Is(err, ErrNotFound) {
@@ -240,6 +251,9 @@ func (s *Service) DeleteOwned(ctx context.Context, personaID, agentName string) 
 	}
 	if p.OwnerAgent != agentName {
 		return ErrNotOwned
+	}
+	if IsManaged(p.ManagedBy) {
+		return &ManagedError{Manager: p.ManagedBy}
 	}
 	if err := s.store.Delete(ctx, personaID); err != nil {
 		if errors.Is(err, ErrNotFound) {

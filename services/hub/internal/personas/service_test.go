@@ -296,6 +296,48 @@ func TestServiceMutationsRefuseManagedPersona(t *testing.T) {
 	}
 }
 
+// TestOwnedMutationsRefuseManagedPersona: the agent-owned mutation paths
+// (EnsureOwned's update branch and DeleteOwned) obey the same managed rule as
+// the library paths — an externally managed owned persona is refused with a
+// ManagedError naming the manager and survives untouched. This is the
+// personas counterpart of the "every mutation → 409" contract in
+// docs/api-reference.md.
+func TestOwnedMutationsRefuseManagedPersona(t *testing.T) {
+	pool, cleanup := newTestPool(t)
+	defer cleanup()
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	kc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	svc := personas.NewService(personas.NewStore(pool), personas.NewReconciler(kc, "ainsel-test"), &stubAgentLister{})
+	ctx := context.Background()
+
+	text := "external text"
+	owned, err := svc.EnsureOwned(ctx, "a-1", "Agent One (own)", personas.UpdateRequest{Text: &text})
+	if err != nil {
+		t.Fatalf("EnsureOwned (create): %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE personas SET managed_by = 'gitops' WHERE id = $1`, owned.ID); err != nil {
+		t.Fatalf("seed managed_by: %v", err)
+	}
+
+	var mErr *personas.ManagedError
+	if _, err := svc.EnsureOwned(ctx, "a-1", "Agent One (own)", personas.UpdateRequest{Text: ptr("mine")}); !errors.As(err, &mErr) {
+		t.Errorf("EnsureOwned (update): expected ManagedError, got %T: %v", err, err)
+	} else if mErr.Manager != "gitops" {
+		t.Errorf("EnsureOwned refusal names %q, want gitops", mErr.Manager)
+	}
+	if err := svc.DeleteOwned(ctx, owned.ID, "a-1"); !errors.As(err, &mErr) {
+		t.Errorf("DeleteOwned: expected ManagedError, got %T: %v", err, err)
+	}
+
+	if got, err := svc.Get(ctx, owned.ID); err != nil || got.Text != "external text" {
+		t.Errorf("owned persona changed despite the refused mutations: %+v (%v)", got, err)
+	}
+}
+
 // TestIsManagedValueAgnostic: any non-empty, non-"user" value is external.
 func TestIsManagedValueAgnostic(t *testing.T) {
 	for _, tc := range []struct {

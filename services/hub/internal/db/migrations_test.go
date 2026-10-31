@@ -106,12 +106,23 @@ func TestMigrateUpAddsPersonasManagedBy(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// A minimal valid row: current_version_id points at a real version.
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO persona_versions (persona_id, version_number, text) VALUES ('p1', 1, 'hello');
-		INSERT INTO personas (id, name, current_version_id) VALUES ('p1', 'p1', 1);
-	`); err != nil {
+	// A minimal valid row. personas.current_version_id -> persona_versions.id is
+	// DEFERRABLE INITIALLY DEFERRED, while persona_versions.persona_id ->
+	// personas.id is immediate — so both inserts go into one explicit
+	// transaction: the persona first (deferred FK is only checked at commit),
+	// then the version row that satisfies it.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO personas (id, name, current_version_id) VALUES ('p1', 'p1', 1)`); err != nil {
 		t.Fatalf("insert without managed_by: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO persona_versions (persona_id, version_number, text) VALUES ('p1', 1, 'hello')`); err != nil {
+		t.Fatalf("insert without managed_by: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("insert without managed_by: commit: %v", err)
 	}
 	var managedBy string
 	if err := pool.QueryRow(ctx, `SELECT managed_by FROM personas WHERE id = 'p1'`).Scan(&managedBy); err != nil {

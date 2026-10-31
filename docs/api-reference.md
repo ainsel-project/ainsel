@@ -187,7 +187,7 @@ Update an Agent. Body fields are all optional; only fields that are present are 
 
 `llm.vision` is tri-state on update: **omitted means leave unchanged**, so turning image input off requires sending `false` explicitly. When true, the operator advertises `"input": ["text", "image"]` to pi, and screenshots and image attachments reach the model; while false pi sends none, even to a model that can see them. The endpoint is never probed: images sent to a model that cannot see them fail the request. The change lands when the agent's pod next starts (the init container copies `models.json` in at start).
 
-Re-pointing `persona` away from a persona this agent owns deletes that owned persona afterwards: owned personas are invisible to the persona library, so nothing else would reclaim them. The cleanup is best-effort and never fails the request.
+Re-pointing `persona` away from a persona this agent owns deletes that owned persona afterwards: owned personas are invisible to the persona library, so nothing else would reclaim them. The cleanup is best-effort and never fails the request; an owned persona that is itself externally managed (`managedBy`) is deliberately left in place — its manager owns it.
 
 **Response:** `200 OK` with the updated agent, `400` on invalid body, `404` if missing, `409` if the agent is externally managed (`managedBy`), `500` on K8s failures.
 
