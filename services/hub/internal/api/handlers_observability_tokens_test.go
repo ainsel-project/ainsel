@@ -564,6 +564,47 @@ func TestTokensBySubject_FallsBackToIDWhenAgentMissing(t *testing.T) {
 	}
 }
 
+func TestSubjectKeyFromLabels_ExtractsSubjectLabels(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels map[string]string
+		want   subjectKey
+	}{
+		{
+			name:   "all subject labels present",
+			labels: map[string]string{"agent": "agent-id", "repo": "org/repo", "event_type": "issue", "model": "gpt-4o"},
+			want:   subjectKey{Agent: "agent-id", Repo: "org/repo", EventType: "issue", Model: "gpt-4o"},
+		},
+		{
+			name:   "missing labels yield empty fields",
+			labels: map[string]string{"agent": "agent-id"},
+			want:   subjectKey{Agent: "agent-id"},
+		},
+		{
+			name:   "empty agent is returned as-is for the caller to skip",
+			labels: map[string]string{"agent": "", "repo": "org/repo", "event_type": "issue", "model": "gpt-4o"},
+			want:   subjectKey{Repo: "org/repo", EventType: "issue", Model: "gpt-4o"},
+		},
+		{
+			name:   "nil labels",
+			labels: nil,
+			want:   subjectKey{},
+		},
+		{
+			name:   "unrelated labels ignored",
+			labels: map[string]string{"agent": "a", "token_type": "input", "instance": "x"},
+			want:   subjectKey{Agent: "a"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := subjectKeyFromLabels(tc.labels); got != tc.want {
+				t.Errorf("subjectKeyFromLabels(%v) = %+v, want %+v", tc.labels, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTokensBySubject_RejectsUnknownRange(t *testing.T) {
 	srv := fakePromServer(t, func(string, url.Values) interface{} { return vectorResponse(nil) })
 	defer srv.Close()
