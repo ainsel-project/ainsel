@@ -16,7 +16,13 @@ type SimpleAgentImageResponse struct {
 	MCPServers    []AgentImageMCPServerInfo `json:"mcpServers,omitempty"`
 	Sidecars      []AgentImageSidecarInfo   `json:"sidecars,omitempty"`
 	EnabledSkills []string                  `json:"enabledSkills,omitempty"`
-	Status        AgentImageStatusInfo      `json:"status"`
+	// ManagedBy names the external system that authors this image
+	// (spec.managedBy). Any non-empty value other than "user" means the
+	// console renders the image read-only and the hub refuses every mutation
+	// (update, delete, refresh-mcp) with 409. Read-only: the request shapes
+	// have no managedBy field.
+	ManagedBy string               `json:"managedBy,omitempty"`
+	Status    AgentImageStatusInfo `json:"status"`
 }
 
 // AgentImageToolInfo is the API representation of an AgentImageTool.
@@ -190,6 +196,7 @@ func toSimpleAgentImageResponse(img agentv1alpha1.AgentImage) SimpleAgentImageRe
 		DisplayName:   img.Spec.DisplayName,
 		Description:   img.Spec.Description,
 		ImageURL:      img.Spec.ImageURL,
+		ManagedBy:     img.Spec.ManagedBy,
 		ToolCount:     len(img.Spec.Tools),
 		Tools:         tools,
 		Env:           env,

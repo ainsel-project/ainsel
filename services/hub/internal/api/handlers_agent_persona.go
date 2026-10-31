@@ -109,6 +109,12 @@ func (s *Server) putAgentPersona(ctx context.Context, w http.ResponseWriter, r *
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
+	// Editing an agent's persona writes the agent's persona reference (and an
+	// owned persona) — a spec mutation of an externally managed agent.
+	if isManagedCR(agent.Spec.ManagedBy) {
+		writeManagedConflict(w, "agent", agent.Spec.ManagedBy)
+		return
+	}
 
 	name := strings.TrimSpace(req.Name)
 	description := req.Description

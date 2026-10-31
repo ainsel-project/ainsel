@@ -34,6 +34,12 @@ type WebhookConnectorResponse struct {
 	WebhookSecretValue string                  `json:"webhookSecretValue,omitempty"`
 	Status             *WebhookConnectorStatus `json:"status,omitempty"`
 	Disabled           bool                    `json:"disabled"`
+	// ManagedBy names the external system that authors this connector
+	// (spec.managedBy). Any non-empty value other than "user" means the
+	// console renders it read-only and the hub refuses every mutation
+	// (update, delete, rotate-secret) with 409. Read-only: the create/update
+	// request shapes have no managedBy field.
+	ManagedBy string `json:"managedBy,omitempty"`
 	// GroupID is the authz group the connector belongs to, as recorded at
 	// create time. Reported on the single-connector GET only (the list stays
 	// free of per-row ownership lookups); empty when access control is off or
@@ -281,6 +287,10 @@ func (s *Server) updateConnector(ctx context.Context, w http.ResponseWriter, r *
 		writeError(w, http.StatusNotFound, "connector not found")
 		return
 	}
+	if isManagedCR(c.Spec.ManagedBy) {
+		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
+		return
+	}
 
 	if req.Name != "" {
 		c.Spec.DisplayName = req.Name
@@ -301,6 +311,10 @@ func (s *Server) deleteConnector(ctx context.Context, w http.ResponseWriter, nam
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
 		writeError(w, http.StatusNotFound, "connector not found")
+		return
+	}
+	if isManagedCR(c.Spec.ManagedBy) {
+		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}
 
@@ -325,6 +339,7 @@ func toWebhookConnectorResponse(c connectorv1alpha1.WebhookConnector) WebhookCon
 		SignatureHeader: c.Spec.SignatureHeader,
 		WebhookEndpoint: c.Spec.WebhookEndpoint,
 		Disabled:        c.Spec.Disabled,
+		ManagedBy:       c.Spec.ManagedBy,
 	}
 	if len(c.Status.Conditions) > 0 {
 		s := &WebhookConnectorStatus{Conditions: c.Status.Conditions}
@@ -343,6 +358,12 @@ func (s *Server) rotateConnectorSecret(ctx context.Context, w http.ResponseWrite
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
 		writeError(w, http.StatusNotFound, "connector not found")
+		return
+	}
+	// Rotating the HMAC key rewrites the Secret an external author wired into
+	// its sender — a mutation of the managed connector's contract.
+	if isManagedCR(c.Spec.ManagedBy) {
+		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}
 

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -147,6 +148,11 @@ func (s *Server) getAgentForPauseWrite(ctx context.Context, name string) (*agent
 			return nil, http.StatusNotFound, "agent not found"
 		}
 		return nil, http.StatusInternalServerError, "failed to get agent: " + err.Error()
+	}
+	// Pause is a spec field: an externally managed agent's pause belongs to its
+	// author, which a reconciler would revert anyway.
+	if isManagedCR(agent.Spec.ManagedBy) {
+		return nil, http.StatusConflict, fmt.Sprintf("agent is managed by %s", agent.Spec.ManagedBy)
 	}
 	return &agent, 0, ""
 }
