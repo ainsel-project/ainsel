@@ -171,6 +171,12 @@ type SimpleAgentResponse struct {
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
 	Status         *SimpleAgentStatus       `json:"status,omitempty"`
 	UpdatedAt      string                   `json:"updatedAt,omitempty"`
+	// ManagedBy names the external system that authors this agent (spec.managedBy).
+	// Any non-empty value other than "user" means the console renders the agent
+	// read-only and the hub refuses every mutation with 409. Read-only: the
+	// create/update request shapes have no managedBy field — only the external
+	// manager (kubectl/GitOps/Helm) sets it.
+	ManagedBy string `json:"managedBy,omitempty"`
 	// GroupID is the authz group this agent belongs to. Populated on the list
 	// endpoint (batched lookup); empty elsewhere and when authz is disabled.
 	GroupID string `json:"groupId,omitempty"`
@@ -326,6 +332,7 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		ID:          a.Name,
 		Name:        a.Spec.DisplayName,
 		Description: a.Spec.Description,
+		ManagedBy:   a.Spec.ManagedBy,
 		ImageRef:    AgentImageRefInfo{ID: a.Spec.ImageRef.Name, Name: a.Spec.ImageRef.Name, DisplayName: imageDisplayName},
 		LLM: AgentLLMInfo{
 			Model:         a.Spec.LLM.Model,
@@ -1080,6 +1087,13 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
+	// Externally managed agents have exactly one author; the hub refuses every
+	// spec mutation, including pause (spec.pause would be reverted by a
+	// GitOps reconciler anyway).
+	if isManagedCR(existing.Spec.ManagedBy) {
+		writeManagedConflict(w, "agent", existing.Spec.ManagedBy)
+		return
+	}
 	var req SimpleAgentUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -1147,6 +1161,15 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 }
 
 func (s *Server) deleteAgent(ctx context.Context, w http.ResponseWriter, name string) {
+	var existing agentv1alpha1.Agent
+	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	if isManagedCR(existing.Spec.ManagedBy) {
+		writeManagedConflict(w, "agent", existing.Spec.ManagedBy)
+		return
+	}
 	agent := &agentv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns},
 	}

@@ -172,3 +172,43 @@ describe('SkillDetail', () => {
     expect(screen.queryByRole('link', { name: 'gone-image' })).not.toBeInTheDocument()
   })
 })
+
+// Issue #146: an externally managed skill is read-only in the console.
+describe('SkillDetail (externally managed)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hides Edit and Delete and marks the skill as managed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      skillFetch({ ...SKILL, managedBy: 'gitops' } as typeof SKILL & { managedBy: string }),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/skills/:id" element={<SkillDetail />} />
+      </Routes>,
+      { route: '/skills/code-review' },
+    )
+    await waitFor(() => expect(screen.getByText('managed by gitops')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps Edit and Delete for a console-managed skill', async () => {
+    vi.stubGlobal(
+      'fetch',
+      skillFetch({ ...SKILL, managedBy: 'user' } as typeof SKILL & { managedBy: string }),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/skills/:id" element={<SkillDetail />} />
+      </Routes>,
+      { route: '/skills/code-review' },
+    )
+    await waitFor(() => expect(screen.getByText('reviews PRs')).toBeInTheDocument())
+    expect(screen.queryByText('managed by user')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument()
+  })
+})

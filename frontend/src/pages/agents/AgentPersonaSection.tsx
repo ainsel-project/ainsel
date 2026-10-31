@@ -11,6 +11,7 @@ import { Input } from '../../primitives/Input'
 import { Panel } from '../../primitives/Panel'
 import { Select } from '../../primitives/Select'
 import { Textarea } from '../../primitives/Textarea'
+import { isManaged } from '../../utils/managed'
 
 const schema = z.object({
   name: z.string().max(200).optional().default(''),
@@ -38,6 +39,9 @@ type AgentPersonaSectionProps = {
  * can still be selected as the starting point.
  */
 export function AgentPersonaSection({ agent }: AgentPersonaSectionProps) {
+  // Externally managed agents (issue #146) are read-only here: saving writes
+  // the agent's persona reference, which the hub refuses with 409.
+  const readOnly = isManaged(agent.managedBy)
   const personas = usePersonas({ pageSize: 200 })
   const view = useAgentPersona(agent.id)
   const savePersona = useSaveAgentPersona()
@@ -118,7 +122,7 @@ export function AgentPersonaSection({ agent }: AgentPersonaSectionProps) {
     : dangling
       ? `The linked persona (${ref}) no longer exists. Saving creates a new one for this agent.`
       : owned
-        ? "This persona belongs to this agent — changes stay private to it."
+        ? 'This persona belongs to this agent — changes stay private to it.'
         : 'This persona is a shared template. Saving creates a private copy for this agent and leaves the template untouched.'
 
   return (
@@ -134,8 +138,8 @@ export function AgentPersonaSection({ agent }: AgentPersonaSectionProps) {
             disabled={updateAgent.isPending || view.isLoading}
           />
           <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
-            Pick a shared template as the starting point, or edit below to give
-            this agent its own persona.
+            Pick a shared template as the starting point, or edit below to give this agent its own
+            persona.
           </p>
           {refError ? (
             <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
@@ -183,7 +187,7 @@ export function AgentPersonaSection({ agent }: AgentPersonaSectionProps) {
               </p>
             ) : null}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <Button type="submit" variant="primary" disabled={isSubmitting}>
+              <Button type="submit" variant="primary" hidden={readOnly} disabled={isSubmitting}>
                 {isSubmitting ? 'Saving…' : !ref || !owned ? 'Save as own persona' : 'Save persona'}
               </Button>
               {!owned && ref && !dangling ? (

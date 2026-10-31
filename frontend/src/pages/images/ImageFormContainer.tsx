@@ -20,6 +20,7 @@ import {
   toFormTool,
 } from './imageTransforms'
 import { ImageFormView } from './ImageFormView'
+import { isManaged } from '../../utils/managed'
 
 type ImageFormContainerProps = {
   id: string | undefined
@@ -195,6 +196,7 @@ export function ImageFormContainer({
       embedded={embedded}
       sections={sections}
       image={image}
+      readOnly={isManaged(image?.managedBy)}
       register={register}
       control={control}
       setValue={setValue}

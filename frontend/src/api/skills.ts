@@ -10,6 +10,9 @@ export type SkillSummary = {
   usedBy: number
   createdAt: string
   updatedAt: string
+  /** External author (e.g. 'gitops', 'plugin'); anything but empty/'user'
+   *  makes the skill read-only in the console (issue #146). */
+  managedBy?: string
 }
 
 export type SkillResponse = SkillSummary & {
@@ -104,9 +107,7 @@ export type SkillAssignment = {
 }
 
 export function getSkillAssignments(skillId: string) {
-  return request<{ items: SkillAssignment[] }>(
-    `/skills/${encodeURIComponent(skillId)}/assignments`,
-  )
+  return request<{ items: SkillAssignment[] }>(`/skills/${encodeURIComponent(skillId)}/assignments`)
 }
 
 export function assignSkill(skillId: string, agentImageName: string) {

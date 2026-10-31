@@ -17,23 +17,24 @@ import { Panel } from '../../primitives/Panel'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
 import { EntityLink } from '../../components/EntityLink'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { agentImagePath } from '../../components/entityPaths'
+import { isManaged } from '../../utils/managed'
 import { formatISO } from '../../utils/time'
 
 export function SkillDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [referrers, setReferrers] = useState<{ agentImageName: string; agentImageId?: string }[]>([])
+  const [referrers, setReferrers] = useState<{ agentImageName: string; agentImageId?: string }[]>(
+    [],
+  )
   const { data, isLoading, error } = useSkill(id)
   const del = useDeleteSkill()
   // Side list decides which delete-409 referrers are linkable: an image that
   // was deleted since the 409 renders plain text, not a 404.
   const { data: imagesData } = useAgentImages({ pageSize: 200 })
-  const imageIds = useMemo(
-    () => new Set((imagesData?.items ?? []).map((i) => i.id)),
-    [imagesData],
-  )
+  const imageIds = useMemo(() => new Set((imagesData?.items ?? []).map((i) => i.id)), [imagesData])
 
   const onDelete = async () => {
     if (!id) return
@@ -44,8 +45,7 @@ export function SkillDetail() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         const body = err.body as
-          | { referrers?: { agentImageName: string; agentImageId?: string }[] }
-          | undefined
+          { referrers?: { agentImageName: string; agentImageId?: string }[] } | undefined
         setReferrers(body?.referrers ?? [])
       } else if (err instanceof ApiError) {
         setReferrers([])
@@ -64,16 +64,22 @@ export function SkillDetail() {
             Library / <Link to="/skills">Skills</Link> / <b>{data?.name ?? id ?? '—'}</b>
           </>
         }
-        title={<>{data?.name ?? <em>Skill</em>}</>}
-        actions={
+        title={
           <>
-            <Button onClick={() => id && navigate(`/skills/${encodeURIComponent(id)}/edit`)}>
-              Edit
-            </Button>
-            <Button variant="danger" onClick={() => setConfirmOpen(true)}>
-              Delete
-            </Button>
+            {data?.name ?? <em>Skill</em>} <ManagedBadge managedBy={data?.managedBy} />
           </>
+        }
+        actions={
+          isManaged(data?.managedBy) ? null : (
+            <>
+              <Button onClick={() => id && navigate(`/skills/${encodeURIComponent(id)}/edit`)}>
+                Edit
+              </Button>
+              <Button variant="danger" onClick={() => setConfirmOpen(true)}>
+                Delete
+              </Button>
+            </>
+          )
         }
       />
       <div style={{ padding: '28px 32px' }}>

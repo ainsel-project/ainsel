@@ -83,6 +83,18 @@ spec:
                 type: array
               imageURL:
                 type: string
+              managedBy:
+                description: |-
+                  ManagedBy names the external system that authors this resource, e.g.
+                  "helm", "gitops", or "plugin". Any non-empty value other than "user"
+                  marks the resource externally managed: the hub REST API refuses every
+                  mutation with 409 Conflict and the console renders it read-only, so a
+                  resource has exactly one authoring source. Empty means console-managed
+                  (equivalent to "user"); no default is set so existing CRs keep their
+                  meaning. Only the external manager (kubectl/GitOps/Helm) sets or clears
+                  it — the hub API never accepts a client-supplied value.
+                pattern: ^[a-z0-9][a-z0-9.-]{0,62}$
+                type: string
               mcpServers:
                 items:
                   description: |-
@@ -120,6 +132,8 @@ spec:
                         Env is a list of environment variables injected into the sidecar container.
                         Values that reference Secret keys use the same <agent>-image-env Secret
                         as the main container.
+                        On update, an entry with an empty value whose name is already stored as
+                        a secret keeps its stored value, mirroring AgentImageEnvVar.
                       items:
                         description: |-
                           AgentImageEnvVar is a name/value environment variable injected into every

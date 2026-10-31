@@ -19,9 +19,14 @@ import { Input } from '../../primitives/Input'
 import { Panel } from '../../primitives/Panel'
 import { Titleblock } from '../../layout/Titleblock'
 import { GroupField } from '../../components/GroupField'
+import { ManagedBadge } from '../../components/ManagedBadge'
+import { isManaged } from '../../utils/managed'
 
 const schema = z.object({
-  name: z.string().min(1, 'Name is required').regex(/^[a-z0-9-]+$/, 'Only lowercase letters, digits and hyphens'),
+  name: z
+    .string()
+    .min(1, 'Name is required')
+    .regex(/^[a-z0-9-]+$/, 'Only lowercase letters, digits and hyphens'),
   displayName: z.string().min(1, 'Display name is required'),
   description: z.string(),
   url: z.string().min(1, 'URL is required'),
@@ -29,7 +34,10 @@ const schema = z.object({
   tokenFromEnv: z
     .string()
     .max(64, 'At most 64 characters')
-    .refine((v) => v === '' || /^[A-Z_][A-Z0-9_]*$/.test(v), 'Use uppercase letters, digits, and underscores (e.g. FORGEJO_PAT)'),
+    .refine(
+      (v) => v === '' || /^[A-Z_][A-Z0-9_]*$/.test(v),
+      'Use uppercase letters, digits, and underscores (e.g. FORGEJO_PAT)',
+    ),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -56,7 +64,14 @@ export function MCPServerForm() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: '', displayName: '', description: '', url: '', tokenFromEnv: '', groupId: '' },
+    defaultValues: {
+      name: '',
+      displayName: '',
+      description: '',
+      url: '',
+      tokenFromEnv: '',
+      groupId: '',
+    },
   })
 
   useEffect(() => {
@@ -116,7 +131,9 @@ export function MCPServerForm() {
       navigate('/settings/mcp-servers', { replace: true })
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setSubmitError('This MCP server is referenced by one or more agent images and cannot be deleted.')
+        setSubmitError(
+          'This MCP server is referenced by one or more agent images and cannot be deleted.',
+        )
       } else if (err instanceof ApiError) {
         setSubmitError(err.message)
       } else {
@@ -127,6 +144,9 @@ export function MCPServerForm() {
   }
 
   const server = existing.data
+  // Externally managed servers (issue #146) have exactly one author; the
+  // console shows them but refuses to save or delete (the hub answers 409).
+  const readOnly = isManaged(server?.managedBy)
 
   return (
     <>
@@ -135,22 +155,29 @@ export function MCPServerForm() {
           <>
             Setup / <Link to="/settings">Settings</Link> /{' '}
             <Link to="/settings/mcp-servers">MCP Servers</Link> /{' '}
-            <b>{isEdit ? server?.displayName ?? paramName : 'New'}</b>
+            <b>{isEdit ? (server?.displayName ?? paramName) : 'New'}</b>
           </>
         }
         title={
           <>
-            {isEdit ? server?.displayName ?? <em>Server</em> : 'New '}
-            {!isEdit ? <em>MCP Server</em> : null}
+            {isEdit ? (server?.displayName ?? <em>Server</em>) : 'New '}
+            {!isEdit ? <em>MCP Server</em> : null} <ManagedBadge managedBy={server?.managedBy} />
           </>
         }
         actions={
           <>
             <Button onClick={() => navigate(-1)}>Cancel</Button>
-            <Button type="submit" variant="primary" form="mcp-server-form" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
-            </Button>
-            {isEdit ? (
+            {readOnly ? null : (
+              <Button
+                type="submit"
+                variant="primary"
+                form="mcp-server-form"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
+              </Button>
+            )}
+            {isEdit && !readOnly ? (
               <Button variant="danger" onClick={() => setConfirmOpen(true)}>
                 Delete
               </Button>
@@ -205,11 +232,7 @@ export function MCPServerForm() {
               <Input id="description" {...register('description')} />
             </Field>
             <Field label="URL" htmlFor="url" error={errors.url?.message}>
-              <Input
-                id="url"
-                placeholder="https://mcp.example.com/sse"
-                {...register('url')}
-              />
+              <Input id="url" placeholder="https://mcp.example.com/sse" {...register('url')} />
             </Field>
             <Field
               label="Token env variable"
@@ -217,11 +240,7 @@ export function MCPServerForm() {
               hint="Name of the env var on the agent pod whose value is sent as the bearer token. The value itself is set on each AgentImage that uses this MCP server. Leave empty for an anonymous MCP server."
               error={errors.tokenFromEnv?.message}
             >
-              <Input
-                id="tokenFromEnv"
-                placeholder="FORGEJO_PAT"
-                {...register('tokenFromEnv')}
-              />
+              <Input id="tokenFromEnv" placeholder="FORGEJO_PAT" {...register('tokenFromEnv')} />
             </Field>
           </div>
         </Panel>

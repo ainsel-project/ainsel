@@ -6,6 +6,7 @@ import { Dot } from '../../primitives/Dot'
 import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
@@ -38,12 +39,15 @@ export function ConnectorList() {
       key: 'name',
       header: 'Name',
       cell: (c) => (
-        <b
-          style={{ cursor: 'pointer', color: 'var(--accent)' }}
-          onClick={() => navigate(`/connectors/${encodeURIComponent(c.id)}`)}
-        >
-          {c.name}
-        </b>
+        <>
+          <b
+            style={{ cursor: 'pointer', color: 'var(--accent)' }}
+            onClick={() => navigate(`/connectors/${encodeURIComponent(c.id)}`)}
+          >
+            {c.name}
+          </b>{' '}
+          <ManagedBadge managedBy={c.managedBy} />
+        </>
       ),
     },
     {
@@ -82,10 +86,7 @@ export function ConnectorList() {
       width: 80,
       align: 'right',
       cell: (c) => (
-        <Button
-          size="sm"
-          onClick={() => navigate(`/connectors/${encodeURIComponent(c.id)}`)}
-        >
+        <Button size="sm" onClick={() => navigate(`/connectors/${encodeURIComponent(c.id)}`)}>
           View
         </Button>
       ),

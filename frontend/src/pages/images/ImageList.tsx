@@ -5,6 +5,7 @@ import { Button } from '../../primitives/Button'
 import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
@@ -37,12 +38,15 @@ export function ImageList() {
       key: 'name',
       header: 'Name',
       cell: (i) => (
-        <b
-          style={{ cursor: 'pointer', color: 'var(--accent)' }}
-          onClick={() => navigate(`/agent-images/${encodeURIComponent(i.id)}`)}
-        >
-          {i.displayName ?? i.id}
-        </b>
+        <>
+          <b
+            style={{ cursor: 'pointer', color: 'var(--accent)' }}
+            onClick={() => navigate(`/agent-images/${encodeURIComponent(i.id)}`)}
+          >
+            {i.displayName ?? i.id}
+          </b>{' '}
+          <ManagedBadge managedBy={i.managedBy} />
+        </>
       ),
     },
     {

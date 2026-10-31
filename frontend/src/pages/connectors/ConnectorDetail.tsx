@@ -1,9 +1,16 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useConnector, useDeleteConnector, useUpdateConnector, useRotateConnectorSecret } from '../../api/connectors'
+import {
+  useConnector,
+  useDeleteConnector,
+  useUpdateConnector,
+  useRotateConnectorSecret,
+} from '../../api/connectors'
 import { useGroups } from '../../api/groups'
 import { EntityLink } from '../../components/EntityLink'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { groupPath } from '../../components/entityPaths'
+import { isManaged } from '../../utils/managed'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Dot } from '../../primitives/Dot'
@@ -39,37 +46,40 @@ export function ConnectorDetail() {
       <Titleblock
         crumbs={
           <>
-            Admin / <Link to="/connectors">Connectors</Link> /{' '}
-            <b>{data?.name ?? id ?? '—'}</b>
+            Admin / <Link to="/connectors">Connectors</Link> / <b>{data?.name ?? id ?? '—'}</b>
           </>
         }
-        title={<>{data?.name ?? <em>Connector</em>}</>}
-        actions={
+        title={
           <>
-            {data ? (
-              <Button
-                variant={data.disabled ? 'primary' : undefined}
-                onClick={() => {
-                  if (!id) return
-                  toggle.mutate({
-                    id,
-                    body: { name: data.name, disabled: !data.disabled },
-                  })
-                }}
-                disabled={toggle.isPending}
-              >
-                {data.disabled ? 'Enable' : 'Disable'}
-              </Button>
-            ) : null}
-            <Button
-              onClick={() => id && navigate(`/connectors/${encodeURIComponent(id)}/edit`)}
-            >
-              Edit
-            </Button>
-            <Button variant="danger" onClick={() => setConfirmOpen(true)}>
-              Delete
-            </Button>
+            {data?.name ?? <em>Connector</em>} <ManagedBadge managedBy={data?.managedBy} />
           </>
+        }
+        actions={
+          isManaged(data?.managedBy) ? null : (
+            <>
+              {data ? (
+                <Button
+                  variant={data.disabled ? 'primary' : undefined}
+                  onClick={() => {
+                    if (!id) return
+                    toggle.mutate({
+                      id,
+                      body: { name: data.name, disabled: !data.disabled },
+                    })
+                  }}
+                  disabled={toggle.isPending}
+                >
+                  {data.disabled ? 'Enable' : 'Disable'}
+                </Button>
+              ) : null}
+              <Button onClick={() => id && navigate(`/connectors/${encodeURIComponent(id)}/edit`)}>
+                Edit
+              </Button>
+              <Button variant="danger" onClick={() => setConfirmOpen(true)}>
+                Delete
+              </Button>
+            </>
+          )
         }
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
@@ -187,12 +197,12 @@ export function ConnectorDetail() {
                         )}
                         <Button
                           size="sm"
-                          disabled={rotate.isPending}
+                          disabled={rotate.isPending || isManaged(data.managedBy)}
                           onClick={() =>
                             id &&
-                            rotate.mutateAsync(id).then((r) =>
-                              setGeneratedSecret(r.webhookSecretValue ?? null),
-                            )
+                            rotate
+                              .mutateAsync(id)
+                              .then((r) => setGeneratedSecret(r.webhookSecretValue ?? null))
                           }
                         >
                           {rotate.isPending ? 'Generating…' : 'Generate new'}
@@ -212,8 +222,8 @@ export function ConnectorDetail() {
         title="Delete connector?"
         body={
           <>
-            <b>{data?.name ?? id}</b> will be permanently removed. Triggers
-            referencing this connector will become invalid.
+            <b>{data?.name ?? id}</b> will be permanently removed. Triggers referencing this
+            connector will become invalid.
           </>
         }
         confirmLabel={remove.isPending ? 'Deleting…' : 'Delete'}

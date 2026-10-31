@@ -3,6 +3,7 @@ import { useMCPServers, type MCPServerSummary } from '../../api/mcpServers'
 import { Button } from '../../primitives/Button'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { formatRelative } from '../../utils/time'
 
@@ -15,12 +16,15 @@ export function MCPServerList() {
       key: 'name',
       header: 'Name',
       cell: (m) => (
-        <b
-          style={{ cursor: 'pointer', color: 'var(--accent)' }}
-          onClick={() => navigate(`/settings/mcp-servers/${encodeURIComponent(m.name)}`)}
-        >
-          {m.displayName || m.name}
-        </b>
+        <>
+          <b
+            style={{ cursor: 'pointer', color: 'var(--accent)' }}
+            onClick={() => navigate(`/settings/mcp-servers/${encodeURIComponent(m.name)}`)}
+          >
+            {m.displayName || m.name}
+          </b>{' '}
+          <ManagedBadge managedBy={m.managedBy} />
+        </>
       ),
     },
     {

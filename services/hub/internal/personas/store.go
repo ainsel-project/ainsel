@@ -80,6 +80,7 @@ func (s *Store) Create(ctx context.Context, p *Persona) error {
 	}
 
 	p.CurrentVersion = 1
+	p.ManagedBy = ManagedByUser
 	p.CreatedAt = now
 	p.UpdatedAt = now
 	return nil
@@ -90,12 +91,12 @@ func (s *Store) Get(ctx context.Context, id string) (*Persona, error) {
 	var p Persona
 	err := s.pool.QueryRow(ctx, `
 		SELECT p.id, p.name, p.description, pv.version_number, pv.text,
-		       COALESCE(p.owner_agent, ''), p.created_at, p.updated_at
+		       COALESCE(p.owner_agent, ''), COALESCE(p.managed_by, 'user'), p.created_at, p.updated_at
 		FROM personas p
 		JOIN persona_versions pv ON pv.id = p.current_version_id
 		WHERE p.id = $1
 	`, id).Scan(&p.ID, &p.Name, &p.Description, &p.CurrentVersion, &p.Text,
-		&p.OwnerAgent, &p.CreatedAt, &p.UpdatedAt)
+		&p.OwnerAgent, &p.ManagedBy, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -112,12 +113,12 @@ func (s *Store) GetByOwner(ctx context.Context, agentName string) (*Persona, err
 	var p Persona
 	err := s.pool.QueryRow(ctx, `
 		SELECT p.id, p.name, p.description, pv.version_number, pv.text,
-		       COALESCE(p.owner_agent, ''), p.created_at, p.updated_at
+		       COALESCE(p.owner_agent, ''), COALESCE(p.managed_by, 'user'), p.created_at, p.updated_at
 		FROM personas p
 		JOIN persona_versions pv ON pv.id = p.current_version_id
 		WHERE p.owner_agent = $1
 	`, agentName).Scan(&p.ID, &p.Name, &p.Description, &p.CurrentVersion, &p.Text,
-		&p.OwnerAgent, &p.CreatedAt, &p.UpdatedAt)
+		&p.OwnerAgent, &p.ManagedBy, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -132,7 +133,7 @@ func (s *Store) GetByOwner(ctx context.Context, agentName string) (*Persona, err
 // their owning agent, never through the library.
 func (s *Store) List(ctx context.Context) ([]PersonaSummary, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT p.id, p.name, p.description, pv.version_number, p.created_at, p.updated_at
+		SELECT p.id, p.name, p.description, pv.version_number, COALESCE(p.managed_by, 'user'), p.created_at, p.updated_at
 		FROM personas p
 		JOIN persona_versions pv ON pv.id = p.current_version_id
 		WHERE p.owner_agent IS NULL
@@ -145,7 +146,7 @@ func (s *Store) List(ctx context.Context) ([]PersonaSummary, error) {
 	var out []PersonaSummary
 	for rows.Next() {
 		var ps PersonaSummary
-		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.CurrentVersion, &ps.CreatedAt, &ps.UpdatedAt); err != nil {
+		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.CurrentVersion, &ps.ManagedBy, &ps.CreatedAt, &ps.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("personas.List: %w", err)
 		}
 		out = append(out, ps)
@@ -164,17 +165,17 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
-		name, description, currentText string
-		currentVersion                 int
-		createdAt                      time.Time
+		name, description, currentText, managedBy string
+		currentVersion                            int
+		createdAt                                 time.Time
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT p.name, p.description, pv.text, pv.version_number, p.created_at
+		SELECT p.name, p.description, pv.text, pv.version_number, COALESCE(p.managed_by, 'user'), p.created_at
 		FROM personas p
 		JOIN persona_versions pv ON pv.id = p.current_version_id
 		WHERE p.id = $1
 		FOR UPDATE
-	`, id).Scan(&name, &description, &currentText, &currentVersion, &createdAt)
+	`, id).Scan(&name, &description, &currentText, &currentVersion, &managedBy, &createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -238,6 +239,7 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 		Description:    description,
 		CurrentVersion: currentVersion,
 		Text:           newText,
+		ManagedBy:      managedBy,
 		CreatedAt:      createdAt,
 		UpdatedAt:      now,
 	}, nil

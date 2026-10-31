@@ -43,12 +43,8 @@ vi.mock('../../api/plugins', async (importOriginal) => {
 vi.mock('../../plugins/loader', () => {
   return {
     loadPluginModule: vi.fn(async () => ({
-      AgentPanel: ({ agentName }: { agentName: string }) => (
-        <p>{`agentName=${agentName}`}</p>
-      ),
-      PersonaPanel: ({ personaId }: { personaId: string }) => (
-        <p>{`personaId=${personaId}`}</p>
-      ),
+      AgentPanel: ({ agentName }: { agentName: string }) => <p>{`agentName=${agentName}`}</p>,
+      PersonaPanel: ({ personaId }: { personaId: string }) => <p>{`personaId=${personaId}`}</p>,
       ObsSection: ({ range }: { range: string }) => <p>{`range=${range}`}</p>,
       RunPanel: ({ invocationId, agentName }: { invocationId: string; agentName: string }) => (
         <p>{`invocationId=${invocationId} agentName=${agentName}`}</p>
@@ -138,9 +134,7 @@ describe('PersonaDetail', () => {
       </Routes>,
       { route: '/personas/01HX1' },
     )
-    await waitFor(() =>
-      expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument())
     expect(screen.getByText(/thorough code reviewer/i)).toBeInTheDocument()
   })
 
@@ -151,9 +145,7 @@ describe('PersonaDetail', () => {
       </Routes>,
       { route: '/personas/01HX1' },
     )
-    await waitFor(() =>
-      expect(screen.getByText('code-reviewer-agent')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText('code-reviewer-agent')).toBeInTheDocument())
   })
 
   it('shows the Edit action', async () => {
@@ -173,9 +165,7 @@ describe('PersonaDetail', () => {
       </Routes>,
       { route: '/personas/01HX1' },
     )
-    await waitFor(() =>
-      expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument())
 
     // The History tab replaces the old "coming soon" placeholder.
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument()
@@ -194,18 +184,12 @@ describe('PersonaDetail', () => {
       </Routes>,
       { route: '/personas/01HX1' },
     )
-    await waitFor(() =>
-      expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument(),
-    )
-    expect(
-      vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes('/versions')),
-    ).toBe(false)
+    await waitFor(() => expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument())
+    expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes('/versions'))).toBe(false)
 
     await userEvent.click(screen.getByRole('tab', { name: /^history$/i }))
     await screen.findByText('v2')
-    expect(
-      vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes('/versions')),
-    ).toBe(true)
+    expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes('/versions'))).toBe(true)
   })
 
   // #154: the delete-409 referrer list links each agent to its detail page
@@ -267,9 +251,7 @@ describe('PersonaDetail', () => {
       </Routes>,
       { route: '/personas/01HX1' },
     )
-    await waitFor(() =>
-      expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getAllByText('code-reviewer')[0]).toBeInTheDocument())
     await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
     const deleteButtons = screen.getAllByRole('button', { name: /^delete$/i })
     await userEvent.click(deleteButtons[deleteButtons.length - 1])
@@ -292,9 +274,54 @@ describe('PersonaDetail', () => {
       expect(screen.getByRole('tab', { name: /mem0/i })).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('tab', { name: /mem0/i }))
-      await waitFor(() =>
-        expect(screen.getByText('personaId=01HX1')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('personaId=01HX1')).toBeInTheDocument())
     })
+  })
+})
+
+// Issue #146: an externally managed persona is read-only in the console.
+describe('PersonaDetail (externally managed)', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.match(/\/api\/v1\/personas\/01HX1$/)) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: '01HX1',
+                name: 'code-reviewer',
+                description: 'reviews PRs',
+                currentVersion: 2,
+                text: '# Persona\n\nYou are a thorough code reviewer.',
+                managedBy: 'gitops',
+                createdAt: '2026-05-01T00:00:00Z',
+                updatedAt: '2026-05-02T00:00:00Z',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/agents')) {
+          return Promise.resolve(new Response('{"items":[],"total":0}', { status: 200 }))
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hides Edit and Delete and marks the persona as managed', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/personas/:id" element={<PersonaDetail />} />
+      </Routes>,
+      { route: '/personas/01HX1' },
+    )
+    await waitFor(() => expect(screen.getByText('managed by gitops')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
   })
 })

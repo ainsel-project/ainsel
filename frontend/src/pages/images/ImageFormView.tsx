@@ -1,4 +1,10 @@
-import type { Control, FieldErrors, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
+import type {
+  Control,
+  FieldErrors,
+  UseFormRegister,
+  UseFormSetValue,
+  UseFormWatch,
+} from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
 import type { ImageFormValues } from './ImageDetail.types'
 import type { Source } from './ToolSourceSidebar'
@@ -14,6 +20,7 @@ import { ToolFieldArray } from './ToolFieldArray'
 import { McpServerSelector } from './McpServerSelector'
 import { SkillsSelector } from './SkillsSelector'
 import { GroupField } from '../../components/GroupField'
+import { ManagedBadge } from '../../components/ManagedBadge'
 
 export type ImageFormViewProps = {
   isEdit: boolean
@@ -26,7 +33,7 @@ export type ImageFormViewProps = {
    *  image picker never appears there.
    *  'image', 'tools', and 'skills' to split the editor across tabs. */
   sections?: 'all' | 'image' | 'tools' | 'skills'
-  image: { displayName?: string; imageURL?: string } | undefined
+  image: { displayName?: string; imageURL?: string; managedBy?: string } | undefined
   register: UseFormRegister<ImageFormValues>
   control: Control<ImageFormValues>
   setValue: UseFormSetValue<ImageFormValues>
@@ -48,6 +55,9 @@ export type ImageFormViewProps = {
   isRefreshing: boolean
   isSaving: boolean
   isDeleting: boolean
+  /** Externally managed image (issue #146): the form is view-only — no save,
+   *  delete, or MCP refresh, which the hub refuses with 409 anyway. */
+  readOnly?: boolean
 }
 
 export function ImageFormView({
@@ -77,6 +87,7 @@ export function ImageFormView({
   isRefreshing,
   isSaving,
   isDeleting,
+  readOnly = false,
 }: ImageFormViewProps) {
   const navigate = useNavigate()
   const mcpServers = watch('mcpServers') ?? []
@@ -95,50 +106,50 @@ export function ImageFormView({
           }}
         >
           <div className="label" style={{ fontSize: 13 }}>
-            {image?.displayName ?? id ?? 'Image'}
+            {image?.displayName ?? id ?? 'Image'} <ManagedBadge managedBy={image?.managedBy} />
           </div>
-          <Button type="submit" variant="primary" form="image-form" disabled={isSubmitting}>
-            {isSubmitting ? 'Saving…' : 'Save'}
-          </Button>
+          {readOnly ? null : (
+            <Button type="submit" variant="primary" form="image-form" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Save'}
+            </Button>
+          )}
         </div>
       ) : (
-      <Titleblock
-        crumbs={
-          <>
-            Library / <Link to="/agent-images">Agent Images</Link> /{' '}
-            <b>{isEdit ? (image?.displayName ?? id) : 'New'}</b>
-          </>
-        }
-        title={
-          <>
-            {isEdit ? (image?.displayName ?? <em>Image</em>) : 'New '}
-            {!isEdit ? <em>Image</em> : null}
-          </>
-        }
-        actions={
-          <>
-            <Button onClick={() => navigate(-1)}>Cancel</Button>
-            <Button type="submit" variant="primary" form="image-form" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
-            </Button>
-            {isEdit ? (
-              <Button variant="danger" onClick={() => setConfirmOpen(true)}>
-                Delete
-              </Button>
-            ) : null}
-          </>
-        }
-      />
+        <Titleblock
+          crumbs={
+            <>
+              Library / <Link to="/agent-images">Agent Images</Link> /{' '}
+              <b>{isEdit ? (image?.displayName ?? id) : 'New'}</b>
+            </>
+          }
+          title={
+            <>
+              {isEdit ? (image?.displayName ?? <em>Image</em>) : 'New '}
+              {!isEdit ? <em>Image</em> : null} <ManagedBadge managedBy={image?.managedBy} />
+            </>
+          }
+          actions={
+            <>
+              <Button onClick={() => navigate(-1)}>Cancel</Button>
+              {readOnly ? null : (
+                <Button type="submit" variant="primary" form="image-form" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
+                </Button>
+              )}
+              {isEdit && !readOnly ? (
+                <Button variant="danger" onClick={() => setConfirmOpen(true)}>
+                  Delete
+                </Button>
+              ) : null}
+            </>
+          }
+        />
       )}
       <form
         id="image-form"
         onSubmit={onSubmit}
         noValidate
-        style={
-          embedded
-            ? { maxWidth: 1100 }
-            : { padding: '28px 32px', maxWidth: 1100 }
-        }
+        style={embedded ? { maxWidth: 1100 } : { padding: '28px 32px', maxWidth: 1100 }}
       >
         {submitError ? <Notice variant="err">{submitError}</Notice> : null}
         {mcpWarnings.length > 0 ? (
@@ -167,24 +178,23 @@ export function ImageFormView({
                   onChange={(v) => setValue('groupId', v, { shouldDirty: true })}
                   error={errors.groupId?.message}
                 />
-            ) : null}
-            <Field label="Image URL" htmlFor="imageURL" error={errors.imageURL?.message}>
-              <Input id="imageURL" placeholder="ghcr.io/org/image:tag" {...register('imageURL')} />
-            </Field>
-            <Field label="Description" htmlFor="description">
-              <Input id="description" {...register('description')} />
-            </Field>
-          </div>
-        </Panel>
+              ) : null}
+              <Field label="Image URL" htmlFor="imageURL" error={errors.imageURL?.message}>
+                <Input
+                  id="imageURL"
+                  placeholder="ghcr.io/org/image:tag"
+                  {...register('imageURL')}
+                />
+              </Field>
+              <Field label="Description" htmlFor="description">
+                <Input id="description" {...register('description')} />
+              </Field>
+            </div>
+          </Panel>
         ) : null}
 
         {sections === 'all' || sections === 'image' ? (
-          <EnvVarFieldArray
-            control={control}
-            register={register}
-            watch={watch}
-            errors={errors}
-          />
+          <EnvVarFieldArray control={control} register={register} watch={watch} errors={errors} />
         ) : null}
 
         {sections === 'all' ? (
@@ -193,7 +203,7 @@ export function ImageFormView({
             envNames={envVars.map((e) => e.name).filter((n) => !!n)}
             onChange={(names) => setValue('mcpServers', names)}
             refresh={
-              isEdit && id
+              isEdit && id && !readOnly
                 ? {
                     id,
                     onClick: onRefreshMCP,
@@ -224,26 +234,26 @@ export function ImageFormView({
             setActiveSource={setActiveSource}
             onRefreshMCP={onRefreshMCP}
             isRefreshing={isRefreshing}
-            canRefresh={isEdit && !!id}
+            canRefresh={isEdit && !!id && !readOnly}
           />
         ) : null}
       </form>
 
       {embedded ? null : (
-      <ConfirmModal
-        open={confirmOpen}
-        title="Delete agent image?"
-        body={
-          <>
-            <b>{image?.displayName ?? id}</b> will be permanently removed. Agents referencing this
-            image will fail to start until you point them at a replacement.
-          </>
-        }
-        confirmLabel={isDeleting ? 'Deleting…' : 'Delete'}
-        destructive
-        onConfirm={onConfirmDelete}
-        onCancel={() => setConfirmOpen(false)}
-      />
+        <ConfirmModal
+          open={confirmOpen}
+          title="Delete agent image?"
+          body={
+            <>
+              <b>{image?.displayName ?? id}</b> will be permanently removed. Agents referencing this
+              image will fail to start until you point them at a replacement.
+            </>
+          }
+          confirmLabel={isDeleting ? 'Deleting…' : 'Delete'}
+          destructive
+          onConfirm={onConfirmDelete}
+          onCancel={() => setConfirmOpen(false)}
+        />
       )}
     </>
   )

@@ -9,6 +9,9 @@ export type PersonaSummary = {
   currentVersion: number
   createdAt: string
   updatedAt: string
+  /** External author (e.g. 'gitops'); anything but empty/'user' makes the
+   *  persona read-only in the console (issue #146). */
+  managedBy?: string
 }
 
 export type PersonaResponse = PersonaSummary & {
@@ -119,20 +122,14 @@ export type ListPersonaVersionsParams = {
   pageSize?: number
 }
 
-export function listPersonaVersions(
-  id: string,
-  params: ListPersonaVersionsParams = {},
-) {
-  return request<Paginated<PersonaVersionSummary>>(
-    `/personas/${encodeURIComponent(id)}/versions`,
-    { query: params },
-  )
+export function listPersonaVersions(id: string, params: ListPersonaVersionsParams = {}) {
+  return request<Paginated<PersonaVersionSummary>>(`/personas/${encodeURIComponent(id)}/versions`, {
+    query: params,
+  })
 }
 
 export function getPersonaVersion(id: string, versionNumber: number) {
-  return request<PersonaVersion>(
-    `/personas/${encodeURIComponent(id)}/versions/${versionNumber}`,
-  )
+  return request<PersonaVersion>(`/personas/${encodeURIComponent(id)}/versions/${versionNumber}`)
 }
 
 export function rollbackPersona(id: string, toVersion: number) {
@@ -142,10 +139,7 @@ export function rollbackPersona(id: string, toVersion: number) {
   })
 }
 
-export function usePersonaVersions(
-  id: string | undefined,
-  params: ListPersonaVersionsParams = {},
-) {
+export function usePersonaVersions(id: string | undefined, params: ListPersonaVersionsParams = {}) {
   return useQuery({
     queryKey: ['personas', 'versions', id, params],
     queryFn: () => listPersonaVersions(id!, params),

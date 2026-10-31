@@ -7,6 +7,7 @@ import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column, type SortState } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { formatRelative } from '../../utils/time'
 
@@ -75,7 +76,10 @@ export function SkillList() {
 
   const sortState: SortState | undefined =
     orderByParam && API_TO_COLUMN_KEY[orderByParam]
-      ? { orderBy: API_TO_COLUMN_KEY[orderByParam], orderDir: orderDirParam === 'desc' ? 'desc' : 'asc' }
+      ? {
+          orderBy: API_TO_COLUMN_KEY[orderByParam],
+          orderDir: orderDirParam === 'desc' ? 'desc' : 'asc',
+        }
       : undefined
 
   const { data, isLoading, error } = useSkills({
@@ -88,9 +92,7 @@ export function SkillList() {
   })
 
   // Collect all unique tags from current results for filter chips
-  const availableTags = data
-    ? [...new Set(data.items.flatMap((s) => s.tags ?? []))].sort()
-    : []
+  const availableTags = data ? [...new Set(data.items.flatMap((s) => s.tags ?? []))].sort() : []
 
   const setPage = (p: number) => {
     const next = new URLSearchParams(params)
@@ -145,12 +147,15 @@ export function SkillList() {
       header: 'Name',
       sortable: true,
       cell: (s) => (
-        <b
-          style={{ cursor: 'pointer', color: 'var(--accent)' }}
-          onClick={() => navigate(`/skills/${encodeURIComponent(s.id)}`)}
-        >
-          {s.name}
-        </b>
+        <>
+          <b
+            style={{ cursor: 'pointer', color: 'var(--accent)' }}
+            onClick={() => navigate(`/skills/${encodeURIComponent(s.id)}`)}
+          >
+            {s.name}
+          </b>{' '}
+          <ManagedBadge managedBy={s.managedBy} />
+        </>
       ),
     },
     {
@@ -190,7 +195,9 @@ export function SkillList() {
         s.usedBy ? (
           <span className="num">{s.usedBy}</span>
         ) : (
-          <span className="num" style={{ color: 'var(--ink-3)' }}>—</span>
+          <span className="num" style={{ color: 'var(--ink-3)' }}>
+            —
+          </span>
         ),
     },
     {
@@ -234,7 +241,15 @@ export function SkillList() {
         }
       />
       <div style={{ padding: '28px 32px' }}>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 12,
+            marginBottom: 16,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
           <Input
             placeholder="Search skills…"
             value={searchInput}
