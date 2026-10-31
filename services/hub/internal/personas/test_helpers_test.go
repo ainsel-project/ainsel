@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	pgxpool "github.com/jackc/pgx/v5/pgxpool"
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/db"
@@ -14,6 +15,14 @@ import (
 // db.Migrate, and returns a Store wired to a fresh pool. Skips the test
 // if Docker is unavailable, matching the mcpservers test convention.
 func newTestStore(t *testing.T) (*personas.Store, func()) {
+	t.Helper()
+	pool, cleanup := newTestPool(t)
+	return personas.NewStore(pool), cleanup
+}
+
+// newTestPool boots a Postgres testcontainer, applies migrations, and returns
+// the raw pool for tests that need direct SQL (e.g. seeding managed_by).
+func newTestPool(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -45,7 +54,7 @@ func newTestStore(t *testing.T) (*personas.Store, func()) {
 		pool.Close()
 		_ = c.Terminate(context.Background())
 	}
-	return personas.NewStore(pool), cleanup
+	return pool, cleanup
 }
 
 func ptr[T any](v T) *T { return &v }

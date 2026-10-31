@@ -1,0 +1,11 @@
+-- Managed-by provenance for personas (issue #146). Mirrors skills.managed_by
+-- and mcp_servers.managed_by: the column records who authors a row so the
+-- console can render externally authored personas read-only and the hub API
+-- can refuse mutations of them (409).
+--
+-- Additive with a DEFAULT: every pre-existing persona row is console-owned and
+-- reads as "user" without a backfill, which is exactly the truth for them.
+-- Only external tooling (kubectl/GitOps/Helm for CRDs; direct DB writes here)
+-- sets other values — the hub REST API never accepts a client-supplied
+-- managedBy and preserves the stored value on update.
+ALTER TABLE personas ADD COLUMN managed_by TEXT NOT NULL DEFAULT 'user';

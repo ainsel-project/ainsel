@@ -233,3 +233,82 @@ func TestServiceGetAndList(t *testing.T) {
 		t.Errorf("expected 2 personas, got %d", len(list))
 	}
 }
+
+// --- issue #146: externally managed personas ---------------------------------
+
+// TestServiceMutationsRefuseManagedPersona: a persona whose row carries an
+// external managedBy (seeded directly, since no API path can set it) refuses
+// Update, Rollback, and Delete with a ManagedError naming the manager, and the
+// row survives untouched.
+func TestServiceMutationsRefuseManagedPersona(t *testing.T) {
+	pool, cleanup := newTestPool(t)
+	defer cleanup()
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	kc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	svc := personas.NewService(personas.NewStore(pool), personas.NewReconciler(kc, "ainsel-test"), &stubAgentLister{})
+	ctx := context.Background()
+
+	p, err := svc.Create(ctx, personas.CreateRequest{Name: "ext", Text: "external text"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if p.ManagedBy != "" && p.ManagedBy != "user" {
+		t.Fatalf("fresh persona should be console-managed, got %q", p.ManagedBy)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE personas SET managed_by = 'gitops' WHERE id = $1`, p.ID); err != nil {
+		t.Fatalf("seed managed_by: %v", err)
+	}
+
+	got, err := svc.Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ManagedBy != "gitops" {
+		t.Errorf("Get must expose managedBy, got %q", got.ManagedBy)
+	}
+
+	var mErr *personas.ManagedError
+	if _, err := svc.Update(ctx, p.ID, personas.UpdateRequest{Text: ptr("mine")}); !errors.As(err, &mErr) {
+		t.Errorf("Update: expected ManagedError, got %T: %v", err, err)
+	} else if mErr.Manager != "gitops" || mErr.Error() != "persona is managed by gitops" {
+		t.Errorf("Update refusal: %v", mErr)
+	}
+	if _, err := svc.Rollback(ctx, p.ID, 1); !errors.As(err, &mErr) {
+		t.Errorf("Rollback: expected ManagedError, got %T: %v", err, err)
+	}
+	if err := svc.Delete(ctx, p.ID); !errors.As(err, &mErr) {
+		t.Errorf("Delete: expected ManagedError, got %T: %v", err, err)
+	}
+
+	var managedBy string
+	if err := pool.QueryRow(ctx, `SELECT managed_by FROM personas WHERE id = $1`, p.ID).Scan(&managedBy); err != nil {
+		t.Fatalf("row must survive the refused mutations: %v", err)
+	}
+	if managedBy != "gitops" {
+		t.Errorf("row changed: managed_by=%q", managedBy)
+	}
+	if got, err := svc.Get(ctx, p.ID); err != nil || got.Text != "external text" {
+		t.Errorf("persona text changed despite the refused mutations: %+v (%v)", got, err)
+	}
+}
+
+// TestIsManagedValueAgnostic: any non-empty, non-"user" value is external.
+func TestIsManagedValueAgnostic(t *testing.T) {
+	for _, tc := range []struct {
+		managedBy string
+		want      bool
+	}{
+		{"", false},
+		{"user", false},
+		{"gitops", true},
+		{"helm", true},
+	} {
+		if got := personas.IsManaged(tc.managedBy); got != tc.want {
+			t.Errorf("IsManaged(%q) = %v, want %v", tc.managedBy, got, tc.want)
+		}
+	}
+}

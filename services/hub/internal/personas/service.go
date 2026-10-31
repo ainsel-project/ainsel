@@ -49,6 +49,29 @@ type CreateRequest struct {
 // the given agent — a shared template, or another agent's persona.
 var ErrNotOwned = errors.New("persona is not owned by this agent")
 
+// ManagedByUser is the value that marks a persona as console-owned. It is
+// the column default, so every pre-existing row reads as console-owned.
+const ManagedByUser = "user"
+
+// IsManaged reports whether a managedBy value marks the persona externally
+// managed. Empty means console-managed (equivalent to "user") so existing
+// rows stay editable; any other value names an external author (helm,
+// gitops, ...) whose resource the console must not mutate.
+func IsManaged(managedBy string) bool {
+	return managedBy != "" && managedBy != ManagedByUser
+}
+
+// ManagedError is returned by Update, Delete, and Rollback when the stored
+// persona is externally managed. handlers map it to HTTP 409 naming the
+// manager, mirroring the plugin-owned refusal for skills and MCP servers.
+type ManagedError struct {
+	Manager string
+}
+
+func (e *ManagedError) Error() string {
+	return fmt.Sprintf("persona is managed by %s", e.Manager)
+}
+
 // ValidationError is returned on invalid input. handlers map it to HTTP 400.
 type ValidationError struct {
 	Field   string
@@ -234,6 +257,16 @@ func (s *Service) DeleteOwned(ctx context.Context, personaID, agentName string) 
 // (Ensure is idempotent so we re-render unconditionally — the cost is
 // negligible and it heals out-of-band changes to non-text fields.)
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Persona, error) {
+	// The stored row's owner decides: an externally managed persona is
+	// refused, so it has exactly one author. The check reads the stored row,
+	// not any caller-supplied copy.
+	row, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if IsManaged(row.ManagedBy) {
+		return nil, &ManagedError{Manager: row.ManagedBy}
+	}
 	if req.Name != nil {
 		if err := validateName(*req.Name); err != nil {
 			return nil, err
@@ -272,6 +305,15 @@ func (s *Service) GetVersion(ctx context.Context, personaID string, n int) (*Ver
 // Rollback copies a past version's text into a new version and re-renders
 // the ConfigMap.
 func (s *Service) Rollback(ctx context.Context, personaID string, toVersion int) (*Persona, error) {
+	// Rolling back writes a new current version, so it is a mutation like
+	// Update and obeys the same ownership rule.
+	row, err := s.store.Get(ctx, personaID)
+	if err != nil {
+		return nil, err
+	}
+	if IsManaged(row.ManagedBy) {
+		return nil, &ManagedError{Manager: row.ManagedBy}
+	}
 	p, err := s.store.Rollback(ctx, personaID, toVersion)
 	if err != nil {
 		return nil, err
@@ -284,6 +326,15 @@ func (s *Service) Rollback(ctx context.Context, personaID string, toVersion int)
 
 // Delete checks referrers first and refuses if any exist.
 func (s *Service) Delete(ctx context.Context, id string) error {
+	// Ownership first: an externally managed persona cannot be deleted from
+	// the console whatever references it holds.
+	row, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if IsManaged(row.ManagedBy) {
+		return &ManagedError{Manager: row.ManagedBy}
+	}
 	refs, err := s.agentLister.ListReferrers(ctx, id)
 	if err != nil {
 		return fmt.Errorf("check referrers: %w", err)

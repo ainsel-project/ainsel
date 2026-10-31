@@ -16,21 +16,31 @@ type Persona struct {
 	// OwnerAgent is the name of the Agent CR that owns this persona, or
 	// empty for a shared template. Owned personas are created by the hub on
 	// an agent's behalf (copy-on-write) and are hidden from the library.
-	OwnerAgent string    `json:"ownerAgent,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	OwnerAgent string `json:"ownerAgent,omitempty"`
+	// ManagedBy names the external system that authors this persona, e.g.
+	// "helm" or "gitops". Any non-empty value other than "user" marks the
+	// persona externally managed: the hub API refuses mutations with 409 and
+	// the console renders it read-only. Empty reads as "user" (console-owned).
+	// The hub REST API never accepts a client-supplied value — only the
+	// external manager sets or clears it.
+	ManagedBy string    `json:"managedBy"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // PersonaSummary is the listing projection: same as Persona without
 // the (potentially large) text body. Listings only ever contain shared
 // templates, so OwnerAgent is omitted here.
 type PersonaSummary struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	CurrentVersion int       `json:"currentVersion"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	CurrentVersion int    `json:"currentVersion"`
+	// ManagedBy mirrors Persona.ManagedBy so list views can hide edit/delete
+	// actions for externally managed personas without fetching each detail.
+	ManagedBy string    `json:"managedBy"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // Version is a single persona_versions row.
