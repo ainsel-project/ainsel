@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -16,9 +17,30 @@ import (
 // platform vars precede image entries), and MCP_SERVER_TOKENS uses $(VAR)
 // substitution that only resolves against vars declared earlier. If this test
 // fails, the refactor changed which env entry wins at runtime.
+//
+// The fixture deliberately uses distinct values for agent.Name ("my-agent")
+// and the agentName parameter ("agent-my-agent") because production derives
+// them differently (the reconciler passes agentName = "agent-<name>", while
+// llmProviderEnv builds default Secret names from agent.Name). The assertions
+// pin which of the two feeds each Secret reference, so swapping them in
+// imageProfileEnv or llmProviderEnv cannot pass silently.
 func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 	t.Setenv("HUB_URL", "https://hub.example")
 	t.Setenv("HUB_INTERNAL_VALIDATE_SECRET", "platform-token")
+
+	// Every platform-reserved name gets an image-side entry claiming to
+	// override it; the reserved-name skip must drop each one. Iterating the
+	// guard's own map means adding a platform var without an image-side
+	// guard is caught here.
+	reserved := platformManagedAgentEnv()
+	if len(reserved) == 0 {
+		t.Fatal("platformManagedAgentEnv is empty despite HUB_INTERNAL_VALIDATE_SECRET being set")
+	}
+	reservedNames := make([]string, 0, len(reserved))
+	for name := range reserved {
+		reservedNames = append(reservedNames, name)
+	}
+	sort.Strings(reservedNames)
 
 	agent := &ainselv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "default"},
@@ -31,6 +53,17 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 			EnabledTools: []string{"shell-tool", "container-tool"},
 		},
 	}
+	// Image-profile entries: two ordinary vars plus one attempted override
+	// per reserved name.
+	imageEnv := []ainselv1alpha1.AgentImageEnvVar{
+		{Name: "MY_TOKEN", Value: "image-value"},
+		{Name: "PLAIN_VAR", Value: "x"},
+	}
+	for _, name := range reservedNames {
+		imageEnv = append(imageEnv, ainselv1alpha1.AgentImageEnvVar{
+			Name: name, Value: "image-tries-to-override",
+		})
+	}
 	img := &ainselv1alpha1.AgentImage{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-image", Namespace: "default"},
 		Spec: ainselv1alpha1.AgentImageSpec{
@@ -38,13 +71,7 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 				{Name: "container-tool", Kind: ainselv1alpha1.AgentImageToolKindContainer},
 				{Name: "shell-tool", Kind: ainselv1alpha1.AgentImageToolKindShell},
 			},
-			Env: []ainselv1alpha1.AgentImageEnvVar{
-				{Name: "MY_TOKEN", Value: "secret"},
-				// Reserved platform name declared on the image: must be
-				// dropped so it cannot override the canonical value.
-				{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: "image-tries-to-override"},
-				{Name: "PLAIN_VAR", Value: "x"},
-			},
+			Env: imageEnv,
 			MCPServers: []ainselv1alpha1.AgentImageMCPServer{
 				{Name: "tokened", URL: "http://localhost:9000/mcp", TokenFromEnv: "MY_TOKEN"},
 			},
@@ -52,7 +79,7 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 	}
 
 	plan := &podPlan{}
-	envs, err := buildAgentEnv(context.Background(), agent, "my-agent", img, plan)
+	envs, err := buildAgentEnv(context.Background(), agent, "agent-my-agent", img, plan)
 	if err != nil {
 		t.Fatalf("buildAgentEnv: %v", err)
 	}
@@ -61,6 +88,8 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 	for i, e := range envs {
 		names[i] = e.Name
 	}
+	// Expected sequence: platform block, llmProviderEnv, enabledToolsEnv,
+	// imageProfileEnv (reserved names skipped, in declaration order), mcpEnv.
 	want := []string{
 		// platform block
 		"AGENT_NAME", "PI_PROVIDER", "AINSEL_LLM_MODEL", "OLLAMA_CLOUD_MODEL",
@@ -70,11 +99,15 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 		"CUSTOM_PROVIDER_API_KEY", "OLLAMA_CLOUD_MAX_TURNS",
 		// enabledToolsEnv
 		"AGENT_TOOLS",
-		// imageProfileEnv (reserved HUB_INTERNAL_VALIDATE_SECRET skipped)
-		"MY_TOKEN", "PLAIN_VAR",
-		// mcpEnv
-		"MCP_SERVERS", "MCP_SERVER_TOKENS",
 	}
+	for _, e := range imageEnv {
+		if _, isReserved := reserved[e.Name]; isReserved {
+			continue
+		}
+		want = append(want, e.Name)
+	}
+	// mcpEnv
+	want = append(want, "MCP_SERVERS", "MCP_SERVER_TOKENS")
 	if len(names) != len(want) {
 		t.Fatalf("env name sequence = %v, want %v", names, want)
 	}
@@ -84,31 +117,65 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 		}
 	}
 
-	// The reserved-name skip must leave exactly one entry, holding the
-	// platform value, and it must precede every image-profile entry.
-	platformIdx := -1
-	imageIdx := len(envs)
+	// Every reserved name must appear exactly once, hold the platform value,
+	// and precede every image-profile entry.
+	firstImageIdx := len(envs)
 	for i, e := range envs {
-		if e.Name == "HUB_INTERNAL_VALIDATE_SECRET" {
-			if platformIdx >= 0 {
-				t.Fatalf("HUB_INTERNAL_VALIDATE_SECRET appears twice: %v", names)
-			}
-			if e.Value != "platform-token" {
-				t.Errorf("HUB_INTERNAL_VALIDATE_SECRET = %q, want the platform value", e.Value)
-			}
-			platformIdx = i
+		if _, isReserved := reserved[e.Name]; isReserved {
+			continue
 		}
 		if e.Name == "MY_TOKEN" || e.Name == "PLAIN_VAR" {
-			if i < imageIdx {
-				imageIdx = i
+			if i < firstImageIdx {
+				firstImageIdx = i
 			}
 		}
 	}
-	if platformIdx < 0 {
-		t.Fatal("HUB_INTERNAL_VALIDATE_SECRET missing")
+	for name, wantValue := range reserved {
+		idx := -1
+		for i, e := range envs {
+			if e.Name == name {
+				if idx >= 0 {
+					t.Fatalf("%s appears twice: %v", name, names)
+				}
+				idx = i
+			}
+		}
+		if idx < 0 {
+			t.Fatalf("%s missing", name)
+		}
+		if envs[idx].Value != wantValue {
+			t.Errorf("%s = %q, want the platform value %q", name, envs[idx].Value, wantValue)
+		}
+		if firstImageIdx <= idx {
+			t.Errorf("%s (at %d) must precede image-profile entries (first at %d)", name, idx, firstImageIdx)
+		}
 	}
-	if imageIdx <= platformIdx {
-		t.Fatalf("image-profile entries must come after platform vars (platform at %d, first image entry at %d)", platformIdx, imageIdx)
+
+	// The image-profile entries must reference the agentName-derived
+	// "<agentName>-image-env" Secret, not an agent.Name-derived one.
+	for _, e := range envs {
+		if e.Name != "MY_TOKEN" && e.Name != "PLAIN_VAR" {
+			continue
+		}
+		if e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil {
+			t.Fatalf("%s: image env entry must source from the image-env Secret", e.Name)
+		}
+		if got, wantRef := e.ValueFrom.SecretKeyRef.Name, "agent-my-agent-image-env"; got != wantRef {
+			t.Errorf("%s secret = %q, want %q (agentName-derived, not agent.Name-derived)", e.Name, got, wantRef)
+		}
+	}
+	// The default provider-key Secret must be agent.Name-derived
+	// ("<agent>-ollama-key"), not agentName-derived.
+	for _, e := range envs {
+		if e.Name != "OLLAMA_API_KEY" {
+			continue
+		}
+		if e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil {
+			t.Fatal("OLLAMA_API_KEY must source from a Secret")
+		}
+		if got, wantRef := e.ValueFrom.SecretKeyRef.Name, "my-agent-ollama-key"; got != wantRef {
+			t.Errorf("OLLAMA_API_KEY secret = %q, want %q (agent.Name-derived)", got, wantRef)
+		}
 	}
 
 	// MCP_SERVER_TOKENS is last: its $(VAR) substitution requires the image
@@ -151,60 +218,62 @@ func TestLLMProviderEnv_SecretRefSemantics(t *testing.T) {
 		return &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: n}}
 	}
 
+	// wantRefName is the expected SecretKeySelector name. (Named without
+	// "secret" so gosec G101 does not flag the fixture literals.)
 	tests := []struct {
-		name       string
-		mutate     func(*ainselv1alpha1.Agent)
-		envName    string
-		wantSecret string
-		wantOpt    bool
+		name        string
+		mutate      func(*ainselv1alpha1.Agent)
+		envName     string
+		wantRefName string
+		wantOpt     bool
 	}{
 		{
-			name:       "ollama block absent: default name, optional",
-			envName:    "OLLAMA_API_KEY",
-			wantSecret: "ag-ollama-key",
-			wantOpt:    true,
+			name:        "ollama block absent: default name, optional",
+			envName:     "OLLAMA_API_KEY",
+			wantRefName: "ag-ollama-key",
+			wantOpt:     true,
 		},
 		{
 			name: "ollama block with ref: ref name, not optional",
 			mutate: func(a *ainselv1alpha1.Agent) {
 				a.Spec.OllamaCloud = &ainselv1alpha1.AgentOllamaCloud{APIKeySecretRef: secretRef("custom-ollama")}
 			},
-			envName:    "OLLAMA_API_KEY",
-			wantSecret: "custom-ollama",
-			wantOpt:    false,
+			envName:     "OLLAMA_API_KEY",
+			wantRefName: "custom-ollama",
+			wantOpt:     false,
 		},
 		{
 			name: "ollama block without ref: default name, not optional",
 			mutate: func(a *ainselv1alpha1.Agent) {
 				a.Spec.OllamaCloud = &ainselv1alpha1.AgentOllamaCloud{}
 			},
-			envName:    "OLLAMA_API_KEY",
-			wantSecret: "ag-ollama-key",
-			wantOpt:    false,
+			envName:     "OLLAMA_API_KEY",
+			wantRefName: "ag-ollama-key",
+			wantOpt:     false,
 		},
 		{
 			name: "opencode block with ref",
 			mutate: func(a *ainselv1alpha1.Agent) {
-				a.Spec.OpenCode = &ainselv1alpha1.AgentOpenCode{APIKeySecretRef: secretRef("oc-key")}
+				a.Spec.OpenCode = &ainselv1alpha1.AgentOpenCode{APIKeySecretRef: secretRef("oc-ref")}
 			},
-			envName:    "OPENCODE_API_KEY",
-			wantSecret: "oc-key",
-			wantOpt:    false,
+			envName:     "OPENCODE_API_KEY",
+			wantRefName: "oc-ref",
+			wantOpt:     false,
 		},
 		{
-			name:       "alibaba block absent",
-			envName:    "ALIBABA_CLOUD_API_KEY",
-			wantSecret: "ag-alibaba-key",
-			wantOpt:    true,
+			name:        "alibaba block absent",
+			envName:     "ALIBABA_CLOUD_API_KEY",
+			wantRefName: "ag-alibaba-key",
+			wantOpt:     true,
 		},
 		{
 			name: "custom provider block with ref",
 			mutate: func(a *ainselv1alpha1.Agent) {
-				a.Spec.CustomProvider = &ainselv1alpha1.AgentCustomProvider{APIKeySecretRef: secretRef("cp-key")}
+				a.Spec.CustomProvider = &ainselv1alpha1.AgentCustomProvider{APIKeySecretRef: secretRef("cp-ref")}
 			},
-			envName:    "CUSTOM_PROVIDER_API_KEY",
-			wantSecret: "cp-key",
-			wantOpt:    false,
+			envName:     "CUSTOM_PROVIDER_API_KEY",
+			wantRefName: "cp-ref",
+			wantOpt:     false,
 		},
 	}
 	for _, tc := range tests {
@@ -227,8 +296,8 @@ func TestLLMProviderEnv_SecretRefSemantics(t *testing.T) {
 				t.Fatalf("env %s not found", tc.envName)
 			}
 			ref := found.ValueFrom.SecretKeyRef
-			if ref.Name != tc.wantSecret {
-				t.Errorf("secret = %q, want %q", ref.Name, tc.wantSecret)
+			if ref.Name != tc.wantRefName {
+				t.Errorf("secret = %q, want %q", ref.Name, tc.wantRefName)
 			}
 			if ref.Key != "api-key" {
 				t.Errorf("secret key = %q, want api-key", ref.Key)
