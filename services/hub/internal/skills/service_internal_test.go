@@ -96,3 +96,49 @@ func TestEscapeILIKE(t *testing.T) {
 		}
 	}
 }
+
+// --- issue #146: generalized managedBy guard --------------------------------
+
+func TestIsManagedValueAgnostic(t *testing.T) {
+	for _, tc := range []struct {
+		managedBy string
+		want      bool
+	}{
+		{"", false},
+		{"user", false},
+		{"plugin", true},
+		{"gitops", true},
+		{"helm", true},
+	} {
+		if got := IsManaged(tc.managedBy); got != tc.want {
+			t.Errorf("IsManaged(%q) = %v, want %v", tc.managedBy, got, tc.want)
+		}
+	}
+}
+
+// TestManagedRefusalKeepsPluginWording: plugin rows keep the exact legacy
+// message (the API 409 body is contractual); any other manager gets the
+// generic "<kind> is managed by <manager>" wording.
+func TestManagedRefusalKeepsPluginWording(t *testing.T) {
+	plugin := &Skill{ManagedBy: ManagedByPlugin, Tags: []string{"plugin:mem0"}}
+	err := managedRefusal(plugin)
+	if !errors.Is(err, ErrPluginManaged) {
+		t.Errorf("plugin row must still wrap ErrPluginManaged, got %T", err)
+	}
+	if err.Error() != "managed by plugin mem0" {
+		t.Errorf("plugin refusal: %q", err.Error())
+	}
+
+	gitops := &Skill{ManagedBy: "gitops"}
+	err = managedRefusal(gitops)
+	var mErr ManagedError
+	if !errors.As(err, &mErr) || mErr.Manager != "gitops" {
+		t.Errorf("expected ManagedError{gitops}, got %T: %v", err, err)
+	}
+	if err.Error() != "skill is managed by gitops" {
+		t.Errorf("generic refusal: %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "plugin") {
+		t.Errorf("non-plugin refusal must not mention plugin: %q", err.Error())
+	}
+}

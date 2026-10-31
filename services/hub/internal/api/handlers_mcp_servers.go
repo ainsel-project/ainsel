@@ -23,13 +23,17 @@ var envVarNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 const envVarNameMaxLen = 64
 
 type mcpServerDTO struct {
-	Name         string    `json:"name"`
-	DisplayName  string    `json:"displayName"`
-	Description  string    `json:"description,omitempty"`
-	URL          string    `json:"url"`
-	TokenFromEnv string    `json:"tokenFromEnv,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	Name         string `json:"name"`
+	DisplayName  string `json:"displayName"`
+	Description  string `json:"description,omitempty"`
+	URL          string `json:"url"`
+	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
+	// ManagedBy names the row's author ("user", "helm", "plugin", ...).
+	// Read-only: the write request shape has no managedBy field, so the hub
+	// never accepts a client-supplied value and preserves the stored one.
+	ManagedBy string    `json:"managedBy"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type mcpServerWriteRequest struct {
@@ -48,6 +52,7 @@ func toMCPDTO(m *mcpservers.MCPServer) mcpServerDTO {
 		Description:  m.Description,
 		URL:          m.URL,
 		TokenFromEnv: m.TokenFromEnv,
+		ManagedBy:    m.ManagedBy,
 		CreatedAt:    m.CreatedAt,
 		UpdatedAt:    m.UpdatedAt,
 	}
@@ -220,11 +225,11 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if existing.ManagedBy == mcpservers.ManagedByPlugin {
-			// The row and the endpoint it points at both belong to the plugin:
+		if mcpservers.IsManaged(existing.ManagedBy) {
+			// The row and the endpoint it points at both belong to their author:
 			// rewriting them would send every agent that attached the server to
-			// somewhere the plugin never served.
-			writeError(w, http.StatusConflict, pluginManagedMessage(existing.Name))
+			// somewhere the author never served.
+			writeError(w, http.StatusConflict, managedMessage(existing))
 			return
 		}
 		if err := validateTokenFromEnv(req.TokenFromEnv); err != nil {
@@ -256,8 +261,8 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if existing.ManagedBy == mcpservers.ManagedByPlugin {
-			writeError(w, http.StatusConflict, pluginManagedMessage(existing.Name))
+		if mcpservers.IsManaged(existing.ManagedBy) {
+			writeError(w, http.StatusConflict, managedMessage(existing))
 			return
 		}
 		affectedImages, err := s.agentImagesReferencingMCPServer(r.Context(), name)
@@ -302,6 +307,16 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 // ownership before doing anything else need it as a string.
 func pluginManagedMessage(rowName string) string {
 	return mcpservers.PluginManagedError{PluginID: mcpservers.PluginIDFromName(rowName)}.Error()
+}
+
+// managedMessage is the 409 body any externally managed row is refused with:
+// the plugin wording for plugin-owned rows, the generic manager wording
+// otherwise — the same text the service layer returns as an error.
+func managedMessage(row *mcpservers.MCPServer) string {
+	if row.ManagedBy == mcpservers.ManagedByPlugin {
+		return pluginManagedMessage(row.Name)
+	}
+	return mcpservers.ManagedError{Manager: row.ManagedBy}.Error()
 }
 
 // agentImagesReferencingMCPServer returns the names of all AgentImages in the

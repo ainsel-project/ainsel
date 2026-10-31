@@ -95,24 +95,55 @@ func TestUpdate_PluginManagedRejected(t *testing.T) {
 	}
 }
 
-func TestUpdate_AllowsHelmManaged(t *testing.T) {
+// TestUpdate_RefusesHelmManaged: issue #146 generalizes the guard — any
+// non-user managedBy is refused, so a helm-seeded row has exactly one author
+// (the chart) and the console cannot drift it.
+func TestUpdate_RefusesHelmManaged(t *testing.T) {
 	st := setup(t)
 	svc := mcpservers.NewService(st)
 	ctx := context.Background()
 	_ = svc.Upsert(ctx, &mcpservers.MCPServer{Name: "example-mcp", DisplayName: "Example", URL: "http://example", ManagedBy: "helm"})
 
-	if err := svc.Update(ctx, &mcpservers.MCPServer{Name: "example-mcp", DisplayName: "Example 2", URL: "http://example2", ManagedBy: "helm"}); err != nil {
-		t.Fatalf("Update on a helm row: %v", err)
+	err := svc.Update(ctx, &mcpservers.MCPServer{Name: "example-mcp", DisplayName: "Example 2", URL: "http://example2", ManagedBy: "helm"})
+	if !errors.Is(err, mcpservers.ErrManaged) {
+		t.Fatalf("expected ErrManaged on helm row update, got %v", err)
+	}
+	var mErr mcpservers.ManagedError
+	if !errors.As(err, &mErr) || mErr.Manager != "helm" {
+		t.Errorf("expected ManagedError naming helm, got %T: %v", err, err)
 	}
 	got, err := svc.Get(ctx, "example-mcp")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.DisplayName != "Example 2" || got.URL != "http://example2" {
-		t.Errorf("helm row not updated: %+v", got)
+	if got.DisplayName != "Example" || got.URL != "http://example" {
+		t.Errorf("row changed despite the refused update: %+v", got)
 	}
-	if got.ManagedBy != "helm" {
-		t.Errorf("ManagedBy: %s", got.ManagedBy)
+}
+
+// TestUpdate_RefusesGitopsManaged: the rule is value-agnostic — an arbitrary
+// external author is protected without another code change.
+func TestUpdate_RefusesGitopsManaged(t *testing.T) {
+	st := setup(t)
+	svc := mcpservers.NewService(st)
+	ctx := context.Background()
+	_ = svc.Upsert(ctx, &mcpservers.MCPServer{Name: "gitops-mcp", DisplayName: "GitOps", URL: "http://gitops", ManagedBy: "gitops"})
+
+	err := svc.Update(ctx, &mcpservers.MCPServer{Name: "gitops-mcp", DisplayName: "mine", URL: "http://mine", ManagedBy: "gitops"})
+	if err == nil || err.Error() != "mcp server is managed by gitops" {
+		t.Fatalf("expected manager-naming refusal, got %v", err)
+	}
+}
+
+func TestDelete_RefusesGitopsManaged(t *testing.T) {
+	st := setup(t)
+	svc := mcpservers.NewService(st)
+	ctx := context.Background()
+	_ = svc.Upsert(ctx, &mcpservers.MCPServer{Name: "gitops-mcp", DisplayName: "GitOps", URL: "http://gitops", ManagedBy: "gitops"})
+
+	err := svc.Delete(ctx, "gitops-mcp")
+	if !errors.Is(err, mcpservers.ErrManaged) {
+		t.Errorf("expected ErrManaged, got %v", err)
 	}
 }
 

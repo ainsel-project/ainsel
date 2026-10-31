@@ -55,6 +55,37 @@ func (e PluginManagedError) Error() string {
 
 func (e PluginManagedError) Unwrap() error { return ErrPluginManaged }
 
+// IsManaged reports whether a managedBy value marks the skill externally
+// managed. Empty means console-managed (equivalent to "user"); any other
+// value names an external author whose resource the console must not mutate.
+// The rule is value-agnostic on purpose: "plugin" is only the value the hub's
+// own syncer writes today, but "helm" or "gitops" rows are protected by the
+// same rule without another code change.
+func IsManaged(managedBy string) bool {
+	return managedBy != "" && managedBy != ManagedByUser
+}
+
+// ManagedError is returned when a row is externally managed under a manager
+// other than a plugin (see PluginManagedError for plugin-owned rows). Its
+// message is the exact 409 wording the API answers with.
+type ManagedError struct {
+	Manager string
+}
+
+func (e ManagedError) Error() string {
+	return fmt.Sprintf("skill is managed by %s", e.Manager)
+}
+
+// managedRefusal is the error an externally managed row answers user
+// mutations with: the plugin wording for plugin-owned rows (naming the
+// owning plugin), the generic manager wording otherwise.
+func managedRefusal(row *Skill) error {
+	if row.ManagedBy == ManagedByPlugin {
+		return PluginManagedError{PluginID: pluginIDFromTags(row.Tags)}
+	}
+	return ManagedError{Manager: row.ManagedBy}
+}
+
 // pluginTagPrefix marks the tag that names a plugin skill's owner. The syncer
 // writes exactly ["plugin:<id>"], and it — not the id — is the record of
 // ownership a refusal quotes back.
@@ -348,14 +379,15 @@ func (s *Service) SearchForDiscovery(ctx context.Context, query string, tags []s
 // some AgentImage or Agent selects the skill: an edit to a catalogue
 // entry must not touch the shared, size-capped delivery object.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Skill, error) {
-	// The stored row's owner decides: a plugin-owned row is refused, so the
-	// mapping from a plugin to its shipped skill has exactly one author.
+	// The stored row's owner decides: an externally managed row is refused,
+	// so the mapping from a plugin (or any other author) to its shipped skill
+	// has exactly one author.
 	row, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if row.ManagedBy == ManagedByPlugin {
-		return nil, PluginManagedError{PluginID: pluginIDFromTags(row.Tags)}
+	if IsManaged(row.ManagedBy) {
+		return nil, managedRefusal(row)
 	}
 	if req.Name != nil {
 		if err := validateName(*req.Name); err != nil {
@@ -430,14 +462,14 @@ func (s *Service) DeleteManaged(ctx context.Context, id string) error {
 // and gets overwritten if the same ID is recreated. A later reconcile
 // loop is the intended cleanup path; for v1 we accept the asymmetry.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	// Ownership first: a user cannot delete a plugin's skill at all, whatever
+	// Ownership first: a user cannot delete a managed skill at all, whatever
 	// references it happens to hold.
 	row, err := s.store.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-	if row.ManagedBy == ManagedByPlugin {
-		return PluginManagedError{PluginID: pluginIDFromTags(row.Tags)}
+	if IsManaged(row.ManagedBy) {
+		return managedRefusal(row)
 	}
 	if s.agentImageLister != nil {
 		refs, err := s.agentImageLister.ListReferrers(ctx, id)
