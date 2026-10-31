@@ -28,6 +28,10 @@ export interface ConnectorStatus {
 export interface ConnectorResponse {
   id: string
   name: string
+  /** Authz group recorded at create time (single-connector GET only). The
+   *  route key for /groups/:id; absent when the connector has no group or
+   *  the hub predates the field. */
+  groupId?: string
   signatureHeader: string
   webhookEndpoint?: string
   webhookSecretValue?: string  // Only on create response

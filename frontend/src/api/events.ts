@@ -11,6 +11,9 @@ export type RunStatus = 'running' | 'success' | 'failure' | 'timeout'
 export type ActivityMatch = {
   trigger: string
   agent: string
+  /** The agent's API id (its resource name) — the route key for
+   *  /agents/:id. Absent on hubs that predate the field: render plain text. */
+  agentId?: string
   /** Raw invocation status, kept for compatibility. Prefer runState. */
   runStatus?: RunStatus
   durationMs?: number

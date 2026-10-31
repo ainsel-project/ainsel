@@ -4,6 +4,7 @@
 // which upgrades pre-Postgres clusters by reading leftover Trigger CRs. Do not
 // reference it from reconcilers or the hub runtime; retiring migrate-triggers
 // retires this file.
+
 package v1alpha1
 
 import (

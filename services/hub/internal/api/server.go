@@ -1,3 +1,7 @@
+// Package api implements the hub's HTTP API. Server wires authentication,
+// authorization and routes for all platform resources — agents, channels,
+// triggers, plugins, events, observability and more — backed by the Kubernetes
+// API and the hub's Postgres stores.
 package api
 
 import (

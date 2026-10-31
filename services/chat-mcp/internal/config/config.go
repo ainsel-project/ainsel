@@ -1,3 +1,5 @@
+// Package config loads the chat MCP sidecar's configuration from
+// environment variables, with sensible defaults for in-cluster operation.
 package config
 
 import (

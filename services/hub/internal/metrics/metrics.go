@@ -1,3 +1,6 @@
+// Package metrics defines the hub's Prometheus metrics. All counters are
+// registered with the default Prometheus registry on package init so that
+// importing the package from any binary exposes /metrics consistently.
 package metrics
 
 import "github.com/prometheus/client_golang/prometheus"

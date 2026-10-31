@@ -1,3 +1,7 @@
+// Package types defines shared, dependency-free data types used across the
+// hub: activity and error log entries and trigger match results. Keeping
+// them here avoids import cycles between the packages that produce and
+// serve them.
 package types
 
 import (

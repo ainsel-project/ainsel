@@ -122,8 +122,12 @@ type TokensTimeseries struct {
 // cache/cost numerics are placeholders and readers must render them as "not
 // reported" rather than 0 / $0.00.
 type TokenSubjectRow struct {
-	Agent            string  `json:"agent"`
-	AgentName        string  `json:"agentName"`
+	Agent     string `json:"agent"`
+	AgentName string `json:"agentName"`
+	// AgentID is the agent's API id (its resource name) — the route key the
+	// console links a row onto. Both backends fill it from the agent label /
+	// reported agent name; empty means the row cannot be linked.
+	AgentID          string  `json:"agentId,omitempty"`
 	Repo             string  `json:"repo"`
 	EventType        string  `json:"eventType"`
 	Model            string  `json:"model"`
@@ -455,6 +459,7 @@ func (s *Server) tokensBySubjectFromRecords(ctx context.Context, rangeKey string
 		out = append(out, TokenSubjectRow{
 			Agent:            row.AgentName,
 			AgentName:        row.AgentName,
+			AgentID:          row.AgentName,
 			Repo:             row.Repo,
 			EventType:        row.EventType,
 			Model:            row.Model,
@@ -539,6 +544,7 @@ func (s *Server) tokensBySubjectFromPrometheus(ctx context.Context, rangeKey str
 	out := make([]TokenSubjectRow, 0, len(rows))
 	for _, row := range rows {
 		row.TotalTokens = tokenTotal(row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheWriteTokens)
+		row.AgentID = row.Agent
 		if name, ok := nameMap[row.Agent]; ok && name != "" {
 			row.AgentName = name
 		} else {

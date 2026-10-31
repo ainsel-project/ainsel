@@ -335,6 +335,34 @@ func TestGetWebhookConnector_NotFound(t *testing.T) {
 	}
 }
 
+// The single-connector GET reports the authz group recorded at create time so
+// the console can link the connector to its group detail page.
+func TestGetWebhookConnector_GroupID(t *testing.T) {
+	s := connectorTestServer(t)
+	code, created := createWebhookConnectorForTest(t, s, WebhookConnectorCreateRequest{Name: "grouped"})
+	if code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d", code)
+	}
+
+	store := newFakeAuthzStore()
+	store.resources["connector:"+created.ID] = "team-a"
+	s.authzStore = store
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/connectors/"+created.ID, nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp WebhookConnectorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.GroupID != "team-a" {
+		t.Errorf("expected groupId team-a, got %q", resp.GroupID)
+	}
+}
+
 func TestCreateWebhookConnector_ImageNotConfigured(t *testing.T) {
 	s := testServer(t)
 	// ConnectorConfig with no ImageWebhook set

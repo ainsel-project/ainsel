@@ -66,6 +66,11 @@ func TestAgentListerMatchesByPersonaID(t *testing.T) {
 	if len(refs) != 1 || refs[0].AgentName != "code-reviewer-agent" {
 		t.Errorf("expected one referrer named code-reviewer-agent, got %+v", refs)
 	}
+	// The referrer also carries the agent's API id (its resource name) so the
+	// console can link the delete-409 referrer to the agent detail page.
+	if len(refs) == 1 && refs[0].AgentID != "code-reviewer-agent" {
+		t.Errorf("expected referrer agentId code-reviewer-agent, got %q", refs[0].AgentID)
+	}
 }
 
 // Sanity: keep the agentListGVK reference live in case a future refactor

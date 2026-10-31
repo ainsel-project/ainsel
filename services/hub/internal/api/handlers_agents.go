@@ -23,6 +23,10 @@ import (
 
 // AgentImageRefInfo identifies which AgentImage an Agent uses.
 type AgentImageRefInfo struct {
+	// ID is the AgentImage's API id (its resource name) — the route key the
+	// console links the reference onto. Same value as Name today; carried
+	// explicitly so views never have to assume it.
+	ID          string `json:"id,omitempty"`
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
 }
@@ -322,7 +326,7 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		ID:          a.Name,
 		Name:        a.Spec.DisplayName,
 		Description: a.Spec.Description,
-		ImageRef:    AgentImageRefInfo{Name: a.Spec.ImageRef.Name, DisplayName: imageDisplayName},
+		ImageRef:    AgentImageRefInfo{ID: a.Spec.ImageRef.Name, Name: a.Spec.ImageRef.Name, DisplayName: imageDisplayName},
 		LLM: AgentLLMInfo{
 			Model:         a.Spec.LLM.Model,
 			Provider:      a.Spec.LLM.Provider,
