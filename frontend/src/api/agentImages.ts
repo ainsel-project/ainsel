@@ -11,7 +11,7 @@ export type Tool = {
   kind: ToolKind
   description?: string
   mcpSource?: string
-  enabled?: boolean  // undefined treated as true (backward compat for existing data)
+  enabled?: boolean // undefined treated as true (backward compat for existing data)
   isNew?: boolean
   examples?: ToolExample[]
 }
@@ -44,6 +44,9 @@ export type AgentImageSummary = {
   imageURL: string
   toolCount?: number
   enabledSkills?: string[]
+  /** External author (e.g. 'helm'); anything but empty/'user' makes the image
+   *  read-only in the console (issue #146). */
+  managedBy?: string
 }
 
 export type AgentImageResponse = AgentImageSummary & {

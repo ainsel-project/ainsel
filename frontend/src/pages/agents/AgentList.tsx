@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import {
-  isIdle,
-  useAgents
-} from '../../api/agents'
+import { isIdle, useAgents } from '../../api/agents'
 import type { AgentSummary } from '../../api/agents'
 import { useGroups } from '../../api/groups'
 import { Input } from '../../primitives/Input'
@@ -13,6 +10,7 @@ import { Dot } from '../../primitives/Dot'
 import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { llmProviderLabel } from './agentFormModel'
 
@@ -42,16 +40,19 @@ export function AgentList() {
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchInput !== searchParam) {
-        setParams((prev) => {
-          const next = new URLSearchParams(prev)
-          if (searchInput) {
-            next.set('search', searchInput)
-          } else {
-            next.delete('search')
-          }
-          next.delete('page')
-          return next
-        }, { replace: true })
+        setParams(
+          (prev) => {
+            const next = new URLSearchParams(prev)
+            if (searchInput) {
+              next.set('search', searchInput)
+            } else {
+              next.delete('search')
+            }
+            next.delete('page')
+            return next
+          },
+          { replace: true },
+        )
       }
     }, 300)
     return () => clearTimeout(timer)
@@ -59,16 +60,19 @@ export function AgentList() {
   }, [searchInput])
 
   const setGroup = (v: string) => {
-    setParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (v) {
-        next.set('groupId', v)
-      } else {
-        next.delete('groupId')
-      }
-      next.delete('page')
-      return next
-    }, { replace: true })
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (v) {
+          next.set('groupId', v)
+        } else {
+          next.delete('groupId')
+        }
+        next.delete('page')
+        return next
+      },
+      { replace: true },
+    )
   }
 
   const { data: groups = [] } = useGroups()
@@ -98,12 +102,15 @@ export function AgentList() {
       key: 'name',
       header: 'Name',
       cell: (a) => (
-        <b
-          style={{ cursor: 'pointer', color: 'var(--accent)' }}
-          onClick={() => navigate(`/agents/${encodeURIComponent(a.id)}`)}
-        >
-          {a.name}
-        </b>
+        <>
+          <b
+            style={{ cursor: 'pointer', color: 'var(--accent)' }}
+            onClick={() => navigate(`/agents/${encodeURIComponent(a.id)}`)}
+          >
+            {a.name}
+          </b>{' '}
+          <ManagedBadge managedBy={a.managedBy} />
+        </>
       ),
     },
     {

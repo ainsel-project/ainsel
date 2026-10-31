@@ -410,6 +410,11 @@ func writePersonaServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "persona is not owned by this agent")
 		return
 	}
+	var managedErr *personas.ManagedError
+	if errors.As(err, &managedErr) {
+		writeError(w, http.StatusConflict, managedErr.Error())
+		return
+	}
 	if errors.Is(err, personas.ErrNameTaken) {
 		writeError(w, http.StatusConflict, "persona name already in use")
 		return

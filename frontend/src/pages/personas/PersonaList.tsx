@@ -6,6 +6,7 @@ import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { formatRelative } from '../../utils/time'
 
@@ -43,20 +44,21 @@ export function PersonaList() {
       key: 'name',
       header: 'Name',
       cell: (p) => (
-        <b
-          style={{ cursor: 'pointer', color: 'var(--accent)' }}
-          onClick={() => navigate(`/personas/${encodeURIComponent(p.id)}`)}
-        >
-          {p.name}
-        </b>
+        <>
+          <b
+            style={{ cursor: 'pointer', color: 'var(--accent)' }}
+            onClick={() => navigate(`/personas/${encodeURIComponent(p.id)}`)}
+          >
+            {p.name}
+          </b>{' '}
+          <ManagedBadge managedBy={p.managedBy} />
+        </>
       ),
     },
     {
       key: 'description',
       header: 'Description',
-      cell: (p) => (
-        <span style={{ color: 'var(--ink-3)' }}>{p.description || '—'}</span>
-      ),
+      cell: (p) => <span style={{ color: 'var(--ink-3)' }}>{p.description || '—'}</span>,
     },
     {
       key: 'version',
@@ -101,8 +103,8 @@ export function PersonaList() {
       />
       <div style={{ padding: '28px 32px' }}>
         <p className="label" style={{ margin: '0 0 14px', color: 'var(--ink-3)' }}>
-          Shared templates. A persona an agent owns privately is edited on that
-          agent’s Persona tab and does not appear here.
+          Shared templates. A persona an agent owns privately is edited on that agent’s Persona tab
+          and does not appear here.
         </p>
         <Panel className="cropped">
           {isLoading ? (

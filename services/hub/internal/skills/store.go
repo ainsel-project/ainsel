@@ -89,7 +89,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Skill, error) {
 // List returns skills as summaries (no body), newest first,
 // optionally filtered by search term and/or tags.
 func (s *Store) List(ctx context.Context, filter ListFilter) ([]SkillSummary, error) {
-	query := `SELECT id, name, description, tags, created_at, updated_at FROM skills`
+	query := `SELECT id, name, description, tags, managed_by, created_at, updated_at FROM skills`
 	var conditions []string
 	var args []any
 	argIdx := 1
@@ -120,7 +120,7 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]SkillSummary, er
 	var out []SkillSummary
 	for rows.Next() {
 		var ss SkillSummary
-		if err := rows.Scan(&ss.ID, &ss.Name, &ss.Description, &ss.Tags, &ss.CreatedAt, &ss.UpdatedAt); err != nil {
+		if err := rows.Scan(&ss.ID, &ss.Name, &ss.Description, &ss.Tags, &ss.ManagedBy, &ss.CreatedAt, &ss.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("skills.List: %w", err)
 		}
 		if ss.Tags == nil {

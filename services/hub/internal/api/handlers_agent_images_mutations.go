@@ -43,6 +43,10 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		writeError(w, http.StatusNotFound, "agent image not found")
 		return
 	}
+	if isManagedCR(existing.Spec.ManagedBy) {
+		writeManagedConflict(w, "agent image", existing.Spec.ManagedBy)
+		return
+	}
 
 	var req SimpleAgentImageUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -203,6 +207,10 @@ func (s *Server) deleteAgentImage(ctx context.Context, w http.ResponseWriter, na
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if isManagedCR(img.Spec.ManagedBy) {
+		writeManagedConflict(w, "agent image", img.Spec.ManagedBy)
 		return
 	}
 

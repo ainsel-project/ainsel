@@ -198,6 +198,18 @@ spec:
                 required:
                 - model
                 type: object
+              managedBy:
+                description: |-
+                  ManagedBy names the external system that authors this resource, e.g.
+                  "helm", "gitops", or "plugin". Any non-empty value other than "user"
+                  marks the resource externally managed: the hub REST API refuses every
+                  mutation with 409 Conflict and the console renders it read-only, so a
+                  resource has exactly one authoring source. Empty means console-managed
+                  (equivalent to "user"); no default is set so existing CRs keep their
+                  meaning. Only the external manager (kubectl/GitOps/Helm) sets or clears
+                  it — the hub API never accepts a client-supplied value.
+                pattern: ^[a-z0-9][a-z0-9.-]{0,62}$
+                type: string
               mcp:
                 description: |-
                   MCP explicitly defines the MCP servers this agent connects to at

@@ -14,6 +14,17 @@ type AgentImageSpec struct {
 	MCPServers    []AgentImageMCPServer `json:"mcpServers,omitempty"`
 	Sidecars      []AgentImageSidecar  `json:"sidecars,omitempty"`
 	EnabledSkills []string              `json:"enabledSkills,omitempty"`
+	// ManagedBy names the external system that authors this resource, e.g.
+	// "helm", "gitops", or "plugin". Any non-empty value other than "user"
+	// marks the resource externally managed: the hub REST API refuses every
+	// mutation with 409 Conflict and the console renders it read-only, so a
+	// resource has exactly one authoring source. Empty means console-managed
+	// (equivalent to "user"); no default is set so existing CRs keep their
+	// meaning. Only the external manager (kubectl/GitOps/Helm) sets or clears
+	// it — the hub API never accepts a client-supplied value.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9.-]{0,62}$`
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 // AgentImageEnvVar is a name/value environment variable injected into every

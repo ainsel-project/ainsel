@@ -5,7 +5,9 @@ import { ApiError } from '../../api/client'
 import { useDeletePersona, usePersona } from '../../api/personas'
 import { usePlugins } from '../../api/plugins'
 import { EntityLink } from '../../components/EntityLink'
+import { ManagedBadge } from '../../components/ManagedBadge'
 import { agentPath } from '../../components/entityPaths'
+import { isManaged } from '../../utils/managed'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Markdown } from '../../primitives/Markdown'
@@ -33,22 +35,14 @@ export function PersonaDetail() {
   const del = useDeletePersona()
   const { data: pluginsList } = usePlugins()
 
-  const referringAgents = (agents?.items ?? []).filter(
-    (a) => a.persona?.id === id,
-  )
+  const referringAgents = (agents?.items ?? []).filter((a) => a.persona?.id === id)
   // Side list decides which delete-409 referrers are linkable: an agent that
   // was deleted since the 409 renders plain text, not a 404.
-  const agentIds = useMemo(
-    () => new Set((agents?.items ?? []).map((a) => a.id)),
-    [agents],
-  )
+  const agentIds = useMemo(() => new Set((agents?.items ?? []).map((a) => a.id)), [agents])
 
   // Build tabs list with plugin contributions
   const plugins = useMemo(() => activePlugins(pluginsList ?? []), [pluginsList])
-  const pluginContributions = useMemo(
-    () => slotContributions(plugins, 'persona.panel'),
-    [plugins],
-  )
+  const pluginContributions = useMemo(() => slotContributions(plugins, 'persona.panel'), [plugins])
 
   const tabs = useMemo(() => {
     const builtIn = [...BUILT_IN_TABS]
@@ -68,8 +62,7 @@ export function PersonaDetail() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         const body = err.body as
-          | { referrers?: { agentName: string; agentId?: string }[] }
-          | undefined
+          { referrers?: { agentName: string; agentId?: string }[] } | undefined
         setReferrers(body?.referrers ?? [])
       } else {
         throw err
@@ -82,24 +75,25 @@ export function PersonaDetail() {
       <Titleblock
         crumbs={
           <>
-            Library / <Link to="/personas">Personas</Link> /{' '}
-            <b>{data?.name ?? id ?? '—'}</b>
+            Library / <Link to="/personas">Personas</Link> / <b>{data?.name ?? id ?? '—'}</b>
           </>
         }
-        title={<>{data?.name ?? <em>Persona</em>}</>}
-        actions={
+        title={
           <>
-            <Button
-              onClick={() =>
-                id && navigate(`/personas/${encodeURIComponent(id)}/edit`)
-              }
-            >
-              Edit
-            </Button>
-            <Button variant="danger" onClick={() => setConfirmOpen(true)}>
-              Delete
-            </Button>
+            {data?.name ?? <em>Persona</em>} <ManagedBadge managedBy={data?.managedBy} />
           </>
+        }
+        actions={
+          isManaged(data?.managedBy) ? null : (
+            <>
+              <Button onClick={() => id && navigate(`/personas/${encodeURIComponent(id)}/edit`)}>
+                Edit
+              </Button>
+              <Button variant="danger" onClick={() => setConfirmOpen(true)}>
+                Delete
+              </Button>
+            </>
+          )
         }
       />
       <div style={{ padding: '28px 32px' }}>
@@ -158,9 +152,7 @@ export function PersonaDetail() {
                   <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                     {referringAgents.map((a) => (
                       <li key={a.id} style={{ padding: '4px 0' }}>
-                        <Link to={`/agents/${encodeURIComponent(a.id)}`}>
-                          {a.name}
-                        </Link>
+                        <Link to={`/agents/${encodeURIComponent(a.id)}`}>{a.name}</Link>
                       </li>
                     ))}
                   </ul>
@@ -177,6 +169,7 @@ export function PersonaDetail() {
             <PersonaVersionHistory
               personaId={data.id}
               currentVersion={data.currentVersion}
+              readOnly={isManaged(data.managedBy)}
             />
           ) : null}
         </div>
@@ -187,11 +180,7 @@ export function PersonaDetail() {
         title={`Delete persona "${data?.name ?? ''}"?`}
         destructive
         confirmLabel={
-          referrers.length > 0
-            ? 'Cannot delete'
-            : del.isPending
-            ? 'Deleting…'
-            : 'Delete'
+          referrers.length > 0 ? 'Cannot delete' : del.isPending ? 'Deleting…' : 'Delete'
         }
         body={
           referrers.length > 0 ? (

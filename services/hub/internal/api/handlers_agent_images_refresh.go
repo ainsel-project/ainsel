@@ -35,6 +35,11 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusNotFound, "agent image not found")
 		return
 	}
+	// Refresh rewrites spec.tools — a mutation of an externally managed image.
+	if isManagedCR(img.Spec.ManagedBy) {
+		writeManagedConflict(w, "agent image", img.Spec.ManagedBy)
+		return
+	}
 
 	if len(img.Spec.MCPServers) == 0 {
 		writeError(w, http.StatusBadRequest, "no MCP servers configured on this image")

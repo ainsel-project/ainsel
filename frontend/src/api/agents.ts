@@ -74,6 +74,9 @@ export type AgentSummary = {
    *  shows groupName; the id is the fallback when the name is unavailable. */
   groupId?: string
   groupName?: string
+  /** External author (e.g. 'gitops'); anything but empty/'user' makes the
+   *  agent read-only in the console (issue #146). */
+  managedBy?: string
 }
 
 /**
@@ -214,8 +217,7 @@ export function useDeleteAgent() {
 export function usePauseAgent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body?: PauseAgentRequest }) =>
-      pauseAgent(id, body),
+    mutationFn: ({ id, body }: { id: string; body?: PauseAgentRequest }) => pauseAgent(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
   })
 }

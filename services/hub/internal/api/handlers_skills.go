@@ -477,6 +477,12 @@ func (h *skillHandlers) writeSkillError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, pmErr.Error())
 		return
 	}
+	var mgErr skills.ManagedError
+	if errors.As(err, &mgErr) {
+		// Same 409 contract for rows managed by any other external author.
+		writeError(w, http.StatusConflict, mgErr.Error())
+		return
+	}
 	if errors.Is(err, skills.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return

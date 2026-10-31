@@ -68,9 +68,7 @@ describe('ConnectorDetail', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string, init?: RequestInit) =>
-        Promise.resolve(defaultFetch(url, init)),
-      ),
+      vi.fn((url: string, init?: RequestInit) => Promise.resolve(defaultFetch(url, init))),
     )
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -88,9 +86,7 @@ describe('ConnectorDetail', () => {
       </Routes>,
       { route: '/connectors/c1' },
     )
-    await waitFor(() =>
-      expect(screen.getAllByText('insel-monorepo')[0]).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getAllByText('insel-monorepo')[0]).toBeInTheDocument())
     expect(screen.getByText('X-Hub-Signature-256')).toBeInTheDocument()
   })
 
@@ -101,9 +97,7 @@ describe('ConnectorDetail', () => {
       </Routes>,
       { route: '/connectors/c1' },
     )
-    await waitFor(() =>
-      expect(screen.getByText('https://hub.example/wh/c1')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText('https://hub.example/wh/c1')).toBeInTheDocument())
     expect(screen.getByText('abc-secret-value-123')).toBeInTheDocument()
     expect(screen.getByText('ONE-TIME')).toBeInTheDocument()
   })
@@ -142,7 +136,9 @@ describe('ConnectorDetail', () => {
         if (url.includes('/groups')) {
           return Promise.resolve(
             new Response(
-              JSON.stringify([{ id: 'g1', name: 'Ops', description: '', createdAt: '', updatedAt: '' }]),
+              JSON.stringify([
+                { id: 'g1', name: 'Ops', description: '', createdAt: '', updatedAt: '' },
+              ]),
               { status: 200 },
             ),
           )
@@ -180,9 +176,7 @@ describe('ConnectorDetail disabled', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string, init?: RequestInit) =>
-        Promise.resolve(disabledFetch(url, init)),
-      ),
+      vi.fn((url: string, init?: RequestInit) => Promise.resolve(disabledFetch(url, init))),
     )
   })
   afterEach(() => {
@@ -209,5 +203,51 @@ describe('ConnectorDetail disabled', () => {
     )
     await screen.findAllByText('disabled-connector')
     expect(screen.getAllByText('Disabled').length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// Issue #146: an externally managed connector is read-only in the console.
+describe('ConnectorDetail (externally managed)', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/connectors/c1')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: 'c1',
+                name: 'insel-monorepo',
+                signatureHeader: 'X-Hub-Signature-256',
+                disabled: false,
+                managedBy: 'gitops',
+                status: { ready: true, conditions: [] },
+                webhookEndpoint: 'https://hub.example/wh/c1',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/groups')) return Promise.resolve(new Response('[]', { status: 200 }))
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hides mutation actions and marks the connector as managed', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/connectors/:id" element={<ConnectorDetail />} />
+      </Routes>,
+      { route: '/connectors/c1' },
+    )
+    await waitFor(() => expect(screen.getByText('managed by gitops')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /disable/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /generate new/i })).toBeDisabled()
   })
 })

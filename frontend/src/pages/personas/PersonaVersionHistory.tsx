@@ -31,6 +31,9 @@ type PersonaVersionHistoryProps = {
   personaId: string
   /** The persona's live version, used to mark the current row. */
   currentVersion: number
+  /** Externally managed persona (issue #146): versions stay readable, but
+   *  rolling back writes a new version and is hidden. */
+  readOnly?: boolean
 }
 
 /**
@@ -40,6 +43,7 @@ type PersonaVersionHistoryProps = {
 export function PersonaVersionHistory({
   personaId,
   currentVersion,
+  readOnly,
 }: PersonaVersionHistoryProps) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -81,16 +85,18 @@ export function PersonaVersionHistory({
           >
             {viewing === v.versionNumber ? 'Hide' : 'View'}
           </Button>
-          <Button
-            size="sm"
-            aria-label={`Roll back to version ${v.versionNumber}`}
-            // Rolling the current version back onto itself is a no-op that
-            // would still burn a version number.
-            disabled={v.versionNumber === currentVersion}
-            onClick={() => setRollbackTo(v.versionNumber)}
-          >
-            Roll back
-          </Button>
+          {readOnly ? null : (
+            <Button
+              size="sm"
+              aria-label={`Roll back to version ${v.versionNumber}`}
+              // Rolling the current version back onto itself is a no-op that
+              // would still burn a version number.
+              disabled={v.versionNumber === currentVersion}
+              onClick={() => setRollbackTo(v.versionNumber)}
+            >
+              Roll back
+            </Button>
+          )}
         </span>
       ),
     },
@@ -173,9 +179,8 @@ export function PersonaVersionHistory({
         body={
           <p>
             Copies the text of version {rollbackTo ?? ''} into a new version (v
-            {currentVersion + 1}) and makes it current. Existing history is
-            kept — nothing is deleted, and agents pick up the new text on their
-            next start.
+            {currentVersion + 1}) and makes it current. Existing history is kept — nothing is
+            deleted, and agents pick up the new text on their next start.
           </p>
         }
         onConfirm={onRollback}

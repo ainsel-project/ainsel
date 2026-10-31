@@ -24,6 +24,39 @@ const PluginNamePrefix = "plugin-"
 // ErrManaged is returned by Delete when the row is owned by helm.
 var ErrManaged = errors.New("mcp server is managed and cannot be deleted")
 
+// IsManaged reports whether a managedBy value marks the row externally
+// managed. Empty means console-managed (equivalent to "user"); any other
+// value names an external author (helm, plugin, gitops, ...) whose row the
+// console must not mutate. The rule is value-agnostic on purpose: new
+// integrators are protected without another code change.
+func IsManaged(managedBy string) bool {
+	return managedBy != "" && managedBy != ManagedByUser
+}
+
+// ManagedError reports a row owned by an external author other than a plugin
+// (see PluginManagedError for plugin-owned rows). It wraps ErrManaged so
+// callers testing the sentinel keep working; its message names the manager
+// and is the exact 409 wording the API answers with.
+type ManagedError struct {
+	Manager string
+}
+
+func (e ManagedError) Error() string {
+	return fmt.Sprintf("mcp server is managed by %s", e.Manager)
+}
+
+func (e ManagedError) Unwrap() error { return ErrManaged }
+
+// managedRefusal is the error an externally managed row answers user
+// mutations with: the plugin wording for plugin-owned rows, the generic
+// manager wording otherwise.
+func managedRefusal(row *MCPServer) error {
+	if row.ManagedBy == ManagedByPlugin {
+		return pluginManaged(row.Name)
+	}
+	return ManagedError{Manager: row.ManagedBy}
+}
+
 // ErrPluginManaged is the sentinel wrapped by every PluginManagedError, so a
 // caller can test for plugin ownership without knowing the plugin id.
 var ErrPluginManaged = errors.New("mcp server is managed by a plugin")
@@ -73,33 +106,31 @@ func (s *Service) List(ctx context.Context) ([]*MCPServer, error) {
 	return s.store.List(ctx)
 }
 
-// Update mutates a row. The stored row's owner decides: a plugin-owned row is
-// refused, so a user cannot repoint an agent endpoint the hub itself serves.
-// The check reads the stored row rather than the caller's copy, because that
-// copy is whatever the caller chose to send.
+// Update mutates a row. The stored row's owner decides: an externally
+// managed row is refused, so a user cannot repoint an agent endpoint the hub
+// itself serves or edit a row another system authors. The check reads the
+// stored row rather than the caller's copy, because that copy is whatever the
+// caller chose to send.
 func (s *Service) Update(ctx context.Context, m *MCPServer) error {
 	row, err := s.store.Get(ctx, m.Name)
 	if err != nil {
 		return err
 	}
-	if row.ManagedBy == ManagedByPlugin {
-		return pluginManaged(row.Name)
+	if IsManaged(row.ManagedBy) {
+		return managedRefusal(row)
 	}
 	return s.store.Update(ctx, m)
 }
 
-// Delete removes a row. Returns ErrManaged when the row is owned by helm and
-// PluginManagedError when it is owned by a plugin.
+// Delete removes a row. Returns PluginManagedError when the row is owned by a
+// plugin and ManagedError (wrapping ErrManaged) for any other external owner.
 func (s *Service) Delete(ctx context.Context, name string) error {
 	row, err := s.store.Get(ctx, name)
 	if err != nil {
 		return err
 	}
-	if row.ManagedBy == ManagedByPlugin {
-		return pluginManaged(row.Name)
-	}
-	if row.ManagedBy != ManagedByUser {
-		return ErrManaged
+	if IsManaged(row.ManagedBy) {
+		return managedRefusal(row)
 	}
 	return s.store.Delete(ctx, name)
 }

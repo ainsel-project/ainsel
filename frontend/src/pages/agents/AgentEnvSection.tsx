@@ -1,15 +1,12 @@
 import { useState } from 'react'
-import {
-  useUpdateAgent,
-  type AgentEnvVar,
-  type AgentResponse,
-} from '../../api/agents'
+import { useUpdateAgent, type AgentEnvVar, type AgentResponse } from '../../api/agents'
 import { useAgentImage } from '../../api/agentImages'
 import { ApiError } from '../../api/client'
 import { Button } from '../../primitives/Button'
 import { Input } from '../../primitives/Input'
 import { Panel } from '../../primitives/Panel'
 import { Tag } from '../../primitives/Tag'
+import { isManaged } from '../../utils/managed'
 
 type AgentEnvSectionProps = {
   agent: AgentResponse
@@ -53,6 +50,9 @@ function fromRows(rows: DraftRow[]): AgentEnvVar[] {
  * empty field: submitting it unchanged keeps the stored value.
  */
 export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
+  // Externally managed agents (issue #146) are read-only here: the hub
+  // refuses the PUT with 409, so the editor's mutation controls are hidden.
+  const readOnly = isManaged(agent.managedBy)
   const imageName = agent.imageRef?.name
   const image = useAgentImage(imageName)
   const updateAgent = useUpdateAgent()
@@ -98,9 +98,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
       { id: agent.id, body: { name: agent.name, env: fromRows(rows) } },
       {
         onError: (err) =>
-          setSaveError(
-            err instanceof ApiError ? err.message : 'Failed to save environment.',
-          ),
+          setSaveError(err instanceof ApiError ? err.message : 'Failed to save environment.'),
       },
     )
   }
@@ -109,8 +107,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
     return (
       <Panel title="Environment">
         <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
-          No image linked yet — pick one on the Runtime tab to configure
-          environment variables.
+          No image linked yet — pick one on the Runtime tab to configure environment variables.
         </p>
       </Panel>
     )
@@ -140,9 +137,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
                     {e.secret ? (
                       <span style={{ color: 'var(--ink-3)' }}>••••••••</span>
                     ) : (
-                      <span style={{ color: 'var(--ink-3)' }}>
-                        {e.value || '(empty)'}
-                      </span>
+                      <span style={{ color: 'var(--ink-3)' }}>{e.value || '(empty)'}</span>
                     )}
                     {overridden.has(e.name) ? <Tag>overridden here</Tag> : null}
                   </div>
@@ -173,9 +168,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
                     value={row.name}
                     onChange={(e) => setRow(row.key, { name: e.target.value })}
                   />
-                  {nameErrors[idx] ? (
-                    <div className="field-error">{nameErrors[idx]}</div>
-                  ) : null}
+                  {nameErrors[idx] ? <div className="field-error">{nameErrors[idx]}</div> : null}
                 </div>
                 <Input
                   placeholder={row.secret ? 'unchanged' : 'value'}
@@ -204,6 +197,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
                 <Button
                   type="button"
                   aria-label="Remove variable"
+                  hidden={readOnly}
                   onClick={() => {
                     setSaveError(null)
                     setRows((prev) => prev.filter((r) => r.key !== row.key))
@@ -217,6 +211,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <Button
                 type="button"
+                hidden={readOnly}
                 onClick={() =>
                   setRows((prev) => [
                     ...prev,
@@ -228,6 +223,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
               </Button>
               <Button
                 type="button"
+                hidden={readOnly}
                 onClick={onSave}
                 disabled={!dirty || hasErrors || updateAgent.isPending}
               >
@@ -240,8 +236,8 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
 
       {agent.env ? null : (
         <p className="label" style={{ margin: '0 0 4px', color: 'var(--ink-3)' }}>
-          Currently inherited from the runtime image — the first change pins the
-          environment to this agent.
+          Currently inherited from the runtime image — the first change pins the environment to this
+          agent.
         </p>
       )}
       {saveError ? (

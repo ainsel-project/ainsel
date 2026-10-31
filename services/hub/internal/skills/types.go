@@ -22,13 +22,16 @@ type Skill struct {
 // CRs reference the skill via spec.enabledSkills; it is derived at
 // list time (not stored) and left 0 when no lister is configured.
 type SkillSummary struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Tags        []string  `json:"tags"`
-	UsedBy      int       `json:"usedBy"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+	// ManagedBy mirrors Skill.ManagedBy so list views can render externally
+	// managed skills read-only without fetching each detail.
+	ManagedBy string    `json:"managedBy"`
+	UsedBy    int       `json:"usedBy"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // Referrer identifies an AgentImage CR that references a skill by ID.

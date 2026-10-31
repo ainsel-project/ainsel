@@ -13,6 +13,13 @@
 
 All CRDs use API group `ainsel.dev` version `v1alpha1`.
 
+`Agent`, `AgentImage`, and `WebhookConnector` share an optional `spec.managedBy` field:
+the name of the external system (e.g. `gitops`, `helm`, `plugin`) that authors the
+resource. Any value other than empty or `user` makes the resource **externally
+managed**: the hub REST API refuses every mutation with `409 Conflict` and the console
+renders it read-only. The hub API never sets or changes it — external tooling writes it
+directly into the CR. See [`api-reference.md`](api-reference.md#managed-resources-managedby).
+
 ---
 
 ## Agent
@@ -30,6 +37,7 @@ for its container image and tool catalog.
 |-------|------|----------|-------------|
 | `displayName` | string | Yes | Human-readable agent name |
 | `description` | string | No | Agent description |
+| `managedBy` | string | No | External manager name (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`). Any value other than empty/`user` makes the agent read-only for the hub API (`409` on mutation) and the console |
 | `imageRef.name` | string | Yes | Name of the `AgentImage` CR in the same namespace that provides the container image and tool catalog |
 | `runtime.imagePullPolicy` | string | No | Kubernetes image pull policy (`Always`, `Never`, `IfNotPresent`) |
 | `runtime.resources` | ResourceRequirements | No | CPU/memory requests and limits for the agent pod |
@@ -151,6 +159,7 @@ Referenced by `Agent.spec.imageRef.name`.
 |-------|------|----------|-------------|
 | `displayName` | string | Yes | Human-readable image name |
 | `description` | string | No | Image description |
+| `managedBy` | string | No | External manager name (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`). Any value other than empty/`user` makes the image read-only for the hub API (`409` on mutation, including MCP refresh) and the console |
 | `imageURL` | string | Yes | Container image URL (e.g. `registry.example.com/ainsel/ainsel-ai-agent:latest`) |
 | `tools[]` | []AgentImageTool | No | Tools exposed by this image |
 | `tools[].name` | string | Yes | Tool name |
@@ -246,6 +255,7 @@ including the webhook endpoint, HMAC verification, and container image.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `displayName` | string | No | User-facing name |
+| `managedBy` | string | No | External manager name (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`). Any value other than empty/`user` makes the connector read-only for the hub API (`409` on mutation, including secret rotation) and the console |
 | `webhookEndpoint` | string | Yes | URL to paste into the source webhook settings. Set by the hub when creating the connector; read-only thereafter |
 | `signatureHeader` | string | Yes | HTTP header the sender puts the HMAC-SHA256 signature in (e.g. `X-Hub-Signature-256` for GitHub, `X-Forgejo-Signature` for Forgejo) |
 | `webhookSecret.secretRef.name` | string | Yes | Name of the K8s Secret holding the MAC key |
