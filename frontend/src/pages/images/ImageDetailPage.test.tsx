@@ -9,9 +9,27 @@ import type { AgentImageRequest } from '../../api/agentImages'
 function skillsFixture() {
   return {
     items: [
-      { id: 'git-ops', name: 'git-ops', description: 'Git operations skill', createdAt: '', updatedAt: '' },
-      { id: 'k8s-deploy', name: 'k8s-deploy', description: 'Kubernetes deploy skill', createdAt: '', updatedAt: '' },
-      { id: 'pr-review', name: 'pr-review', description: 'PR review skill', createdAt: '', updatedAt: '' },
+      {
+        id: 'git-ops',
+        name: 'git-ops',
+        description: 'Git operations skill',
+        createdAt: '',
+        updatedAt: '',
+      },
+      {
+        id: 'k8s-deploy',
+        name: 'k8s-deploy',
+        description: 'Kubernetes deploy skill',
+        createdAt: '',
+        updatedAt: '',
+      },
+      {
+        id: 'pr-review',
+        name: 'pr-review',
+        description: 'PR review skill',
+        createdAt: '',
+        updatedAt: '',
+      },
     ],
     total: 3,
     page: 1,
@@ -43,7 +61,13 @@ function defaultFetch(url: string, init?: RequestInit): Response {
   if ((init?.method ?? 'GET') === 'GET' && url.includes('/groups')) {
     return new Response(
       JSON.stringify([
-        { id: 'g1', name: 'Team A', description: '', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+        {
+          id: 'g1',
+          name: 'Team A',
+          description: '',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
       ]),
       { status: 200 },
     )
@@ -200,7 +224,9 @@ describe('ImageDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(capturedBody).not.toBeNull())
-    expect(capturedBody!.env).toEqual([{ name: 'FORGEJO_URL', value: 'https://git.example.com', secret: false }])
+    expect(capturedBody!.env).toEqual([
+      { name: 'FORGEJO_URL', value: 'https://git.example.com', secret: false },
+    ])
   })
 
   it('can add a new env var and submit', async () => {
@@ -337,7 +363,9 @@ describe('ImageDetailPage', () => {
 
     // Add a new MCP server via the dual-list picker
     await user.click(await screen.findByRole('option', { name: /My MCP/ }))
-    await user.click(screen.getByRole('button', { name: /add selected to referenced by this image/i }))
+    await user.click(
+      screen.getByRole('button', { name: /add selected to referenced by this image/i }),
+    )
 
     // Click Refresh MCP Tools
     await user.click(screen.getByRole('button', { name: /refresh mcp tools/i }))
@@ -401,7 +429,9 @@ describe('ImageDetailPage', () => {
 
     const fixtureWithMcp = {
       ...imageFixture(),
-      mcpServers: [{ name: 'example-mcp', url: 'http://example-mcp:8080', tokenFromEnv: 'EXAMPLE_MCP_TOKEN' }],
+      mcpServers: [
+        { name: 'example-mcp', url: 'http://example-mcp:8080', tokenFromEnv: 'EXAMPLE_MCP_TOKEN' },
+      ],
     }
 
     vi.stubGlobal(
@@ -531,7 +561,9 @@ describe('ImageDetailPage', () => {
 
     const fixtureWithMcp = {
       ...imageFixture(),
-      mcpServers: [{ name: 'example-mcp', url: 'http://example-mcp:8080', tokenFromEnv: 'EXAMPLE_MCP_TOKEN' }],
+      mcpServers: [
+        { name: 'example-mcp', url: 'http://example-mcp:8080', tokenFromEnv: 'EXAMPLE_MCP_TOKEN' },
+      ],
     }
 
     vi.stubGlobal(
@@ -548,7 +580,12 @@ describe('ImageDetailPage', () => {
           return Promise.resolve(
             new Response(
               JSON.stringify([
-                { name: 'example-mcp', displayName: 'example-mcp', url: 'http://example-mcp:8080', tokenFromEnv: 'EXAMPLE_MCP_TOKEN' },
+                {
+                  name: 'example-mcp',
+                  displayName: 'example-mcp',
+                  url: 'http://example-mcp:8080',
+                  tokenFromEnv: 'EXAMPLE_MCP_TOKEN',
+                },
               ]),
               { status: 200 },
             ),
@@ -572,7 +609,9 @@ describe('ImageDetailPage', () => {
 
     // Select example-mcp in the Enabled pane and move it to Available
     await user.click(await screen.findByRole('option', { name: /example-mcp/ }))
-    await user.click(screen.getByRole('button', { name: /remove selected from referenced by this image/i }))
+    await user.click(
+      screen.getByRole('button', { name: /remove selected from referenced by this image/i }),
+    )
 
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(capturedBody).not.toBeNull())
@@ -783,5 +822,38 @@ describe('ImageDetailPage', () => {
       expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('write_file'),
     )
     expect((screen.getByLabelText('Display Name') as HTMLInputElement).value).toBe('other-image')
+  })
+})
+
+// Issue #146: an externally managed image is read-only — no save, delete, or
+// MCP refresh.
+describe('ImageDetailPage (externally managed)', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.includes('/agent-images/claude-tooling-base%3A1.4')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ ...imageFixture(), managedBy: 'helm' }), { status: 200 }),
+          )
+        }
+        return Promise.resolve(defaultFetch(url, init))
+      }),
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hides Save and Delete and marks the image as managed', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agent-images/:id" element={<ImageDetailPage />} />
+      </Routes>,
+      { route: '/agent-images/claude-tooling-base:1.4' },
+    )
+    await waitFor(() => expect(screen.getByText('managed by helm')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
   })
 })

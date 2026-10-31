@@ -34,9 +34,12 @@ export interface ConnectorResponse {
   groupId?: string
   signatureHeader: string
   webhookEndpoint?: string
-  webhookSecretValue?: string  // Only on create response
+  webhookSecretValue?: string // Only on create response
   status?: ConnectorStatus
   disabled: boolean
+  /** External author (e.g. 'gitops'); anything but empty/'user' makes the
+   *  connector read-only in the console (issue #146). */
+  managedBy?: string
 }
 
 export type ListConnectorsParams = {
@@ -68,10 +71,9 @@ export function deleteConnector(id: string) {
 }
 
 export function rotateConnectorSecret(id: string) {
-  return request<ConnectorResponse>(
-    `/connectors/${encodeURIComponent(id)}/rotate-secret`,
-    { method: 'POST' },
-  )
+  return request<ConnectorResponse>(`/connectors/${encodeURIComponent(id)}/rotate-secret`, {
+    method: 'POST',
+  })
 }
 
 export function useConnectors(params: ListConnectorsParams = {}) {
@@ -99,7 +101,7 @@ export function useConnectorNames() {
   /** Passthrough label: the connector's name when known, the raw id otherwise. */
   const connectorLabel = useCallback(
     (id: string | undefined): string | undefined =>
-      id === undefined ? undefined : connectorNameById.get(id) ?? id,
+      id === undefined ? undefined : (connectorNameById.get(id) ?? id),
     [connectorNameById],
   )
   return { connectorNameById, connectorLabel, isLoading, error }

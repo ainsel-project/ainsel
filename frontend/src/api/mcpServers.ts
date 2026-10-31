@@ -9,6 +9,9 @@ export type MCPServerSummary = {
   tokenFromEnv?: string
   createdAt: string
   updatedAt: string
+  /** External author ('plugin', 'helm', 'gitops', ...); anything but
+   *  empty/'user' makes the server read-only in the console (issue #146). */
+  managedBy?: string
 }
 
 export type MCPServerRequest = {
@@ -89,4 +92,3 @@ export function useDeleteMCPServer() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['mcp-servers'] }),
   })
 }
-

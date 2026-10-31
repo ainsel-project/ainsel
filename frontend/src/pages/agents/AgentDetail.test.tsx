@@ -56,12 +56,8 @@ vi.mock('../../api/plugins', async (importOriginal) => {
 vi.mock('../../plugins/loader', () => {
   return {
     loadPluginModule: vi.fn(async () => ({
-      AgentPanel: ({ agentName }: { agentName: string }) => (
-        <p>{`agentName=${agentName}`}</p>
-      ),
-      PersonaPanel: ({ personaId }: { personaId: string }) => (
-        <p>{`personaId=${personaId}`}</p>
-      ),
+      AgentPanel: ({ agentName }: { agentName: string }) => <p>{`agentName=${agentName}`}</p>,
+      PersonaPanel: ({ personaId }: { personaId: string }) => <p>{`personaId=${personaId}`}</p>,
       ObsSection: ({ range }: { range: string }) => <p>{`range=${range}`}</p>,
       RunPanel: ({ invocationId, agentName }: { invocationId: string; agentName: string }) => (
         <p>{`invocationId=${invocationId} agentName=${agentName}`}</p>
@@ -357,7 +353,9 @@ describe('AgentDetail', () => {
       </Routes>,
       { route: '/agents/a1' },
     )
-    await waitFor(() => expect(screen.getByRole('tab', { name: /^triggers$/i })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /^triggers$/i })).toBeInTheDocument(),
+    )
     await userEvent.click(screen.getByRole('tab', { name: /^triggers$/i }))
     await waitFor(() => expect(screen.getByText('on-doc-issue')).toBeInTheDocument())
   })
@@ -408,9 +406,9 @@ describe('AgentDetail', () => {
       { route: '/agents/a1' },
     )
     await waitFor(() =>
-      expect(
-        JSON.parse(localStorage.getItem('ainsel-agent-recents:sub-kim') ?? '[]'),
-      ).toEqual(['a1']),
+      expect(JSON.parse(localStorage.getItem('ainsel-agent-recents:sub-kim') ?? '[]')).toEqual([
+        'a1',
+      ]),
     )
   })
 
@@ -947,9 +945,7 @@ describe('AgentDetail', () => {
       expect(screen.getByRole('tab', { name: /mem0/i })).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('tab', { name: /mem0/i }))
-      await waitFor(() =>
-        expect(screen.getByText('agentName=a1')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('agentName=a1')).toBeInTheDocument())
     })
 
     it('loads a plugin tab via deep link', async () => {
@@ -959,9 +955,7 @@ describe('AgentDetail', () => {
         </Routes>,
         { route: '/agents/a1?tab=plugin:mem0' },
       )
-      await waitFor(() =>
-        expect(screen.getByText('agentName=a1')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('agentName=a1')).toBeInTheDocument())
     })
   })
 
@@ -1026,30 +1020,33 @@ describe('AgentDetail', () => {
     it('shows the paused badge with resume hint and resumes via DELETE', async () => {
       const until = new Date(Date.now() + 3600_000).toISOString()
       const delCalls: string[] = []
-      vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
-        if (init?.method === 'DELETE' && url.includes('/pause')) {
-          delCalls.push(url)
-          return Promise.resolve(new Response('{}', { status: 200 }))
-        }
-        if (url.includes('/agents/a1') && !url.includes('/pause')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                id: 'a1',
-                name: 'doc-writer',
-                llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
-                imageRef: { name: 'claude-tooling-base:1.4' },
-                replicas: 1,
-                paused: true,
-                pausedUntil: until,
-                status: { ready: true, replicas: 1 },
-              }),
-              { status: 200 },
-            ),
-          )
-        }
-        return Promise.resolve(defaultFetch(url, init))
-      }))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string, init?: RequestInit) => {
+          if (init?.method === 'DELETE' && url.includes('/pause')) {
+            delCalls.push(url)
+            return Promise.resolve(new Response('{}', { status: 200 }))
+          }
+          if (url.includes('/agents/a1') && !url.includes('/pause')) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  id: 'a1',
+                  name: 'doc-writer',
+                  llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
+                  imageRef: { name: 'claude-tooling-base:1.4' },
+                  replicas: 1,
+                  paused: true,
+                  pausedUntil: until,
+                  status: { ready: true, replicas: 1 },
+                }),
+                { status: 200 },
+              ),
+            )
+          }
+          return Promise.resolve(defaultFetch(url, init))
+        }),
+      )
 
       renderWithProviders(
         <Routes>
@@ -1065,5 +1062,50 @@ describe('AgentDetail', () => {
       expect(delCalls[0]).toContain('/api/v1/agents/a1/pause')
     })
   })
+})
 
+// Issue #146: an externally managed agent is read-only in the console.
+describe('AgentDetail (externally managed)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/agents/a1') && (init?.method ?? 'GET') === 'GET') {
+          return new Response(
+            JSON.stringify({
+              id: 'a1',
+              name: 'doc-writer',
+              description: 'Writes documentation.',
+              llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
+              imageRef: { id: 'claude-tooling-base:1.4', name: 'claude-tooling-base:1.4' },
+              enabledTools: ['read_file', 'run_shell'],
+              persona: { id: '01HXTEST00000000000000000' },
+              replicas: 3,
+              managedBy: 'gitops',
+              status: { ready: true, replicas: 3 },
+            }),
+            { status: 200 },
+          )
+        }
+        return defaultFetch(url, init)
+      }),
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hides Pause, Edit, and Delete and marks the agent as managed', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id" element={<AgentDetail />} />
+      </Routes>,
+      { route: '/agents/a1' },
+    )
+    await waitFor(() => expect(screen.getByText('managed by gitops')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^pause$/i })).not.toBeInTheDocument()
+  })
 })

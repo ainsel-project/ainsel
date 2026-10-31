@@ -6,7 +6,7 @@ import {
   useDeleteAgent,
   usePauseAgent,
   useResumeAgent,
-  type PauseAgentRequest
+  type PauseAgentRequest,
 } from '../../api/agents'
 import { ApiError } from '../../api/client'
 import { useAgentImages } from '../../api/agentImages'
@@ -24,6 +24,8 @@ import { Panel } from '../../primitives/Panel'
 import { Tabs } from '../../primitives/Tabs'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
+import { ManagedBadge } from '../../components/ManagedBadge'
+import { isManaged } from '../../utils/managed'
 import { AgentChannelTab } from '../channels/AgentChannelTab'
 import { AgentTriggers } from './AgentTriggers'
 import { AgentPersonaSection } from './AgentPersonaSection'
@@ -72,10 +74,7 @@ export function AgentDetail() {
   // Side list decides whether the image reference is linkable: an image that
   // was deleted renders the plain switch-to-runtime control, not a 404.
   const { data: imageData } = useAgentImages({ pageSize: 200 })
-  const imageIds = useMemo(
-    () => new Set((imageData?.items ?? []).map((i) => i.id)),
-    [imageData],
-  )
+  const imageIds = useMemo(() => new Set((imageData?.items ?? []).map((i) => i.id)), [imageData])
   const remove = useDeleteAgent()
   const pause = usePauseAgent()
   const resume = useResumeAgent()
@@ -84,10 +83,7 @@ export function AgentDetail() {
 
   // Build tabs list with plugin contributions
   const plugins = useMemo(() => activePlugins(pluginsList ?? []), [pluginsList])
-  const pluginContributions = useMemo(
-    () => slotContributions(plugins, 'agent.panel'),
-    [plugins],
-  )
+  const pluginContributions = useMemo(() => slotContributions(plugins, 'agent.panel'), [plugins])
 
   const tabs = useMemo(() => {
     const builtIn = [...BUILT_IN_TABS]
@@ -98,8 +94,7 @@ export function AgentDetail() {
     return [...builtIn, ...pluginTabs]
   }, [pluginContributions])
 
-  const tab =
-    tabParam && tabs.some((t) => t.value === tabParam) ? tabParam : 'overview'
+  const tab = tabParam && tabs.some((t) => t.value === tabParam) ? tabParam : 'overview'
 
   const onTabChange = (next: string) => {
     setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
@@ -163,13 +158,17 @@ export function AgentDetail() {
       <Titleblock
         crumbs={
           <>
-            Fleet / <Link to="/agents">Agents</Link> /{' '}
-            <b>{data?.name ?? id ?? '—'}</b>
+            Fleet / <Link to="/agents">Agents</Link> / <b>{data?.name ?? id ?? '—'}</b>
           </>
         }
         title={
           <>
             {data?.name ?? <em>Agent</em>}
+            {isManaged(data?.managedBy) ? (
+              <span style={{ marginLeft: 10 }}>
+                <ManagedBadge managedBy={data?.managedBy} />
+              </span>
+            ) : null}
             {paused ? (
               <span style={{ marginLeft: 10 }}>
                 <Tag variant="warn">
@@ -183,23 +182,23 @@ export function AgentDetail() {
           </>
         }
         actions={
-          <>
-            {paused ? (
-              <Button variant="primary" onClick={onResume} disabled={resume.isPending}>
-                {resume.isPending ? 'Resuming…' : 'Resume'}
+          isManaged(data?.managedBy) ? null : (
+            <>
+              {paused ? (
+                <Button variant="primary" onClick={onResume} disabled={resume.isPending}>
+                  {resume.isPending ? 'Resuming…' : 'Resume'}
+                </Button>
+              ) : (
+                <Button onClick={() => setPauseOpen(true)}>Pause</Button>
+              )}
+              <Button onClick={() => id && navigate(`/agents/${encodeURIComponent(id)}/edit`)}>
+                Edit
               </Button>
-            ) : (
-              <Button onClick={() => setPauseOpen(true)}>Pause</Button>
-            )}
-            <Button
-              onClick={() => id && navigate(`/agents/${encodeURIComponent(id)}/edit`)}
-            >
-              Edit
-            </Button>
-            <Button variant="danger" onClick={() => setConfirmOpen(true)}>
-              Delete
-            </Button>
-          </>
+              <Button variant="danger" onClick={() => setConfirmOpen(true)}>
+                Delete
+              </Button>
+            </>
+          )
         }
       />
       <div style={{ padding: '28px 32px' }}>
@@ -293,10 +292,7 @@ export function AgentDetail() {
                 </Panel>
               ) : null}
 
-              <PersonaPanel
-                agentId={data.id}
-                onConfigure={() => onTabChange('persona')}
-              />
+              <PersonaPanel agentId={data.id} onConfigure={() => onTabChange('persona')} />
             </div>
           ) : null}
 
@@ -334,10 +330,9 @@ export function AgentDetail() {
         body={
           <>
             <p style={{ marginTop: 0 }}>
-              <b>{data?.name ?? id}</b> stops claiming queued tasks. Events keep
-              arriving and route as usual — the tasks wait and drain in order
-              when the pause ends. Running tasks finish normally; chat still
-              works.
+              <b>{data?.name ?? id}</b> stops claiming queued tasks. Events keep arriving and route
+              as usual — the tasks wait and drain in order when the pause ends. Running tasks finish
+              normally; chat still works.
             </p>
             <div role="radiogroup" aria-label="Pause duration" style={{ display: 'grid', gap: 6 }}>
               {PAUSE_PRESETS.map((p) => (
@@ -369,8 +364,8 @@ export function AgentDetail() {
         title="Delete agent?"
         body={
           <>
-            <b>{data?.name ?? id}</b> will be permanently removed. Its inbox
-            channel — subscriptions and schedules — goes with it.
+            <b>{data?.name ?? id}</b> will be permanently removed. Its inbox channel — subscriptions
+            and schedules — goes with it.
           </>
         }
         confirmLabel={remove.isPending ? 'Deleting…' : 'Delete'}
@@ -386,13 +381,7 @@ export function AgentDetail() {
   )
 }
 
-function PersonaPanel({
-  agentId,
-  onConfigure,
-}: {
-  agentId: string
-  onConfigure: () => void
-}) {
+function PersonaPanel({ agentId, onConfigure }: { agentId: string; onConfigure: () => void }) {
   // Agent-scoped on purpose: a persona an agent owns has no library permission
   // record, so reading it through /personas/{id} would be denied for
   // non-admins. This endpoint is gated by the agent instead, and reports
@@ -427,8 +416,7 @@ function PersonaPanel({
   }
 
   // 600 chars keeps the preview tight; full text is one click away.
-  const preview =
-    persona.text.length > 600 ? persona.text.slice(0, 600) + '…' : persona.text
+  const preview = persona.text.length > 600 ? persona.text.slice(0, 600) + '…' : persona.text
 
   return (
     <Panel

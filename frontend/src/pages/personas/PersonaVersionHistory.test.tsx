@@ -112,9 +112,9 @@ describe('PersonaVersionHistory', () => {
     await screen.findByText('v3')
 
     // Nothing is fetched for a single version until it is opened.
-    expect(
-      vi.mocked(fetch).mock.calls.some((c) => /\/versions\/\d+$/.test(String(c[0]))),
-    ).toBe(false)
+    expect(vi.mocked(fetch).mock.calls.some((c) => /\/versions\/\d+$/.test(String(c[0])))).toBe(
+      false,
+    )
 
     await userEvent.click(screen.getByRole('button', { name: /view version 2/i }))
 
@@ -134,9 +134,7 @@ describe('PersonaVersionHistory', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /^roll back$/i }))
 
     await waitFor(() => {
-      const call = vi
-        .mocked(fetch)
-        .mock.calls.find((c) => String(c[0]).includes('/rollback'))
+      const call = vi.mocked(fetch).mock.calls.find((c) => String(c[0]).includes('/rollback'))
       expect(call).toBeDefined()
       expect(JSON.parse(String(call?.[1]?.body))).toEqual({ toVersion: 2 })
     })
@@ -153,9 +151,7 @@ describe('PersonaVersionHistory', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /^cancel$/i }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(
-      vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes('/rollback')),
-    ).toBe(false)
+    expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes('/rollback'))).toBe(false)
   })
 
   it('reports denied access instead of an empty history', async () => {
@@ -166,5 +162,24 @@ describe('PersonaVersionHistory', () => {
     expect(await screen.findByText('Access denied.')).toBeInTheDocument()
     expect(screen.queryByText('v3')).not.toBeInTheDocument()
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument()
+  })
+})
+
+// Issue #146: rolling back writes a new version, so a read-only (externally
+// managed) persona keeps its history readable but offers no rollback.
+describe('PersonaVersionHistory (read-only)', () => {
+  beforeEach(() => {
+    stubFetch()
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hides Roll back but keeps View', async () => {
+    renderWithProviders(<PersonaVersionHistory personaId="01HX1" currentVersion={3} readOnly />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'View version 2' })).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: 'Roll back to version 2' })).not.toBeInTheDocument()
   })
 })
