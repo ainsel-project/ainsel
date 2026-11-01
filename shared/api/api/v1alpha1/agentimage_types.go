@@ -62,6 +62,8 @@ const (
 	AgentImageToolKindMCP       AgentImageToolKind = "mcp"
 )
 
+// AgentImageToolExample is a short usage illustration for an image tool:
+// a title plus a code snippet shown alongside the tool in the UI.
 type AgentImageToolExample struct {
 	Title   string `json:"title"`
 	Snippet string `json:"snippet"`

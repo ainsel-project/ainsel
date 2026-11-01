@@ -145,6 +145,9 @@ const (
 	AgentLLMProviderCustom       = "custom"
 )
 
+// AgentLLM configures the agent's LLM backend: model, provider, sampling
+// parameters, and the vision/context-window/cost overrides written to the
+// agent's generated pi models.json.
 type AgentLLM struct {
 	Model string `json:"model"`
 	// Provider selects the LLM backend. It has no default on purpose: an
@@ -259,6 +262,8 @@ type AgentScaling struct {
 	Replicas *int32 `json:"replicas,omitempty"`
 }
 
+// AgentMemory configures the agent's long-term memory. Enabled turns memory
+// on; Provider names the memory backend (empty means the platform default).
 type AgentMemory struct {
 	Enabled  bool   `json:"enabled"`
 	Provider string `json:"provider,omitempty"`

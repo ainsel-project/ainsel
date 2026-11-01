@@ -13,6 +13,8 @@ import (
 	"github.com/ainsel-project/ainsel/shared/api"
 )
 
+// TriggerSpec is part of the frozen Trigger read contract for
+// cmd/migrate-triggers; triggers now live in hub Postgres. Do not extend.
 type TriggerSpec struct {
 	DisplayName  string                   `json:"displayName"`
 	AgentRef     string                   `json:"agentRef"`
@@ -20,6 +22,8 @@ type TriggerSpec struct {
 	Filters      []ainselapishared.Filter `json:"filters,omitempty"`
 }
 
+// TriggerStatus is part of the frozen Trigger read contract for
+// cmd/migrate-triggers; triggers now live in hub Postgres. Do not extend.
 type TriggerStatus struct {
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
@@ -30,6 +34,9 @@ const (
 	TriggerConditionConnectorRefValid = "ConnectorRefValid"
 )
 
+// Trigger is the frozen read contract for cmd/migrate-triggers; triggers now
+// live in hub Postgres. Do not extend — retiring migrate-triggers retires
+// this type.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Agent",type=string,JSONPath=`.spec.agentRef`
@@ -45,8 +52,9 @@ type Trigger struct {
 	Status TriggerStatus `json:"status,omitempty"`
 }
 
+// TriggerList is the list form of the frozen Trigger read contract for
+// cmd/migrate-triggers; triggers now live in hub Postgres. Do not extend.
 // +kubebuilder:object:root=true
-
 type TriggerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
