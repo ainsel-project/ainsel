@@ -345,6 +345,72 @@ func TestLLMCheck_NoUsableKey(t *testing.T) {
 	}
 }
 
+// TestLLMCheck_SkipsCandidateWithoutUsableKey pins the scan-past behavior:
+// when the preferred (exact-pair) candidate has no usable key but another
+// visible agent with the provider does, the hub probes that one instead of
+// answering 404 — the 404 wording ("none has a usable stored key") is only
+// honest if the scan really covers every candidate.
+func TestLLMCheck_SkipsCandidateWithoutUsableKey(t *testing.T) {
+	var hitFallback bool
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hitFallback = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer up.Close()
+
+	// "a-exact" sorts first and matches the pair exactly, but its selector
+	// points at a secret that does not exist; "b-fallback" matches the
+	// provider only and has a usable key.
+	s := llmCheckServer(t,
+		llmCheckAgent("a-exact", "ollama-cloud", "m1", "https://ollama.test/v1", "gone-key"),
+		llmCheckAgent("b-fallback", "ollama-cloud", "other", up.URL, "b-key"),
+		llmCheckSecret("b-key", "kb"),
+	)
+	code, body := postLLMCheck(t, s, `{"provider":"ollama-cloud","model":"m1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 via the fallback candidate, got %d: %s", code, body)
+	}
+	if !hitFallback {
+		t.Fatal("expected the usable-key candidate to be probed")
+	}
+}
+
+// TestLLMCheck_AllCandidatesUnusableKeeps404 keeps the other side of the
+// scan: when no candidate has a usable key, the answer is still 404 with the
+// "no usable stored API key" wording.
+func TestLLMCheck_AllCandidatesUnusableKeeps404(t *testing.T) {
+	// a-exact sorts first and matches the pair exactly, but its selector
+	// points at a secret that does not exist; b-blockless matches the pair
+	// but has no provider block; c-empty has a secret whose key is empty.
+	// None is probeable, so the answer stays 404.
+	blockless := llmCheckAgent("b-blockless", "ollama-cloud", "m1", "https://ollama.test/v1", "b-key")
+	blockless.Spec.OllamaCloud = nil
+	s := llmCheckServer(t,
+		llmCheckAgent("a-exact", "ollama-cloud", "m1", "https://ollama.test/v1", "gone-key"),
+		blockless,
+		llmCheckAgent("c-empty", "ollama-cloud", "other", "https://ollama.test/v1", "c-key"),
+		llmCheckSecret("c-key", ""),
+	)
+	code, body := postLLMCheck(t, s, `{"provider":"ollama-cloud","model":"m1"}`)
+	if code != http.StatusNotFound {
+		t.Fatalf("expected 404 when no candidate is usable, got %d: %s", code, body)
+	}
+	if reason := llmCheckError(t, body); !strings.Contains(reason, "usable stored API key") {
+		t.Errorf("reason = %q, want the no-usable-key wording", reason)
+	}
+}
+
+// TestLLMCheck_BodySizeCapped pins the MaxBytesReader guard: an oversized
+// body is rejected as a bad request, not buffered and decoded.
+func TestLLMCheck_BodySizeCapped(t *testing.T) {
+	s := llmCheckServer(t)
+	body := `{"provider":"ollama-cloud","model":"` + strings.Repeat("m", llmCheckMaxBodyBytes+1) + `"}`
+	code, resp := postLLMCheck(t, s, body)
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an oversized body, got %d: %s", code, resp)
+	}
+}
+
 // TestLLMCheck_ExactPairPreferred pins agent selection: the agent whose
 // (provider, model) matches exactly is probed even when a provider-only
 // match sorts first; with no exact match the first provider-only match wins.

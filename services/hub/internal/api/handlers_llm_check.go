@@ -46,6 +46,16 @@ const llmCheckDefaultTimeout = 8 * time.Second
 // what it renders anyway; capping here keeps the contract honest on both ends.
 const llmCheckReasonMaxLen = 300
 
+// llmCheckMaxBodyBytes caps the request body. The body is two short strings;
+// the cap matches the MaxBytesReader guard the other plugin-facing handlers
+// use, so a hostile caller cannot make the hub buffer an unbounded body.
+const llmCheckMaxBodyBytes = 1 << 20
+
+// llmCheckHTTPClient is the probe's HTTP client. A dedicated client keeps the
+// probe independent of any future changes to http.DefaultClient's transport;
+// the per-request context timeout is what caps a probe.
+var llmCheckHTTPClient = &http.Client{}
+
 // llmCheckProviderDefaults mirrors the operator's per-provider base URLs in
 // operators/agent/internal/controller/env.go (resolvePiProvider). Keep the two
 // in sync: a probe against a different URL than the agent actually runs on
@@ -84,6 +94,7 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, llmCheckMaxBodyBytes)
 	var req llmCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, `request body must be {"provider": "<name>", "model": "<name>"}`)
@@ -107,29 +118,40 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agent, found, err := s.pickLLMCheckAgent(r, req.Provider, req.Model)
+	candidates, err := s.llmCheckCandidates(r, req.Provider, req.Model)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !found {
+	if len(candidates) == 0 {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("no agent is configured with provider %q", req.Provider))
 		return
 	}
 
-	baseURL, secretRef, ok := llmCheckAgentTarget(agent, defaultBase)
-	if !ok {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("no agent with provider %q has a usable stored API key", req.Provider))
-		return
-	}
-
-	key, err := s.readLLMCheckKey(r.Context(), secretRef)
-	if err != nil {
-		if errors.Is(err, errLLMCheckKeyMissing) {
-			writeError(w, http.StatusNotFound, fmt.Sprintf("no agent with provider %q has a usable stored API key", req.Provider))
+	// The representative is the first candidate (in preference order) that
+	// has a usable stored key: a candidate whose provider block, selector, or
+	// secret is unusable is skipped rather than ending the check, so the 404
+	// below honestly means *no* visible agent can probe the pair.
+	var baseURL, key string
+	var usable bool
+	for _, a := range candidates {
+		target, secretRef, ok := llmCheckAgentTarget(a, defaultBase)
+		if !ok {
+			continue
+		}
+		k, err := s.readLLMCheckKey(r.Context(), secretRef)
+		if err != nil {
+			if errors.Is(err, errLLMCheckKeyMissing) {
+				continue
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		baseURL, key, usable = target, k, true
+		break
+	}
+	if !usable {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("no agent with provider %q has a usable stored API key", req.Provider))
 		return
 	}
 
@@ -149,17 +171,18 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// pickLLMCheckAgent chooses the representative agent to resolve the probe
-// target from: one the caller can see (plugin callers: their effective groups
-// plus public resources; admins: all), preferring an exact (provider, model)
-// match over a provider-only one. Agents are considered in name order so the
-// choice is deterministic. The answer then means "this pair can serve with
-// this agent's stored key" — the exact-pair preference keeps it faithful to
-// what the plugin just reconciled.
-func (s *Server) pickLLMCheckAgent(r *http.Request, provider, model string) (*agentv1alpha1.Agent, bool, error) {
+// llmCheckCandidates returns the agents that could answer the check for
+// (provider, model), in probe order: exact (provider, model) matches first,
+// then provider-only matches, each in name order so the choice is
+// deterministic. Only agents visible to the caller are considered (plugin
+// callers: their effective groups plus public resources; admins: all). The
+// caller probes the first candidate with a usable stored key; the answer then
+// means "this pair can serve with that agent's stored key" — the exact-pair
+// preference keeps it faithful to what the plugin just reconciled.
+func (s *Server) llmCheckCandidates(r *http.Request, provider, model string) ([]*agentv1alpha1.Agent, error) {
 	var list agentv1alpha1.AgentList
 	if err := s.client.List(r.Context(), &list, client.InNamespace(s.ns)); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	sort.Slice(list.Items, func(i, j int) bool {
 		return list.Items[i].Name < list.Items[j].Name
@@ -173,14 +196,14 @@ func (s *Server) pickLLMCheckAgent(r *http.Request, provider, model string) (*ag
 		groupIDs := s.callerGroupIDs(r)
 		names, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", groupIDs, true)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		for _, n := range names {
 			visible[n] = true
 		}
 	}
 
-	var fallback *agentv1alpha1.Agent
+	var exact, fallback []*agentv1alpha1.Agent
 	for i := range list.Items {
 		a := &list.Items[i]
 		if scoped && !visible[a.Name] {
@@ -190,16 +213,12 @@ func (s *Server) pickLLMCheckAgent(r *http.Request, provider, model string) (*ag
 			continue
 		}
 		if a.Spec.LLM.Model == model {
-			return a, true, nil
-		}
-		if fallback == nil {
-			fallback = a
+			exact = append(exact, a)
+		} else {
+			fallback = append(fallback, a)
 		}
 	}
-	if fallback != nil {
-		return fallback, true, nil
-	}
-	return nil, false, nil
+	return append(exact, fallback...), nil
 }
 
 // llmCheckAgentTarget derives the probe target from the agent's own spec:
@@ -298,7 +317,7 @@ func (s *Server) probeLLMCheck(ctx context.Context, baseURL, provider, model, ke
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+key)
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := llmCheckHTTPClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return llmCheckSanitize(fmt.Sprintf("provider %q did not respond within %s", provider, timeout)), err

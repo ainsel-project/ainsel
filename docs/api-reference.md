@@ -310,9 +310,11 @@ only on a specific agent's spec, so a bare pair cannot resolve it.
 
 **How the hub answers.** It picks a *representative agent*: one visible to the
 caller (plugin callers: their effective groups plus public agents; admin
-sessions: all), preferring an agent whose `(provider, model)` matches exactly
-and falling back to a provider-only match, both in name order. The probe
-target comes from that agent's own spec — the provider block's `baseUrl`
+sessions: all), preferring agents whose `(provider, model)` matches exactly
+over provider-only matches, both in name order. Candidates without a usable
+stored key are skipped — the representative is the first matching agent that
+has one, so a `404` genuinely means no visible agent can probe the pair. The
+probe target comes from that agent's own spec — the provider block's `baseUrl`
 override when set, else the hub's built-in default (mirroring the operator's
 `env.go` defaults) — and the key is read through the agent's
 `apiKeySecretRef`. It then sends the cheapest possible completion
