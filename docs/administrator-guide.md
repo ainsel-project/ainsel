@@ -882,6 +882,7 @@ permission to widen its own reach:
 | Agent images | `agent-images:read`, `agent-images:write` |
 | Connectors | `connectors:read`, `connectors:write` |
 | Invocations | `invocations:read` |
+| LLM check | `llm:check` |
 | MCP servers | `mcp-servers:read`, `mcp-servers:write` |
 | Observability | `observability:read` |
 | Personas | `personas:read`, `personas:write` |

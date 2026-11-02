@@ -26,6 +26,10 @@ func TestRoutePermission_Mappings(t *testing.T) {
 		{"DELETE", "/api/v1/agents/x", "agents:write", false, true},
 		{"GET", "/api/v1/agents/x", "agents:read", false, true},
 
+		// llm check: POST only, gated by llm:check
+		{"POST", "/api/v1/llm/check", "llm:check", false, true},
+		{"GET", "/api/v1/llm/check", "", false, false},
+
 		// agent-images
 		{"GET", "/api/v1/agent-images", "agent-images:read", false, true},
 		{"POST", "/api/v1/agent-images", "agent-images:write", false, true},
@@ -134,6 +138,7 @@ func TestRoutePermission_CoversEveryPermission(t *testing.T) {
 		"/api/v1/mcp-servers",
 		"/api/v1/personas",
 		"/api/v1/skills",
+		"/api/v1/llm",
 		"/api/v1/invocations",
 		"/api/v1/events",
 		"/api/v1/errors",

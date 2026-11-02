@@ -21,6 +21,10 @@ var routeRules = []routeRule{
 	// Agents
 	{prefix: "/api/v1/agents", readPerm: "agents:read", writePerm: "agents:write"},
 
+	// LLM reachability check: POST /api/v1/llm/check only. Write-side because
+	// a check spends the provider's stored key and quota.
+	{prefix: "/api/v1/llm", writePerm: "llm:check"},
+
 	// Agent images
 	{prefix: "/api/v1/agent-images", readPerm: "agent-images:read", writePerm: "agent-images:write"},
 

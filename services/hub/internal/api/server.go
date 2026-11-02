@@ -167,6 +167,11 @@ type Server struct {
 	// identityTracker guards automatic identity persistence so it does not
 	// fire on every authenticated request. See identity_persist.go.
 	identityTracker *identityPersistTracker
+
+	// llmCheckTimeout caps one upstream probe made by POST /api/v1/llm/check.
+	// New sets it to llmCheckDefaultTimeout; it is a field so a test can
+	// shorten the cap instead of waiting out the real one.
+	llmCheckTimeout time.Duration
 }
 
 // SetAuthZ wires the authorization store and checker.
@@ -288,9 +293,11 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	s.observabilityCache = newPromCache(observabilityCacheTTL)
 	s.identityTracker = newIdentityPersistTracker()
 	s.taskStartTimeout = DefaultTaskStartTimeout
+	s.llmCheckTimeout = llmCheckDefaultTimeout
 	s.mux.HandleFunc("/health", s.health)
 	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
 	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
+	s.mux.HandleFunc("/api/v1/llm/check", s.handleLLMCheck)
 	s.mux.HandleFunc("/api/v1/agent-images", s.handleAgentImages)
 	s.mux.HandleFunc("/api/v1/agent-images/", s.handleAgentImagePath)
 	s.mux.HandleFunc("/api/v1/connectors", s.handleConnectors)
