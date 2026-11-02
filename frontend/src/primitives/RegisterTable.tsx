@@ -29,6 +29,9 @@ type RegisterTableProps<T> = {
    * row beneath. Rows whose detail renders nothing (null/undefined/false/'')
    * are not expandable. When the prop is absent, output is identical to the
    * non-expandable table.
+   *
+   * The callback is invoked for every row on every render (to decide whether
+   * the row is expandable), so it must be pure and cheap.
    */
   renderDetail?: (row: T) => ReactNode
 }
@@ -119,7 +122,9 @@ export function RegisterTable<T>({
       <table className="reg">
         <thead>
           <tr>
-            {renderDetail ? <th className="rowtoggle" aria-label="Details" /> : null}
+            {renderDetail ? (
+              <th className="rowtoggle" aria-label="Details" scope="col" />
+            ) : null}
             {withRowNumbers ? <th className="rowno">#</th> : null}
             {columns.map((col) => (
               <th
@@ -137,6 +142,7 @@ export function RegisterTable<T>({
         <tbody>
           {rows.map((row, idx) => {
             const key = rowKey(row)
+            const detailId = `reg-detail-${key}`
             const detail = renderDetail ? renderDetail(row) : null
             const expandable =
               detail !== null && detail !== undefined && detail !== false && detail !== ''
@@ -151,6 +157,7 @@ export function RegisterTable<T>({
                           type="button"
                           className="rowtoggle-btn"
                           aria-expanded={isExpanded}
+                          aria-controls={isExpanded ? detailId : undefined}
                           aria-label={isExpanded ? 'Hide details' : 'Show details'}
                           onClick={() => toggleExpand(key)}
                         >
@@ -170,7 +177,9 @@ export function RegisterTable<T>({
                 </tr>
                 {isExpanded ? (
                   <tr className="reg-detail">
-                    <td colSpan={colSpan}>{detail}</td>
+                    <td colSpan={colSpan} id={detailId} role="region" aria-label="Row details">
+                      {detail}
+                    </td>
                   </tr>
                 ) : null}
               </Fragment>

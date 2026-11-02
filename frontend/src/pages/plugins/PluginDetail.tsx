@@ -52,15 +52,17 @@ const permissionColumns: Column<PermissionRow>[] = [
   },
 ]
 
-// Unknown names (fixtures, older data) render non-expandably.
+// Unknown names (fixtures, older data) render non-expandably. Wording follows
+// the permission suffix: a `*:read` grant is not write-capable.
 function renderPermissionDetail(row: PermissionRow) {
   const info = permissionInfo(row.name)
   if (!info) return null
+  const access = row.name.endsWith(':write') ? 'write' : 'read'
   return (
     <div style={{ display: 'grid', gap: 4, fontSize: '0.9em' }}>
       <div style={{ color: 'var(--ink-2)' }}>
-        Grants access to <b>{info.label}</b>
-        {info.readOnly ? ' (read-only — write requests are rejected)' : ''}.
+        Grants {access} access to <b>{info.label}</b>
+        {info.readOnly ? '; write requests are rejected' : ''}.
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {info.routes.map((route) => (
@@ -130,6 +132,13 @@ export function PluginDetail() {
       approved: approved.has(name),
     }))
   }, [plugin])
+
+  // The approve POST sends plugin.declaredPermissions, so the confirm modal
+  // must list exactly the declared set — never stale approved-only rows.
+  const declaredPermissionRows = useMemo(
+    () => permissionRows.filter((row) => row.declared),
+    [permissionRows],
+  )
 
   // Read mode renders server state (plugin.groupAccess), never the edit draft.
   const knownGroupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups])
@@ -421,7 +430,7 @@ export function PluginDetail() {
             <p>Approve the following permissions for this plugin?</p>
             <div style={{ marginTop: 12 }}>
               <RegisterTable
-                rows={permissionRows}
+                rows={declaredPermissionRows}
                 columns={permissionColumns}
                 rowKey={(row) => row.name}
                 emptyLabel="None"

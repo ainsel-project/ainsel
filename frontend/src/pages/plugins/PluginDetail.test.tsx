@@ -427,17 +427,20 @@ describe('PluginDetail', () => {
 
   it('expands a known permission to show its catalog description', async () => {
     renderPlugin({
-      declaredPermissions: ['agents:read'],
-      approvedPermissions: ['agents:read'],
+      declaredPermissions: ['agents:read', 'agents:write'],
+      approvedPermissions: ['agents:read', 'agents:write'],
     })
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
 
-    const row = rowFor('agents:read')
-    const toggle = within(row).getByRole('button', { name: /show details/i })
-    await userEvent.click(toggle)
-
-    expect(screen.getByText(/Grants access to/)).toBeInTheDocument()
+    const readRow = rowFor('agents:read')
+    await userEvent.click(within(readRow).getByRole('button', { name: /show details/i }))
+    // A `*:read` grant must not be described as write-capable.
+    expect(screen.getByText(/Grants read access to/)).toBeInTheDocument()
     expect(screen.getByText('/api/v1/agents')).toBeInTheDocument()
+
+    const writeRow = rowFor('agents:write')
+    await userEvent.click(within(writeRow).getByRole('button', { name: /show details/i }))
+    expect(screen.getByText(/Grants write access to/)).toBeInTheDocument()
   })
 
   it('does not offer expansion for unknown permission names', async () => {
@@ -448,8 +451,9 @@ describe('PluginDetail', () => {
     expect(within(row).queryByRole('button', { name: /details/i })).not.toBeInTheDocument()
   })
 
-  it('shows the merged permission table in the approve confirm modal', async () => {
-    renderPlugin({})
+  it('lists exactly the declared set in the approve confirm modal', async () => {
+    // approved contains a stale grant (stale-perm) that the approve POST will not touch.
+    renderPlugin({ approvedPermissions: ['perm1', 'stale-perm'] })
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
 
     await userEvent.click(screen.getByRole('button', { name: /approve permissions/i }))
@@ -457,9 +461,10 @@ describe('PluginDetail', () => {
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Approve the following permissions for this plugin?'))
       .toBeInTheDocument()
-    // Merged table over declared + approved: both permissions listed, no expansion in the modal.
+    // The modal must match the approve payload: declared rows only, no expansion.
     expect(within(dialog).getByText('perm1')).toBeInTheDocument()
     expect(within(dialog).getByText('perm2')).toBeInTheDocument()
+    expect(within(dialog).queryByText('stale-perm')).not.toBeInTheDocument()
     expect(within(dialog).queryByRole('button', { name: /details/i })).not.toBeInTheDocument()
   })
 

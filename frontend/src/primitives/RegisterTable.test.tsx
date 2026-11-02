@@ -94,9 +94,16 @@ describe('RegisterTable', () => {
       await user.click(toggles[0])
       expect(toggles[0]).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByText('detail of alpha')).toBeInTheDocument()
+      // The toggle points at the rendered detail region.
+      const detailId = toggles[0]!.getAttribute('aria-controls')
+      expect(detailId).toBeTruthy()
+      const detailCell = document.getElementById(detailId as string)
+      expect(detailCell).toBe(screen.getByText('detail of alpha').closest('td'))
+      expect(detailCell).toHaveAttribute('role', 'region')
 
       await user.click(toggles[0])
       expect(toggles[0]).toHaveAttribute('aria-expanded', 'false')
+      expect(toggles[0]).not.toHaveAttribute('aria-controls')
       expect(screen.queryByText('detail of alpha')).not.toBeInTheDocument()
     })
 
