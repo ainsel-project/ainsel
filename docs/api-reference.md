@@ -290,6 +290,65 @@ and an owned persona may share a name with the template it was forked from.
 
 ---
 
+## LLM
+
+### POST /api/v1/llm/check
+
+Ask the hub whether a `(provider, model)` pair can actually serve a request —
+the question behind the GitHub plugin's "Check now" button
+(`ainsel-plugin-github`). Only the hub can answer it: the provider→base-URL
+mapping and the stored API keys are hub-side; plugins hold only the two
+strings. Credentials never leave the hub.
+
+```json
+{ "provider": "opencode", "model": "glm-5.1" }
+```
+
+Both fields are required. `provider` must be one of `ollama-cloud`,
+`opencode`, `alibaba-cloud`; `custom` is rejected with `400` — its URL exists
+only on a specific agent's spec, so a bare pair cannot resolve it.
+
+**How the hub answers.** It picks a *representative agent*: one visible to the
+caller (plugin callers: their effective groups plus public agents; admin
+sessions: all), preferring agents whose `(provider, model)` matches exactly
+over provider-only matches, both in name order. Candidates without a usable
+stored key are skipped — the representative is the first matching agent that
+has one, so a `404` genuinely means no visible agent can probe the pair. The
+probe target comes from that agent's own spec — the provider block's `baseUrl`
+override when set, else the hub's built-in default (mirroring the operator's
+`env.go` defaults) — and the key is read through the agent's
+`apiKeySecretRef`. It then sends the cheapest possible completion
+(`POST {baseUrl}/chat/completions`, `max_tokens: 1`) with an 8 s cap; any 2xx
+from the provider is `ok`.
+
+| Status | Meaning |
+|---|---|
+| `200` | `{"ok":true}` — the provider resolved and the pair served. |
+| `400` | Malformed body, missing field, unknown provider, or `custom`. |
+| `404` | No visible agent uses this provider, or none has a usable stored key — there is nothing to probe with. On a fresh install (no agents yet) this is the expected honest answer, not a bug. |
+| `405` | Non-`POST`. |
+| `502` | The probe failed: upstream rejected the key, refused the connection, returned an error status, or did not answer within 8 s. The body's `error` carries a sanitized sentence (cause class only, capped at 300 chars — never the key, never an upstream response body; base URLs may appear). |
+| `500` | Hub-internal failure (store errors). |
+
+The hub **never echoes upstream statuses**: an upstream `401`/`403` (bad or
+revoked key) is reported as `502`, never passed through — the plugin maps
+`502` to "unreachable" but would read a passed-through `401`/`403` as "the hub
+cannot be asked", hiding a real failure. The plugin-side mapping is
+`2xx → ok`, `502/503/504 → unreachable` (carrying the sentence), anything
+else → `unknown`.
+
+**Access.** Plugin credentials need the `llm:check` permission (route
+`/api/v1/llm`, write side — a check spends the provider's stored key and
+quota). Non-plugin (session/user-token) callers must be admins; there is no
+resource-scoped authz object for "llm".
+
+**Semantics note.** The answer means "this pair can serve with the
+representative agent's stored key", not "with every agent's key": two agents
+on the same provider with different keys could disagree. The exact-pair
+preference keeps the answer faithful to what the caller just reconciled.
+
+---
+
 ## Agent Images
 
 `AgentImage` resources catalog container images and the tools they advertise. The hub also runs a sync Job that boots the image with `agent --list-tools` to discover its current tool set.
@@ -2172,7 +2231,7 @@ All non-WebSocket error responses return:
 | `405` | Method not allowed on this route. |
 | `409` | Conflict (resource already exists; deletion blocked by references; sync already running). |
 | `500` | Internal server error. |
-| `502` | Upstream backend (Prometheus, Forgejo) or the hub's database returned an error or was unreachable. |
+| `502` | Upstream backend (Prometheus, Forgejo) or the hub's database returned an error or was unreachable; also `POST /api/v1/llm/check` when the provider probe failed (see [LLM](#llm)). |
 | `503` | A dependency this panel needs is not configured. The body's `error` field names it — the hub's database, or Prometheus for raw PromQL — and the console shows that text under the panel's own heading. |
 
 ## Authentication

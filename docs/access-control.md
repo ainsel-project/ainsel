@@ -297,6 +297,7 @@ available to plugin credentials"}`.
 |---|---|---|
 | `/api/v1/plugin-context` | any credential | `POST /visible` only |
 | `/api/v1/agents` | `agents:read` | `agents:write` |
+| `/api/v1/llm` | not available | `llm:check` |
 | `/api/v1/agent-images` | `agent-images:read` | `agent-images:write` |
 | `/api/v1/connectors` | `connectors:read` | `connectors:write` |
 | `/api/v1/triggers`, `/api/v1/cron-triggers` | `triggers:read` | `triggers:write` |

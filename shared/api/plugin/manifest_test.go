@@ -60,8 +60,8 @@ func TestConstants(t *testing.T) {
 	if MaxManifestBytes != 256<<10 {
 		t.Errorf("MaxManifestBytes = %d, want %d", MaxManifestBytes, 256<<10)
 	}
-	if len(Permissions) != 16 {
-		t.Errorf("len(Permissions) = %d, want 16", len(Permissions))
+	if len(Permissions) != 17 {
+		t.Errorf("len(Permissions) = %d, want 17", len(Permissions))
 	}
 	if len(Slots) != 4 {
 		t.Errorf("len(Slots) = %d, want 4", len(Slots))
@@ -81,6 +81,7 @@ func TestPermissionsVocabulary(t *testing.T) {
 		"connectors:read",
 		"connectors:write",
 		"invocations:read",
+		"llm:check",
 		"mcp-servers:read",
 		"mcp-servers:write",
 		"observability:read",

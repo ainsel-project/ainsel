@@ -76,6 +76,9 @@ var Permissions = []string{
 	"connectors:read",
 	"connectors:write",
 	"invocations:read",
+	// llm:check gates POST /api/v1/llm/check. Write-side even though it
+	// creates nothing: a check spends a stored provider API key and quota.
+	"llm:check",
 	"mcp-servers:read",
 	"mcp-servers:write",
 	"observability:read",

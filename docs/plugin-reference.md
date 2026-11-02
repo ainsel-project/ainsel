@@ -191,6 +191,7 @@ that was never approved simply is not effective.
 | Agent images | `agent-images:read` | `agent-images:write` |
 | Connectors | `connectors:read` | `connectors:write` |
 | Invocations | `invocations:read` | — |
+| LLM check | — | `llm:check` |
 | MCP servers | `mcp-servers:read` | `mcp-servers:write` |
 | Observability | `observability:read` | — |
 | Personas | `personas:read` | `personas:write` |
@@ -210,6 +211,7 @@ Which routes a plugin credential may use at all
 |---|---|---|
 | `/api/v1/plugin-context` | any credential | `POST /visible` only |
 | `/api/v1/agents` | `agents:read` | `agents:write` |
+| `/api/v1/llm` | not available | `llm:check` |
 | `/api/v1/agent-images` | `agent-images:read` | `agent-images:write` |
 | `/api/v1/connectors` | `connectors:read` | `connectors:write` |
 | `/api/v1/triggers` | `triggers:read` | `triggers:write` |
