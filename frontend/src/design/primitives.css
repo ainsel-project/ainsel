@@ -330,6 +330,33 @@ table.reg .rowno {
   width: 36px;
 }
 table.reg td.num { text-align: right; }
+/* Expandable rows (RegisterTable renderDetail): narrow chevron toggle
+   column plus the detail row it opens beneath. */
+table.reg .rowtoggle {
+  width: 30px;
+  padding-right: 0;
+}
+table.reg .rowtoggle-btn {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-radius: 4px;
+}
+table.reg .rowtoggle-btn:hover { color: var(--ink); background: var(--hover-subtle); }
+table.reg .rowtoggle-btn:focus-visible {
+  outline: 2px solid var(--ink-3);
+  outline-offset: 1px;
+}
+table.reg tr.reg-detail > td {
+  padding: 10px 14px 12px 44px;
+  background: var(--hover-subtle);
+}
 
 /* ===== Recent activity stream rows ===== */
 .stream-row {

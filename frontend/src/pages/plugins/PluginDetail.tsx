@@ -19,8 +19,59 @@ import { DualListPicker } from '../../primitives/DualListPicker'
 import { Notice } from '../../primitives/Notice'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { Dot } from '../../primitives/Dot'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
+import { permissionInfo } from './permissionCatalog'
+
+type PermissionRow = {
+  name: string
+  declared: boolean
+  approved: boolean
+}
+
+const dashStyle = { color: 'var(--ink-4)' } as const
+
+const permissionColumns: Column<PermissionRow>[] = [
+  {
+    key: 'permission',
+    header: 'Permission',
+    cell: (row) => <code>{row.name}</code>,
+  },
+  {
+    key: 'declared',
+    header: 'Declared',
+    cell: (row) =>
+      row.declared ? <Dot state="warn" aria-label="Declared" /> : <span style={dashStyle}>—</span>,
+  },
+  {
+    key: 'approved',
+    header: 'Approved',
+    cell: (row) =>
+      row.approved ? <Dot state="ok" aria-label="Approved" /> : <span style={dashStyle}>—</span>,
+  },
+]
+
+// Unknown names (fixtures, older data) render non-expandably. Wording follows
+// the permission suffix: a `*:read` grant is not write-capable.
+function renderPermissionDetail(row: PermissionRow) {
+  const info = permissionInfo(row.name)
+  if (!info) return null
+  const access = row.name.endsWith(':write') || info.write ? 'write' : 'read'
+  return (
+    <div style={{ display: 'grid', gap: 4, fontSize: '0.9em' }}>
+      <div style={{ color: 'var(--ink-2)' }}>
+        Grants {access} access to <b>{info.label}</b>
+        {info.readOnly ? '; write requests are rejected' : ''}.
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {info.routes.map((route) => (
+          <code key={route}>{route}</code>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function digestDisplay(digest?: string): string | undefined {
   if (!digest) return undefined
@@ -97,6 +148,27 @@ export function PluginDetail() {
     const approved = new Set(plugin.approvedPermissions ?? [])
     return declared.size !== approved.size || [...declared].some((p) => !approved.has(p))
   }, [plugin])
+
+  // One row per permission in the union of declared + approved, so pending
+  // (declared only) and stale grants (approved only) are visible at a glance.
+  const permissionRows = useMemo<PermissionRow[]>(() => {
+    if (!plugin) return []
+    const declared = new Set(plugin.declaredPermissions ?? [])
+    const approved = new Set(plugin.approvedPermissions ?? [])
+    const names = [...new Set([...declared, ...approved])].sort()
+    return names.map((name) => ({
+      name,
+      declared: declared.has(name),
+      approved: approved.has(name),
+    }))
+  }, [plugin])
+
+  // The approve POST sends plugin.declaredPermissions, so the confirm modal
+  // must list exactly the declared set — never stale approved-only rows.
+  const declaredPermissionRows = useMemo(
+    () => permissionRows.filter((row) => row.declared),
+    [permissionRows],
+  )
 
   // Read mode renders server state (plugin.groupAccess), never the edit draft.
   const knownGroupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups])
@@ -262,38 +334,13 @@ export function PluginDetail() {
 
         <Panel title="Permissions">
           <div style={{ padding: 16, display: 'grid', gap: 14 }}>
-            <div>
-              <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                Declared Permissions
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {plugin.declaredPermissions?.length ? (
-                  plugin.declaredPermissions.map((perm) => (
-                    <Tag key={perm} variant="warn">
-                      {perm}
-                    </Tag>
-                  ))
-                ) : (
-                  <span style={{ color: 'var(--ink-3)' }}>None</span>
-                )}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                Approved Permissions
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {plugin.approvedPermissions?.length ? (
-                  plugin.approvedPermissions.map((perm) => (
-                    <Tag key={perm} variant="ok">
-                      {perm}
-                    </Tag>
-                  ))
-                ) : (
-                  <span style={{ color: 'var(--ink-3)' }}>None</span>
-                )}
-              </div>
-            </div>
+            <RegisterTable
+              rows={permissionRows}
+              columns={permissionColumns}
+              rowKey={(row) => row.name}
+              emptyLabel="None"
+              renderDetail={renderPermissionDetail}
+            />
             {hasUnapprovedPermissions && (
               <Button
                 variant="primary"
@@ -377,12 +424,14 @@ export function PluginDetail() {
         body={
           <div>
             <p>Approve the following permissions for this plugin?</p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
-              {plugin.declaredPermissions?.map((perm) => (
-                <Tag key={perm} variant="warn">
-                  {perm}
-                </Tag>
-              ))}
+            <div style={{ marginTop: 12 }}>
+              <RegisterTable
+                rows={declaredPermissionRows}
+                columns={permissionColumns}
+                rowKey={(row) => row.name}
+                emptyLabel="None"
+                withRowNumbers={false}
+              />
             </div>
           </div>
         }

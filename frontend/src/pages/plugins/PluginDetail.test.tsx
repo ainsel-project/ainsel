@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 import { PluginDetail } from './PluginDetail'
@@ -302,6 +302,124 @@ describe('PluginDetail', () => {
     expect(screen.queryByRole('button', { name: 'Approve permissions' })).not.toBeInTheDocument()
   })
 
+  function renderPlugin(overrides: Partial<typeof defaultPlugin>) {
+    const plugin = { ...defaultPlugin, ...overrides }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes('/plugins') && !url.includes('plugin-context')
+            ? new Response(
+                JSON.stringify({
+                  items: [plugin],
+                  total: 1,
+                  page: 1,
+                  pageSize: 200,
+                  totalPages: 1,
+                }),
+                { status: 200 },
+              )
+            : defaultFetch(url),
+        ),
+      ),
+    )
+    return renderWithProviders(
+      <Routes>
+        <Route path="/plugins/:id" element={<PluginDetail />} />
+      </Routes>,
+      { route: '/plugins/plugin1' },
+    )
+  }
+
+  function rowFor(name: string): HTMLElement {
+    const cell = screen.getByText(name)
+    const row = cell.closest('tr')
+    if (!row) throw new Error(`no row for ${name}`)
+    return row as HTMLElement
+  }
+
+  it('marks a pending permission as declared but not approved', async () => {
+    // defaultPlugin: declared perm1+perm2, approved perm1 only
+    renderPlugin({})
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const pending = rowFor('perm2')
+    expect(within(pending).getByLabelText('Declared')).toBeInTheDocument()
+    expect(within(pending).queryByLabelText('Approved')).not.toBeInTheDocument()
+
+    const live = rowFor('perm1')
+    expect(within(live).getByLabelText('Declared')).toBeInTheDocument()
+    expect(within(live).getByLabelText('Approved')).toBeInTheDocument()
+  })
+
+  it('renders a stale grant (approved but no longer declared)', async () => {
+    renderPlugin({ declaredPermissions: ['perm1'], approvedPermissions: ['perm1', 'stale-perm'] })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const stale = rowFor('stale-perm')
+    expect(within(stale).queryByLabelText('Declared')).not.toBeInTheDocument()
+    expect(within(stale).getByLabelText('Approved')).toBeInTheDocument()
+  })
+
+  it('shows the empty label when no permissions exist', async () => {
+    renderPlugin({ declaredPermissions: [], approvedPermissions: [] })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+    expect(screen.getByText('None')).toBeInTheDocument()
+  })
+
+  it('expands a known permission to show its catalog description', async () => {
+    renderPlugin({
+      declaredPermissions: ['agents:read', 'agents:write'],
+      approvedPermissions: ['agents:read', 'agents:write'],
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const readRow = rowFor('agents:read')
+    await userEvent.click(within(readRow).getByRole('button', { name: /show details/i }))
+    // A `*:read` grant must not be described as write-capable.
+    expect(screen.getByText(/Grants read access to/)).toBeInTheDocument()
+    expect(screen.getByText('/api/v1/agents')).toBeInTheDocument()
+
+    const writeRow = rowFor('agents:write')
+    await userEvent.click(within(writeRow).getByRole('button', { name: /show details/i }))
+    expect(screen.getByText(/Grants write access to/)).toBeInTheDocument()
+  })
+
+  it('describes llm:check as write access despite the non-:write name', async () => {
+    renderPlugin({ declaredPermissions: ['llm:check'], approvedPermissions: ['llm:check'] })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const row = rowFor('llm:check')
+    await userEvent.click(within(row).getByRole('button', { name: /show details/i }))
+    expect(screen.getByText(/Grants write access to/)).toBeInTheDocument()
+    expect(screen.getByText('/api/v1/llm')).toBeInTheDocument()
+  })
+
+  it('does not offer expansion for unknown permission names', async () => {
+    renderPlugin({})
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const row = rowFor('perm1')
+    expect(within(row).queryByRole('button', { name: /details/i })).not.toBeInTheDocument()
+  })
+
+  it('lists exactly the declared set in the approve confirm modal', async () => {
+    // approved contains a stale grant (stale-perm) that the approve POST will not touch.
+    renderPlugin({ approvedPermissions: ['perm1', 'stale-perm'] })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /approve permissions/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Approve the following permissions for this plugin?'))
+      .toBeInTheDocument()
+    // The modal must match the approve payload: declared rows only, no expansion.
+    expect(within(dialog).getByText('perm1')).toBeInTheDocument()
+    expect(within(dialog).getByText('perm2')).toBeInTheDocument()
+    expect(within(dialog).queryByText('stale-perm')).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: /details/i })).not.toBeInTheDocument()
+  })
+
   it('renders status, signature, check date and image as four cards', async () => {
     const { container } = renderWithPlugin(defaultPlugin)
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
@@ -320,7 +438,7 @@ describe('PluginDetail', () => {
   })
 
   it('shows the unsigned state on the signature card', async () => {
-    renderWithPlugin({
+    const { container } = renderWithPlugin({
       ...defaultPlugin,
       signature: { verified: false, message: 'no signature found' },
     })
@@ -328,7 +446,9 @@ describe('PluginDetail', () => {
 
     expect(screen.getByText('Unsigned')).toBeInTheDocument()
     expect(screen.getByText('no signature found')).toBeInTheDocument()
-    expect(screen.getByText('—')).toBeInTheDocument()
+    // Scoped to the KPI row: the permissions table also renders em-dash cells.
+    const kpiRow = container.querySelector('.kpi-row') as HTMLElement
+    expect(within(kpiRow).getByText('—')).toBeInTheDocument()
   })
 
   it('renders placeholder cards when signature is absent', async () => {
@@ -343,7 +463,9 @@ describe('PluginDetail', () => {
     // Stable 3-card row: status, signature placeholder, check date placeholder
     expect(container.querySelectorAll('.kpi-row .kpi')).toHaveLength(3)
     expect(screen.getByText('Not recorded')).toBeInTheDocument()
-    expect(screen.getByText('—')).toBeInTheDocument()
+    // Scoped to the KPI row: the permissions table also renders em-dash cells.
+    const kpiRow = container.querySelector('.kpi-row') as HTMLElement
+    expect(within(kpiRow).getByText('—')).toBeInTheDocument()
   })
 
   it('omits the image card when imageRepository is absent', async () => {
