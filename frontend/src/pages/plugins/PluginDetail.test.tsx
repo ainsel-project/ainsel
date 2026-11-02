@@ -56,6 +56,34 @@ function defaultFetch(url: string): Response {
   return new Response('{}', { status: 200 })
 }
 
+function renderWithPlugin(plugin: Record<string, unknown>) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) =>
+      Promise.resolve(
+        url.includes('/plugins') && !url.includes('plugin-context')
+          ? new Response(
+              JSON.stringify({
+                items: [plugin],
+                total: 1,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            )
+          : defaultFetch(url),
+      ),
+    ),
+  )
+  return renderWithProviders(
+    <Routes>
+      <Route path="/plugins/:id" element={<PluginDetail />} />
+    </Routes>,
+    { route: '/plugins/plugin1' },
+  )
+}
+
 describe('PluginDetail', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
@@ -163,14 +191,101 @@ describe('PluginDetail', () => {
 
   it('keeps showing approved permissions without an approve button', async () => {
     const approved = { ...defaultPlugin, approvedPermissions: ['perm1', 'perm2'] }
+    renderWithPlugin(approved)
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+    expect(screen.getAllByText('perm2').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Approve permissions' })).not.toBeInTheDocument()
+  })
+
+  it('renders status, signature, check date and image as four cards', async () => {
+    const { container } = renderWithPlugin(defaultPlugin)
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    expect(container.querySelectorAll('.kpi-row .kpi')).toHaveLength(4)
+    expect(screen.getByText('Status')).toBeInTheDocument()
+    expect(screen.getByText('Ready')).toBeInTheDocument()
+    expect(screen.getByText('Plugin is ready')).toBeInTheDocument()
+    expect(screen.getByText('Signature')).toBeInTheDocument()
+    expect(screen.getByText('Verified')).toBeInTheDocument()
+    expect(screen.getByText('test-signer')).toBeInTheDocument()
+    expect(screen.getByText('Checked')).toBeInTheDocument()
+    expect(screen.getByText(new Date('2024-01-01T00:00:00Z').toLocaleDateString())).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
+    expect(screen.getByText('example.com/plugin')).toBeInTheDocument()
+  })
+
+  it('shows the unsigned state on the signature card', async () => {
+    renderWithPlugin({
+      ...defaultPlugin,
+      signature: { verified: false, message: 'no signature found' },
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    expect(screen.getByText('Unsigned')).toBeInTheDocument()
+    expect(screen.getByText('no signature found')).toBeInTheDocument()
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders placeholder cards when signature is absent', async () => {
+    const { container } = renderWithPlugin({
+      ...defaultPlugin,
+      signature: undefined,
+      imageRepository: undefined,
+      imageDigest: undefined,
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    // Stable 3-card row: status, signature placeholder, check date placeholder
+    expect(container.querySelectorAll('.kpi-row .kpi')).toHaveLength(3)
+    expect(screen.getByText('Not recorded')).toBeInTheDocument()
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  it('omits the image card when imageRepository is absent', async () => {
+    const { container } = renderWithPlugin({
+      ...defaultPlugin,
+      imageRepository: undefined,
+      imageDigest: undefined,
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    expect(container.querySelectorAll('.kpi-row .kpi')).toHaveLength(3)
+    expect(screen.queryByText('Image')).not.toBeInTheDocument()
+  })
+
+  it('toggles the plugin from the page header actions', async () => {
+    const urls: string[] = []
+    mockFetch().mockImplementation((url: string) => {
+      urls.push(url)
+      return Promise.resolve(defaultFetch(url))
+    })
+    renderWithProviders(
+      <Routes>
+        <Route path="/plugins/:id" element={<PluginDetail />} />
+      </Routes>,
+      { route: '/plugins/plugin1' },
+    )
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const toggleButton = screen.getByRole('button', { name: 'Disable' })
+    await userEvent.click(toggleButton)
+
+    await waitFor(() => {
+      expect(urls.some((url) => url.includes('/plugins/plugin1/disable'))).toBe(true)
+    })
+  })
+
+  it('shows an enable button for a disabled plugin', async () => {
+    const urls: string[] = []
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string) =>
-        Promise.resolve(
+      vi.fn((url: string) => {
+        urls.push(url)
+        return Promise.resolve(
           url.includes('/plugins') && !url.includes('plugin-context')
             ? new Response(
                 JSON.stringify({
-                  items: [approved],
+                  items: [{ ...defaultPlugin, disabled: true }],
                   total: 1,
                   page: 1,
                   pageSize: 200,
@@ -179,8 +294,8 @@ describe('PluginDetail', () => {
                 { status: 200 },
               )
             : defaultFetch(url),
-        ),
-      ),
+        )
+      }),
     )
     renderWithProviders(
       <Routes>
@@ -189,7 +304,12 @@ describe('PluginDetail', () => {
       { route: '/plugins/plugin1' },
     )
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
-    expect(screen.getAllByText('perm2').length).toBeGreaterThan(0)
-    expect(screen.queryByRole('button', { name: 'Approve permissions' })).not.toBeInTheDocument()
+
+    const enableButton = screen.getByRole('button', { name: 'Enable' })
+    await userEvent.click(enableButton)
+
+    await waitFor(() => {
+      expect(urls.some((url) => url.includes('/plugins/plugin1/enable'))).toBe(true)
+    })
   })
 })
