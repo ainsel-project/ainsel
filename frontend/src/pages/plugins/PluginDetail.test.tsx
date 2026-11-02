@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 import { PluginDetail } from './PluginDetail'
@@ -191,5 +191,108 @@ describe('PluginDetail', () => {
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
     expect(screen.getAllByText('perm2').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Approve permissions' })).not.toBeInTheDocument()
+  })
+
+  function renderPlugin(overrides: Partial<typeof defaultPlugin>) {
+    const plugin = { ...defaultPlugin, ...overrides }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes('/plugins') && !url.includes('plugin-context')
+            ? new Response(
+                JSON.stringify({
+                  items: [plugin],
+                  total: 1,
+                  page: 1,
+                  pageSize: 200,
+                  totalPages: 1,
+                }),
+                { status: 200 },
+              )
+            : defaultFetch(url),
+        ),
+      ),
+    )
+    return renderWithProviders(
+      <Routes>
+        <Route path="/plugins/:id" element={<PluginDetail />} />
+      </Routes>,
+      { route: '/plugins/plugin1' },
+    )
+  }
+
+  function rowFor(name: string): HTMLElement {
+    const cell = screen.getByText(name)
+    const row = cell.closest('tr')
+    if (!row) throw new Error(`no row for ${name}`)
+    return row as HTMLElement
+  }
+
+  it('marks a pending permission as declared but not approved', async () => {
+    // defaultPlugin: declared perm1+perm2, approved perm1 only
+    renderPlugin({})
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const pending = rowFor('perm2')
+    expect(within(pending).getByLabelText('Declared')).toBeInTheDocument()
+    expect(within(pending).queryByLabelText('Approved')).not.toBeInTheDocument()
+
+    const live = rowFor('perm1')
+    expect(within(live).getByLabelText('Declared')).toBeInTheDocument()
+    expect(within(live).getByLabelText('Approved')).toBeInTheDocument()
+  })
+
+  it('renders a stale grant (approved but no longer declared)', async () => {
+    renderPlugin({ declaredPermissions: ['perm1'], approvedPermissions: ['perm1', 'stale-perm'] })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const stale = rowFor('stale-perm')
+    expect(within(stale).queryByLabelText('Declared')).not.toBeInTheDocument()
+    expect(within(stale).getByLabelText('Approved')).toBeInTheDocument()
+  })
+
+  it('shows the empty label when no permissions exist', async () => {
+    renderPlugin({ declaredPermissions: [], approvedPermissions: [] })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+    expect(screen.getByText('None')).toBeInTheDocument()
+  })
+
+  it('expands a known permission to show its catalog description', async () => {
+    renderPlugin({
+      declaredPermissions: ['agents:read'],
+      approvedPermissions: ['agents:read'],
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const row = rowFor('agents:read')
+    const toggle = within(row).getByRole('button', { name: /show details/i })
+    await userEvent.click(toggle)
+
+    expect(screen.getByText(/Grants access to/)).toBeInTheDocument()
+    expect(screen.getByText('/api/v1/agents')).toBeInTheDocument()
+  })
+
+  it('does not offer expansion for unknown permission names', async () => {
+    renderPlugin({})
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const row = rowFor('perm1')
+    expect(within(row).queryByRole('button', { name: /details/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the merged permission table in the approve confirm modal', async () => {
+    renderPlugin({})
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /approve permissions/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Approve the following permissions for this plugin?'))
+      .toBeInTheDocument()
+    // Merged table over declared + approved: both permissions listed, no expansion in the modal.
+    expect(within(dialog).getByText('perm1')).toBeInTheDocument()
+    expect(within(dialog).getByText('perm2')).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: /details/i })).not.toBeInTheDocument()
   })
 })
