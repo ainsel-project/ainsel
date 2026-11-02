@@ -1,11 +1,11 @@
 import { useEffect, useReducer, useMemo } from 'react'
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAgents } from '../api/agents'
 import { usePlugins, usePluginCallerContext } from '../api/plugins'
 import { getAgentRecents, RECENT_AGENT_LIMIT } from '../agentRecents'
 import { PREF_CHANGE_EVENT } from '../prefs'
 import { Dot } from '../primitives/Dot'
-import { activePlugins, navEntries } from '../plugins/registry'
+import { activeNavPath, activePlugins, navEntries } from '../plugins/registry'
 import './Spine.css'
 
 type NavItem = { idx: string; name: string; to: string; tag?: string }
@@ -137,6 +137,7 @@ export function Spine({
 }: SpineProps) {
   const { data: pluginItems } = usePlugins()
   const { data: callerContext } = usePluginCallerContext()
+  const location = useLocation()
 
   const availablePlugins = useMemo(
     () => activePlugins(Array.isArray(pluginItems) ? pluginItems : []),
@@ -145,6 +146,14 @@ export function Spine({
   const pluginNavEntries = useMemo(
     () => navEntries(availablePlugins, callerContext?.isAdmin ?? false),
     [availablePlugins, callerContext?.isAdmin],
+  )
+  // Most-specific-match-wins, mirroring findPage()'s routing rule. NavLink's
+  // default prefix matching would light up a root page (e.g. /p/memory) on
+  // every nested path (/p/memory/setup), so plugin entries compute their
+  // active state here and render as plain links.
+  const activePluginPath = useMemo(
+    () => activeNavPath(pluginNavEntries, location.pathname),
+    [pluginNavEntries, location.pathname],
   )
 
   // Group plugin entries by section and compute Plugins section
@@ -185,21 +194,26 @@ export function Spine({
               {item.to === '/agents' ? <RecentAgents scope={recentsScope} /> : null}
             </div>
           ))}
-          {/* Render plugin entries for this section */}
-          {pluginsBySection.get(section.label)?.map((entry, idx) => (
-            <div key={entry.to}>
-              <NavLink
-                to={entry.to}
-                className={({ isActive }) =>
-                  isActive ? 'nav-link active' : 'nav-link'
-                }
-              >
-                <span className="idx">P·{idx + 1}</span>
-                <span className="name">{entry.label}</span>
-                <span />
-              </NavLink>
-            </div>
-          ))}
+          {/* Render plugin entries for this section.
+              Rendered as plain links, not NavLinks: NavLink matches by prefix
+              and would light up a root page (e.g. /p/memory) on every nested
+              path, so the active state comes from activeNavPath instead. */}
+          {pluginsBySection.get(section.label)?.map((entry, idx) => {
+            const active = entry.to === activePluginPath
+            return (
+              <div key={entry.to}>
+                <Link
+                  to={entry.to}
+                  className={active ? 'nav-link active' : 'nav-link'}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <span className="idx">P·{idx + 1}</span>
+                  <span className="name">{entry.label}</span>
+                  <span />
+                </Link>
+              </div>
+            )
+          })}
         </div>,
       )
 
@@ -213,20 +227,22 @@ export function Spine({
               <div className="nav-section">
                 <span className="label">{label}</span>
               </div>
-              {entries.map((entry, idx) => (
-                <div key={entry.to}>
-                  <NavLink
-                    to={entry.to}
-                    className={({ isActive }) =>
-                      isActive ? 'nav-link active' : 'nav-link'
-                    }
-                  >
-                    <span className="idx">P·{idx + 1}</span>
-                    <span className="name">{entry.label}</span>
-                    <span />
-                  </NavLink>
-                </div>
-              ))}
+              {entries.map((entry, idx) => {
+                const active = entry.to === activePluginPath
+                return (
+                  <div key={entry.to}>
+                    <Link
+                      to={entry.to}
+                      className={active ? 'nav-link active' : 'nav-link'}
+                      aria-current={active ? 'page' : undefined}
+                    >
+                      <span className="idx">P·{idx + 1}</span>
+                      <span className="name">{entry.label}</span>
+                      <span />
+                    </Link>
+                  </div>
+                )
+              })}
             </div>,
           )
         }
