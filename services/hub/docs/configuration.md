@@ -13,6 +13,43 @@
 | `HUB_AUTH_EVENT_RETENTION_DAYS` | `90` | Auth events (table `auth_events`) older than this many days are deleted by an hourly sweep. `0` disables the age-based deletion. |
 | `HUB_AUTH_EVENT_MAX_ROWS` | `100000` | After the age-based sweep, `auth_events` is trimmed to this many rows (newest kept). `0` disables the row cap. |
 
+### Webhook connectors
+
+Both variables below are read by the same connector-config loader
+(`internal/api/connector_config.go`). The chart always renders both, so an
+out-of-chart deployment has to set them by hand.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONNECTOR_IMAGE_WEBHOOK` | _(unset)_ | Default image for webhook connectors, accepted as `repository[:tag][@digest]`. **Required for creating webhook connectors** — creating one without it fails with `CONNECTOR_IMAGE_WEBHOOK not configured`. The hub does not pull this image itself: it parses the value into a new connector's `spec.image.{repository,tag,digest}`, and the event-gateway operator composes the container reference from those fields. The chart manages it from `hub.connectorImages.webhook.{repository,tag,digest}` (always set, so the error is only reachable for non-chart deployments). |
+| `PLATFORM_EXTERNAL_URL` | _(unset)_ | Externally-reachable platform base URL. The hub uses it to build the webhook delivery URL it reports for a connector — `<PLATFORM_EXTERNAL_URL>/webhooks/<connector-name>` (one trailing `/` is trimmed) — the URL operators register at the git host. The chart derives it from `hub.platformExternalUrl`, falling back to `https://<hub.ingress.host><ui.basePath>`. |
+
+`CONNECTOR_IMAGE_WEBHOOK` parsing rules:
+
+- **A colon is a tag separator only when what follows is not a path.** In
+  `zot.platform.svc:5000/ainsel/receiver` the colon is a registry port and the
+  reference has *no* tag. The **last** colon is the candidate, so a tagged image
+  in a port-bearing registry keeps its tag.
+- **A digest is kept separately from the tag.** A tag is a moving pointer the
+  receiver follows (rebuild + push → the next connector rollout picks it up);
+  a digest is a demand that nothing moves. When both are set, the digest pins
+  the build and the tag merely records which tag that build came from.
+- **No tag and no digest ⇒ `latest` is applied**, matching container-runtime
+  default behaviour — the least-pinned configuration.
+
+### Plugins, internal secrets & misc
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HUB_SELF_URL` | _(unset)_ | The hub's own in-cluster address. Turns on the plugin registry sync loop (30s interval), which registers a plugin's agent MCP endpoint as a registry row agents can attach; unset, the loop logs that it is disabled and stays off. The chart always sets it. See [writing-a-plugin.md](../../../docs/writing-a-plugin.md). |
+| `HUB_WS_ALLOWED_ORIGINS` | _(empty)_ | Comma-separated extra Origins allowed to open `/api/v1/ws`. Same-origin is always permitted, so this is only needed when the UI is served from a different host or port than the hub API (local development). |
+| `HUB_RATE_LIMIT_RPS` | `30` | Sustained per-IP request rate for the API. See [api-reference.md](../../../docs/api-reference.md). |
+| `HUB_RATE_LIMIT_BURST` | `60` | Per-IP burst allowance on top of `HUB_RATE_LIMIT_RPS`; invalid or non-positive values keep the default. |
+| `HUB_ALLOW_INSECURE_NO_AUTH` | `false` | Dev-only bypass that lets the API start without auth middleware when the configured auth mode leaves it unconfigured — the hub logs a loud startup banner when this is active. Never enable on a reachable host; the chart exposes it as `auth.allowInsecureNoAuth`. See the Auth sections above and [access-control.md](../../../docs/access-control.md). |
+| `HUB_PLUGIN_CREDENTIAL_SECRET` | _(unset)_ | Signing secret for short-lived plugin credentials; unset (or too short) disables them. Details in [access-control.md](../../../docs/access-control.md). |
+| `HUB_SKILLS_MCP_TOKEN` | _(unset)_ | Dedicated bearer token for the read-only skill catalogue MCP (`/api/internal/skills/mcp`, in-cluster). Unset leaves the endpoint answering `503` — configured-off, never open. Deliberately separate from `HUB_INTERNAL_VALIDATE_SECRET`. Details in [api-reference.md](../../../docs/api-reference.md). |
+| `HUB_INTERNAL_VALIDATE_SECRET` | _(unset)_ | Bearer secret for the internal user-token validate endpoint; unset disables it. The cluster-wide internal credential — keep it out of agent-visible env. Details in [administrator-guide.md](../../../docs/administrator-guide.md). |
+
 ### Auth-event audit trail
 
 The hub persists auth events (`auth_login`, `auth_login_failed`,

@@ -137,7 +137,7 @@ section for worked examples.
 | `hub.ingress.tlsSecretName` | string | `hub-tls` | Secret holding the TLS certificate for this host |
 | `hub.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /api/$2` | Ingress annotations |
 | `hub.platformExternalUrl` | string | `""` | Externally-reachable platform URL. When empty it is derived from the hub ingress host and `ui.basePath` (`https://<hub.ingress.host><basePath>`) |
-| `hub.connectorImages.webhook.repository` | string | `dpinsel/ainsel-webhook-receiver` | Webhook-receiver image repository. The hub copies repository/tag/digest into a new connector's `spec.image.*`; the event-gateway operator composes the container image from them |
+| `hub.connectorImages.webhook.repository` | string | `dpinsel/ainsel-webhook-receiver` | Webhook-receiver image repository. Rendered into the hub's `CONNECTOR_IMAGE_WEBHOOK` (`repository:tag[@digest]`); the hub copies repository/tag/digest into a new connector's `spec.image.*`, the event-gateway operator composes the container image from them. Parsing rules in [services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#webhook-connectors) |
 | `hub.connectorImages.webhook.tag` | string | `0.1.0` | The tag the receiver follows: rebuild the image and this tag moves, and the next rollout of the connector picks it up |
 | `hub.connectorImages.webhook.digest` | string | `""` | Set to pin the receiver to one build — then the tag records where that build came from and nothing moves it |
 | `hub.resources` | object | 50m/128Mi → 200m/256Mi | CPU/memory |
@@ -153,7 +153,10 @@ section for worked examples.
 #### Hub Environment Variables
 
 These environment variables are read by the hub backend at startup. Pass them
-via `hub.extraEnv` in your `values.yaml`.
+via `hub.extraEnv` in your `values.yaml`. This table is not exhaustive: the hub
+binary's full env-var reference — including the chart-managed variables
+(`CONNECTOR_IMAGE_WEBHOOK`, `PLATFORM_EXTERNAL_URL`, `HUB_SELF_URL`, …) — is
+[services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#environment-variables).
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
