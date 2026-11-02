@@ -136,7 +136,46 @@ export function PluginDetail() {
         title={plugin.displayName || plugin.id}
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
-        <Panel>
+        <Panel className="cropped">
+          <div className="info-grid">
+            <div>
+              <div className="k">Image</div>
+              <div className="v">
+                {plugin.imageRepository ? (
+                  <code>
+                    {plugin.imageRepository}
+                    {plugin.imageDigest && `@${plugin.imageDigest}`}
+                  </code>
+                ) : (
+                  '—'
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="k">Enabled</div>
+              <div className="v" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Tag variant={plugin.disabled ? 'err' : 'ok'}>
+                  {plugin.disabled ? 'Disabled' : 'Enabled'}
+                </Tag>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    if (plugin.disabled) {
+                      enable.mutate(plugin.id)
+                    } else {
+                      disable.mutate(plugin.id)
+                    }
+                  }}
+                  disabled={enable.isPending || disable.isPending}
+                >
+                  {plugin.disabled ? 'Enable' : 'Disable'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="Status" className="cropped">
           <div style={{ padding: 16, display: 'grid', gap: 14 }}>
             <div>
               <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
@@ -149,18 +188,6 @@ export function PluginDetail() {
                 )}
               </div>
             </div>
-
-            {plugin.imageRepository && (
-              <div>
-                <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                  Image
-                </div>
-                <code style={{ fontSize: '0.9em' }}>
-                  {plugin.imageRepository}
-                  {plugin.imageDigest && `@${plugin.imageDigest}`}
-                </code>
-              </div>
-            )}
 
             {plugin.signature && (
               <div>
@@ -197,25 +224,6 @@ export function PluginDetail() {
                 </div>
               </div>
             )}
-
-            <div>
-              <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                Enable / Disable
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  if (plugin.disabled) {
-                    enable.mutate(plugin.id)
-                  } else {
-                    disable.mutate(plugin.id)
-                  }
-                }}
-                disabled={enable.isPending || disable.isPending}
-              >
-                {plugin.disabled ? 'Enable' : 'Disable'}
-              </Button>
-            </div>
           </div>
         </Panel>
 
