@@ -74,7 +74,10 @@ function defaultFetch(url: string): Response {
 
 describe('PluginDetail', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
+    )
   })
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -84,9 +87,7 @@ describe('PluginDetail', () => {
     let approveRequestBody: unknown = null
     mockFetch().mockImplementation((url: string, options?: RequestInit) => {
       if (url.includes('approve-permissions')) {
-        approveRequestBody = options?.body
-          ? JSON.parse(options.body as string)
-          : null
+        approveRequestBody = options?.body ? JSON.parse(options.body as string) : null
         return Promise.resolve(new Response('{}', { status: 200 }))
       }
       return Promise.resolve(defaultFetch(url))
@@ -128,7 +129,9 @@ describe('PluginDetail', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Agents, triggers, connectors and other resources this plugin created stay after uninstall/),
+        screen.getByText(
+          /Agents, triggers, connectors and other resources this plugin created stay after uninstall/,
+        ),
       ).toBeInTheDocument()
     })
   })
@@ -137,9 +140,7 @@ describe('PluginDetail', () => {
     let groupAccessRequestBody: unknown = null
     mockFetch().mockImplementation((url: string, options?: RequestInit) => {
       if (url.includes('group-access')) {
-        groupAccessRequestBody = options?.body
-          ? JSON.parse(options.body as string)
-          : null
+        groupAccessRequestBody = options?.body ? JSON.parse(options.body as string) : null
         return Promise.resolve(new Response('{}', { status: 200 }))
       }
       return Promise.resolve(defaultFetch(url))
@@ -175,6 +176,110 @@ describe('PluginDetail', () => {
         groups: ['group1'],
       })
     })
+  })
+
+  it('shows granted groups in read mode without entering edit mode', async () => {
+    const withGroups = { ...defaultPlugin, groupAccess: ['group1'] }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes('/groups') && !url.includes('group-access')
+            ? new Response(
+                JSON.stringify([
+                  {
+                    id: 'group1',
+                    name: 'Group 1',
+                    description: 'Ops group',
+                    createdAt: '',
+                    updatedAt: '',
+                  },
+                  {
+                    id: 'group2',
+                    name: 'Group 2',
+                    description: '',
+                    createdAt: '',
+                    updatedAt: '',
+                  },
+                ]),
+                { status: 200 },
+              )
+            : url.includes('/plugins')
+              ? new Response(
+                  JSON.stringify({
+                    items: [withGroups],
+                    total: 1,
+                    page: 1,
+                    pageSize: 200,
+                    totalPages: 1,
+                  }),
+                  { status: 200 },
+                )
+              : defaultFetch(url),
+        ),
+      ),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/plugins/:id" element={<PluginDetail />} />
+      </Routes>,
+      { route: '/plugins/plugin1' },
+    )
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    // Group name and description are visible in read mode, without clicking Edit groups
+    const groupName = await screen.findByText('Group 1')
+    expect(groupName).toBeInTheDocument()
+    expect(screen.getByText('Ops group')).toBeInTheDocument()
+    expect(groupName.closest('a')).toHaveAttribute('href', '/groups/group1')
+    expect(screen.queryByText('No groups have access')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the raw id for groups that no longer exist', async () => {
+    const withDeletedGroup = { ...defaultPlugin, groupAccess: ['deleted-group'] }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes('/plugins') && !url.includes('plugin-context')
+            ? new Response(
+                JSON.stringify({
+                  items: [withDeletedGroup],
+                  total: 1,
+                  page: 1,
+                  pageSize: 200,
+                  totalPages: 1,
+                }),
+                { status: 200 },
+              )
+            : defaultFetch(url),
+        ),
+      ),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/plugins/:id" element={<PluginDetail />} />
+      </Routes>,
+      { route: '/plugins/plugin1' },
+    )
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const rawId = await screen.findByText('deleted-group')
+    expect(rawId).toBeInTheDocument()
+    expect(rawId.closest('a')).toBeNull()
+  })
+
+  it('shows a read-mode empty state when no groups have access', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/plugins/:id" element={<PluginDetail />} />
+      </Routes>,
+      { route: '/plugins/plugin1' },
+    )
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    expect(await screen.findByText('No groups have access')).toBeInTheDocument()
+    expect(screen.queryByText('No groups selected')).not.toBeInTheDocument()
   })
 
   it('keeps showing approved permissions without an approve button', async () => {
