@@ -11,6 +11,8 @@ import {
   type PluginListItem,
 } from '../../api/plugins'
 import { useGroups } from '../../api/groups'
+import { EntityLink } from '../../components/EntityLink'
+import { groupPath } from '../../components/entityPaths'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { DualListPicker } from '../../primitives/DualListPicker'
@@ -79,6 +81,12 @@ function getStatusText(plugin: PluginListItem): string {
   return plugin.reason || 'Not ready'
 }
 
+type GroupAccessRow = {
+  id: string
+  name: string
+  description: string
+}
+
 export function PluginDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -122,6 +130,34 @@ export function PluginDetail() {
       approved: approved.has(name),
     }))
   }, [plugin])
+
+  // Read mode renders server state (plugin.groupAccess), never the edit draft.
+  const knownGroupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups])
+  const groupAccessRows = useMemo<GroupAccessRow[]>(() => {
+    if (!plugin) return []
+    return (plugin.groupAccess ?? []).map((gid) => {
+      const group = groups.find((g) => g.id === gid)
+      return { id: gid, name: group?.name ?? gid, description: group?.description ?? '' }
+    })
+  }, [plugin, groups])
+
+  const groupAccessColumns = useMemo<Column<GroupAccessRow>[]>(
+    () => [
+      {
+        key: 'group',
+        header: 'Group',
+        cell: (row) => (
+          <EntityLink id={row.id} known={knownGroupIds} label={row.name} path={groupPath} />
+        ),
+      },
+      {
+        key: 'description',
+        header: 'Description',
+        cell: (row) => row.description || '—',
+      },
+    ],
+    [knownGroupIds],
+  )
 
   const handleApprovePermissions = () => {
     if (!id || !plugin?.declaredPermissions) return
@@ -200,7 +236,46 @@ export function PluginDetail() {
         title={plugin.displayName || plugin.id}
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
-        <Panel>
+        <Panel className="cropped">
+          <div className="info-grid">
+            <div>
+              <div className="k">Image</div>
+              <div className="v">
+                {plugin.imageRepository ? (
+                  <code>
+                    {plugin.imageRepository}
+                    {plugin.imageDigest && `@${plugin.imageDigest}`}
+                  </code>
+                ) : (
+                  '—'
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="k">Enabled</div>
+              <div className="v" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Tag variant={plugin.disabled ? 'err' : 'ok'}>
+                  {plugin.disabled ? 'Disabled' : 'Enabled'}
+                </Tag>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    if (plugin.disabled) {
+                      enable.mutate(plugin.id)
+                    } else {
+                      disable.mutate(plugin.id)
+                    }
+                  }}
+                  disabled={enable.isPending || disable.isPending}
+                >
+                  {plugin.disabled ? 'Enable' : 'Disable'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="Status" className="cropped">
           <div style={{ padding: 16, display: 'grid', gap: 14 }}>
             <div>
               <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
@@ -213,18 +288,6 @@ export function PluginDetail() {
                 )}
               </div>
             </div>
-
-            {plugin.imageRepository && (
-              <div>
-                <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                  Image
-                </div>
-                <code style={{ fontSize: '0.9em' }}>
-                  {plugin.imageRepository}
-                  {plugin.imageDigest && `@${plugin.imageDigest}`}
-                </code>
-              </div>
-            )}
 
             {plugin.signature && (
               <div>
@@ -261,25 +324,6 @@ export function PluginDetail() {
                 </div>
               </div>
             )}
-
-            <div>
-              <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                Enable / Disable
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  if (plugin.disabled) {
-                    enable.mutate(plugin.id)
-                  } else {
-                    disable.mutate(plugin.id)
-                  }
-                }}
-                disabled={enable.isPending || disable.isPending}
-              >
-                {plugin.disabled ? 'Enable' : 'Disable'}
-              </Button>
-            </div>
           </div>
         </Panel>
 
@@ -308,20 +352,12 @@ export function PluginDetail() {
           <div style={{ padding: 16, display: 'grid', gap: 14 }}>
             {!groupAccessMode ? (
               <>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {selectedGroupIds.length > 0 ? (
-                    selectedGroupIds.map((gid) => {
-                      const group = groups.find((g) => g.id === gid)
-                      return (
-                        <Tag key={gid} variant="ok">
-                          {group?.name || gid}
-                        </Tag>
-                      )
-                    })
-                  ) : (
-                    <span style={{ color: 'var(--ink-3)' }}>No groups selected</span>
-                  )}
-                </div>
+                <RegisterTable
+                  rows={groupAccessRows}
+                  columns={groupAccessColumns}
+                  rowKey={(row) => row.id}
+                  emptyLabel="No groups have access"
+                />
                 <Button
                   variant="primary"
                   onClick={() => {
