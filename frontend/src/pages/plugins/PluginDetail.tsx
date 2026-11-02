@@ -57,7 +57,7 @@ const permissionColumns: Column<PermissionRow>[] = [
 function renderPermissionDetail(row: PermissionRow) {
   const info = permissionInfo(row.name)
   if (!info) return null
-  const access = row.name.endsWith(':write') ? 'write' : 'read'
+  const access = row.name.endsWith(':write') || info.write ? 'write' : 'read'
   return (
     <div style={{ display: 'grid', gap: 4, fontSize: '0.9em' }}>
       <div style={{ color: 'var(--ink-2)' }}>

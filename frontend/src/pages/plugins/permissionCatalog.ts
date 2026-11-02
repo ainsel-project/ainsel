@@ -17,6 +17,8 @@ export type PermissionInfo = {
   routes: string[]
   /** True for `invocations:read` / `observability:read`: writes answer 403. */
   readOnly?: boolean
+  /** True for write-side grants whose name does not end in `:write` (e.g. `llm:check`). */
+  write?: boolean
 }
 
 export const permissionCatalog: Record<string, PermissionInfo> = {
@@ -48,6 +50,13 @@ export const permissionCatalog: Record<string, PermissionInfo> = {
     label: 'Invocations',
     routes: ['/api/v1/invocations', '/api/v1/events', '/api/v1/errors'],
     readOnly: true,
+  },
+  // Write-side even though it creates nothing: a check spends a stored
+  // provider API key and quota (see plugin_routes.go).
+  'llm:check': {
+    label: 'LLM check',
+    routes: ['/api/v1/llm'],
+    write: true,
   },
   'mcp-servers:read': {
     label: 'MCP servers',

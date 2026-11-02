@@ -385,6 +385,16 @@ describe('PluginDetail', () => {
     expect(screen.getByText(/Grants write access to/)).toBeInTheDocument()
   })
 
+  it('describes llm:check as write access despite the non-:write name', async () => {
+    renderPlugin({ declaredPermissions: ['llm:check'], approvedPermissions: ['llm:check'] })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    const row = rowFor('llm:check')
+    await userEvent.click(within(row).getByRole('button', { name: /show details/i }))
+    expect(screen.getByText(/Grants write access to/)).toBeInTheDocument()
+    expect(screen.getByText('/api/v1/llm')).toBeInTheDocument()
+  })
+
   it('does not offer expansion for unknown permission names', async () => {
     renderPlugin({})
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())

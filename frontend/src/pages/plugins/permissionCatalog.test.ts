@@ -13,6 +13,7 @@ const documentedPermissions = [
   'connectors:read',
   'connectors:write',
   'invocations:read',
+  'llm:check',
   'mcp-servers:read',
   'mcp-servers:write',
   'observability:read',
