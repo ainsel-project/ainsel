@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   usePlugins,
@@ -21,6 +21,36 @@ import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
+
+function digestDisplay(digest?: string): string | undefined {
+  if (!digest) return undefined
+  return digest.length > 22 ? `${digest.slice(0, 22)}…` : digest
+}
+
+type StatCardProps = {
+  label: string
+  figure: ReactNode
+  sub?: ReactNode
+  subTitle?: string
+}
+
+// Informational card mirroring the dashboard KPI markup contract
+// (.kpi > .hd > .label, .figure, .sub). Non-interactive: plain div, no code line.
+function StatCard({ label, figure, sub, subTitle }: StatCardProps) {
+  return (
+    <div className="kpi">
+      <div className="hd">
+        <span className="label">{label}</span>
+      </div>
+      <div className="figure">{figure}</div>
+      {sub != null && (
+        <div className="sub">
+          <span title={subTitle}>{sub}</span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function getStatusText(plugin: PluginListItem): string {
   if (plugin.ready && !plugin.disabled) {
@@ -171,98 +201,64 @@ export function PluginDetail() {
           </>
         }
         title={plugin.displayName || plugin.id}
+        actions={
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (plugin.disabled) {
+                enable.mutate(plugin.id)
+              } else {
+                disable.mutate(plugin.id)
+              }
+            }}
+            disabled={enable.isPending || disable.isPending}
+          >
+            {plugin.disabled ? 'Enable' : 'Disable'}
+          </Button>
+        }
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
-        <Panel className="cropped">
-          <div className="info-grid">
-            <div>
-              <div className="k">Image</div>
-              <div className="v">
-                {plugin.imageRepository ? (
-                  <code>
-                    {plugin.imageRepository}
-                    {plugin.imageDigest && `@${plugin.imageDigest}`}
-                  </code>
-                ) : (
-                  '—'
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="k">Enabled</div>
-              <div className="v" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <Tag variant={plugin.disabled ? 'err' : 'ok'}>
-                  {plugin.disabled ? 'Disabled' : 'Enabled'}
-                </Tag>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    if (plugin.disabled) {
-                      enable.mutate(plugin.id)
-                    } else {
-                      disable.mutate(plugin.id)
-                    }
-                  }}
-                  disabled={enable.isPending || disable.isPending}
-                >
-                  {plugin.disabled ? 'Enable' : 'Disable'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </Panel>
-
-        <Panel title="Status" className="cropped">
-          <div style={{ padding: 16, display: 'grid', gap: 14 }}>
-            <div>
-              <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                Status
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <Tag variant={statusVariant}>{statusText}</Tag>
-                {plugin.message && (
-                  <span style={{ color: 'var(--ink-3)', fontSize: '0.9em' }}>{plugin.message}</span>
-                )}
-              </div>
-            </div>
-
-            {plugin.signature && (
-              <div>
-                <div style={{ fontSize: '0.75em', color: 'var(--ink-3)', marginBottom: 4 }}>
-                  Signature
-                </div>
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <div>
-                    {plugin.signature.verified ? (
-                      <Tag variant="ok">Verified</Tag>
-                    ) : (
-                      <Tag variant="err">Unsigned</Tag>
-                    )}
-                  </div>
-                  {plugin.signature.signer && (
-                    <div>
-                      <span style={{ fontSize: '0.9em', color: 'var(--ink-3)' }}>
-                        Signer: <code>{plugin.signature.signer}</code>
-                      </span>
-                    </div>
-                  )}
-                  {plugin.signature.checkedAt && (
-                    <div>
-                      <span style={{ fontSize: '0.9em', color: 'var(--ink-3)' }}>
-                        Checked: {new Date(plugin.signature.checkedAt).toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                  {plugin.signature.message && (
-                    <div style={{ fontSize: '0.9em', color: 'var(--ink-3)' }}>
-                      {plugin.signature.message}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </Panel>
+        <div className="kpi-row">
+          <StatCard
+            label="Status"
+            figure={<Tag variant={statusVariant}>{statusText}</Tag>}
+            sub={plugin.message}
+          />
+          <StatCard
+            label="Signature"
+            figure={
+              !plugin.signature ? (
+                <Tag variant="stale">Not recorded</Tag>
+              ) : plugin.signature.verified ? (
+                <Tag variant="ok">Verified</Tag>
+              ) : (
+                <Tag variant="err">Unsigned</Tag>
+              )
+            }
+            sub={plugin.signature?.signer ?? plugin.signature?.message}
+          />
+          <StatCard
+            label="Checked"
+            figure={
+              plugin.signature?.checkedAt
+                ? new Date(plugin.signature.checkedAt).toLocaleDateString()
+                : '—'
+            }
+            sub={
+              plugin.signature?.checkedAt
+                ? new Date(plugin.signature.checkedAt).toLocaleString()
+                : undefined
+            }
+          />
+          {plugin.imageRepository && (
+            <StatCard
+              label="Image"
+              figure={plugin.imageRepository}
+              sub={digestDisplay(plugin.imageDigest)}
+              subTitle={plugin.imageDigest}
+            />
+          )}
+        </div>
 
         <Panel title="Permissions">
           <div style={{ padding: 16, display: 'grid', gap: 14 }}>

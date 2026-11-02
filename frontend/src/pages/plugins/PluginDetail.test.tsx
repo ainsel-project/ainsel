@@ -1,27 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 import { PluginDetail } from './PluginDetail'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
 const mockFetch = () => globalThis.fetch as ReturnType<typeof vi.fn>
-
-function panelByTitle(title: string): HTMLElement {
-  const heading = screen.getByRole('heading', { name: title })
-  const panel = heading.closest('.panel')
-  if (!panel) throw new Error(`Panel not found for title: ${title}`)
-  return panel as HTMLElement
-}
-
-function metadataCard(): HTMLElement {
-  const panels = document.querySelectorAll<HTMLElement>('.panel')
-  const card = [...panels].find(
-    (p) => !p.querySelector('.panel-header') && p.querySelector('.info-grid'),
-  )
-  if (!card) throw new Error('Metadata card panel not found')
-  return card
-}
 
 const defaultPlugin = {
   id: 'plugin1',
@@ -70,6 +54,34 @@ function defaultFetch(url: string): Response {
     )
   }
   return new Response('{}', { status: 200 })
+}
+
+function renderWithPlugin(plugin: Record<string, unknown>) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) =>
+      Promise.resolve(
+        url.includes('/plugins') && !url.includes('plugin-context')
+          ? new Response(
+              JSON.stringify({
+                items: [plugin],
+                total: 1,
+                page: 1,
+                pageSize: 200,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            )
+          : defaultFetch(url),
+      ),
+    ),
+  )
+  return renderWithProviders(
+    <Routes>
+      <Route path="/plugins/:id" element={<PluginDetail />} />
+    </Routes>,
+    { route: '/plugins/plugin1' },
+  )
 }
 
 describe('PluginDetail', () => {
@@ -284,37 +296,74 @@ describe('PluginDetail', () => {
 
   it('keeps showing approved permissions without an approve button', async () => {
     const approved = { ...defaultPlugin, approvedPermissions: ['perm1', 'perm2'] }
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) =>
-        Promise.resolve(
-          url.includes('/plugins') && !url.includes('plugin-context')
-            ? new Response(
-                JSON.stringify({
-                  items: [approved],
-                  total: 1,
-                  page: 1,
-                  pageSize: 200,
-                  totalPages: 1,
-                }),
-                { status: 200 },
-              )
-            : defaultFetch(url),
-        ),
-      ),
-    )
-    renderWithProviders(
-      <Routes>
-        <Route path="/plugins/:id" element={<PluginDetail />} />
-      </Routes>,
-      { route: '/plugins/plugin1' },
-    )
+    renderWithPlugin(approved)
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
     expect(screen.getAllByText('perm2').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Approve permissions' })).not.toBeInTheDocument()
   })
 
-  it('metadata card shows the image address with digest', async () => {
+  it('renders status, signature, check date and image as four cards', async () => {
+    const { container } = renderWithPlugin(defaultPlugin)
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    expect(container.querySelectorAll('.kpi-row .kpi')).toHaveLength(4)
+    expect(screen.getByText('Status')).toBeInTheDocument()
+    expect(screen.getByText('Ready')).toBeInTheDocument()
+    expect(screen.getByText('Plugin is ready')).toBeInTheDocument()
+    expect(screen.getByText('Signature')).toBeInTheDocument()
+    expect(screen.getByText('Verified')).toBeInTheDocument()
+    expect(screen.getByText('test-signer')).toBeInTheDocument()
+    expect(screen.getByText('Checked')).toBeInTheDocument()
+    expect(screen.getByText(new Date('2024-01-01T00:00:00Z').toLocaleDateString())).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
+    expect(screen.getByText('example.com/plugin')).toBeInTheDocument()
+  })
+
+  it('shows the unsigned state on the signature card', async () => {
+    renderWithPlugin({
+      ...defaultPlugin,
+      signature: { verified: false, message: 'no signature found' },
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    expect(screen.getByText('Unsigned')).toBeInTheDocument()
+    expect(screen.getByText('no signature found')).toBeInTheDocument()
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders placeholder cards when signature is absent', async () => {
+    const { container } = renderWithPlugin({
+      ...defaultPlugin,
+      signature: undefined,
+      imageRepository: undefined,
+      imageDigest: undefined,
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    // Stable 3-card row: status, signature placeholder, check date placeholder
+    expect(container.querySelectorAll('.kpi-row .kpi')).toHaveLength(3)
+    expect(screen.getByText('Not recorded')).toBeInTheDocument()
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  it('omits the image card when imageRepository is absent', async () => {
+    const { container } = renderWithPlugin({
+      ...defaultPlugin,
+      imageRepository: undefined,
+      imageDigest: undefined,
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    expect(container.querySelectorAll('.kpi-row .kpi')).toHaveLength(3)
+    expect(screen.queryByText('Image')).not.toBeInTheDocument()
+  })
+
+  it('toggles the plugin from the page header actions', async () => {
+    const urls: string[] = []
+    mockFetch().mockImplementation((url: string) => {
+      urls.push(url)
+      return Promise.resolve(defaultFetch(url))
+    })
     renderWithProviders(
       <Routes>
         <Route path="/plugins/:id" element={<PluginDetail />} />
@@ -323,21 +372,25 @@ describe('PluginDetail', () => {
     )
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
 
-    expect(
-      within(metadataCard()).getByText('example.com/plugin@sha256:abc123'),
-    ).toBeInTheDocument()
+    const toggleButton = screen.getByRole('button', { name: 'Disable' })
+    await userEvent.click(toggleButton)
+
+    await waitFor(() => {
+      expect(urls.some((url) => url.includes('/plugins/plugin1/disable'))).toBe(true)
+    })
   })
 
-  it('metadata card shows an em-dash fallback when the image repository is missing', async () => {
-    const noImage = { ...defaultPlugin, imageRepository: undefined, imageDigest: undefined }
+  it('shows an enable button for a disabled plugin', async () => {
+    const urls: string[] = []
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string) =>
-        Promise.resolve(
+      vi.fn((url: string) => {
+        urls.push(url)
+        return Promise.resolve(
           url.includes('/plugins') && !url.includes('plugin-context')
             ? new Response(
                 JSON.stringify({
-                  items: [noImage],
+                  items: [{ ...defaultPlugin, disabled: true }],
                   total: 1,
                   page: 1,
                   pageSize: 200,
@@ -346,73 +399,9 @@ describe('PluginDetail', () => {
                 { status: 200 },
               )
             : defaultFetch(url),
-        ),
-      ),
-    )
-    renderWithProviders(
-      <Routes>
-        <Route path="/plugins/:id" element={<PluginDetail />} />
-      </Routes>,
-      { route: '/plugins/plugin1' },
-    )
-    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
-
-    expect(within(metadataCard()).getByText('—')).toBeInTheDocument()
-  })
-
-  it('metadata card shows Enabled and disables the plugin', async () => {
-    let disableUrl: string | null = null
-    mockFetch().mockImplementation((url: string) => {
-      if (url.includes('/plugins/plugin1/disable')) {
-        disableUrl = url
-        return Promise.resolve(new Response('{}', { status: 200 }))
-      }
-      return Promise.resolve(defaultFetch(url))
-    })
-
-    renderWithProviders(
-      <Routes>
-        <Route path="/plugins/:id" element={<PluginDetail />} />
-      </Routes>,
-      { route: '/plugins/plugin1' },
-    )
-    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
-
-    const card = metadataCard()
-    expect(card.querySelector('.v .tag.ok')).toHaveTextContent('Enabled')
-
-    await userEvent.click(within(card).getByRole('button', { name: 'Disable' }))
-    await waitFor(() => expect(disableUrl).toContain('/plugins/plugin1/disable'))
-  })
-
-  it('metadata card shows Disabled and enables the plugin', async () => {
-    const disabledPlugin = { ...defaultPlugin, disabled: true, ready: false }
-    let enableUrl: string | null = null
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) => {
-        if (url.includes('/plugins/plugin1/enable')) {
-          enableUrl = url
-          return Promise.resolve(new Response('{}', { status: 200 }))
-        }
-        if (url.includes('/plugins') && !url.includes('plugin-context')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                items: [disabledPlugin],
-                total: 1,
-                page: 1,
-                pageSize: 200,
-                totalPages: 1,
-              }),
-              { status: 200 },
-            ),
-          )
-        }
-        return Promise.resolve(defaultFetch(url))
+        )
       }),
     )
-
     renderWithProviders(
       <Routes>
         <Route path="/plugins/:id" element={<PluginDetail />} />
@@ -421,28 +410,11 @@ describe('PluginDetail', () => {
     )
     await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
 
-    // Scoped query: "Disabled" also appears in the Status panel tag.
-    const card = metadataCard()
-    expect(card.querySelector('.v .tag.err')).toHaveTextContent('Disabled')
+    const enableButton = screen.getByRole('button', { name: 'Enable' })
+    await userEvent.click(enableButton)
 
-    await userEvent.click(within(card).getByRole('button', { name: 'Enable' }))
-    await waitFor(() => expect(enableUrl).toContain('/plugins/plugin1/enable'))
-  })
-
-  it('status panel still shows the readiness message and signature details', async () => {
-    renderWithProviders(
-      <Routes>
-        <Route path="/plugins/:id" element={<PluginDetail />} />
-      </Routes>,
-      { route: '/plugins/plugin1' },
-    )
-    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
-
-    const statusPanel = panelByTitle('Status')
-    expect(within(statusPanel).getByText('Ready')).toBeInTheDocument()
-    expect(within(statusPanel).getByText('Plugin is ready')).toBeInTheDocument()
-    expect(within(statusPanel).getByText('test-signer')).toBeInTheDocument()
-    const checkedAt = new Date('2024-01-01T00:00:00Z').toLocaleString()
-    expect(within(statusPanel).getByText(new RegExp(checkedAt))).toBeInTheDocument()
+    await waitFor(() => {
+      expect(urls.some((url) => url.includes('/plugins/plugin1/enable'))).toBe(true)
+    })
   })
 })
