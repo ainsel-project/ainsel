@@ -420,4 +420,52 @@ describe('Spine', () => {
       '/p/memory/setup',
     ])
   })
+
+  // The most-specific-match rule is not plugin-only: every top-level nav
+  // entry (built-in and plugin) is resolved through one combined
+  // activeNavPath, so the sidebar has a single uniform matching rule.
+  function activeTopLevelLinks() {
+    return Array.from(document.querySelectorAll('a.nav-link.active')).map(
+      (el) => el.getAttribute('href'),
+    )
+  }
+
+  it('keeps the Agents entry highlighted on agent detail paths', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          agentsResponse([
+            { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
+          ]),
+        ),
+      ),
+    )
+    renderAt('/agents/a-1')
+
+    // The sublink for the agent itself renders (rendered as NavLink, which is
+    // the intended exception: detail links are not top-level nav entries).
+    await screen.findByRole('link', { name: /nightly-sweeper/i })
+    const agents = screen.getByRole('link', { name: /^\s*02\s*Agents/i })
+    expect(agents).toHaveAttribute('aria-current', 'page')
+    expect(agents).toHaveClass('active')
+  })
+
+  it('highlights exactly one top-level entry when built-in and plugin entries coexist', async () => {
+    stubMemoryPlugin('Observability')
+    renderAt('/p/memory/setup')
+
+    await screen.findByRole('link', { name: /Setup/i })
+    // /p/memory/setup matches no built-in entry, and among the plugin entries
+    // only the nested one wins — never the root entry, never Observability too.
+    expect(activeTopLevelLinks()).toEqual(['/p/memory/setup'])
+  })
+
+  it('highlights exactly one top-level entry on built-in deep links with plugins present', async () => {
+    stubMemoryPlugin('Observability')
+    renderAt('/docs/mcp')
+
+    await screen.findByRole('link', { name: /Memories/i })
+    expect(activeTopLevelLinks()).toEqual(['/docs'])
+  })
 })

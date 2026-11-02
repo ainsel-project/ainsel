@@ -59,10 +59,13 @@ export function navEntries(plugins: ActivePlugin[], isAdmin: boolean) {
  * and the *most specific* match wins — at most one entry is ever active.
  *
  * This exists because react-router's default NavLink matching is prefix-based
- * and reports *every* prefix as active: a plugin with a root page (`/p/x`)
- * plus a nested page (`/p/x/setup`) would highlight both entries on
- * `/p/x/setup`. Deep links must keep highlighting their page (`/p/x/work/42`
- * → the `WorkPage` entry), which exact matching alone would break.
+ * and reports *every* prefix as active: an entry with a root page (`/p/x`) plus
+ * a nested page (`/p/x/setup`) would highlight both entries on `/p/x/setup`.
+ * Deep links must keep highlighting their page (`/p/x/work/42` → the `WorkPage`
+ * entry), which exact matching alone would break. The hub applies this rule to
+ * every top-level nav entry — built-in and plugin alike — so the sidebar uses
+ * one uniform matching rule and stays correct if a built-in path ever becomes
+ * a prefix of another entry.
  *
  * Operates on the full flattened entry set, not per section, so the rule
  * stays correct if sections ever share path prefixes.
