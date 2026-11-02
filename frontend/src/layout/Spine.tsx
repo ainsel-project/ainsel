@@ -1,11 +1,11 @@
 import { useEffect, useReducer, useMemo } from 'react'
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAgents } from '../api/agents'
 import { usePlugins, usePluginCallerContext } from '../api/plugins'
 import { getAgentRecents, RECENT_AGENT_LIMIT } from '../agentRecents'
 import { PREF_CHANGE_EVENT } from '../prefs'
 import { Dot } from '../primitives/Dot'
-import { activePlugins, navEntries } from '../plugins/registry'
+import { activeNavPath, activePlugins, navEntries } from '../plugins/registry'
 import './Spine.css'
 
 type NavItem = { idx: string; name: string; to: string; tag?: string }
@@ -78,6 +78,12 @@ type SpineProps = {
  *
  * The list API is already scoped to what the caller can read, so "of the user"
  * falls out of the backend's access filtering.
+ *
+ * These sublinks keep NavLink's prefix matching on purpose: they are detail
+ * links (`/agents/<id>`), not top-level nav entries, and the parent *Agents*
+ * entry staying highlighted on an agent page is intended — no nav entry is a
+ * prefix of a sublink, so the most-specific rule has nothing to disambiguate
+ * here.
  */
 function RecentAgents({ scope }: { scope: string }) {
   const { data } = useAgents({ pageSize: 200 })
@@ -137,6 +143,7 @@ export function Spine({
 }: SpineProps) {
   const { data: pluginItems } = usePlugins()
   const { data: callerContext } = usePluginCallerContext()
+  const location = useLocation()
 
   const availablePlugins = useMemo(
     () => activePlugins(Array.isArray(pluginItems) ? pluginItems : []),
@@ -145,6 +152,24 @@ export function Spine({
   const pluginNavEntries = useMemo(
     () => navEntries(availablePlugins, callerContext?.isAdmin ?? false),
     [availablePlugins, callerContext?.isAdmin],
+  )
+  // Most-specific-match-wins, mirroring findPage()'s routing rule, applied to
+  // every top-level nav entry — built-in and plugin alike. NavLink's default
+  // prefix matching reports *every* prefix as active, which would light up a
+  // root page (e.g. /p/memory) on every nested path (/p/memory/setup). The
+  // rule is uniform so a built-in path can never double-highlight with
+  // another entry (built-in or plugin) the day one becomes a prefix of it.
+  // Deep links still keep their entry highlighted (/docs/mcp → Docs).
+  const allNavEntries = useMemo(
+    () => [
+      ...SECTIONS.flatMap((section) => section.items),
+      ...pluginNavEntries,
+    ],
+    [pluginNavEntries],
+  )
+  const activePath = useMemo(
+    () => activeNavPath(allNavEntries, location.pathname),
+    [allNavEntries, location.pathname],
   )
 
   // Group plugin entries by section and compute Plugins section
@@ -170,36 +195,41 @@ export function Spine({
           <div className="nav-section">
             <span className="label">{section.label}</span>
           </div>
-          {section.items.map((item) => (
+          {section.items.map((item) => {
+            const active = item.to === activePath
+            return (
             <div key={item.to}>
-              <NavLink
+              <Link
                 to={item.to}
-                className={({ isActive }) =>
-                  isActive ? 'nav-link active' : 'nav-link'
-                }
+                className={active ? 'nav-link active' : 'nav-link'}
+                aria-current={active ? 'page' : undefined}
               >
                 <span className="idx">{item.idx}</span>
                 <span className="name">{item.name}</span>
                 {item.tag ? <span className="nav-tag">{item.tag}</span> : <span />}
-              </NavLink>
+              </Link>
               {item.to === '/agents' ? <RecentAgents scope={recentsScope} /> : null}
             </div>
-          ))}
-          {/* Render plugin entries for this section */}
-          {pluginsBySection.get(section.label)?.map((entry, idx) => (
-            <div key={entry.to}>
-              <NavLink
-                to={entry.to}
-                className={({ isActive }) =>
-                  isActive ? 'nav-link active' : 'nav-link'
-                }
-              >
-                <span className="idx">P·{idx + 1}</span>
-                <span className="name">{entry.label}</span>
-                <span />
-              </NavLink>
-            </div>
-          ))}
+            )
+          })}
+          {/* Plugin entries share the built-in entries' matching rule: plain
+              links whose active state comes from the combined activeNavPath. */}
+          {pluginsBySection.get(section.label)?.map((entry, idx) => {
+            const active = entry.to === activePath
+            return (
+              <div key={entry.to}>
+                <Link
+                  to={entry.to}
+                  className={active ? 'nav-link active' : 'nav-link'}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <span className="idx">P·{idx + 1}</span>
+                  <span className="name">{entry.label}</span>
+                  <span />
+                </Link>
+              </div>
+            )
+          })}
         </div>,
       )
 
@@ -213,20 +243,22 @@ export function Spine({
               <div className="nav-section">
                 <span className="label">{label}</span>
               </div>
-              {entries.map((entry, idx) => (
-                <div key={entry.to}>
-                  <NavLink
-                    to={entry.to}
-                    className={({ isActive }) =>
-                      isActive ? 'nav-link active' : 'nav-link'
-                    }
-                  >
-                    <span className="idx">P·{idx + 1}</span>
-                    <span className="name">{entry.label}</span>
-                    <span />
-                  </NavLink>
-                </div>
-              ))}
+              {entries.map((entry, idx) => {
+                const active = entry.to === activePath
+                return (
+                  <div key={entry.to}>
+                    <Link
+                      to={entry.to}
+                      className={active ? 'nav-link active' : 'nav-link'}
+                      aria-current={active ? 'page' : undefined}
+                    >
+                      <span className="idx">P·{idx + 1}</span>
+                      <span className="name">{entry.label}</span>
+                      <span />
+                    </Link>
+                  </div>
+                )
+              })}
             </div>,
           )
         }

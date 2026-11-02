@@ -5,6 +5,7 @@ import {
   activePlugins,
   navEntries,
   findPage,
+  activeNavPath,
   slotContributions,
   moduleUrl,
 } from './registry'
@@ -319,6 +320,64 @@ describe('registry', () => {
       ]
       const contributions = slotContributions(plugins, 'agent.panel')
       expect(contributions).toEqual([])
+    })
+  })
+
+  describe('activeNavPath', () => {
+    const nested = [{ to: '/p/memory' }, { to: '/p/memory/setup' }]
+
+    it('lets the nested entry win on its own path', () => {
+      expect(activeNavPath(nested, '/p/memory/setup')).toBe('/p/memory/setup')
+    })
+
+    it('keeps the root entry active on the root path', () => {
+      expect(activeNavPath(nested, '/p/memory')).toBe('/p/memory')
+    })
+
+    it('keeps the nested entry active on a deep link under it', () => {
+      expect(activeNavPath(nested, '/p/memory/setup/42')).toBe('/p/memory/setup')
+    })
+
+    it('keeps a page entry active on deep links under its path', () => {
+      const entries = [{ to: '/p/forgejo' }, { to: '/p/forgejo/work' }]
+      expect(activeNavPath(entries, '/p/forgejo/work/42')).toBe('/p/forgejo/work')
+    })
+
+    it('never returns two entries for one pathname', () => {
+      const entries = [
+        { to: '/p/memory' },
+        { to: '/p/memory/setup' },
+        { to: '/p/memory/setup/detail' },
+      ]
+      expect(activeNavPath(entries, '/p/memory/setup/detail')).toBe(
+        '/p/memory/setup/detail',
+      )
+    })
+
+    it('does not cross-activate sibling entries', () => {
+      const entries = [{ to: '/p/forgejo/now' }, { to: '/p/forgejo/work' }]
+      expect(activeNavPath(entries, '/p/forgejo/now')).toBe('/p/forgejo/now')
+      expect(activeNavPath(entries, '/p/forgejo/work')).toBe('/p/forgejo/work')
+    })
+
+    it('matches whole segments only', () => {
+      // A sibling of the nested entry must not activate it; the root entry
+      // still matches as its own prefix (mirrors findPage's whole-segment rule).
+      expect(activeNavPath(nested, '/p/memory/set')).toBe('/p/memory')
+      expect(activeNavPath(nested, '/p/memory/setupx')).toBe('/p/memory')
+      const onlyNested = [{ to: '/p/x/setup' }]
+      expect(activeNavPath(onlyNested, '/p/x/set')).toBeUndefined()
+    })
+
+    it('returns undefined when nothing matches', () => {
+      expect(activeNavPath(nested, '/dashboard')).toBeUndefined()
+      expect(activeNavPath([], '/p/memory')).toBeUndefined()
+    })
+
+    it('resolves entries across sections from one flattened set', () => {
+      const entries = [{ to: '/agents' }, { to: '/p/memory' }, { to: '/p/memory/setup' }]
+      expect(activeNavPath(entries, '/p/memory/setup')).toBe('/p/memory/setup')
+      expect(activeNavPath(entries, '/agents/a-1')).toBe('/agents')
     })
   })
 

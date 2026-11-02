@@ -315,4 +315,157 @@ describe('Spine', () => {
     )
     expect(headings.indexOf('Memory')).toBe(headings.indexOf('Library') + 1)
   })
+
+  // Regression for ainsel-plugin-memory#9: the memory plugin is the first to
+  // combine a root page (/) with a nested page (/setup), and NavLink's
+  // default prefix matching lit up *both* entries on /p/memory/setup. Plugin
+  // entries must use the most-specific-match-wins rule in both render paths:
+  // inside built-in sections and under plugin-owned headings.
+  function stubMemoryPlugin(section: string) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/plugins')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    id: 'memory',
+                    displayName: 'Memory',
+                    ready: true,
+                    manifest: {
+                      id: 'memory',
+                      displayName: 'Memory',
+                      pluginApi: '1.1',
+                      ui: {
+                        entry: '/static/ui/index.js',
+                        pages: [
+                          { path: '/', label: 'Memories', section },
+                          { path: '/setup', label: 'Setup', section, visibility: 'admin' },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('plugin-context')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ isAdmin: true, sub: 'u', username: 'kim', groups: [] }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(emptyAgentsResponse())
+      }),
+    )
+  }
+
+  function activePluginLinks() {
+    return Array.from(document.querySelectorAll('.nav-link.active')).filter((el) =>
+      ['/p/memory', '/p/memory/setup'].includes(el.getAttribute('href') ?? ''),
+    )
+  }
+
+  it('highlights only the nested plugin entry, not the root entry (built-in section)', async () => {
+    stubMemoryPlugin('Observability')
+    renderAt('/p/memory/setup')
+
+    await screen.findByRole('link', { name: /Setup/i })
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
+      '/p/memory/setup',
+    ])
+    // aria-current follows the same rule as the class, so assistive tech
+    // never sees two "current page" links either.
+    expect(screen.getByRole('link', { name: /Setup/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(screen.getByRole('link', { name: /Memories/i })).not.toHaveAttribute(
+      'aria-current',
+    )
+  })
+
+  it('highlights only the nested plugin entry, not the root entry (plugin-owned heading)', async () => {
+    stubMemoryPlugin('Memory')
+    renderAt('/p/memory/setup')
+
+    await screen.findByRole('link', { name: /Setup/i })
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
+      '/p/memory/setup',
+    ])
+  })
+
+  it('highlights the root plugin entry on its own path', async () => {
+    stubMemoryPlugin('Observability')
+    renderAt('/p/memory')
+
+    await screen.findByRole('link', { name: /Memories/i })
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
+      '/p/memory',
+    ])
+  })
+
+  it('keeps the nested entry highlighted on deep links under its path', async () => {
+    stubMemoryPlugin('Observability')
+    renderAt('/p/memory/setup/42')
+
+    await screen.findByRole('link', { name: /Setup/i })
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
+      '/p/memory/setup',
+    ])
+  })
+
+  // The most-specific-match rule is not plugin-only: every top-level nav
+  // entry (built-in and plugin) is resolved through one combined
+  // activeNavPath, so the sidebar has a single uniform matching rule.
+  function activeTopLevelLinks() {
+    return Array.from(document.querySelectorAll('a.nav-link.active')).map(
+      (el) => el.getAttribute('href'),
+    )
+  }
+
+  it('keeps the Agents entry highlighted on agent detail paths', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          agentsResponse([
+            { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
+          ]),
+        ),
+      ),
+    )
+    renderAt('/agents/a-1')
+
+    // The sublink for the agent itself renders (rendered as NavLink, which is
+    // the intended exception: detail links are not top-level nav entries).
+    await screen.findByRole('link', { name: /nightly-sweeper/i })
+    const agents = screen.getByRole('link', { name: /^\s*02\s*Agents/i })
+    expect(agents).toHaveAttribute('aria-current', 'page')
+    expect(agents).toHaveClass('active')
+  })
+
+  it('highlights exactly one top-level entry when built-in and plugin entries coexist', async () => {
+    stubMemoryPlugin('Observability')
+    renderAt('/p/memory/setup')
+
+    await screen.findByRole('link', { name: /Setup/i })
+    // /p/memory/setup matches no built-in entry, and among the plugin entries
+    // only the nested one wins — never the root entry, never Observability too.
+    expect(activeTopLevelLinks()).toEqual(['/p/memory/setup'])
+  })
+
+  it('highlights exactly one top-level entry on built-in deep links with plugins present', async () => {
+    stubMemoryPlugin('Observability')
+    renderAt('/docs/mcp')
+
+    await screen.findByRole('link', { name: /Memories/i })
+    expect(activeTopLevelLinks()).toEqual(['/docs'])
+  })
 })

@@ -53,6 +53,40 @@ export function navEntries(plugins: ActivePlugin[], isAdmin: boolean) {
 }
 
 /**
+ * The nav entry whose page is rendered for `pathname`, or undefined if none
+ * matches. Mirrors findPage()'s routing rule: an entry matches on whole
+ * segments (`pathname === entry.to` or `pathname.startsWith(entry.to + '/')`)
+ * and the *most specific* match wins — at most one entry is ever active.
+ *
+ * This exists because react-router's default NavLink matching is prefix-based
+ * and reports *every* prefix as active: an entry with a root page (`/p/x`) plus
+ * a nested page (`/p/x/setup`) would highlight both entries on `/p/x/setup`.
+ * Deep links must keep highlighting their page (`/p/x/work/42` → the `WorkPage`
+ * entry), which exact matching alone would break. The hub applies this rule to
+ * every top-level nav entry — built-in and plugin alike — so the sidebar uses
+ * one uniform matching rule and stays correct if a built-in path ever becomes
+ * a prefix of another entry.
+ *
+ * Operates on the full flattened entry set, not per section, so the rule
+ * stays correct if sections ever share path prefixes.
+ */
+export function activeNavPath(
+  entries: readonly { to: string }[],
+  pathname: string,
+): string | undefined {
+  let best: string | undefined
+  for (const entry of entries) {
+    const to = entry.to
+    if (pathname === to || pathname.startsWith(to + '/')) {
+      if (best === undefined || to.length > best.length) {
+        best = to
+      }
+    }
+  }
+  return best
+}
+
+/**
  * Find a page by its path segments.
  * Matches the longest prefix of the path against page paths.
  */

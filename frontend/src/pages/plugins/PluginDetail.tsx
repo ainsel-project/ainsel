@@ -11,11 +11,14 @@ import {
   type PluginListItem,
 } from '../../api/plugins'
 import { useGroups } from '../../api/groups'
+import { EntityLink } from '../../components/EntityLink'
+import { groupPath } from '../../components/entityPaths'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { DualListPicker } from '../../primitives/DualListPicker'
 import { Notice } from '../../primitives/Notice'
 import { Panel } from '../../primitives/Panel'
+import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
 
@@ -59,6 +62,12 @@ function getStatusText(plugin: PluginListItem): string {
   return plugin.reason || 'Not ready'
 }
 
+type GroupAccessRow = {
+  id: string
+  name: string
+  description: string
+}
+
 export function PluginDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -88,6 +97,34 @@ export function PluginDetail() {
     const approved = new Set(plugin.approvedPermissions ?? [])
     return declared.size !== approved.size || [...declared].some((p) => !approved.has(p))
   }, [plugin])
+
+  // Read mode renders server state (plugin.groupAccess), never the edit draft.
+  const knownGroupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups])
+  const groupAccessRows = useMemo<GroupAccessRow[]>(() => {
+    if (!plugin) return []
+    return (plugin.groupAccess ?? []).map((gid) => {
+      const group = groups.find((g) => g.id === gid)
+      return { id: gid, name: group?.name ?? gid, description: group?.description ?? '' }
+    })
+  }, [plugin, groups])
+
+  const groupAccessColumns = useMemo<Column<GroupAccessRow>[]>(
+    () => [
+      {
+        key: 'group',
+        header: 'Group',
+        cell: (row) => (
+          <EntityLink id={row.id} known={knownGroupIds} label={row.name} path={groupPath} />
+        ),
+      },
+      {
+        key: 'description',
+        header: 'Description',
+        cell: (row) => row.description || '—',
+      },
+    ],
+    [knownGroupIds],
+  )
 
   const handleApprovePermissions = () => {
     if (!id || !plugin?.declaredPermissions) return
@@ -273,20 +310,12 @@ export function PluginDetail() {
           <div style={{ padding: 16, display: 'grid', gap: 14 }}>
             {!groupAccessMode ? (
               <>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {selectedGroupIds.length > 0 ? (
-                    selectedGroupIds.map((gid) => {
-                      const group = groups.find((g) => g.id === gid)
-                      return (
-                        <Tag key={gid} variant="ok">
-                          {group?.name || gid}
-                        </Tag>
-                      )
-                    })
-                  ) : (
-                    <span style={{ color: 'var(--ink-3)' }}>No groups selected</span>
-                  )}
-                </div>
+                <RegisterTable
+                  rows={groupAccessRows}
+                  columns={groupAccessColumns}
+                  rowKey={(row) => row.id}
+                  emptyLabel="No groups have access"
+                />
                 <Button
                   variant="primary"
                   onClick={() => {
