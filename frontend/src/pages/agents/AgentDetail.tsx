@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   isIdle,
-  useAgent,
   useDeleteAgent,
   usePauseAgent,
   useResumeAgent,
@@ -13,42 +12,18 @@ import { useAgentImages } from '../../api/agentImages'
 import { EntityLink } from '../../components/EntityLink'
 import { agentImagePath } from '../../components/entityPaths'
 import { useAgentPersona } from '../../api/personas'
-import { usePlugins } from '../../api/plugins'
-import { recordAgentView, recentsScope } from '../../agentRecents'
-import { useAuth } from '../../auth/AuthProvider'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Dot } from '../../primitives/Dot'
 import { Markdown } from '../../primitives/Markdown'
 import { Panel } from '../../primitives/Panel'
-import { Tabs } from '../../primitives/Tabs'
 import { Tag } from '../../primitives/Tag'
-import { Titleblock } from '../../layout/Titleblock'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { isManaged } from '../../utils/managed'
-import { AgentChannelTab } from '../channels/AgentChannelTab'
-import { AgentTriggers } from './AgentTriggers'
-import { AgentPersonaSection } from './AgentPersonaSection'
-import {
-  AgentImageSection,
-  AgentToolsSection,
-  AgentMCPSection,
-  AgentSkillsSection,
-} from './AgentImageSection'
-import { AgentEnvSection } from './AgentEnvSection'
 import { llmProviderLabel } from './agentFormModel'
-import { PluginSlot } from '../../plugins/PluginSlot'
-import { activePlugins, slotContributions } from '../../plugins/registry'
-
-const BUILT_IN_TABS = [
-  { value: 'overview', label: 'Overview' },
-  { value: 'channel', label: 'Channel' },
-  { value: 'triggers', label: 'Triggers' },
-  { value: 'persona', label: 'Persona' },
-  { value: 'runtime', label: 'Runtime' },
-  { value: 'tools', label: 'Tools' },
-  { value: 'skills', label: 'Skills' },
-] as const
+import { SectionPage } from './workspace/SectionPage'
+import { sectionPath, type SectionId } from './workspace/sections'
+import { useWorkspaceAgent } from './workspace/workspaceAgent'
 
 // Duration presets for the pause dialog. 'indefinite' sends an empty body:
 // the pause then lasts until someone resumes explicitly.
@@ -60,17 +35,15 @@ const PAUSE_PRESETS: { value: string; label: string }[] = [
   { value: 'indefinite', label: 'Indefinite' },
 ]
 
-export function AgentDetail() {
-  const { id } = useParams<{ id: string }>()
+/** Overview section: agent facts, runtime status, and the lifecycle actions. */
+export function OverviewSection() {
+  const data = useWorkspaceAgent()
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const tabParam = searchParams.get('tab')
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [pauseOpen, setPauseOpen] = useState(false)
   const [pauseDuration, setPauseDuration] = useState('8h')
   const [pauseError, setPauseError] = useState<string | null>(null)
-  const { data, isLoading, error } = useAgent(id)
   // Side list decides whether the image reference is linkable: an image that
   // was deleted renders the plain switch-to-runtime control, not a 404.
   const { data: imageData } = useAgentImages({ pageSize: 200 })
@@ -78,38 +51,11 @@ export function AgentDetail() {
   const remove = useDeleteAgent()
   const pause = usePauseAgent()
   const resume = useResumeAgent()
-  const { user } = useAuth()
-  const { data: pluginsList } = usePlugins()
+  const { id } = data
 
-  // Build tabs list with plugin contributions
-  const plugins = useMemo(() => activePlugins(pluginsList ?? []), [pluginsList])
-  const pluginContributions = useMemo(() => slotContributions(plugins, 'agent.panel'), [plugins])
-
-  const tabs = useMemo(() => {
-    const builtIn = [...BUILT_IN_TABS]
-    const pluginTabs = pluginContributions.map((c) => ({
-      value: `plugin:${c.plugin.id}`,
-      label: c.plugin.displayName,
-    }))
-    return [...builtIn, ...pluginTabs]
-  }, [pluginContributions])
-
-  const tab = tabParam && tabs.some((t) => t.value === tabParam) ? tabParam : 'overview'
-
-  const onTabChange = (next: string) => {
-    setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
-  }
-
-  // Feed the nav's recent-agents list. Keyed on the loaded agent's id, not the
-  // raw route param, so an unresolvable URL cannot be remembered as "viewed".
-  // (The nav also filters these against what the hub returns you, so the
-  // worst case for a stale id is an unused entry that the cap ages out.)
-  useEffect(() => {
-    if (data?.id) recordAgentView(recentsScope(user), data.id)
-  }, [data?.id, user])
+  const goTo = (section: SectionId) => navigate(sectionPath(id, section))
 
   const onConfirmDelete = async () => {
-    if (!id) return
     setDeleteError(null)
     try {
       await remove.mutateAsync(id)
@@ -124,10 +70,9 @@ export function AgentDetail() {
   // The operator's run account says whether work is in flight. An agent with
   // nothing queued or running is idle by design — the Deployment is only the
   // pod template; every task runs as its own Job.
-  const idle = isIdle(data?.status)
+  const idle = isIdle(data.status)
 
   const onConfirmPause = async () => {
-    if (!id) return
     setPauseError(null)
     const body: PauseAgentRequest =
       pauseDuration === 'indefinite' ? {} : { duration: pauseDuration }
@@ -140,7 +85,6 @@ export function AgentDetail() {
   }
 
   const onResume = async () => {
-    if (!id) return
     try {
       await resume.mutateAsync(id)
     } catch {
@@ -151,29 +95,25 @@ export function AgentDetail() {
   // Paused is not broken: tasks route on and wait in the agent's queue,
   // draining in order when the pause ends. Show it as its own state so the
   // Ready dot does not read as a fault.
-  const paused = data?.paused === true
+  const paused = data.paused === true
+  const managed = isManaged(data.managedBy)
 
   return (
     <>
-      <Titleblock
-        crumbs={
-          <>
-            Fleet / <Link to="/agents">Agents</Link> / <b>{data?.name ?? id ?? '—'}</b>
-          </>
-        }
+      <SectionPage
         title={
           <>
-            {data?.name ?? <em>Agent</em>}
-            {isManaged(data?.managedBy) ? (
+            {data.name}
+            {managed ? (
               <span style={{ marginLeft: 10 }}>
-                <ManagedBadge managedBy={data?.managedBy} />
+                <ManagedBadge managedBy={data.managedBy} />
               </span>
             ) : null}
             {paused ? (
               <span style={{ marginLeft: 10 }}>
                 <Tag variant="warn">
                   Paused
-                  {data?.pausedUntil
+                  {data.pausedUntil
                     ? ` · resumes ${new Date(data.pausedUntil).toLocaleString()}`
                     : ' · until resumed'}
                 </Tag>
@@ -182,7 +122,7 @@ export function AgentDetail() {
           </>
         }
         actions={
-          isManaged(data?.managedBy) ? null : (
+          managed ? null : (
             <>
               {paused ? (
                 <Button variant="primary" onClick={onResume} disabled={resume.isPending}>
@@ -191,7 +131,7 @@ export function AgentDetail() {
               ) : (
                 <Button onClick={() => setPauseOpen(true)}>Pause</Button>
               )}
-              <Button onClick={() => id && navigate(`/agents/${encodeURIComponent(id)}/edit`)}>
+              <Button onClick={() => navigate(`/agents/${encodeURIComponent(id)}/edit`)}>
                 Edit
               </Button>
               <Button variant="danger" onClick={() => setConfirmOpen(true)}>
@@ -200,129 +140,84 @@ export function AgentDetail() {
             </>
           )
         }
-      />
-      <div style={{ padding: '28px 32px' }}>
-        <Tabs value={tab} onChange={onTabChange} tabs={tabs} aria-label="Agent sections" />
-        <div style={{ marginTop: 24 }}>
-          {isLoading ? <p className="label">Loading…</p> : null}
-          {error ? (
-            <p className="label" style={{ color: 'var(--signal)' }}>
-              Failed to load agent.
-            </p>
-          ) : null}
-          {data && tab.startsWith('plugin:') ? (
-            <PluginSlot
-              slot="agent.panel"
-              props={{ agentName: data.id }}
-              pluginId={tab.substring('plugin:'.length)}
-            />
-          ) : null}
-          {data && tab === 'overview' ? (
-            <div style={{ display: 'grid', gap: 24 }}>
-              <Panel title="General" className="cropped">
-                <div className="info-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-                  <div>
-                    <div className="k">Name</div>
-                    <div className="v">{data.name}</div>
-                  </div>
-                  <div>
-                    <div className="k">Model</div>
-                    <div className="v">{data.llm?.model ?? '—'}</div>
-                  </div>
-                  <div>
-                    <div className="k">Provider</div>
-                    <div className="v">{llmProviderLabel(data.llm?.provider)}</div>
-                  </div>
-                  <div>
-                    <div className="k">Image input</div>
-                    <div className="v">{data.llm?.vision ? 'Images on' : 'Text only'}</div>
-                  </div>
-                  <div>
-                    <div className="k">Image</div>
-                    <div className="v">
-                      {data.imageRef ? (
-                        data.imageRef.id && imageIds.has(data.imageRef.id) ? (
-                          <EntityLink
-                            id={data.imageRef.id}
-                            known={imageIds}
-                            label={data.imageRef.displayName ?? data.imageRef.name}
-                            path={agentImagePath}
-                          />
-                        ) : (
-                          <Button variant="ghost" onClick={() => onTabChange('runtime')}>
-                            {data.imageRef.displayName ?? data.imageRef.name}
-                          </Button>
-                        )
-                      ) : (
-                        '—'
-                      )}
-                    </div>
-                  </div>
+      >
+        <div style={{ display: 'grid', gap: 24 }}>
+          <Panel title="General" className="cropped">
+            <div className="info-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              <div>
+                <div className="k">Name</div>
+                <div className="v">{data.name}</div>
+              </div>
+              <div>
+                <div className="k">Model</div>
+                <div className="v">{data.llm?.model ?? '—'}</div>
+              </div>
+              <div>
+                <div className="k">Provider</div>
+                <div className="v">{llmProviderLabel(data.llm?.provider)}</div>
+              </div>
+              <div>
+                <div className="k">Image input</div>
+                <div className="v">{data.llm?.vision ? 'Images on' : 'Text only'}</div>
+              </div>
+              <div>
+                <div className="k">Image</div>
+                <div className="v">
+                  {data.imageRef ? (
+                    data.imageRef.id && imageIds.has(data.imageRef.id) ? (
+                      <EntityLink
+                        id={data.imageRef.id}
+                        known={imageIds}
+                        label={data.imageRef.displayName ?? data.imageRef.name}
+                        path={agentImagePath}
+                      />
+                    ) : (
+                      <Button variant="ghost" onClick={() => goTo('runtime')}>
+                        {data.imageRef.displayName ?? data.imageRef.name}
+                      </Button>
+                    )
+                  ) : (
+                    '—'
+                  )}
                 </div>
-                {data.description ? (
-                  <p style={{ marginTop: 8, color: 'var(--ink-2)' }}>{data.description}</p>
-                ) : null}
-              </Panel>
-
-              <Panel title="Runtime Status" className="cropped">
-                <div className="info-grid">
-                  <div>
-                    <div className="k">Ready</div>
-                    <div className="v">
-                      <Dot state={idle ? 'stale' : data.status?.ready ? 'ok' : 'warn'} />{' '}
-                      {idle ? 'Idle' : data.status?.ready ? 'Ready' : 'Pending'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="k">Tasks running</div>
-                    <div className="v">
-                      {data.status?.desired ?? 0} of up to {data.replicas ?? '—'}
-                    </div>
-                  </div>
-                </div>
-              </Panel>
-
-              {data.enabledTools && data.enabledTools.length > 0 ? (
-                <Panel title={`Enabled Tools · ${data.enabledTools.length}`} className="cropped">
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {data.enabledTools.map((t) => (
-                      <Tag key={t}>{t}</Tag>
-                    ))}
-                  </div>
-                </Panel>
-              ) : null}
-
-              <PersonaPanel agentId={data.id} onConfigure={() => onTabChange('persona')} />
+              </div>
             </div>
+            {data.description ? (
+              <p style={{ marginTop: 8, color: 'var(--ink-2)' }}>{data.description}</p>
+            ) : null}
+          </Panel>
+
+          <Panel title="Runtime Status" className="cropped">
+            <div className="info-grid">
+              <div>
+                <div className="k">Ready</div>
+                <div className="v">
+                  <Dot state={idle ? 'stale' : data.status?.ready ? 'ok' : 'warn'} />{' '}
+                  {idle ? 'Idle' : data.status?.ready ? 'Ready' : 'Pending'}
+                </div>
+              </div>
+              <div>
+                <div className="k">Tasks running</div>
+                <div className="v">
+                  {data.status?.desired ?? 0} of up to {data.replicas ?? '—'}
+                </div>
+              </div>
+            </div>
+          </Panel>
+
+          {data.enabledTools && data.enabledTools.length > 0 ? (
+            <Panel title={`Enabled Tools · ${data.enabledTools.length}`} className="cropped">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {data.enabledTools.map((t) => (
+                  <Tag key={t}>{t}</Tag>
+                ))}
+              </div>
+            </Panel>
           ) : null}
 
-          {data && tab === 'persona' ? <AgentPersonaSection agent={data} /> : null}
-
-          {data && tab === 'runtime' ? (
-            <>
-              <AgentImageSection agent={data} />
-              <AgentEnvSection agent={data} />
-            </>
-          ) : null}
-
-          {data && tab === 'tools' ? (
-            <>
-              <AgentToolsSection agent={data} />
-              <AgentMCPSection agent={data} />
-            </>
-          ) : null}
-
-          {data && tab === 'skills' ? <AgentSkillsSection agent={data} /> : null}
-
-          {data && tab === 'channel' ? (
-            <AgentChannelTab agentId={data.id} agentName={data.name} />
-          ) : null}
-
-          {data && tab === 'triggers' ? (
-            <AgentTriggers agentId={data.id} agentName={data.name} />
-          ) : null}
+          <PersonaPanel agentId={id} onConfigure={() => goTo('persona')} />
         </div>
-      </div>
+      </SectionPage>
 
       <ConfirmModal
         open={pauseOpen}
@@ -330,8 +225,8 @@ export function AgentDetail() {
         body={
           <>
             <p style={{ marginTop: 0 }}>
-              <b>{data?.name ?? id}</b> stops claiming queued tasks. Events keep arriving and route
-              as usual — the tasks wait and drain in order when the pause ends. Running tasks finish
+              <b>{data.name}</b> stops claiming queued tasks. Events keep arriving and route as
+              usual — the tasks wait and drain in order when the pause ends. Running tasks finish
               normally; chat still works.
             </p>
             <div role="radiogroup" aria-label="Pause duration" style={{ display: 'grid', gap: 6 }}>
@@ -364,8 +259,8 @@ export function AgentDetail() {
         title="Delete agent?"
         body={
           <>
-            <b>{data?.name ?? id}</b> will be permanently removed. Its inbox channel — subscriptions
-            and schedules — goes with it.
+            <b>{data.name}</b> will be permanently removed. Its inbox channel — subscriptions and
+            schedules — goes with it.
           </>
         }
         confirmLabel={remove.isPending ? 'Deleting…' : 'Delete'}

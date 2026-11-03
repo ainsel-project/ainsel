@@ -4,10 +4,11 @@ import { AuthProvider } from './auth/AuthProvider'
 import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './layout/Layout'
 import { LoginLayout } from './layout/LoginLayout'
-import { AgentDetail } from './pages/agents/AgentDetail'
+import { OverviewSection } from './pages/agents/AgentDetail'
 import { AgentForm } from './pages/agents/AgentForm'
 import { AgentWizard } from './pages/agents/AgentWizard'
-import { AgentList } from './pages/agents/AgentList'
+import { AgentWorkspace, AgentListPage } from './pages/agents/workspace/AgentWorkspace'
+import { SectionRoute } from './pages/agents/workspace/sectionPages'
 import { Callback } from './pages/auth/Callback'
 import { ForcedPasswordChange } from './pages/auth/ForcedPasswordChange'
 import { ConnectorDetail } from './pages/connectors/ConnectorDetail'
@@ -87,9 +88,12 @@ export default function App() {
               <Route path="/chat" element={<ChatList />} />
               <Route path="/chat/:id" element={<ChatView />} />
 
-              <Route path="/agents" element={<AgentList />} />
+              <Route path="/agents" element={<AgentListPage />} />
               <Route path="/agents/new" element={<AgentWizard />} />
-              <Route path="/agents/:id" element={<AgentDetail />} />
+              <Route path="/agents/:id" element={<AgentWorkspace />}>
+                <Route index element={<OverviewSection />} />
+                <Route path=":section" element={<SectionRoute />} />
+              </Route>
               <Route path="/agents/:id/edit" element={<AgentForm />} />
 
               <Route path="/personas" element={<PersonaList />} />

@@ -41,3 +41,12 @@ export function buildSections(plugins: { id: string; label: string }[]): Section
     })),
   ]
 }
+
+const BUILT_IN_IDS: readonly string[] = BUILT_IN.map((s) => s.id)
+
+/** Parses a URL segment into a section id; null for anything unknown. */
+export function parseSection(segment: string): SectionId | null {
+  if (BUILT_IN_IDS.includes(segment)) return segment as SectionId
+  if (/^plugin:.+/.test(segment)) return segment as SectionId
+  return null
+}

@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
-import { AgentDetail } from './AgentDetail'
+import { OverviewSection } from './AgentDetail'
+import { AgentWorkspace } from './workspace/AgentWorkspace'
+import { SectionRoute } from './workspace/sectionPages'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
-// AgentDetail records the visit for the nav's recent-agents list, which needs
+// The workspace records the visit for the nav's recent-agents list, which needs
 // the signed-in user's `sub` as the storage bucket.
 vi.mock('../../auth/AuthProvider', () => ({
   useAuth: () => ({
@@ -307,7 +309,7 @@ function defaultFetch(url: string, init?: RequestInit): Response {
   return new Response('{}', { status: 200 })
 }
 
-describe('AgentDetail', () => {
+describe('AgentWorkspace (overview and sections)', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.stubGlobal(
@@ -322,7 +324,10 @@ describe('AgentDetail', () => {
   it('renders agent name and metadata', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -337,7 +342,10 @@ describe('AgentDetail', () => {
   it('links the image reference to the image detail page', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -346,24 +354,30 @@ describe('AgentDetail', () => {
   })
 
   // #154 prerequisite: the agent's triggers are reachable from the agent page.
-  it('shows the agent triggers on a Triggers tab', async () => {
+  it('shows the agent triggers on a Triggers section', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: /^triggers$/i })).toBeInTheDocument(),
+      expect(screen.getByRole('link', { name: /^triggers$/i })).toBeInTheDocument(),
     )
-    await userEvent.click(screen.getByRole('tab', { name: /^triggers$/i }))
+    await userEvent.click(screen.getByRole('link', { name: /^triggers$/i }))
     await waitFor(() => expect(screen.getByText('on-doc-issue')).toBeInTheDocument())
   })
 
   it('shows image input as off when the agent does not accept images', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -390,7 +404,10 @@ describe('AgentDetail', () => {
     )
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -401,7 +418,10 @@ describe('AgentDetail', () => {
   it('records the viewed agent under the signed-in user', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -415,7 +435,10 @@ describe('AgentDetail', () => {
   it('renders enabled tools as chips', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -426,7 +449,10 @@ describe('AgentDetail', () => {
   it('renders persona panel with name, markdown, and configure button', async () => {
     const { container } = renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -468,7 +494,10 @@ describe('AgentDetail', () => {
 
     const { container } = renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -490,7 +519,10 @@ describe('AgentDetail', () => {
 
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -498,7 +530,7 @@ describe('AgentDetail', () => {
     expect(screen.getByRole('button', { name: /configure persona/i })).toBeInTheDocument()
   })
 
-  it('opens the Persona tab from the overview button, loads the editor, and switches personas', async () => {
+  it('opens the Persona section from the overview button, loads the editor, and switches personas', async () => {
     const putCalls: Array<{ url: string; body?: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -512,7 +544,10 @@ describe('AgentDetail', () => {
 
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -539,7 +574,7 @@ describe('AgentDetail', () => {
     })
   })
 
-  it('opens the Runtime tab with image identity and env, and switches images', async () => {
+  it('opens the Runtime section with image identity and env, and switches images', async () => {
     const putCalls: Array<{ url: string; body?: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -553,12 +588,15 @@ describe('AgentDetail', () => {
 
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
     await screen.findAllByText('doc-writer')
-    await userEvent.click(screen.getByRole('tab', { name: /^runtime$/i }))
+    await userEvent.click(screen.getByRole('link', { name: /^runtime & env$/i }))
 
     // The embedded editor loads the referenced image's identity and env.
     const urlInput = await screen.findByLabelText('Image URL')
@@ -586,12 +624,15 @@ describe('AgentDetail', () => {
   it('offers agent-scoped env overrides next to the shared image profile', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
     await screen.findAllByText('doc-writer')
-    await userEvent.click(screen.getByRole('tab', { name: /^runtime$/i }))
+    await userEvent.click(screen.getByRole('link', { name: /^runtime & env$/i }))
 
     // The shared image profile keeps its own editor and heading ...
     expect(await screen.findByLabelText('Image URL')).toBeInTheDocument()
@@ -604,7 +645,7 @@ describe('AgentDetail', () => {
     expect(screen.getByRole('button', { name: /save overrides/i })).toBeDisabled()
   })
 
-  it('opens the Tools tab with the image catalog and an agent-scoped MCP selection', async () => {
+  it('opens the Tools section with the image catalog and an agent-scoped MCP selection', async () => {
     const putCalls: Array<{ url: string; body?: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -642,12 +683,15 @@ describe('AgentDetail', () => {
 
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
     await screen.findAllByText('doc-writer')
-    await userEvent.click(screen.getByRole('tab', { name: /^tools$/i }))
+    await userEvent.click(screen.getByRole('link', { name: /^tools & mcp$/i }))
 
     // The image tool catalog still renders (with its own save button),
     // and the MCP section is now the agent's own selection.
@@ -681,7 +725,7 @@ describe('AgentDetail', () => {
     })
   })
 
-  it('opens the Skills tab as an agent-scoped selection and pins it on change', async () => {
+  it('opens the Skills section as an agent-scoped selection and pins it on change', async () => {
     const putCalls: Array<{ url: string; body?: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -720,12 +764,15 @@ describe('AgentDetail', () => {
 
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
     await screen.findAllByText('doc-writer')
-    await userEvent.click(screen.getByRole('tab', { name: /^skills$/i }))
+    await userEvent.click(screen.getByRole('link', { name: /^skills$/i }))
 
     // The agent-scoped picker renders with agent wording, and the
     // inherit-from-image hint shows while spec.skills is unset.
@@ -759,16 +806,19 @@ describe('AgentDetail', () => {
     })
   })
 
-  it('shows the Channel tab with the agent inbox summary', async () => {
+  it('shows the Channel section with the agent inbox summary', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
     await screen.findByText('claude-opus-4-7')
-    expect(screen.getByRole('tab', { name: /channel/i })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('tab', { name: /channel/i }))
+    expect(screen.getByRole('link', { name: /^channel$/i })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('link', { name: /^channel$/i }))
     expect(await screen.findByText('agent inbox')).toBeInTheDocument()
     expect(screen.getByText('The inbox agent doc-writer drains')).toBeInTheDocument()
     // addressed by the hub's channel id, not a synthesized kind:name key
@@ -781,10 +831,13 @@ describe('AgentDetail', () => {
     )
   })
 
-  it('does not show the Access card on the overview tab', async () => {
+  it('does not show the Access card on the overview section', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
@@ -792,34 +845,43 @@ describe('AgentDetail', () => {
     expect(screen.queryByRole('button', { name: /access/i })).not.toBeInTheDocument()
   })
 
-  it('shows runtime stats on the overview tab and no separate Status tab', async () => {
+  it('shows runtime stats on the overview section and no separate Status section', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )
     await screen.findByText('claude-opus-4-7')
     expect(screen.getByRole('heading', { name: 'Runtime Status' })).toBeInTheDocument()
     expect(screen.getByText('Tasks running')).toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: /^status$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^status$/i })).not.toBeInTheDocument()
   })
 
-  it('opens the Channel tab directly via the ?tab=channel deep link', async () => {
+  it('opens the Channel section directly via the ?tab=channel legacy link', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1?tab=channel' },
     )
-    // Channel panel content loads without clicking the tab.
+    // Channel panel content loads without clicking the link.
     await waitFor(() => expect(screen.getByText('agent inbox')).toBeInTheDocument())
   })
 
-  it('falls back to the Overview tab for an invalid ?tab value', async () => {
+  it('falls back to the Overview section for an invalid ?tab value', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1?tab=bogus' },
     )
@@ -831,7 +893,10 @@ describe('AgentDetail', () => {
   it('confirms and deletes the agent then navigates', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
         <Route path="/agents" element={<div>LIST</div>} />
       </Routes>,
       { route: '/agents/a1' },
@@ -860,7 +925,10 @@ describe('AgentDetail', () => {
 
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
         <Route path="/agents" element={<div>LIST</div>} />
       </Routes>,
       { route: '/agents/a1' },
@@ -908,7 +976,10 @@ describe('AgentDetail', () => {
     function renderAgent() {
       return renderWithProviders(
         <Routes>
-          <Route path="/agents/:id" element={<AgentDetail />} />
+          <Route path="/agents/:id" element={<AgentWorkspace />}>
+            <Route index element={<OverviewSection />} />
+            <Route path=":section" element={<SectionRoute />} />
+          </Route>
         </Routes>,
         { route: '/agents/a1' },
       )
@@ -934,24 +1005,30 @@ describe('AgentDetail', () => {
   })
 
   describe('plugin slots', () => {
-    it('adds a Mem0 tab and renders the plugin when selected', async () => {
+    it('adds a Mem0 section and renders the plugin when selected', async () => {
       renderWithProviders(
         <Routes>
-          <Route path="/agents/:id" element={<AgentDetail />} />
+          <Route path="/agents/:id" element={<AgentWorkspace />}>
+            <Route index element={<OverviewSection />} />
+            <Route path=":section" element={<SectionRoute />} />
+          </Route>
         </Routes>,
         { route: '/agents/a1' },
       )
       await screen.findAllByText('doc-writer')
-      expect(screen.getByRole('tab', { name: /mem0/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /mem0/i })).toBeInTheDocument()
 
-      await userEvent.click(screen.getByRole('tab', { name: /mem0/i }))
+      await userEvent.click(screen.getByRole('link', { name: /mem0/i }))
       await waitFor(() => expect(screen.getByText('agentName=a1')).toBeInTheDocument())
     })
 
-    it('loads a plugin tab via deep link', async () => {
+    it('loads a plugin section via deep link', async () => {
       renderWithProviders(
         <Routes>
-          <Route path="/agents/:id" element={<AgentDetail />} />
+          <Route path="/agents/:id" element={<AgentWorkspace />}>
+            <Route index element={<OverviewSection />} />
+            <Route path=":section" element={<SectionRoute />} />
+          </Route>
         </Routes>,
         { route: '/agents/a1?tab=plugin:mem0' },
       )
@@ -1000,7 +1077,10 @@ describe('AgentDetail', () => {
 
       renderWithProviders(
         <Routes>
-          <Route path="/agents/:id" element={<AgentDetail />} />
+          <Route path="/agents/:id" element={<AgentWorkspace />}>
+            <Route index element={<OverviewSection />} />
+            <Route path=":section" element={<SectionRoute />} />
+          </Route>
         </Routes>,
         { route: '/agents/a1' },
       )
@@ -1050,7 +1130,10 @@ describe('AgentDetail', () => {
 
       renderWithProviders(
         <Routes>
-          <Route path="/agents/:id" element={<AgentDetail />} />
+          <Route path="/agents/:id" element={<AgentWorkspace />}>
+            <Route index element={<OverviewSection />} />
+            <Route path=":section" element={<SectionRoute />} />
+          </Route>
         </Routes>,
         { route: '/agents/a1' },
       )
@@ -1065,7 +1148,7 @@ describe('AgentDetail', () => {
 })
 
 // Issue #146: an externally managed agent is read-only in the console.
-describe('AgentDetail (externally managed)', () => {
+describe('AgentWorkspace (externally managed)', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.stubGlobal(
@@ -1099,7 +1182,10 @@ describe('AgentDetail (externally managed)', () => {
   it('hides Pause, Edit, and Delete and marks the agent as managed', async () => {
     renderWithProviders(
       <Routes>
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/agents/:id" element={<AgentWorkspace />}>
+          <Route index element={<OverviewSection />} />
+          <Route path=":section" element={<SectionRoute />} />
+        </Route>
       </Routes>,
       { route: '/agents/a1' },
     )

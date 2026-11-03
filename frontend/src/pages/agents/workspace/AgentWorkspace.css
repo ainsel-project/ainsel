@@ -130,3 +130,27 @@
     display: flex;
   }
 }
+
+/* Workspace row: roster | section nav | section content. */
+.agent-workspace {
+  display: flex;
+  min-height: 100%;
+}
+
+.agent-workspace-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-workspace-content {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 899px) {
+  .agent-workspace,
+  .agent-workspace-main {
+    flex-direction: column;
+  }
+}
