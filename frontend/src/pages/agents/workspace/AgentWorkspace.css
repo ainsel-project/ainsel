@@ -1,0 +1,132 @@
+/* Agent workspace: agent roster sidebar + per-agent section nav. */
+
+.agent-sidebar-shell {
+  display: contents;
+}
+
+.agent-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--paper-deep);
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+
+.agent-sidebar-toggle {
+  display: none;
+}
+
+.agent-sidebar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.agent-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.agent-sidebar-link[aria-current='page'] {
+  background: var(--paper-deep);
+  color: var(--ink-4);
+  font-weight: 600;
+}
+
+.agent-sidebar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-sidebar-new {
+  color: var(--signal);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.section-nav {
+  width: 170px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--paper-deep);
+  color: var(--ink-2);
+}
+
+.section-nav-heading {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.section-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.section-nav-link {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.section-nav-link[aria-current='page'] {
+  background: var(--paper-deep);
+  color: var(--ink-4);
+  font-weight: 600;
+}
+
+/* Below 900px the agent roster collapses behind a toggle button. */
+@media (max-width: 899px) {
+  .agent-sidebar-shell {
+    display: block;
+  }
+
+  .agent-sidebar-toggle {
+    display: inline-block;
+    margin: 8px 12px;
+    padding: 4px 10px;
+    border: 1px solid var(--ink-4);
+    border-radius: 6px;
+    background: var(--paper-2);
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  .agent-sidebar {
+    display: none;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--paper-deep);
+  }
+
+  .agent-sidebar[data-open='true'] {
+    display: flex;
+  }
+}
