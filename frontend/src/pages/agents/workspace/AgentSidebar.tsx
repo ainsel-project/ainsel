@@ -24,7 +24,7 @@ export function AgentSidebar({ selectedId }: AgentSidebarProps) {
       <button
         type="button"
         className="agent-sidebar-toggle"
-        aria-label={open ? 'Hide agents' : 'Show agents'}
+        aria-label="Show agents"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >

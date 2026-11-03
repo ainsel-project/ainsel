@@ -48,6 +48,20 @@ describe('AgentSidebar', () => {
     expect(link).toHaveAttribute('aria-current', 'page')
   })
 
+  it('keeps the toggle named Show agents and flips aria-expanded on click', async () => {
+    renderWithProviders(<AgentSidebar />, { route: '/agents' })
+    const toggle = screen.getByRole('button', { name: 'Show agents' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(toggle)
+    expect(screen.getByRole('button', { name: 'Show agents' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(toggle).toHaveAccessibleName('Show agents')
+  })
+
   it('links New agent to the wizard route', async () => {
     renderWithProviders(<AgentSidebar />, { route: '/agents' })
     expect(await screen.findByRole('link', { name: '+ New agent' })).toHaveAttribute(
