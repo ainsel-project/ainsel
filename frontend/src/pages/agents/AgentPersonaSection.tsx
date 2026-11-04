@@ -29,7 +29,7 @@ type AgentPersonaSectionProps = {
 }
 
 /**
- * The Persona tab of the agent detail page: which persona the agent uses, and
+ * The Persona section of the agent detail page: which persona the agent uses, and
  * its content.
  *
  * The content is agent-owned. Saving writes to the agent's own persona — the

@@ -12,7 +12,7 @@ import {
   tokenColor,
 } from './cssThemeKit'
 
-// The Tools tab and the MCP / Skills picker both mark the current row with a
+// The Tools & MCP section and the MCP / Skills picker both mark the current row with a
 // translucent signal tint over a themed pane. Before the Fjord migration the
 // dual-list used `var(--surface-2, #eef)` — an undeclared token whose hardcoded
 // lavender fallback painted a near-white block behind near-white text in every

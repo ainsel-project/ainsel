@@ -21,7 +21,7 @@ const template = {
 type Calls = { method: string; url: string; body?: string }[]
 
 /**
- * Stubs fetch for the persona tab: the agent-scoped persona view, the template
+ * Stubs fetch for the Persona section: the agent-scoped persona view, the template
  * list, and the agent PATCH used when switching the linked persona.
  */
 function stubFetch(view: AgentPersonaView, opts: { saveStatus?: number } = {}) {

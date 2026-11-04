@@ -213,7 +213,7 @@ export function agentTestFetch(url: string, init?: RequestInit): Response {
       { status: 200 },
     )
   }
-  // Agent-scoped persona (M3): the agent detail Persona tab reads and saves
+  // Agent-scoped persona (M3): the agent detail Persona section reads and saves
   // through here, not through /personas/{id}.
   const agentPersonaMatch = url.match(/\/api\/v1\/agents\/([^/?]+)\/persona$/)
   if (agentPersonaMatch) {

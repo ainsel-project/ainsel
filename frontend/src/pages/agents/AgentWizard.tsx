@@ -468,9 +468,9 @@ export function AgentWizard() {
                 />
                 <input type="hidden" {...register('persona.id')} />
                 <p className="label" style={{ marginTop: 8, color: 'var(--ink-3)' }}>
-                  The persona shapes how the agent behaves. You can fork an
-                  agent-owned copy later on the agent's Persona tab. No persona
-                  yet? <Link to="/personas/new">Create one</Link>.
+                  The persona shapes how the agent behaves. You can fork an agent-owned copy later
+                  in the agent's Persona section. No persona yet?{' '}
+                  <Link to="/personas/new">Create one</Link>.
                 </p>
               </Field>
             ) : null}
