@@ -55,7 +55,7 @@ Under **Agents**, the sidebar also lists up to five shortcuts: the agents you la
 
 6. **Tune the agent** — After creation, the agent's workspace holds what belongs to that agent alone, one section each: **Persona** (fork an agent-owned copy of a shared template), **Runtime & env** (switch image, override environment variables), **Tools & MCP** (tool selection and MCP servers) and **Skills**. Overrides start out inherited from the image; the first change pins them to the agent.
 
-7. **Add triggers** — Decide when the agent fires from its **Triggers** section, where event subscriptions and cron schedules share one list (add entries with **New**). The agent's own **Channel** section shows and edits the channel its events arrive on.
+7. **Add triggers** — Decide when the agent fires from its **Triggers** section, where event subscriptions and cron schedules share one list (add entries with **New**). The agent's own **Channel** section shows and edits the channel its events arrive on. That agent-owned channel is not listed on the Channels page, and its old `/channels/<id>` link redirects to the agent's Channel section.
 
 8. **Watch it work** — Monitor activity on the dashboard (`/dashboard`), drill into invocations (`/activity`), and check token usage and errors (`/observability`).
 
