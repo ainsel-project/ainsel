@@ -1,5 +1,36 @@
 import { describe, expect, it, vi } from 'vitest'
-import { formatISO, formatRelative } from './time'
+import {
+  formatISO,
+  formatRelative,
+  resolveSinceParam,
+  SINCE_SENTINEL,
+  startOfToday,
+} from './time'
+
+describe('startOfToday', () => {
+  it('is local midnight of the current day', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-20T12:42:18Z'))
+    const s = startOfToday()
+    const d = new Date(s)
+    expect([d.getHours(), d.getMinutes(), d.getSeconds()]).toEqual([0, 0, 0])
+    expect(d.toDateString()).toBe(new Date().toDateString())
+    vi.useRealTimers()
+  })
+})
+
+describe('resolveSinceParam', () => {
+  it('resolves the today sentinel to local midnight', () => {
+    expect(resolveSinceParam(SINCE_SENTINEL)).toBe(startOfToday())
+  })
+
+  it('ignores unknown and missing values', () => {
+    expect(resolveSinceParam('yesterday')).toBeUndefined()
+    expect(resolveSinceParam('2026-05-20T00:00:00Z')).toBeUndefined()
+    expect(resolveSinceParam('')).toBeUndefined()
+    expect(resolveSinceParam(undefined)).toBeUndefined()
+  })
+})
 
 describe('formatRelative', () => {
   const now = new Date('2026-05-20T12:42:18Z').getTime()
