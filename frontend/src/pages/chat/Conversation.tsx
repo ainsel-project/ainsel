@@ -212,9 +212,14 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           maxWidth: '75%',
           padding: '10px 14px',
           borderRadius: 'var(--radius)',
-          background: isUser ? 'var(--accent)' : 'var(--surface-2)',
-          color: isUser ? '#fff' : 'var(--ink-1)',
-          border: isUser ? 'none' : '1px solid var(--border)',
+          // Solid invert for user messages (the .tag.solid convention), recessed
+          // paper for assistant messages. The old `--accent`/`--surface-2`/
+          // `--ink-1`/`--border` tokens do not exist, so these declarations
+          // were invalid at computed-value time: user bubbles rendered white
+          // text on the white panel in the light theme (issue #212).
+          background: isUser ? 'var(--ink)' : 'var(--paper-deep)',
+          color: isUser ? 'var(--paper)' : 'var(--ink-2)',
+          border: isUser ? 'none' : '1px solid var(--rule-soft)',
         }}
       >
         {isUser ? (
