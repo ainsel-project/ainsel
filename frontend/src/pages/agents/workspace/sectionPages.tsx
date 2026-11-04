@@ -4,6 +4,7 @@ import { AgentChannelTab } from '../../channels/AgentChannelTab'
 import { AgentTriggers } from '../AgentTriggers'
 import { AgentSchedules } from '../AgentSchedules'
 import { AgentPersonaSection } from '../AgentPersonaSection'
+import { AgentChat } from './AgentChat'
 import {
   AgentImageSection,
   AgentToolsSection,
@@ -81,10 +82,6 @@ export function ChannelSection() {
   )
 }
 
-export function ChatSection() {
-  return <SectionPage title="Chat" />
-}
-
 function PluginSection({ pluginId }: { pluginId: string }) {
   const agent = useWorkspaceAgent()
   const plugins = useWorkspacePlugins()
@@ -99,7 +96,7 @@ function PluginSection({ pluginId }: { pluginId: string }) {
 type BuiltInSection = Exclude<SectionId, `plugin:${string}` | 'overview'>
 
 const BUILT_IN_VIEWS: Record<BuiltInSection, ComponentType> = {
-  chat: ChatSection,
+  chat: AgentChat,
   persona: PersonaSection,
   runtime: RuntimeSection,
   tools: ToolsSection,

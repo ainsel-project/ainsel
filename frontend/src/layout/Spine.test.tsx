@@ -128,6 +128,12 @@ describe('Spine', () => {
     }
   })
 
+  it('has no Chat item: chat lives inside each agent', () => {
+    renderAt('/dashboard')
+    expect(screen.getByRole('link', { name: /Dashboard/i })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Chat/i })).toBeNull()
+  })
+
   it('groups the shared catalogs under Library', () => {
     renderAt('/dashboard')
 

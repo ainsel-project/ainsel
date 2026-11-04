@@ -15,7 +15,6 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     label: 'Operations',
     items: [
       { idx: '01', name: 'Dashboard', to: '/dashboard' },
-      { idx: '06', name: 'Chat', to: '/chat' },
       { idx: '12', name: 'Channels', to: '/channels' },
       { idx: '13', name: 'Activity', to: '/activity' },
       { idx: '14', name: 'Observability', to: '/observability' },

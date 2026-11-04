@@ -16,8 +16,7 @@ import { ConnectorList } from './pages/connectors/ConnectorList'
 import { Dashboard } from './pages/dashboard/Dashboard'
 import { Activity } from './pages/activity/Activity'
 import { DocsPage } from './pages/docs/DocsPage'
-import { ChatList } from './pages/chat/ChatList'
-import { ChatView } from './pages/chat/ChatView'
+import { ChatRedirect } from './pages/chat/ChatRedirect'
 import { ImageDetailPage as ImageDetail } from './pages/images/ImageDetailPage'
 import { ImageList } from './pages/images/ImageList'
 import { Login } from './pages/login/Login'
@@ -84,8 +83,9 @@ export default function App() {
             >
               <Route path="/dashboard" element={<Dashboard />} />
 
-              <Route path="/chat" element={<ChatList />} />
-              <Route path="/chat/:id" element={<ChatView />} />
+              {/* Chat lives inside each agent; these keep old links working. */}
+              <Route path="/chat" element={<Navigate to="/agents" replace />} />
+              <Route path="/chat/:id" element={<ChatRedirect />} />
 
               <Route path="/agents" element={<AgentListPage />} />
               <Route path="/agents/new" element={<AgentWizard />} />

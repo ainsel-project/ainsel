@@ -33,7 +33,7 @@ if (typeof globalThis.localStorage === 'undefined' || globalThis.localStorage ==
 }
 
 // jsdom does not implement scrolling APIs. Components that auto-scroll on
-// render (e.g. ChatView) call HTMLElement.scrollTo, which would otherwise throw
+// render (e.g. Conversation) call HTMLElement.scrollTo, which would otherwise throw
 // "scrollRef.current?.scrollTo is not a function" during tests.
 if (!HTMLElement.prototype.scrollTo) {
   HTMLElement.prototype.scrollTo = () => {}

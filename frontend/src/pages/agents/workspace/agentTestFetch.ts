@@ -20,6 +20,12 @@ export function agentTestFetch(url: string, init?: RequestInit): Response {
       { status: 200 },
     )
   }
+  if (url.includes('/chat/sessions')) {
+    return new Response(
+      JSON.stringify({ items: [], total: 0, page: 1, pageSize: 1, totalPages: 0 }),
+      { status: 200 },
+    )
+  }
   if (url.includes('/cron-triggers')) {
     return new Response(
       JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),

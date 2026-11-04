@@ -1,0 +1,15 @@
+/* ===== Conversation =====
+ * The message list and composer of one chat. The panel fills the box it is
+ * placed in: the message list scrolls, the composer stays at the bottom.
+ */
+.chat-conversation {
+  display: flex;
+  flex-direction: column;
+  height: 70dvh;
+  min-height: 360px;
+}
+
+.chat-conversation > .chat-panel {
+  flex: 1;
+  min-height: 0;
+}
