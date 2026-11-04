@@ -84,7 +84,7 @@ see [`crd-reference.md`](crd-reference.md#crontrigger) for the API schema.
 [Model Context Protocol](https://modelcontextprotocol.io). AInsel
 registers MCP servers centrally (DB-backed, managed by the hub and
 proxied through [`services/mcp/`](../services/mcp/)); each agent opts in
-through its own selection on the **Tools** tab, which the hub resolves
+through its own selection in the **Tools & MCP** section, which the hub resolves
 into `Agent.spec.mcp` — a snapshot of names, URLs and token references, so
 editing the registry never rewrites running agents. The bundled MCP server
 today is configured as a generic MCP server in the frontend; you can
@@ -94,7 +94,7 @@ register more.
 token environment variable and last-updated age — a forge MCP server, the
 GitHub MCP endpoint and a mem0 memory server](images/mcp-registry.webp)
 
-*The registry behind the Tools tab — every MCP server an agent can opt
+*The registry behind the Tools & MCP section — every MCP server an agent can opt
 into. (In-cluster URLs redacted.)*
 
 > **Removed:** `Agent.spec.enabledMCPs`, the older list of in-cluster
@@ -103,7 +103,7 @@ into. (In-cluster URLs redacted.)*
 > the servers the agent's runtime profile contributed so nothing changed at
 > runtime. The field is now gone from the schema: any value still stored on a
 > CR that was never reconciled in between is pruned by the API server, so
-> re-select those servers on the **Tools** tab.
+> re-select those servers in the **Tools & MCP** section.
 
 ## 3. The end-to-end admin journey
 
