@@ -1,3 +1,14 @@
+const inboxChannel = {
+  id: 'ch-inbox-a1',
+  kind: 'agent',
+  name: 'doc-writer',
+  description: 'The inbox agent doc-writer drains',
+  entityRef: 'a1',
+  counts: { events: 7, unmatched: 0, failed: 1 },
+  bridges: 0,
+  subscriptions: 1,
+}
+
 /**
  * Shared fetch stub for the agent workspace tests: answers the endpoints the
  * overview and section views read, with one doc-writer agent (a1). Tests wrap
@@ -32,21 +43,18 @@ export function agentTestFetch(url: string, init?: RequestInit): Response {
       { status: 200 },
     )
   }
-  if (url.includes('/api/v1/channels')) {
+  if (/\/api\/v1\/channels\/ch-inbox-a1\/events/.test(url)) {
+    return new Response(JSON.stringify({ events: [], total: 0 }), { status: 200 })
+  }
+  if (/\/api\/v1\/channels\/ch-inbox-a1$/.test(url)) {
+    return new Response(JSON.stringify({ ...inboxChannel, incoming: [], outgoing: [] }), {
+      status: 200,
+    })
+  }
+  if (/\/api\/v1\/channels(\?.*)?$/.test(url)) {
     return new Response(
       JSON.stringify({
-        items: [
-          {
-            id: 'ch-inbox-a1',
-            kind: 'agent',
-            name: 'doc-writer',
-            description: 'The inbox agent doc-writer drains',
-            entityRef: 'a1',
-            counts: { events: 7, unmatched: 0, failed: 1 },
-            bridges: 0,
-            subscriptions: 1,
-          },
-        ],
+        items: [inboxChannel],
         total: 1,
         page: 1,
         pageSize: 500,

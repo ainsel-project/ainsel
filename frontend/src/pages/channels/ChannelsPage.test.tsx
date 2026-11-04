@@ -112,7 +112,8 @@ describe('ChannelsPage', () => {
     expect(screen.getByRole('columnheader', { name: /channel/i })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /description/i })).toBeInTheDocument()
     expect(screen.getByText('Where forgejo events arrive')).toBeInTheDocument()
-    expect(screen.getByText('The inbox agent review-bot drains')).toBeInTheDocument()
+    // agent inboxes are not listed here; they live in their agent's workspace
+    expect(screen.queryByText('The inbox agent review-bot drains')).not.toBeInTheDocument()
     // no built-in cron/chat channels
     expect(screen.queryByText('cron')).not.toBeInTheDocument()
     expect(screen.queryByText('chat')).not.toBeInTheDocument()
@@ -126,7 +127,7 @@ describe('ChannelsPage', () => {
     const calls = mockFetch({
       channels: [
         { ...channels[0], name: 'forgejo' },
-        { ...channels[1], id: 'ch-inbox2', name: 'forgejo', entityRef: 'forgejo' },
+        { ...channels[0], id: 'ch-inbox2', name: 'forgejo', entityRef: 'forgejo' },
       ],
     })
     renderPage()
@@ -232,6 +233,18 @@ describe('ChannelsPage', () => {
       const del = calls.find((c) => c.method === 'DELETE')
       expect(del?.url).toMatch(/\/api\/v1\/channels\/ch-group$/)
     })
+  })
+
+  it('lists connector and custom channels, not agent inboxes', async () => {
+    mockFetch()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Channels · 1')).toBeInTheDocument())
+    expect(screen.queryByText('The inbox agent review-bot drains')).not.toBeInTheDocument()
+    // the connection map still resolves the edge to the hidden inbox
+    expect(screen.getByRole('link', { name: 'review-bot' })).toHaveAttribute(
+      'href',
+      '/channels/ch-inbox',
+    )
   })
 
   it('explains the empty connection map', async () => {

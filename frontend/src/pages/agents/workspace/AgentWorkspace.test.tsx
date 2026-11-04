@@ -383,7 +383,7 @@ describe('AgentWorkspace', () => {
     })
   })
 
-  it('shows the Channel section with the agent inbox summary', async () => {
+  it('shows the Channel section edited in place for the agent inbox', async () => {
     renderWithProviders(
       <Routes>
         <Route path="/agents/:id" element={<AgentWorkspace />}>
@@ -398,14 +398,9 @@ describe('AgentWorkspace', () => {
     await userEvent.click(screen.getByRole('link', { name: /^channel$/i }))
     expect(await screen.findByText('agent inbox')).toBeInTheDocument()
     expect(screen.getByText('The inbox agent doc-writer drains')).toBeInTheDocument()
-    // addressed by the hub's channel id, not a synthesized kind:name key
-    expect(
-      screen.getByText((_, el) => el?.textContent === '7 events reached this inbox in 24h'),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /open channel/i })).toHaveAttribute(
-      'href',
-      '/channels/ch-inbox-a1',
-    )
+    // edited in place: the inbox timeline and the 24h reached count are on this section
+    expect(screen.getByText('Inbox timeline')).toBeInTheDocument()
+    expect(screen.getByText('Reached inbox 24h')).toBeInTheDocument()
   })
 
   it('opens the Channel section directly via the ?tab=channel legacy link', async () => {
@@ -419,7 +414,7 @@ describe('AgentWorkspace', () => {
       { route: '/agents/a1?tab=channel' },
     )
     // Channel panel content loads without clicking the link.
-    await waitFor(() => expect(screen.getByText('agent inbox')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Inbox timeline')).toBeInTheDocument())
   })
 
   it('falls back to the Overview section for an invalid ?tab value', async () => {

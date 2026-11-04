@@ -137,6 +137,9 @@ export function ChannelsPage() {
   const { data, isLoading, error } = useChannels({ pageSize: 500 })
   const { data: subs } = useChannelSubscriptions()
   const channels = data?.items ?? []
+  // Agent inboxes are edited in their agent's workspace, so they are not rows
+  // here. The connection map still uses every channel, so edges keep resolving.
+  const listed = channels.filter((c) => c.kind !== 'agent')
   const connections = buildConnections(subs?.items, channels)
   const [creating, setCreating] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
@@ -285,9 +288,9 @@ export function ChannelsPage() {
             <SectionStatus state="error" />
           </Panel>
         ) : (
-          <Panel title={`Channels · ${channels.length}`} className="cropped">
+          <Panel title={`Channels · ${listed.length}`} className="cropped">
             <RegisterTable
-              rows={channels}
+              rows={listed}
               columns={columns}
               rowKey={(c) => c.id}
               withRowNumbers={false}

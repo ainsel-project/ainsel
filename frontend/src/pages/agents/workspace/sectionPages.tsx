@@ -1,8 +1,8 @@
 import type { ComponentType } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { AgentChannelTab } from '../../channels/AgentChannelTab'
 import { AgentPersonaSection } from '../AgentPersonaSection'
 import { AgentChat } from './AgentChat'
+import { ChannelSection } from './ChannelSection'
 import {
   AgentImageSection,
   AgentToolsSection,
@@ -58,15 +58,6 @@ export function SkillsSection() {
   return (
     <SectionPage title="Skills">
       <AgentSkillsSection agent={agent} />
-    </SectionPage>
-  )
-}
-
-export function ChannelSection() {
-  const agent = useWorkspaceAgent()
-  return (
-    <SectionPage title="Channel">
-      <AgentChannelTab agentId={agent.id} agentName={agent.name} />
     </SectionPage>
   )
 }
