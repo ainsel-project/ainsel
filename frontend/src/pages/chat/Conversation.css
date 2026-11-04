@@ -1,6 +1,7 @@
 /* ===== Conversation =====
- * The message list and composer of one chat. The panel fills the box it is
- * placed in: the message list scrolls, the composer stays at the bottom.
+ * The message list and composer of one chat. The conversation is a fixed
+ * 70dvh tall (never shorter than 360px), so the composer sits at the bottom
+ * of that box. The message list scrolls inside it.
  */
 .chat-conversation {
   display: flex;

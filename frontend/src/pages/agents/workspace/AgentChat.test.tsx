@@ -7,29 +7,45 @@ import type { AgentResponse } from '../../../api/agents'
 import { AgentChat } from './AgentChat'
 import { WorkspaceContext } from './workspaceAgent'
 
+const auth = vi.hoisted(() => ({
+  user: { sub: 'user-1', username: 'kim' } as { sub: string; username: string } | undefined,
+  mode: 'oidc' as string,
+}))
+
 vi.mock('../../../auth/AuthProvider', () => ({
-  useAuth: () => ({ user: { sub: 'user-1', username: 'kim' } }),
+  useAuth: () => ({ user: auth.user, mode: auth.mode }),
 }))
 
 const chat = vi.hoisted(() => ({
   listed: [] as unknown[],
   byId: {} as Record<string, unknown>,
-  listCalls: [] as unknown[],
+  listCalls: [] as { params: unknown; options: { enabled?: boolean } | undefined }[],
   create: vi.fn(),
   send: vi.fn(),
+  sending: false,
+  resetSend: vi.fn(),
 }))
 
 vi.mock('../../../api/chat', () => ({
-  useChatSessions: (params: unknown) => {
-    chat.listCalls.push(params)
-    return { data: { items: chat.listed, total: chat.listed.length }, isLoading: false }
+  // Like the real hook, a disabled query stays pending and never fetches.
+  useChatSessions: (params: unknown, options?: { enabled?: boolean }) => {
+    chat.listCalls.push({ params, options })
+    if (options?.enabled === false) {
+      return { data: undefined, isPending: true, isLoading: false, error: null }
+    }
+    return {
+      data: { items: chat.listed, total: chat.listed.length },
+      isPending: false,
+      isLoading: false,
+      error: null,
+    }
   },
   useChatSession: (id: string | undefined) => ({
     data: id ? chat.byId[id] : undefined,
     isLoading: false,
   }),
   useCreateChatSession: () => ({ mutateAsync: chat.create, isPending: false, error: null }),
-  useSendChatMessage: () => ({ mutate: chat.send, isPending: false }),
+  useSendChatMessage: () => ({ mutate: chat.send, isPending: chat.sending, reset: chat.resetSend }),
 }))
 
 const agent = { id: 'a-dev', name: 'dev' } as AgentResponse
@@ -76,10 +92,18 @@ beforeEach(() => {
     's-fresh': session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'),
   }
   chat.listCalls = []
+  auth.user = { sub: 'user-1', username: 'kim' }
+  auth.mode = 'oidc'
   chat.create
     .mockReset()
     .mockResolvedValue(session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'))
-  chat.send.mockReset()
+  chat.send.mockReset().mockImplementation(() => {
+    chat.sending = true
+  })
+  chat.sending = false
+  chat.resetSend.mockReset().mockImplementation(() => {
+    chat.sending = false
+  })
 })
 
 afterEach(() => {
@@ -106,7 +130,23 @@ describe('AgentChat', () => {
 
   it('lists the agent chat by agent id and the current user id', () => {
     renderChat()
-    expect(chat.listCalls[0]).toEqual({ agent: 'a-dev', user: 'user-1', pageSize: 100 })
+    expect(chat.listCalls[0].params).toEqual({ agent: 'a-dev', user: 'user-1', pageSize: 100 })
+  })
+
+  it('does not list sessions until the auth user resolves when auth is enabled', () => {
+    auth.user = undefined
+    renderChat()
+    expect(chat.listCalls[0].options).toEqual({ enabled: false })
+    expect(screen.getByText('Loading chat…')).toBeInTheDocument()
+    expect(screen.queryByText('new answer')).toBeNull()
+  })
+
+  it('lists sessions without a user when auth mode is none', () => {
+    auth.user = undefined
+    auth.mode = 'none'
+    renderChat()
+    expect(chat.listCalls[0].options).toEqual({ enabled: true })
+    expect(screen.getByText('new answer')).toBeInTheDocument()
   })
 
   it('Reset asks for confirmation, creates a new session and shows it', async () => {
@@ -166,5 +206,20 @@ describe('AgentChat', () => {
       { sessionId: 's-fresh', content: 'hello' },
       expect.anything(),
     )
+  })
+
+  it('Reset during an in-flight send clears the composer and the Sending state', async () => {
+    const user = userEvent.setup()
+    renderChat()
+
+    await user.type(screen.getByPlaceholderText(/Type a message/), 'hello')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset' }))
+
+    expect(await screen.findByText('fresh answer')).toBeInTheDocument()
+    expect(chat.resetSend).toHaveBeenCalled()
+    expect(screen.queryByText(/Sending/)).toBeNull()
+    expect(screen.getByPlaceholderText(/Type a message/)).toHaveValue('')
   })
 })

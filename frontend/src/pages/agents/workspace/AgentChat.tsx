@@ -23,15 +23,22 @@ function newestCreated<T extends { createdAt: string }>(items: T[]): T | undefin
  */
 export function AgentChat() {
   const agent = useWorkspaceAgent()
-  const { user } = useAuth()
+  const { user, mode } = useAuth()
   // Sessions are stored under the agent id the chat has always used, and the
   // hub stamps each one with the caller's sub, so both filters must match that.
-  // The hub orders by updated_at, which late agent replies bump, so the current
-  // chat is picked by createdAt below rather than taken from the first row.
-  const sessions = useChatSessions({ agent: agent.id, user: user?.sub, pageSize: 100 })
+  // Until the user resolves (auth enabled) the list waits, so no unfiltered
+  // request goes out. The hub orders by updated_at, which late agent replies
+  // bump, so the current chat is picked by createdAt below rather than taken
+  // from the first row.
+  const sessions = useChatSessions(
+    { agent: agent.id, user: user?.sub, pageSize: 100 },
+    { enabled: mode === 'none' || user !== undefined },
+  )
   const create = useCreateChatSession()
   // Set by Reset or by a first send; overrides the list until the section remounts.
   const [pinnedId, setPinnedId] = useState<string>()
+  // Bumped on each Reset so the conversation drops any in-flight send state.
+  const [resetKey, setResetKey] = useState(0)
   const [confirmReset, setConfirmReset] = useState(false)
 
   const sessionId = pinnedId ?? newestCreated(sessions.data?.items ?? [])?.id
@@ -40,6 +47,7 @@ export function AgentChat() {
     try {
       const session = await create.mutateAsync(agent.id)
       setPinnedId(session.id)
+      setResetKey((key) => key + 1)
       setConfirmReset(false)
     } catch {
       // The modal shows create.error and stays open for a retry.
@@ -64,7 +72,7 @@ export function AgentChat() {
     )
   }
 
-  if (sessions.isLoading) {
+  if (sessions.isPending) {
     return (
       <SectionPage title="Chat" actions={resetButton}>
         <Panel>
@@ -78,7 +86,12 @@ export function AgentChat() {
 
   return (
     <SectionPage title="Chat" actions={resetButton}>
-      <Conversation sessionId={sessionId} agentName={agent.id} onSessionCreated={setPinnedId} />
+      <Conversation
+        sessionId={sessionId}
+        agentName={agent.id}
+        onSessionCreated={setPinnedId}
+        resetKey={resetKey}
+      />
       <ConfirmModal
         open={confirmReset}
         title="Reset chat?"

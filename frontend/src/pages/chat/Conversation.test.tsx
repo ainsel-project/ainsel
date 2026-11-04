@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Conversation } from './Conversation'
@@ -80,5 +81,55 @@ describe('Conversation — busy notification', () => {
     const { container } = renderConversation()
     const panel = container.querySelector('.chat-panel')
     expect(panel).toContainElement(screen.getByRole('status'))
+  })
+})
+
+describe('Conversation — Reset during an in-flight send', () => {
+  it('clears the composer and the Sending state when the reset key changes', async () => {
+    const user = userEvent.setup()
+    // A stateful stand-in for the send mutation: mutate starts a send, reset ends it.
+    const send = { pending: false }
+    const reset = vi.fn(() => {
+      send.pending = false
+    })
+    mockUseSendChatMessage.mockImplementation(() => ({
+      mutate: vi.fn(() => {
+        send.pending = true
+      }),
+      isPending: send.pending,
+      reset,
+    }))
+    const client = new QueryClient()
+    const tree = (resetKey: number) => (
+      <QueryClientProvider client={client}>
+        <Conversation
+          sessionId="sess-abc"
+          agentName="a-dev"
+          onSessionCreated={vi.fn()}
+          resetKey={resetKey}
+        />
+      </QueryClientProvider>
+    )
+    const { rerender } = render(tree(0))
+
+    await user.type(screen.getByPlaceholderText(/Type a message/), 'hello')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(send.pending).toBe(true)
+
+    rerender(tree(1))
+
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Sending/)).toBeNull()
+    expect(screen.getByPlaceholderText(/Type a message/)).toHaveValue('')
+  })
+
+  it('keeps the composer when the reset key does not change', async () => {
+    const user = userEvent.setup()
+    const reset = vi.fn()
+    mockUseSendChatMessage.mockReturnValue({ mutate: vi.fn(), isPending: false, reset })
+    renderConversation()
+    await user.type(screen.getByPlaceholderText(/Type a message/), 'draft')
+    expect(reset).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText(/Type a message/)).toHaveValue('draft')
   })
 })

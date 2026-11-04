@@ -19,14 +19,31 @@ type ConversationProps = {
   agentName: string
   /** Called with the new session id when the first send creates it. */
   onSessionCreated: (id: string) => void
+  /** Bumped by the parent on Reset: clears the composer and any in-flight send state. */
+  resetKey?: number
 }
 
-export function Conversation({ sessionId, agentName, onSessionCreated }: ConversationProps) {
+export function Conversation({
+  sessionId,
+  agentName,
+  onSessionCreated,
+  resetKey = 0,
+}: ConversationProps) {
   const { data: session, isLoading } = useChatSession(sessionId)
   const createMutation = useCreateChatSession()
   const sendMutation = useSendChatMessage()
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const resetSend = sendMutation.reset
+  const seenResetKey = useRef(resetKey)
+
+  // A Reset must not leave the old send's "Sending…" or its text on the new chat.
+  useEffect(() => {
+    if (seenResetKey.current === resetKey) return
+    seenResetKey.current = resetKey
+    setInput('')
+    resetSend()
+  }, [resetKey, resetSend])
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -47,7 +64,11 @@ export function Conversation({ sessionId, agentName, onSessionCreated }: Convers
       }
       onSessionCreated(targetId)
     }
-    sendMutation.mutate({ sessionId: targetId, content }, { onSuccess: () => setInput('') })
+    // Clear only the text that was sent, so text typed after a Reset survives.
+    sendMutation.mutate(
+      { sessionId: targetId, content },
+      { onSuccess: () => setInput((current) => (current.trim() === content ? '' : current)) },
+    )
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
