@@ -5,10 +5,9 @@ import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './layout/Layout'
 import { LoginLayout } from './layout/LoginLayout'
 import { OverviewSection } from './pages/agents/AgentDetail'
-import { AgentForm } from './pages/agents/AgentForm'
 import { AgentWizard } from './pages/agents/AgentWizard'
 import { AgentWorkspace, AgentListPage } from './pages/agents/workspace/AgentWorkspace'
-import { SectionRoute } from './pages/agents/workspace/sectionPages'
+import { LegacyEditRedirect, SectionRoute } from './pages/agents/workspace/sectionPages'
 import { Callback } from './pages/auth/Callback'
 import { ForcedPasswordChange } from './pages/auth/ForcedPasswordChange'
 import { ConnectorDetail } from './pages/connectors/ConnectorDetail'
@@ -94,7 +93,7 @@ export default function App() {
                 <Route index element={<OverviewSection />} />
                 <Route path=":section" element={<SectionRoute />} />
               </Route>
-              <Route path="/agents/:id/edit" element={<AgentForm />} />
+              <Route path="/agents/:id/edit" element={<LegacyEditRedirect />} />
 
               <Route path="/personas" element={<PersonaList />} />
               <Route path="/personas/new" element={<PersonaForm />} />

@@ -602,7 +602,9 @@ describe('AgentWorkspace (overview and sections)', () => {
     const urlInput = await screen.findByLabelText('Image URL')
     await waitFor(() => expect(urlInput).toHaveValue('ghcr.io/ainsel/claude-tooling:1.4'))
     expect(screen.getByRole('heading', { name: 'Environment Variables' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument()
+    // Runtime settings and the image editor each carry a Save.
+    expect(screen.getByLabelText('Model')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^save$/i }).length).toBeGreaterThan(1)
     expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument()
 
     // No tools-side or skills sections leak onto this tab.

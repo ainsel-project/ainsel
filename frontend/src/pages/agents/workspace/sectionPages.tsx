@@ -11,6 +11,7 @@ import {
   AgentSkillsSection,
 } from '../AgentImageSection'
 import { AgentEnvSection } from '../AgentEnvSection'
+import { RuntimeSettings } from './RuntimeSettings'
 import { PluginSlot } from '../../../plugins/PluginSlot'
 import { SectionPage } from './SectionPage'
 import { parseSection, sectionPath, type SectionId } from './sections'
@@ -29,10 +30,17 @@ export function RuntimeSection() {
   const agent = useWorkspaceAgent()
   return (
     <SectionPage title="Runtime & env">
+      <RuntimeSettings agent={agent} />
       <AgentImageSection agent={agent} />
       <AgentEnvSection agent={agent} />
     </SectionPage>
   )
+}
+
+/** The retired agent edit form: its settings now live on the Runtime & env section. */
+export function LegacyEditRedirect() {
+  const { id = '' } = useParams()
+  return <Navigate to={sectionPath(id, 'runtime')} replace />
 }
 
 export function ToolsSection() {

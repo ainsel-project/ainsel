@@ -1,0 +1,186 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { Route, Routes } from 'react-router-dom'
+import { RuntimeSettings } from './RuntimeSettings'
+import { LegacyEditRedirect } from './sectionPages'
+import type { AgentResponse } from '../../../api/agents'
+import { renderWithProviders } from '../../../test/renderWithProviders'
+
+const IMAGE_ID = 'claude-tooling-base:1.4'
+
+const agent = {
+  id: 'a1',
+  name: 'doc-writer',
+  description: 'Writes docs',
+  imageRef: { name: IMAGE_ID },
+  llm: {
+    model: 'claude-opus-4-7',
+    provider: 'ollama-cloud',
+    maxTurns: 40,
+    temperature: 0.5,
+    contextWindow: 200000,
+    vision: true,
+  },
+  persona: { id: 'p1' },
+  replicas: 2,
+  paused: false,
+} as AgentResponse
+
+function putBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> | undefined {
+  const call = fetchMock.mock.calls.find(
+    ([u, init]) =>
+      typeof u === 'string' &&
+      u.includes('/agents/a1') &&
+      ['PUT', 'PATCH'].includes((init as RequestInit | undefined)?.method ?? ''),
+  )
+  if (!call) return undefined
+  return JSON.parse((call[1] as RequestInit).body as string) as Record<string, unknown>
+}
+
+function renderSettings(overrides: Partial<AgentResponse> = {}) {
+  return renderWithProviders(<RuntimeSettings agent={{ ...agent, ...overrides } as AgentResponse} />, {
+    route: '/agents/a1/runtime',
+  })
+}
+
+describe('RuntimeSettings', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/agents/a1') && ['PUT', 'PATCH'].includes(method)) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+        return Promise.resolve(new Response(JSON.stringify({ ...agent, ...body }), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('pre-fills the runtime fields from the agent', () => {
+    renderSettings()
+    expect(screen.getByLabelText('Model')).toHaveValue('claude-opus-4-7')
+    expect(screen.getByLabelText('Max Turns')).toHaveValue(40)
+    expect(screen.getByLabelText('Temperature')).toHaveValue(0.5)
+    expect(screen.getByLabelText('Context Window')).toHaveValue(200000)
+    expect(screen.getByLabelText(/^provider$/i)).toHaveValue('ollama-cloud')
+    expect(screen.getByLabelText(/ollama cloud api key/i)).toHaveAttribute(
+      'placeholder',
+      'Leave blank to keep existing key',
+    )
+    expect(screen.getByLabelText('Max concurrent tasks')).toHaveValue(2)
+    expect(screen.getByRole('checkbox', { name: /image input/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+  })
+
+  it('saves a changed model with an unchanged name', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.clear(screen.getByLabelText('Model'))
+    await user.type(screen.getByLabelText('Model'), 'claude-opus-4-8')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)).toMatchObject({
+      name: 'doc-writer',
+      llm: { model: 'claude-opus-4-8' },
+      replicas: 2,
+    })
+  })
+
+  it('sends customProvider URL and API key when Custom is selected', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), 'custom')
+    await user.type(
+      await screen.findByLabelText(/provider base url/i),
+      'https://api.example.com/v1',
+    )
+    await user.type(screen.getByLabelText(/^api key$/i), 'sk-test-12345')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)?.customProvider).toEqual({
+      url: 'https://api.example.com/v1',
+      apiKey: 'sk-test-12345',
+    })
+  })
+
+  it('blocks saving a custom provider without a base URL', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), 'custom')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText(/url is required for custom providers/i)).toBeInTheDocument()
+    expect(putBody(fetchMock)).toBeUndefined()
+  })
+
+  it('sends an explicit llm.vision false when image input is turned off', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.click(screen.getByRole('checkbox', { name: /image input/i }))
+    expect(screen.getByText('Text only')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    // The hub reads a missing `vision` as "leave unchanged", so the form must
+    // say false explicitly for image input to turn off.
+    expect(putBody(fetchMock)?.llm).toMatchObject({ vision: false })
+  })
+
+  it('omits the credential block when the API key is left blank', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.clear(screen.getByLabelText('Model'))
+    await user.type(screen.getByLabelText('Model'), 'claude-opus-4-8')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    // Blank key = keep the stored one, so no block is sent at all.
+    expect(putBody(fetchMock)).not.toHaveProperty('ollamaCloud')
+  })
+
+  it('labels the count as a concurrency cap and sends it on save', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    expect(screen.getByLabelText('Max concurrent tasks')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)?.replicas).toBe(2)
+    expect(putBody(fetchMock)).not.toHaveProperty('minReplicas')
+  })
+
+  it('offers no editing or save for externally managed agents', () => {
+    renderSettings({ managedBy: 'gitops' })
+    expect(screen.getByLabelText('Model')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('legacy /agents/:id/edit route', () => {
+  it('lands on the agent runtime section', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/agents/:id/edit" element={<LegacyEditRedirect />} />
+        <Route path="/agents/:id/runtime" element={<p>Runtime section</p>} />
+      </Routes>,
+      { route: '/agents/a1/edit' },
+    )
+    expect(await screen.findByText('Runtime section')).toBeInTheDocument()
+  })
+})

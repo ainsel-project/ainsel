@@ -131,7 +131,7 @@ export function OverviewSection() {
               ) : (
                 <Button onClick={() => setPauseOpen(true)}>Pause</Button>
               )}
-              <Button onClick={() => navigate(`/agents/${encodeURIComponent(id)}/edit`)}>
+              <Button onClick={() => goTo('runtime')}>
                 Edit
               </Button>
               <Button variant="danger" onClick={() => setConfirmOpen(true)}>
