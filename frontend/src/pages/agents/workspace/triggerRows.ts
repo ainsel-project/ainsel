@@ -57,7 +57,7 @@ export function toTriggerRows(
     id: t.id,
     name: t.name,
     type: 'Subscription',
-    source: t.connectorRef ? connectorNames.get(t.connectorRef) ?? t.connectorRef : '—',
+    source: t.connectorRef ? (connectorNames.get(t.connectorRef) ?? t.connectorRef) : '—',
     filter: t.filters?.length ? t.filters.map(formatFilter).join(' · ') : '—',
     ...counts(t.id),
     enabled: true,

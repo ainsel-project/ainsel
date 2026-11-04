@@ -80,10 +80,7 @@ export function GroupDetail() {
 
   const memberIds = new Set((data?.members ?? []).map((m) => m.user.id))
   const nonMembers = (users.data ?? []).filter((u) => !memberIds.has(u.id))
-  const userById = useMemo(
-    () => new Map((users.data ?? []).map((u) => [u.id, u])),
-    [users.data],
-  )
+  const userById = useMemo(() => new Map((users.data ?? []).map((u) => [u.id, u])), [users.data])
 
   const onAddMember = async () => {
     if (!id || !selectedUserId) return
@@ -156,11 +153,7 @@ export function GroupDetail() {
       width: 80,
       align: 'right',
       cell: (m) => (
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={() => setConfirmUserId(m.user.id)}
-        >
+        <Button variant="danger" size="sm" onClick={() => setConfirmUserId(m.user.id)}>
           Remove
         </Button>
       ),
@@ -172,8 +165,7 @@ export function GroupDetail() {
       <Titleblock
         crumbs={
           <>
-            Admin / <Link to="/groups">Groups</Link> /{' '}
-            <b>{data?.group.name ?? id ?? '—'}</b>
+            Admin / <Link to="/groups">Groups</Link> / <b>{data?.group.name ?? id ?? '—'}</b>
           </>
         }
         title={<>{data?.group.name ?? <em>Group</em>}</>}
@@ -303,7 +295,8 @@ export function GroupDetail() {
         title="Remove member?"
         body={
           <>
-            <b>{confirmMember ? userDisplayName(confirmMember.user) : confirmUserId}</b> will be removed from this group.
+            <b>{confirmMember ? userDisplayName(confirmMember.user) : confirmUserId}</b> will be
+            removed from this group.
           </>
         }
         confirmLabel={removeMember.isPending ? 'Removing…' : 'Remove'}

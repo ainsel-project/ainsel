@@ -12,11 +12,7 @@ function emptyAgentsResponse() {
   )
 }
 
-function renderAt(
-  path: string,
-  scope = 'anon',
-  opts: { rail?: boolean; open?: boolean } = {},
-) {
+function renderAt(path: string, scope = 'anon', opts: { rail?: boolean; open?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
   })
@@ -151,14 +147,8 @@ describe('Spine', () => {
 
   it('links the library entries to their catalog routes', () => {
     renderAt('/dashboard')
-    expect(screen.getByRole('link', { name: /Images/i })).toHaveAttribute(
-      'href',
-      '/agent-images',
-    )
-    expect(screen.getByRole('link', { name: /Personas/i })).toHaveAttribute(
-      'href',
-      '/personas',
-    )
+    expect(screen.getByRole('link', { name: /Images/i })).toHaveAttribute('href', '/agent-images')
+    expect(screen.getByRole('link', { name: /Personas/i })).toHaveAttribute('href', '/personas')
   })
 
   it('pads to five with the most recently updated agents when nothing was clicked', async () => {
@@ -185,9 +175,7 @@ describe('Spine', () => {
     // Five now, not three: the two oldest of the six get cut.
     expect(screen.getByRole('link', { name: /nightly-sweeper/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /ancient-agent/i })).toBeInTheDocument()
-    expect(
-      screen.queryByRole('link', { name: /least-relevant/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /least-relevant/i })).not.toBeInTheDocument()
     // None of these were clicked, so all of them are filler.
     expect(document.querySelectorAll('.nav-sublink.padded')).toHaveLength(5)
   })
@@ -214,9 +202,9 @@ describe('Spine', () => {
 
     renderAt('/agents', 'kim')
     await screen.findByRole('link', { name: /nightly-sweeper/i })
-    const links = Array.from(
-      document.querySelectorAll('.nav-recent .nav-sublink .name'),
-    ).map((el) => el.textContent)
+    const links = Array.from(document.querySelectorAll('.nav-recent .nav-sublink .name')).map(
+      (el) => el.textContent,
+    )
     // issue-triager is unclicked but newest, so it pads the last slot.
     expect(links).toEqual(['nightly-sweeper', 'pr-reviewer', 'issue-triager'])
     // Clicked ones are theirs (not padded); the single pad slot is.
@@ -244,9 +232,7 @@ describe('Spine', () => {
 
     renderAt('/agents', 'kim')
     await screen.findByRole('link', { name: /nightly-sweeper/i })
-    expect(
-      screen.queryByRole('link', { name: /gone-agent/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /gone-agent/i })).not.toBeInTheDocument()
     expect(document.querySelectorAll('.nav-recent .nav-sublink')).toHaveLength(1)
   })
 
@@ -275,25 +261,27 @@ describe('Spine', () => {
         if (url.includes('/plugins')) {
           return Promise.resolve(
             new Response(
-              JSON.stringify({ items: [
-                {
-                  id: 'memory-plugin',
-                  displayName: 'Memory Plugin',
-                  ready: true,
-                  manifest: {
+              JSON.stringify({
+                items: [
+                  {
                     id: 'memory-plugin',
                     displayName: 'Memory Plugin',
-                    pluginApi: '1.1',
-                    ui: {
-                      entry: '/static/ui/index.js',
-                      pages: [
-                        { path: '/', label: 'Memories', section: 'Memory' },
-                        { path: '/loose', label: 'Loose' },
-                      ],
+                    ready: true,
+                    manifest: {
+                      id: 'memory-plugin',
+                      displayName: 'Memory Plugin',
+                      pluginApi: '1.1',
+                      ui: {
+                        entry: '/static/ui/index.js',
+                        pages: [
+                          { path: '/', label: 'Memories', section: 'Memory' },
+                          { path: '/loose', label: 'Loose' },
+                        ],
+                      },
                     },
                   },
-                },
-              ] }),
+                ],
+              }),
               { status: 200 },
             ),
           )
@@ -371,10 +359,9 @@ describe('Spine', () => {
         }
         if (url.includes('plugin-context')) {
           return Promise.resolve(
-            new Response(
-              JSON.stringify({ isAdmin: true, sub: 'u', username: 'kim', groups: [] }),
-              { status: 200 },
-            ),
+            new Response(JSON.stringify({ isAdmin: true, sub: 'u', username: 'kim', groups: [] }), {
+              status: 200,
+            }),
           )
         }
         return Promise.resolve(emptyAgentsResponse())
@@ -393,18 +380,11 @@ describe('Spine', () => {
     renderAt('/p/memory/setup')
 
     await screen.findByRole('link', { name: /Setup/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory/setup',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory/setup'])
     // aria-current follows the same rule as the class, so assistive tech
     // never sees two "current page" links either.
-    expect(screen.getByRole('link', { name: /Setup/i })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
-    expect(screen.getByRole('link', { name: /Memories/i })).not.toHaveAttribute(
-      'aria-current',
-    )
+    expect(screen.getByRole('link', { name: /Setup/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /Memories/i })).not.toHaveAttribute('aria-current')
   })
 
   it('highlights only the nested plugin entry, not the root entry (plugin-owned heading)', async () => {
@@ -412,9 +392,7 @@ describe('Spine', () => {
     renderAt('/p/memory/setup')
 
     await screen.findByRole('link', { name: /Setup/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory/setup',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory/setup'])
   })
 
   it('highlights the root plugin entry on its own path', async () => {
@@ -422,9 +400,7 @@ describe('Spine', () => {
     renderAt('/p/memory')
 
     await screen.findByRole('link', { name: /Memories/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory'])
   })
 
   it('keeps the nested entry highlighted on deep links under its path', async () => {
@@ -432,17 +408,15 @@ describe('Spine', () => {
     renderAt('/p/memory/setup/42')
 
     await screen.findByRole('link', { name: /Setup/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory/setup',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory/setup'])
   })
 
   // The most-specific-match rule is not plugin-only: every top-level nav
   // entry (built-in and plugin) is resolved through one combined
   // activeNavPath, so the sidebar has a single uniform matching rule.
   function activeTopLevelLinks() {
-    return Array.from(document.querySelectorAll('a.nav-link.active')).map(
-      (el) => el.getAttribute('href'),
+    return Array.from(document.querySelectorAll('a.nav-link.active')).map((el) =>
+      el.getAttribute('href'),
     )
   }
 

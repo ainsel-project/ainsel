@@ -34,7 +34,12 @@ vi.mock('../../../api/chat', () => ({
 
 const agent = { id: 'a-dev', name: 'dev' } as AgentResponse
 
-function session(id: string, reply: string, createdAt = '2026-11-01T00:00:00Z', updatedAt = createdAt) {
+function session(
+  id: string,
+  reply: string,
+  createdAt = '2026-11-01T00:00:00Z',
+  updatedAt = createdAt,
+) {
   return {
     id,
     name: id,
@@ -42,7 +47,9 @@ function session(id: string, reply: string, createdAt = '2026-11-01T00:00:00Z', 
     userId: 'user-1',
     createdAt,
     updatedAt,
-    messages: [{ id: 1, sessionId: id, role: 'assistant', content: reply, tokens: 1, createdAt: updatedAt }],
+    messages: [
+      { id: 1, sessionId: id, role: 'assistant', content: reply, tokens: 1, createdAt: updatedAt },
+    ],
   }
 }
 
@@ -69,7 +76,9 @@ beforeEach(() => {
     's-fresh': session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'),
   }
   chat.listCalls = []
-  chat.create.mockReset().mockResolvedValue(session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'))
+  chat.create
+    .mockReset()
+    .mockResolvedValue(session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'))
   chat.send.mockReset()
 })
 
@@ -108,7 +117,9 @@ describe('AgentChat', () => {
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('Reset chat?')).toBeInTheDocument()
     expect(
-      within(dialog).getByText('Starts a new conversation with dev. The current one is no longer shown.'),
+      within(dialog).getByText(
+        'Starts a new conversation with dev. The current one is no longer shown.',
+      ),
     ).toBeInTheDocument()
 
     await user.click(within(dialog).getByRole('button', { name: 'Reset' }))

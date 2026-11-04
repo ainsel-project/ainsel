@@ -61,7 +61,7 @@ export function Layout() {
       </header>
 
       <Spine
-        operator={mode === 'none' ? 'no auth' : user?.username ?? 'anon'}
+        operator={mode === 'none' ? 'no auth' : (user?.username ?? 'anon')}
         recentsScope={agentRecentsScope}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}

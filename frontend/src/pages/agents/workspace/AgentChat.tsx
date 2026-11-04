@@ -78,11 +78,7 @@ export function AgentChat() {
 
   return (
     <SectionPage title="Chat" actions={resetButton}>
-      <Conversation
-        sessionId={sessionId}
-        agentName={agent.id}
-        onSessionCreated={setPinnedId}
-      />
+      <Conversation sessionId={sessionId} agentName={agent.id} onSessionCreated={setPinnedId} />
       <ConfirmModal
         open={confirmReset}
         title="Reset chat?"

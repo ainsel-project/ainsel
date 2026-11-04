@@ -225,7 +225,9 @@ describe('ChannelsPage', () => {
     })
     renderPage()
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /delete channel team-inbox/i })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: /delete channel team-inbox/i }),
+      ).toBeInTheDocument(),
     )
     fireEvent.click(screen.getByRole('button', { name: /delete channel team-inbox/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))

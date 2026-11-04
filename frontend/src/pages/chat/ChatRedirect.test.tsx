@@ -15,7 +15,13 @@ vi.mock('../../api/chat', () => ({
 vi.mock('../../api/agents', () => ({
   // Sessions carry the agent's display name; the workspace route takes the CR id.
   useAgents: () => ({
-    data: { items: [{ id: 'a-dev', name: 'dev' }], total: 1, page: 1, pageSize: 100, totalPages: 1 },
+    data: {
+      items: [{ id: 'a-dev', name: 'dev' }],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+      totalPages: 1,
+    },
     isError: false,
   }),
 }))

@@ -111,7 +111,9 @@
   font-weight: 500;
   letter-spacing: 0;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 .nav-link .idx {
   font-family: var(--mono);
@@ -211,7 +213,9 @@
     z-index: 60;
     transform: translateX(-100%);
     visibility: hidden;
-    transition: transform 0.18s ease, visibility 0.18s;
+    transition:
+      transform 0.18s ease,
+      visibility 0.18s;
   }
   .spine.open {
     transform: translateX(0);
@@ -272,7 +276,9 @@
   text-decoration: none;
   font-family: var(--ui);
   font-size: 12px;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 /* Agents this browser actually opened sit one step brighter than the
    recently-updated filler that pads the list out to the limit. Declared here,

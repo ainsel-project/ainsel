@@ -149,7 +149,15 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
               htmlFor="llm.vision"
               hint="pi attaches screenshots and image files only while this is on. The endpoint is never probed: images sent to a model that cannot see them fail the request, and while this is off a model that can see them receives none. Takes effect when the agent's pod next starts."
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%', paddingTop: 6 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  height: '100%',
+                  paddingTop: 6,
+                }}
+              >
                 <Check
                   checked={vision}
                   onChange={(v) => setValue('llm.vision', v, { shouldDirty: true })}

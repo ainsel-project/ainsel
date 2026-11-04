@@ -139,11 +139,9 @@ export function buildProviderRequest(
 ): Pick<AgentRequest, 'ollamaCloud' | 'openCode' | 'alibabaCloud' | 'customProvider'> {
   const key = apiKey ? { apiKey } : undefined
 
-  const ollamaCloud: AgentOllamaCloud | undefined =
-    provider === 'ollama-cloud' ? key : undefined
+  const ollamaCloud: AgentOllamaCloud | undefined = provider === 'ollama-cloud' ? key : undefined
   const openCode: AgentOpenCode | undefined = provider === 'opencode' ? key : undefined
-  const alibabaCloud: AgentAlibabaCloud | undefined =
-    provider === 'alibaba-cloud' ? key : undefined
+  const alibabaCloud: AgentAlibabaCloud | undefined = provider === 'alibaba-cloud' ? key : undefined
   const customProvider: AgentCustomProvider | undefined =
     provider === 'custom' ? { url: customProviderUrl, ...(key ?? {}) } : undefined
 

@@ -111,8 +111,12 @@ describe('TriggersSection', () => {
     const table = await screen.findByRole('table')
     expect(within(table).getByText('on-doc-issue')).toBeInTheDocument()
     expect(within(table).getByText('nightly-review')).toBeInTheDocument()
-    expect(within(table).getByRole('row', { name: /on-doc-issue/ })).toHaveTextContent('Subscription')
-    expect(within(table).getByRole('row', { name: /nightly-review/ })).toHaveTextContent('0 2 * * *')
+    expect(within(table).getByRole('row', { name: /on-doc-issue/ })).toHaveTextContent(
+      'Subscription',
+    )
+    expect(within(table).getByRole('row', { name: /nightly-review/ })).toHaveTextContent(
+      '0 2 * * *',
+    )
     expect(within(table).getByRole('row', { name: /nightly-review/ })).toHaveTextContent('Schedule')
   })
 
@@ -130,7 +134,9 @@ describe('TriggersSection', () => {
     const row = within(table).getByRole('row', { name: /on-doc-issue/ })
     expect(within(row).getByText('Invalid')).toBeInTheDocument()
     expect(within(row).getByTitle(/agent reference is invalid/)).toBeInTheDocument()
-    expect(within(table).getByRole('row', { name: /nightly-review/ })).not.toHaveTextContent('Invalid')
+    expect(within(table).getByRole('row', { name: /nightly-review/ })).not.toHaveTextContent(
+      'Invalid',
+    )
   })
 
   it('shows dashes and a notice instead of zero counts when run counts fail to load', async () => {
@@ -138,7 +144,9 @@ describe('TriggersSection', () => {
     renderTriggers()
     const table = await screen.findByRole('table')
     expect(await screen.findByText('Run counts unavailable.')).toBeInTheDocument()
-    const cells = within(table).getByRole('row', { name: /on-doc-issue/ }).querySelectorAll('td')
+    const cells = within(table)
+      .getByRole('row', { name: /on-doc-issue/ })
+      .querySelectorAll('td')
     expect(cells[4]).toHaveTextContent(/^—$/)
     expect(cells[5]).toHaveTextContent(/^—$/)
     expect(within(table).getByText('on-doc-issue')).toBeInTheDocument()

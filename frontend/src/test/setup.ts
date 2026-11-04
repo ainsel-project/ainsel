@@ -21,15 +21,29 @@ configure({ asyncUtilTimeout: 3000 })
 if (typeof globalThis.localStorage === 'undefined' || globalThis.localStorage === null) {
   const store = new Map<string, string>()
   const storage: Storage = {
-    get length() { return store.size },
+    get length() {
+      return store.size
+    },
     clear: () => store.clear(),
     getItem: (k: string) => store.get(k) ?? null,
     key: (i: number) => [...store.keys()][i] ?? null,
-    removeItem: (k: string) => { store.delete(k) },
-    setItem: (k: string, v: string) => { store.set(k, String(v)) },
+    removeItem: (k: string) => {
+      store.delete(k)
+    },
+    setItem: (k: string, v: string) => {
+      store.set(k, String(v))
+    },
   }
-  Object.defineProperty(globalThis, 'localStorage', { value: storage, writable: true, configurable: true })
-  Object.defineProperty(window, 'localStorage', { value: storage, writable: true, configurable: true })
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    writable: true,
+    configurable: true,
+  })
+  Object.defineProperty(window, 'localStorage', {
+    value: storage,
+    writable: true,
+    configurable: true,
+  })
 }
 
 // jsdom does not implement scrolling APIs. Components that auto-scroll on

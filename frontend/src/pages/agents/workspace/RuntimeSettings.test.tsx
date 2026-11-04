@@ -40,9 +40,12 @@ function putBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> |
 }
 
 function renderSettings(overrides: Partial<AgentResponse> = {}) {
-  return renderWithProviders(<RuntimeSettings agent={{ ...agent, ...overrides } as AgentResponse} />, {
-    route: '/agents/a1/runtime',
-  })
+  return renderWithProviders(
+    <RuntimeSettings agent={{ ...agent, ...overrides } as AgentResponse} />,
+    {
+      route: '/agents/a1/runtime',
+    },
+  )
 }
 
 /**

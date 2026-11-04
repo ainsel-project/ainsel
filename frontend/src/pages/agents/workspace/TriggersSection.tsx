@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react'
-import { useCronTriggers, useDeleteCronTrigger, useUpdateCronTrigger } from '../../../api/cronTriggers'
+import {
+  useCronTriggers,
+  useDeleteCronTrigger,
+  useUpdateCronTrigger,
+} from '../../../api/cronTriggers'
 import { useConnectors } from '../../../api/connectors'
 import { useInvocations } from '../../../api/invocations'
 import { useDeleteTrigger, useTriggers } from '../../../api/triggers'
@@ -55,8 +59,7 @@ export function TriggersSection() {
     [connectorData],
   )
   const rows = useMemo(
-    () =>
-      toTriggerRows(subscriptions, schedules, invocationData?.items ?? [], connectorNames),
+    () => toTriggerRows(subscriptions, schedules, invocationData?.items ?? [], connectorNames),
     [subscriptions, schedules, invocationData, connectorNames],
   )
 
@@ -153,9 +156,7 @@ export function TriggersSection() {
             <Button
               size="sm"
               disabled={updateSchedule.isPending}
-              onClick={() =>
-                updateSchedule.mutate({ id: r.id, body: { enabled: !r.enabled } })
-              }
+              onClick={() => updateSchedule.mutate({ id: r.id, body: { enabled: !r.enabled } })}
             >
               {r.enabled ? 'Pause' : 'Enable'}
             </Button>

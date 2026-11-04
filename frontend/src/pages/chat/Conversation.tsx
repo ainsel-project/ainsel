@@ -91,9 +91,7 @@ export function Conversation({ sessionId, agentName, onSessionCreated }: Convers
         {isBusy && (
           <div className="chat-busy" role="status" aria-live="polite">
             <span className="chat-busy-dot" />
-            {sendMutation.isPending
-              ? 'Sending…'
-              : 'Agent may be busy and will respond when ready…'}
+            {sendMutation.isPending ? 'Sending…' : 'Agent may be busy and will respond when ready…'}
           </div>
         )}
         <div

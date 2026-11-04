@@ -93,9 +93,7 @@ describe('toTriggerRows', () => {
 
     const rows = toTriggerRows(triggers, crons, [])
 
-    expect(rows.find((r) => r.id === 't-4')?.invalidReason).toBe(
-      'connector reference is invalid',
-    )
+    expect(rows.find((r) => r.id === 't-4')?.invalidReason).toBe('connector reference is invalid')
     expect(rows.find((r) => r.id === 'cr-2')?.invalidReason).toBe('agent reference is invalid')
   })
 

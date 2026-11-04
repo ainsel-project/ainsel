@@ -26,7 +26,11 @@ describe('SectionNav', () => {
 
   it('renders plugin entries under a Plugins heading', () => {
     renderWithProviders(
-      <SectionNav agentId="x" current="plugin:forgejo" plugins={[{ id: 'forgejo', label: 'Forgejo' }]} />,
+      <SectionNav
+        agentId="x"
+        current="plugin:forgejo"
+        plugins={[{ id: 'forgejo', label: 'Forgejo' }]}
+      />,
     )
     const heading = screen.getByRole('heading', { name: 'Plugins' })
     const group = heading.parentElement as HTMLElement

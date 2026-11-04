@@ -22,9 +22,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   },
   {
     label: 'Fleet',
-    items: [
-      { idx: '02', name: 'Agents', to: '/agents' },
-    ],
+    items: [{ idx: '02', name: 'Agents', to: '/agents' }],
   },
   {
     // Shared catalogs an agent draws from. Agent-scoped configuration lives on
@@ -39,9 +37,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   },
   {
     label: 'Docs',
-    items: [
-      { idx: '10', name: 'Docs', to: '/docs' },
-    ],
+    items: [{ idx: '10', name: 'Docs', to: '/docs' }],
   },
   {
     label: 'Admin',
@@ -212,10 +208,7 @@ export function Spine({
   // another entry (built-in or plugin) the day one becomes a prefix of it.
   // Deep links still keep their entry highlighted (/docs/mcp → Docs).
   const allNavEntries = useMemo(
-    () => [
-      ...SECTIONS.flatMap((section) => section.items),
-      ...pluginNavEntries,
-    ],
+    () => [...SECTIONS.flatMap((section) => section.items), ...pluginNavEntries],
     [pluginNavEntries],
   )
   const activePath = useMemo(
@@ -251,19 +244,17 @@ export function Spine({
           {section.items.map((item) => {
             const active = item.to === activePath
             return (
-            <div key={item.to}>
-              <EntryLink
-                to={item.to}
-                idx={item.idx}
-                name={item.name}
-                tag={item.tag}
-                active={active}
-                collapsed={collapsed}
-              />
-              {item.to === '/agents' && !collapsed ? (
-                <RecentAgents scope={recentsScope} />
-              ) : null}
-            </div>
+              <div key={item.to}>
+                <EntryLink
+                  to={item.to}
+                  idx={item.idx}
+                  name={item.name}
+                  tag={item.tag}
+                  active={active}
+                  collapsed={collapsed}
+                />
+                {item.to === '/agents' && !collapsed ? <RecentAgents scope={recentsScope} /> : null}
+              </div>
             )
           })}
           {/* Plugin entries share the built-in entries' matching rule: plain
@@ -325,11 +316,9 @@ export function Spine({
       {open ? <div className="spine-backdrop" aria-hidden="true" onClick={onClose} /> : null}
       <aside
         id="spine"
-        className={[
-          'spine',
-          open ? 'open' : null,
-          collapsed ? 'rail' : null,
-        ].filter(Boolean).join(' ')}
+        className={['spine', open ? 'open' : null, collapsed ? 'rail' : null]
+          .filter(Boolean)
+          .join(' ')}
       >
         <div className="brand">
           <div className="brand-mark">
