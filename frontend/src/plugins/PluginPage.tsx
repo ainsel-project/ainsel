@@ -7,6 +7,7 @@ import { activePlugins, findPage, type ActivePlugin } from './registry'
 import { PluginExport } from './PluginExport'
 import { PluginBoundary } from './PluginBoundary'
 import { PluginContextProvider } from './PluginContextProvider'
+import { PluginPagesNav } from '../pages/plugins/PluginPagesNav'
 import { Titleblock } from '../layout/Titleblock'
 
 /**
@@ -52,19 +53,22 @@ export function PluginPage(): JSX.Element {
   }
 
   return (
-    <PluginPageContent plugin={plugin} page={page} />
+    <PluginPageContent plugin={plugin} page={page} isAdmin={callerContext?.isAdmin ?? false} />
   )
 }
 
 interface PluginPageContentProps {
   plugin: ActivePlugin
   page: PluginPageSpec
+  isAdmin: boolean
 }
 
 // The console frames every plugin page the way it frames its own: a title
-// block (crumbs: the page's sidebar section, then its label) above a padded
-// body. A plugin renders only the body, so every plugin looks the same.
-function PluginPageContent({ plugin, page }: PluginPageContentProps): JSX.Element {
+// block (crumbs: the page's section, then its label) above a padded body.
+// Between them sits the plugin's pages strip — the sections of the plugin's
+// own area — so a user can move between pages without losing the roster.
+// A plugin renders only the body, so every plugin looks the same.
+function PluginPageContent({ plugin, page, isAdmin }: PluginPageContentProps): JSX.Element {
   return (
     <>
       <Titleblock
@@ -75,6 +79,7 @@ function PluginPageContent({ plugin, page }: PluginPageContentProps): JSX.Elemen
         }
         title={page.label}
       />
+      <PluginPagesNav plugin={plugin} isAdmin={isAdmin} />
       <div style={{ padding: '28px 32px' }}>
         <PluginContextProvider plugin={plugin}>
           <PluginBoundary plugin={plugin}>

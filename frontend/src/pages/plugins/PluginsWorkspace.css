@@ -1,0 +1,147 @@
+/* Plugins workspace: plugin roster sidebar + per-plugin pages strip.
+   Mirrors the agent workspace (AgentWorkspace.css) with its own class names. */
+
+.plugin-sidebar-shell {
+  display: contents;
+}
+
+.plugin-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--paper-deep);
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+
+.plugin-sidebar-toggle {
+  display: none;
+}
+
+.plugin-sidebar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.plugin-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.plugin-sidebar-link[aria-current='page'] {
+  background: var(--paper-deep);
+  color: var(--ink-4);
+  font-weight: 600;
+}
+
+.plugin-sidebar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-sidebar-empty {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.9rem;
+}
+
+.plugin-sidebar-manage {
+  color: var(--signal);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+/* Workspace row: roster | plugin content. */
+.plugin-workspace {
+  display: flex;
+  min-height: 100%;
+}
+
+.plugin-workspace-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.plugin-workspace-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Strip of a plugin's own pages — the sections of the plugin's area. */
+.plugin-pages-nav {
+  padding: 12px 32px 0;
+}
+
+.plugin-pages-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plugin-pages-link {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--paper-deep);
+  color: inherit;
+  text-decoration: none;
+}
+
+.plugin-pages-link[aria-current='page'] {
+  background: var(--paper-deep);
+  color: var(--ink-4);
+  font-weight: 600;
+}
+
+/* Below 900px the plugin roster collapses behind a toggle button. */
+@media (max-width: 899px) {
+  .plugin-sidebar-shell {
+    display: block;
+  }
+
+  .plugin-sidebar-toggle {
+    display: inline-block;
+    margin: 8px 12px;
+    padding: 4px 10px;
+    border: 1px solid var(--ink-4);
+    border-radius: 6px;
+    background: var(--paper-2);
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  .plugin-sidebar {
+    display: none;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--paper-deep);
+  }
+
+  .plugin-sidebar[data-open='true'] {
+    display: flex;
+  }
+
+  .plugin-workspace,
+  .plugin-workspace-main {
+    flex-direction: column;
+  }
+}

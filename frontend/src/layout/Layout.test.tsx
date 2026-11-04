@@ -28,6 +28,11 @@ function renderLayout(route = '/dashboard') {
             <Route path="/agents" element={<div>Agents page</div>} />
             <Route path="/agents/:id" element={<div>Agent workspace</div>} />
             <Route path="/agentsx" element={<div>Lookalike page</div>} />
+            <Route path="/plugins" element={<div>Plugins page</div>} />
+            <Route path="/plugins/:id" element={<div>Plugin detail</div>} />
+            <Route path="/p/:pluginId/*" element={<div>Plugin page</div>} />
+            <Route path="/pluginsx" element={<div>Lookalike page</div>} />
+            <Route path="/profile" element={<div>Profile page</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -141,6 +146,25 @@ describe('Layout', () => {
 
   it('does not use the rail for a path that only starts with /agents', () => {
     renderLayout('/agentsx')
+    expect(document.querySelector('.shell')).not.toHaveClass('rail')
+    expect(document.querySelector('.spine')).not.toHaveClass('rail')
+  })
+
+  it('uses the rail in the plugins workspace', () => {
+    renderLayout('/plugins')
+    expect(document.querySelector('.shell')).toHaveClass('rail')
+    expect(document.querySelector('.spine')).toHaveClass('rail')
+    renderLayout('/plugins/memory')
+    expect(document.querySelector('.shell')).toHaveClass('rail')
+    renderLayout('/p/memory/setup')
+    expect(document.querySelector('.shell')).toHaveClass('rail')
+  })
+
+  it('does not use the rail for paths that only start with /plugins or /p', () => {
+    renderLayout('/pluginsx')
+    expect(document.querySelector('.shell')).not.toHaveClass('rail')
+    expect(document.querySelector('.spine')).not.toHaveClass('rail')
+    renderLayout('/profile')
     expect(document.querySelector('.shell')).not.toHaveClass('rail')
     expect(document.querySelector('.spine')).not.toHaveClass('rail')
   })

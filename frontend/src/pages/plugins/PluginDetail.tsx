@@ -22,6 +22,8 @@ import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Dot } from '../../primitives/Dot'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
+import { pluginPages } from '../../plugins/registry'
+import { PluginPagesNav } from './PluginPagesNav'
 import { permissionInfo } from './permissionCatalog'
 
 type PermissionRow = {
@@ -168,6 +170,16 @@ export function PluginDetail() {
   const declaredPermissionRows = useMemo(
     () => permissionRows.filter((row) => row.declared),
     [permissionRows],
+  )
+
+  // The plugin's own pages, as links back into the plugin area. Admin view
+  // only (the whole detail is admin-gated), so every page is visible here.
+  const pageEntries = useMemo(
+    () =>
+      plugin?.manifest
+        ? pluginPages({ id: plugin.id, manifest: plugin.manifest }, true)
+        : [],
+    [plugin],
   )
 
   // Read mode renders server state (plugin.groupAccess), never the edit draft.
@@ -404,6 +416,17 @@ export function PluginDetail() {
             )}
           </div>
         </Panel>
+
+        {pageEntries.length > 0 && (
+          <Panel title="Pages">
+            <div style={{ padding: 16 }}>
+              <PluginPagesNav
+                plugin={{ id: plugin.id, manifest: plugin.manifest! }}
+                isAdmin
+              />
+            </div>
+          </Panel>
+        )}
 
         <Panel title="Danger Zone">
           <div style={{ padding: 16 }}>
