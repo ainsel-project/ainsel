@@ -8,10 +8,15 @@ export function Layout() {
   const { user, mode } = useAuth()
   const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
-  // In the agent workspace the spine collapses to an icon rail; the shell
-  // carries the same class so its grid track narrows to match (see
+  // In the agent and plugins workspaces the spine collapses to an icon rail;
+  // the shell carries the same class so its grid track narrows to match (see
   // .shell.rail in Layout.css) instead of leaving a blank 236px column.
-  const rail = location.pathname === '/agents' || location.pathname.startsWith('/agents/')
+  const rail =
+    location.pathname === '/agents' ||
+    location.pathname.startsWith('/agents/') ||
+    location.pathname === '/plugins' ||
+    location.pathname.startsWith('/plugins/') ||
+    location.pathname.startsWith('/p/')
 
   // Close the drawer whenever the route changes (mobile nav selection).
   useEffect(() => {

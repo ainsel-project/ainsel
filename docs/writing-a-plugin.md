@@ -189,12 +189,14 @@ Reading the fixture line by line:
   `1.1`; the rule is *same major, minor not newer* (see
   [Versioning](plugin-reference.md#versioning)).
 - `ui.pages[]` — two pages: the default at `/p/hello`, and an admin-only one at
-  `/p/hello/admin` rendering the named export `AdminPage`. `section` groups the
-  nav entry under that heading: a built-in one, or your own (your plugin's
-  name is a good choice), which the sidebar shows after Library. Without a
-  section the page goes under "Plugins". The console frames each page like
-  its own: a title block with the section and the `label` above a padded
-  body, so a page renders only its content, with no title or outer margin of
+  `/p/hello/admin` rendering the named export `AdminPage`. Plugin navigation
+  lives in the Plugins sidebar: the main spine's single **Plugins** button
+  opens the plugins workspace, whose roster lists every active plugin; a
+  plugin's own pages are linked from a pages strip inside its area. `section`
+  is the heading shown in the page's breadcrumb (its title block); without a
+  section the plugin's display name is used there. The console frames each
+  page like its own: a title block with the section and the `label` above a
+  padded body, so a page renders only its content, with no title or outer margin of
   its own.
 - `ui.slots` — one extension point filled: `agent.panel` renders `AgentPanel`
   under each agent.

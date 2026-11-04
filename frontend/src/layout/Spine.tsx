@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { usePlugins, usePluginCallerContext } from '../api/plugins'
-import { activeNavPath, activePlugins, navEntries } from '../plugins/registry'
+import { activeNavPath } from '../plugins/registry'
 import './Spine.css'
 
 type NavItem = { idx: string; name: string; to: string; tag?: string }
@@ -47,8 +46,6 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   },
 ]
 
-const BUILT_IN_SECTIONS = new Set(SECTIONS.map((s) => s.label))
-
 type SpineProps = {
   operator: string
   /** Mobile drawer state; on desktop the spine is always visible. */
@@ -65,10 +62,9 @@ type SpineProps = {
 }
 
 /**
- * One top-level nav entry, rendered identically in all three render paths
- * (built-in item, plugin entry inside a built-in section, plugin-owned
- * section). In rail mode the visible text collapses to the idx alone, so the
- * name moves to `title` + `aria-label` to keep the link nameable.
+ * One top-level nav entry. In rail mode the visible text collapses to the
+ * idx alone, so the name moves to `title` + `aria-label` to keep the link
+ * nameable.
  */
 function EntryLink({
   to,
@@ -110,55 +106,24 @@ export function Spine({
   onClose,
   rail = false,
 }: SpineProps) {
-  const { data: pluginItems } = usePlugins()
-  const { data: callerContext } = usePluginCallerContext()
   const location = useLocation()
   // The rail is a desktop-canvas affordance: with the mobile drawer open the
   // user has explicitly asked for the full navigation, so never collapse it.
   const collapsed = rail && !open
 
-  const availablePlugins = useMemo(
-    () => activePlugins(Array.isArray(pluginItems) ? pluginItems : []),
-    [pluginItems],
-  )
-  const pluginNavEntries = useMemo(
-    () => navEntries(availablePlugins, callerContext?.isAdmin ?? false),
-    [availablePlugins, callerContext?.isAdmin],
-  )
-  // Most-specific-match-wins, mirroring findPage()'s routing rule, applied to
-  // every top-level nav entry — built-in and plugin alike. NavLink's default
-  // prefix matching reports *every* prefix as active, which would light up a
-  // root page (e.g. /p/memory) on every nested path (/p/memory/setup). The
-  // rule is uniform so a built-in path can never double-highlight with
-  // another entry (built-in or plugin) the day one becomes a prefix of it.
-  // Deep links still keep their entry highlighted (/docs/mcp → Docs).
-  const allNavEntries = useMemo(
-    () => [...SECTIONS.flatMap((section) => section.items), ...pluginNavEntries],
-    [pluginNavEntries],
-  )
+  // Most-specific-match-wins: NavLink's default prefix matching reports
+  // *every* prefix as active, which would light up a root page on every
+  // nested path. The rule keeps at most one entry active, and deep links
+  // still keep their entry highlighted (/docs/mcp → Docs).
   const activePath = useMemo(
-    () => activeNavPath(allNavEntries, location.pathname),
-    [allNavEntries, location.pathname],
+    () => activeNavPath(SECTIONS.flatMap((section) => section.items), location.pathname),
+    [location.pathname],
   )
 
-  // Group plugin entries by section and compute Plugins section
-  const pluginsBySection = useMemo(() => {
-    const grouped = new Map<string, typeof pluginNavEntries>()
-    for (const entry of pluginNavEntries) {
-      if (!grouped.has(entry.section)) {
-        grouped.set(entry.section, [])
-      }
-      grouped.get(entry.section)!.push(entry)
-    }
-    return grouped
-  }, [pluginNavEntries])
-
-  // Render sections with plugin entries
   const renderSections = () => {
     const sectionElements: React.ReactNode[] = []
 
-    for (let i = 0; i < SECTIONS.length; i++) {
-      const section = SECTIONS[i]
+    for (const section of SECTIONS) {
       sectionElements.push(
         <div key={section.label}>
           {collapsed ? null : (
@@ -181,55 +146,8 @@ export function Spine({
               </div>
             )
           })}
-          {/* Plugin entries share the built-in entries' matching rule: plain
-              links whose active state comes from the combined activeNavPath. */}
-          {pluginsBySection.get(section.label)?.map((entry, idx) => {
-            const active = entry.to === activePath
-            return (
-              <div key={entry.to}>
-                <EntryLink
-                  to={entry.to}
-                  idx={`P·${idx + 1}`}
-                  name={entry.label}
-                  active={active}
-                  collapsed={collapsed}
-                />
-              </div>
-            )
-          })}
         </div>,
       )
-
-      // Plugin-owned headings (e.g. "Forgejo", or "Plugins" for pages that
-      // name no section) go after Library, in the order plugins are listed.
-      if (i === 2) {
-        for (const [label, entries] of pluginsBySection) {
-          if (BUILT_IN_SECTIONS.has(label)) continue
-          sectionElements.push(
-            <div key={`plugin-section-${label}`}>
-              {collapsed ? null : (
-                <div className="nav-section">
-                  <span className="label">{label}</span>
-                </div>
-              )}
-              {entries.map((entry, idx) => {
-                const active = entry.to === activePath
-                return (
-                  <div key={entry.to}>
-                    <EntryLink
-                      to={entry.to}
-                      idx={`P·${idx + 1}`}
-                      name={entry.label}
-                      active={active}
-                      collapsed={collapsed}
-                    />
-                  </div>
-                )
-              })}
-            </div>,
-          )
-        }
-      }
     }
 
     return sectionElements

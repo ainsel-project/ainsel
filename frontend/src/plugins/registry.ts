@@ -30,7 +30,10 @@ export function activePlugins(items: PluginListItem[]): ActivePlugin[] {
  * "Forgejo". A page without a section goes under Plugins.
  * Admin pages are omitted when isAdmin is false.
  */
-export function navEntries(plugins: ActivePlugin[], isAdmin: boolean) {
+export function navEntries(
+  plugins: readonly { id: string; manifest: PluginManifest }[],
+  isAdmin: boolean,
+) {
   const entries: { section: string; label: string; to: string }[] = []
 
   for (const plugin of plugins) {
@@ -50,6 +53,18 @@ export function navEntries(plugins: ActivePlugin[], isAdmin: boolean) {
   }
 
   return entries
+}
+
+/**
+ * The navigable pages of one plugin — the same entries navEntries() produces,
+ * restricted to a single plugin. Feeds the plugin workspace's pages strip
+ * (the plugin's own sections, mirroring the agent workspace's section nav).
+ */
+export function pluginPages(
+  plugin: { id: string; manifest: PluginManifest },
+  isAdmin: boolean,
+): { section: string; label: string; to: string }[] {
+  return navEntries([plugin], isAdmin)
 }
 
 /**

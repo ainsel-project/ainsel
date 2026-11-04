@@ -183,6 +183,11 @@ to rename things safely.
 - Tests live next to source as `*.test.ts(x)` or under `__tests__/`.
 - Frontend code lives under [`frontend/`](../frontend/); follow its package
   README for build/dev commands.
+- All colours and themeable values must reference design tokens declared in
+  `frontend/src/design/` — inline `style={{}}` objects included. A
+  fallback-less `var()` to an undeclared token silently invalidates the
+  declaration (issue #212 rendered white chat text on a white background);
+  `frontend/src/design/tokens.guard.test.ts` enforces this.
 
 ### Helm
 
