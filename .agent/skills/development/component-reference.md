@@ -16,7 +16,7 @@
 | Agent Operator | `operators/agent/` | Go | `ci-operators-agent.yml` |
 | Event Gateway Operator | `operators/event-gateway/` | Go | `ci-operators-event-gateway.yml` |
 | Shared API | `shared/api/` | Go | `ci-shared-api.yml` |
-| Shared Auth (OIDC) | `shared/auth/oidc/` | Go | (covered by services) |
+| Shared Auth (OIDC) | `shared/auth/oidc/` | Go | `ci-shared-auth-oidc.yml` |
 | Helm Chart | `chart/` | YAML | `ci-chart.yml` |
 | Pi Agent Runtime | `pi/` | JS/Shell | `ci-pi.yml` |
 
@@ -119,6 +119,7 @@ CI only runs for a component if its paths are touched:
 | `operators/event-gateway/**` | `ci-operators-event-gateway.yml` |
 | `chart/**` | `ci-chart.yml` |
 | `shared/api/**` | `ci-shared-api.yml` + all Go services |
+| `shared/auth/oidc/**` | `ci-shared-auth-oidc.yml` + `ci-services-hub.yml` + `ci-services-mcp.yml` |
 
 **Tip:** If you change `shared/api/`, expect multiple CI jobs to trigger (all Go services depend on it).
 
