@@ -4,6 +4,7 @@ import type { KeyboardEvent, MouseEvent } from 'react'
 import type { ActivityEntry, ActivityMatch } from '../../api/events'
 import { Tag } from '../../primitives/Tag'
 import { formatRelative } from '../../utils/time'
+import { sectionPath } from '../agents/workspace/sections'
 
 type ActivityRowProps = {
   entry: ActivityEntry
@@ -48,10 +49,10 @@ function agentPath(agentRef: string) {
   return `/agents/${encodeURIComponent(agentRef)}`
 }
 
-// Subscriptions are owned by the agent's inbox channel; the channel tab
-// links to it. Trigger rules have no standalone page.
+// Subscriptions are listed in the agent's Triggers section. Trigger rules
+// have no standalone page.
 function triggerPath(agentRef: string) {
-  return `/agents/${encodeURIComponent(agentRef)}?tab=channel`
+  return sectionPath(agentRef, 'triggers')
 }
 
 const stopPropagation = (e: MouseEvent) => e.stopPropagation()

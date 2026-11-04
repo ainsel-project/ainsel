@@ -18,6 +18,7 @@ import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Autocomplete } from '../../primitives/Autocomplete'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
+import { sectionPath } from '../agents/workspace/sections'
 
 const ROLE_LABEL: Record<GroupRole, string> = {
   reader: 'Reader',
@@ -41,7 +42,7 @@ const RESOURCE_PANELS: { type: GroupResourceType; label: string; empty: string }
 ]
 
 // Detail route for one resource. Triggers have no detail route of their own,
-// so they link to the owning agent's trigger tab; an unresolvable owner
+// so they link to the owning agent's Triggers section; an unresolvable owner
 // renders the name unlinked rather than pointing at a 404.
 function groupResourceHref(item: GroupResourceItem): string | null {
   const id = encodeURIComponent(item.id)
@@ -62,7 +63,7 @@ function groupResourceHref(item: GroupResourceItem): string | null {
       return `/settings/mcp-servers/${id}`
     case 'trigger':
     case 'cron-trigger':
-      return item.agentRef ? `/agents/${encodeURIComponent(item.agentRef)}?tab=triggers` : null
+      return item.agentRef ? sectionPath(item.agentRef, 'triggers') : null
   }
 }
 

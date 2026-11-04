@@ -99,12 +99,9 @@ describe('GroupDetail resources section', () => {
       'href',
       '/settings/mcp-servers/mcp-1',
     )
-    // Triggers link to the owning agent's trigger tab.
+    // Triggers link to the owning agent's Triggers section.
     for (const name of ['On issues', 'Nightly']) {
-      expect(screen.getByRole('link', { name })).toHaveAttribute(
-        'href',
-        '/agents/a-1?tab=triggers',
-      )
+      expect(screen.getByRole('link', { name })).toHaveAttribute('href', '/agents/a-1/triggers')
     }
   })
 
