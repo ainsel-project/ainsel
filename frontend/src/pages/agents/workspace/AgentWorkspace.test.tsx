@@ -6,6 +6,7 @@ import { AgentWorkspace } from './AgentWorkspace'
 import { SectionRoute } from './sectionPages'
 import { OverviewSection } from './OverviewSection'
 import { agentTestFetch } from './agentTestFetch'
+import { QueryClient } from '@tanstack/react-query'
 import { renderWithProviders } from '../../../test/renderWithProviders'
 
 vi.mock('../../../auth/AuthProvider', () => ({
@@ -19,9 +20,12 @@ vi.mock('../../../auth/AuthProvider', () => ({
   }),
 }))
 
+// The plugin list each test wants the nav to see; empty by default.
+const installed = vi.hoisted(() => ({ list: [] as unknown[] }))
+
 vi.mock('../../../api/plugins', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../api/plugins')>()
-  return { ...actual, usePlugins: () => ({ data: [], isPending: false }) }
+  return { ...actual, usePlugins: () => ({ data: installed.list, isPending: false }) }
 })
 
 vi.mock('../../../plugins/PluginSlot', () => ({
@@ -66,7 +70,7 @@ function LocationProbe() {
   return <p data-testid="location">{`${location.pathname}${location.search}`}</p>
 }
 
-function renderWorkspace(route: string) {
+function renderWorkspace(route: string, queryClient?: QueryClient) {
   return renderWithProviders(
     <>
       <Routes>
@@ -78,7 +82,7 @@ function renderWorkspace(route: string) {
       <Link to="/agents/a2/runtime">switch to a2</Link>
       <LocationProbe />
     </>,
-    { route },
+    { route, queryClient },
   )
 }
 
@@ -91,6 +95,7 @@ describe('AgentWorkspace', () => {
   })
   afterEach(() => {
     vi.unstubAllGlobals()
+    installed.list = []
   })
 
   it('renders the runtime section and its environment editor on /agents/:id/runtime', async () => {
@@ -121,6 +126,33 @@ describe('AgentWorkspace', () => {
 
   it('renders the plugin panel for a plugin:<id> section', async () => {
     renderWorkspace('/agents/a1/plugin:forgejo')
+    expect(await screen.findByText('plugin=forgejo')).toBeInTheDocument()
+  })
+
+  it('redirects the legacy ?tab=plugin:<id> URL to the plugin section', async () => {
+    renderWorkspace('/agents/a1?tab=plugin:forgejo')
+    await waitFor(() => expect(currentPath()).toBe('/agents/a1/plugin:forgejo'))
+  })
+
+  it('lists an active agent.panel plugin in the nav and opens its slot on click', async () => {
+    installed.list = [
+      {
+        id: 'forgejo',
+        displayName: 'Forgejo',
+        ready: true,
+        disabled: false,
+        manifest: {
+          id: 'forgejo',
+          displayName: 'Forgejo',
+          version: '1.0.0',
+          pluginApi: '1.1',
+          ui: { entry: '/ui/index.js', slots: { 'agent.panel': 'AgentPanel' } },
+        },
+      },
+    ]
+    renderWorkspace('/agents/a1')
+    await userEvent.click(await screen.findByRole('link', { name: 'Forgejo' }))
+    await waitFor(() => expect(currentPath()).toBe('/agents/a1/plugin:forgejo'))
     expect(await screen.findByText('plugin=forgejo')).toBeInTheDocument()
   })
 
@@ -405,7 +437,14 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByText('on-doc-issue')).not.toBeInTheDocument()
   })
   it('remounts the section when the agent changes, so typed edits do not carry over', async () => {
-    renderWorkspace('/agents/a1/runtime')
+    // Pre-seed a2 so the workspace keeps rendering the outlet during the switch;
+    // without the key the a1 runtime form would stay mounted with its typed edit.
+    // gcTime 0 would evict the seeded entry before the switch mounts it.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 0 } },
+    })
+    queryClient.setQueryData(['agents', 'detail', 'a2'], AGENTS.a2)
+    renderWorkspace('/agents/a1/runtime', queryClient)
     const model = await screen.findByLabelText('Model')
     await waitFor(() => expect(model).toHaveValue('claude-opus-4-7'))
     await userEvent.clear(model)
