@@ -4,4 +4,5 @@ export const agentPath = (id: string) => `/agents/${encodeURIComponent(id)}`
 export const agentImagePath = (id: string) => `/agent-images/${encodeURIComponent(id)}`
 export const connectorPath = (id: string) => `/connectors/${encodeURIComponent(id)}`
 export const groupPath = (id: string) => `/groups/${encodeURIComponent(id)}`
+export const skillPath = (id: string) => `/skills/${encodeURIComponent(id)}`
 export const eventPath = (id: string) => `/observability/events/${encodeURIComponent(id)}`
