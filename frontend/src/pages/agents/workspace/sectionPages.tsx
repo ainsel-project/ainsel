@@ -1,8 +1,6 @@
 import type { ComponentType } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { AgentChannelTab } from '../../channels/AgentChannelTab'
-import { AgentTriggers } from '../AgentTriggers'
-import { AgentSchedules } from '../AgentSchedules'
 import { AgentPersonaSection } from '../AgentPersonaSection'
 import { AgentChat } from './AgentChat'
 import {
@@ -15,6 +13,7 @@ import { AgentEnvSection } from '../AgentEnvSection'
 import { RuntimeSettings } from './RuntimeSettings'
 import { PluginSlot } from '../../../plugins/PluginSlot'
 import { SectionPage } from './SectionPage'
+import { TriggersSection } from './TriggersSection'
 import { parseSection, sectionPath, type SectionId } from './sections'
 import { useWorkspaceAgent, useWorkspacePlugins } from './workspaceAgent'
 
@@ -59,16 +58,6 @@ export function SkillsSection() {
   return (
     <SectionPage title="Skills">
       <AgentSkillsSection agent={agent} />
-    </SectionPage>
-  )
-}
-
-export function TriggersSection() {
-  const agent = useWorkspaceAgent()
-  return (
-    <SectionPage title="Triggers">
-      <AgentTriggers agentId={agent.id} agentName={agent.name} />
-      <AgentSchedules agentId={agent.id} />
     </SectionPage>
   )
 }
