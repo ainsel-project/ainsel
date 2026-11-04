@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { stripComments } from './cssThemeKit'
+import { THEMES, parseColor, paletteFor, readCss, resolveVar, stripComments } from './cssThemeKit'
 
 /**
  * Design-token guard.
@@ -219,6 +219,113 @@ describe('design tokens', () => {
       'These baseline entries no longer match the source. Delete them so the ' +
         'ratchet stays tight.',
     ).toEqual([])
+  })
+})
+
+/**
+ * Theme coverage.
+ *
+ * Issue #204: the `--spine*` tokens were declared only in `:root`, so every
+ * theme rendered the light theme's cool-navy sidebar. That is the same defect
+ * class as the phantom fallbacks above, one layer up: the token resolves, the
+ * build is green, and nothing is wrong except that no theme can reach it.
+ *
+ * The rule is about *resolved values*, not declaration sites. A `:root` token
+ * reached through a late-bound alias (`--code-bg: var(--spine)`) is just as
+ * unthemeable as a literal, and key-presence checks would false-positive on
+ * the deliberately theme-invariant scale and shadow tokens. So: every colour
+ * token `:root` declares must resolve differently in at least one theme
+ * palette — unless it is listed in THEME_INVARIANT.
+ */
+
+/** Colour tokens that must never change per theme. Empty today — everything
+ *  the console ships is themed. Adding to this set is a review-time question. */
+const THEME_INVARIANT = new Set<string>([])
+
+/** `:root` is the light theme, so it is covered alongside the named ones. */
+const ALL_PALETTES: (string | null)[] = [null, ...THEMES]
+
+function isColor(value: string): boolean {
+  try {
+    parseColor(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Tokens `palettes[0]` declares that resolve to the same colour in every
+ * palette. Pure over palettes so the meta-test below can feed it a synthetic
+ * stylesheet; the real check passes the palettes read off disk.
+ */
+function unthemedColorTokens(
+  palettes: Map<string, string>[],
+  invariant: Set<string> = THEME_INVARIANT,
+): string[] {
+  const [root] = palettes
+  const out: string[] = []
+  for (const token of root.keys()) {
+    if (invariant.has(token)) continue
+    let resolved: string[]
+    try {
+      resolved = palettes.map((p) => resolveVar(`var(${token})`, p))
+    } catch {
+      continue // unresolvable chain — the phantom-token check above owns that
+    }
+    if (!isColor(resolved[0])) continue // scale and shadow tokens are not colours
+    if (resolved.some((v) => v !== resolved[0])) continue
+    out.push(token)
+  }
+  return out.sort()
+}
+
+describe('theme coverage', () => {
+  it('themes every colour token :root declares', () => {
+    const unthemed = unthemedColorTokens(ALL_PALETTES.map(paletteFor))
+    expect(
+      unthemed,
+      'These colour tokens resolve to the same value in every theme, so every ' +
+        'theme renders the light theme value. Give each html[data-theme=…] ' +
+        'block in tokens.css its own value, or add the token to THEME_INVARIANT ' +
+        'if it must genuinely never change.',
+    ).toEqual([])
+  })
+
+  it('catches a :root-only colour token (sanity check on the guard)', () => {
+    // A guard whose failure mode is untested is a guard that silently passes.
+    const root = new Map([
+      ['--themed', '#111111'],
+      ['--never-themed', '#123456'],
+      ['--u', '4px'],
+      ['--shadow', '0 1px 2px color-mix(in srgb, var(--themed) 6%, transparent)'],
+    ])
+    const palettes = ['#222222', '#333333', '#444444'].map(
+      (v) => new Map([...root, ['--themed', v]]),
+    )
+    // Only the colour that no theme overrides; the scale and shadow tokens are
+    // not colours and must not be reported.
+    expect(unthemedColorTokens([root, ...palettes])).toEqual(['--never-themed'])
+    // The opt-out opts out.
+    expect(unthemedColorTokens([root, ...palettes], new Set(['--never-themed']))).toEqual([])
+  })
+
+  it('keeps the theme list pinned at both ends', () => {
+    // THEMES is a hand-maintained literal: a fifth theme added to theme.ts
+    // without a THEMES entry would be silently unguarded by every spec here,
+    // and a theme block in tokens.css missing from THEMES would be unmeasured.
+    const css = readCss('tokens.css')
+    const blocks = [...css.matchAll(/html\[data-theme="([^"]+)"\]/g)].map((m) => m[1]).sort()
+    expect(blocks, 'tokens.css theme blocks vs cssThemeKit THEMES').toEqual([...THEMES].sort())
+
+    // theme.ts is semicolon-free, so the union ends at the newline, not a `;`.
+    const decl = /export type Theme = ([^\n]+)/.exec(readFileSync(join(SRC, 'theme.ts'), 'utf8'))
+    expect(decl, 'theme.ts has no `export type Theme = …`').toBeTruthy()
+    const union = [...decl![1].matchAll(/'([^']+)'/g)]
+      .map((m) => m[1])
+      .filter((t) => t !== 'light')
+      .sort()
+    expect(union, 'theme.ts Theme union vs cssThemeKit THEMES').toEqual([...THEMES].sort())
   })
 })
 
