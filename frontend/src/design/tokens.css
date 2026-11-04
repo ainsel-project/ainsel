@@ -62,17 +62,24 @@
   --shadow: 0 2px 6px color-mix(in srgb, var(--ink) 8%, transparent),
     0 14px 36px color-mix(in srgb, var(--ink) 10%, transparent);
 
-  /* CHROME — the always-dark sidebar, and the code well that matches it.
-     These are defined once and never themed: a payload block that flips to
-     white in a dark theme stops reading as code. */
+  /* CHROME — the sidebar, and the code well that matches it. Themed like the
+     rest of the palette (each html[data-theme=…] block below carries its own
+     spine values), but the spine must stay a dark surface: --code-bg aliases
+     --spine, so codeSurfaces.test.ts fails the build on any theme that lifts
+     the sidebar out of code-well range (luminance < 0.2). --spine-ink, -2 and
+     -3 are the text tiers; spineContrast.test.ts pins WCAG AA (4.5:1) for
+     each over --spine in every theme, which is why --spine-ink-3 sits at 0.6
+     alpha — the 0.42 it shipped at measured only 3.65:1 here. */
   --spine:        #0d1520;
   --spine-ink:    #e6eef4;
   --spine-ink-2:  rgba(230, 238, 244, 0.66);
-  --spine-ink-3:  rgba(230, 238, 244, 0.42);
+  --spine-ink-3:  rgba(230, 238, 244, 0.6);
   --spine-line:   rgba(230, 238, 244, 0.12);
   --spine-hover:  rgba(230, 238, 244, 0.08);
 
-  /* CODE — payloads and markdown fences: dark in every theme */
+  /* CODE — payloads and markdown fences: late-bound aliases of the spine, so
+     the well tracks the sidebar in every theme and stays dark with it — see
+     the CHROME note; codeSurfaces.test.ts enforces both. */
   --code-bg:      var(--spine);
   --code-ink:     var(--spine-ink);
 }
@@ -103,6 +110,15 @@ html[data-theme="dark"] {
   --warn-ink:     var(--warn);
   --err:          #e06565;
   --stale:        #6d8092;
+
+  /* CHROME — sits lighter than --paper (#0c1117) so the spine reads as chrome;
+     ink tiers in this theme's ink hue. See the :root CHROME note. */
+  --spine:        #171f29;
+  --spine-ink:    #dde7ef;
+  --spine-ink-2:  rgba(221, 231, 239, 0.66);
+  --spine-ink-3:  rgba(221, 231, 239, 0.6);
+  --spine-line:   rgba(221, 231, 239, 0.12);
+  --spine-hover:  rgba(221, 231, 239, 0.08);
 }
 
 html[data-theme="peat"] {
@@ -133,6 +149,15 @@ html[data-theme="peat"] {
   --warn-ink:     var(--warn);
   --err:          #e06565;
   --stale:        #a19378;
+
+  /* CHROME — the peat page is a mid brown (#312b22), so the spine reads as
+     chrome by sitting darker. Ink tiers in this theme's ink hue. */
+  --spine:        #1e1a13;
+  --spine-ink:    #f0e8d4;
+  --spine-ink-2:  rgba(240, 232, 212, 0.66);
+  --spine-ink-3:  rgba(240, 232, 212, 0.6);
+  --spine-line:   rgba(240, 232, 212, 0.12);
+  --spine-hover:  rgba(240, 232, 212, 0.08);
 }
 
 html[data-theme="tallow"] {
@@ -161,5 +186,14 @@ html[data-theme="tallow"] {
   --warn-ink:     var(--warn);
   --err:          #e06565;
   --stale:        #8a7c66;
+
+  /* CHROME — sits lighter than --paper (#16110b); the lightest spine of the
+     dark themes, so it is the binding case for the spine AA floors. */
+  --spine:        #2a2116;
+  --spine-ink:    #e8dcc4;
+  --spine-ink-2:  rgba(232, 220, 196, 0.66);
+  --spine-ink-3:  rgba(232, 220, 196, 0.6);
+  --spine-line:   rgba(232, 220, 196, 0.12);
+  --spine-hover:  rgba(232, 220, 196, 0.08);
 }
 

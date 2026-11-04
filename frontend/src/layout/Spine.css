@@ -1,4 +1,7 @@
-/* Fjord spine — always-dark contrast sidebar with pill navigation. */
+/* Fjord spine — dark contrast sidebar, themed per palette, with pill
+   navigation. Stays a dark surface in every theme: spineContrast.test.ts
+   pins its AA floors and codeSurfaces.test.ts holds the code wells — which
+   alias the spine via --code-bg — dark with it. */
 
 .spine {
   position: sticky;

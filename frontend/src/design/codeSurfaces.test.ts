@@ -11,8 +11,10 @@ import {
   surfaceColors,
 } from './cssThemeKit'
 
-// The payload / markdown well is an always-dark element, like the sidebar chrome:
-// a JSON block that flips to white in a dark theme does not read as code, and
+// The payload / markdown well is a dark element in every theme: --code-bg and
+// --code-ink alias the themed spine, so the well recolours with the sidebar and
+// the luminance assertion below is what holds both down — a JSON block that
+// flips to white in a dark theme does not read as code, and
 // `background: var(--ink)` is exactly that flip. These assertions check the
 // rendered colours rather than the source text, so they still bite if someone
 // reintroduces the pair under a different token name.
