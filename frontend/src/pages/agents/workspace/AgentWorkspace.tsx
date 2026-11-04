@@ -1,9 +1,7 @@
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Navigate, Outlet, useParams, useSearchParams } from 'react-router-dom'
 import { useAgent } from '../../../api/agents'
 import { usePlugins } from '../../../api/plugins'
-import { recordAgentView, recentsScope } from '../../../agentRecents'
-import { useAuth } from '../../../auth/AuthProvider'
 import { activePlugins, slotContributions } from '../../../plugins/registry'
 import { AgentList } from '../AgentList'
 import { AgentSidebar } from './AgentSidebar'
@@ -33,7 +31,6 @@ export function AgentListPage() {
 export function AgentWorkspace() {
   const { id = '', section } = useParams()
   const [searchParams] = useSearchParams()
-  const { user } = useAuth()
   const { data: agent, isLoading, error } = useAgent(id)
   const { data: pluginsList } = usePlugins()
 
@@ -45,12 +42,6 @@ export function AgentWorkspace() {
       })),
     [pluginsList],
   )
-
-  // Feed the nav's recent-agents list. Keyed on the loaded agent's id, not the
-  // raw route param, so an unresolvable URL cannot be remembered as "viewed".
-  useEffect(() => {
-    if (agent?.id) recordAgentView(recentsScope(user), agent.id)
-  }, [agent?.id, user])
 
   // Old deep links (/agents/:id?tab=...) move to the matching section route.
   const legacyTab = searchParams.get('tab')

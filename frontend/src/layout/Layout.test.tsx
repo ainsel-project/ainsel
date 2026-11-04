@@ -117,8 +117,6 @@ describe('Layout', () => {
     const spine = document.querySelector('.spine')
     expect(spine).toHaveClass('rail')
     expect(screen.getByRole('link', { name: 'Agents' })).toHaveAttribute('aria-label', 'Agents')
-    // No recent-agents sublinks inside the workspace.
-    expect(document.querySelector('.nav-recent')).toBeNull()
   })
 
   it('keeps the full spine outside the agent workspace', () => {

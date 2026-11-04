@@ -170,23 +170,6 @@ describe('AgentWorkspace', () => {
     expect(await screen.findByText('plugin=forgejo')).toBeInTheDocument()
   })
 
-  it('records the viewed agent under the signed-in user', async () => {
-    renderWithProviders(
-      <Routes>
-        <Route path="/agents/:id" element={<AgentWorkspace />}>
-          <Route index element={<OverviewSection />} />
-          <Route path=":section" element={<SectionRoute />} />
-        </Route>
-      </Routes>,
-      { route: '/agents/a1' },
-    )
-    await waitFor(() =>
-      expect(JSON.parse(localStorage.getItem('ainsel-agent-recents:sub-kim') ?? '[]')).toEqual([
-        'a1',
-      ]),
-    )
-  })
-
   it('opens the Runtime section with image identity and env, and switches images', async () => {
     const putCalls: Array<{ url: string; body?: string }> = []
     vi.stubGlobal(

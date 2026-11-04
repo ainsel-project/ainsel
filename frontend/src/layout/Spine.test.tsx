@@ -1,9 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, vi } from 'vitest'
 import { Spine } from './Spine'
-import { recordAgentView } from '../agentRecents'
 
 function emptyAgentsResponse() {
   return new Response(
@@ -12,7 +11,7 @@ function emptyAgentsResponse() {
   )
 }
 
-function renderAt(path: string, scope = 'anon', opts: { rail?: boolean; open?: boolean } = {}) {
+function renderAt(path: string, opts: { rail?: boolean; open?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
   })
@@ -21,7 +20,6 @@ function renderAt(path: string, scope = 'anon', opts: { rail?: boolean; open?: b
       <MemoryRouter initialEntries={[path]}>
         <Spine
           operator="kim"
-          recentsScope={scope}
           rail={opts.rail}
           open={opts.open}
           onClose={opts.open ? () => {} : undefined}
@@ -31,22 +29,7 @@ function renderAt(path: string, scope = 'anon', opts: { rail?: boolean; open?: b
   )
 }
 
-function agentsResponse(items: unknown[]) {
-  return new Response(
-    JSON.stringify({
-      items,
-      total: items.length,
-      page: 1,
-      pageSize: 200,
-      totalPages: 1,
-    }),
-    { status: 200 },
-  )
-}
-
 beforeEach(() => {
-  // Recents live in localStorage, which survives between tests in a file.
-  localStorage.clear()
   vi.stubGlobal(
     'fetch',
     vi.fn((url: string) => {
@@ -151,98 +134,6 @@ describe('Spine', () => {
     expect(screen.getByRole('link', { name: /Personas/i })).toHaveAttribute('href', '/personas')
   })
 
-  it('pads to five with the most recently updated agents when nothing was clicked', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve(
-          agentsResponse([
-            { id: 'a-old', name: 'ancient-agent', updatedAt: '2026-01-01T00:00:00Z' },
-            { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
-            { id: 'a-2', name: 'pr-reviewer', updatedAt: '2026-09-08T00:00:00Z' },
-            { id: 'a-3', name: 'issue-triager', updatedAt: '2026-09-09T00:00:00Z' },
-            { id: 'a-4', name: 'doc-writer', updatedAt: '2026-09-07T00:00:00Z' },
-            { id: 'a-5', name: 'least-relevant', updatedAt: '2025-01-01T00:00:00Z' },
-          ]),
-        ),
-      ),
-    )
-
-    renderAt('/agents')
-    const newest = await screen.findByRole('link', { name: /issue-triager/i })
-    expect(newest).toHaveAttribute('href', '/agents/a-3')
-    expect(screen.getByRole('link', { name: /pr-reviewer/i })).toBeInTheDocument()
-    // Five now, not three: the two oldest of the six get cut.
-    expect(screen.getByRole('link', { name: /nightly-sweeper/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /ancient-agent/i })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /least-relevant/i })).not.toBeInTheDocument()
-    // None of these were clicked, so all of them are filler.
-    expect(document.querySelectorAll('.nav-sublink.padded')).toHaveLength(5)
-  })
-
-  it('lists agents this user clicked before the recently updated ones', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve(
-          agentsResponse([
-            { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
-            { id: 'a-2', name: 'pr-reviewer', updatedAt: '2026-09-08T00:00:00Z' },
-            { id: 'a-3', name: 'issue-triager', updatedAt: '2026-09-09T00:00:00Z' },
-          ]),
-        ),
-      ),
-    )
-    // Click order: pr-reviewer, then nightly-sweeper. nightly-sweeper is the
-    // *oldest* by updatedAt, so it only comes out on top if the click history
-    // is what ordered this list — plain updatedAt would put issue-triager
-    // first and would not be distinguishable from a coincidence.
-    recordAgentView('kim', 'a-2')
-    recordAgentView('kim', 'a-1')
-
-    renderAt('/agents', 'kim')
-    await screen.findByRole('link', { name: /nightly-sweeper/i })
-    const links = Array.from(document.querySelectorAll('.nav-recent .nav-sublink .name')).map(
-      (el) => el.textContent,
-    )
-    // issue-triager is unclicked but newest, so it pads the last slot.
-    expect(links).toEqual(['nightly-sweeper', 'pr-reviewer', 'issue-triager'])
-    // Clicked ones are theirs (not padded); the single pad slot is.
-    expect(
-      Array.from(document.querySelectorAll('.nav-recent .nav-sublink')).map((el) =>
-        el.classList.contains('padded'),
-      ),
-    ).toEqual([false, false, true])
-  })
-
-  it('drops a remembered agent the hub no longer returns', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve(
-          agentsResponse([
-            { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
-          ]),
-        ),
-      ),
-    )
-    // Deleted, or access revoked since: the id is still in storage, but the
-    // list API is RBAC-filtered and must decide what renders.
-    recordAgentView('kim', 'gone-agent')
-
-    renderAt('/agents', 'kim')
-    await screen.findByRole('link', { name: /nightly-sweeper/i })
-    expect(screen.queryByRole('link', { name: /gone-agent/i })).not.toBeInTheDocument()
-    expect(document.querySelectorAll('.nav-recent .nav-sublink')).toHaveLength(1)
-  })
-
-  it('renders no recent agents when the user has none', async () => {
-    const { container } = renderAt('/dashboard')
-    // Give the agents query a tick to resolve before asserting.
-    await screen.findByRole('link', { name: /agents/i })
-    await waitFor(() => expect(container.querySelector('.nav-recent')).toBeNull())
-  })
-
   it('does not render Error Log in nav (redirected to /observability/errors)', () => {
     renderAt('/dashboard')
     expect(screen.queryByRole('link', { name: /Error Log/i })).toBeNull()
@@ -271,21 +162,8 @@ describe('Spine', () => {
   })
 
   it('keeps the Agents entry highlighted on agent detail paths', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve(
-          agentsResponse([
-            { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
-          ]),
-        ),
-      ),
-    )
     renderAt('/agents/a-1')
 
-    // The sublink for the agent itself renders (rendered as NavLink, which is
-    // the intended exception: detail links are not top-level nav entries).
-    await screen.findByRole('link', { name: /nightly-sweeper/i })
     const agents = screen.getByRole('link', { name: /^\s*02\s*Agents/i })
     expect(agents).toHaveAttribute('aria-current', 'page')
     expect(agents).toHaveClass('active')
@@ -293,7 +171,7 @@ describe('Spine', () => {
 
   describe('rail mode', () => {
     it('shows only the idx and exposes the name as title and aria-label', () => {
-      renderAt('/dashboard', 'anon', { rail: true })
+      renderAt('/dashboard', { rail: true })
       const agents = screen.getByRole('link', { name: 'Agents' })
       expect(agents).toHaveAttribute('aria-label', 'Agents')
       expect(agents).toHaveAttribute('title', 'Agents')
@@ -304,35 +182,16 @@ describe('Spine', () => {
     })
 
     it('hides section labels', () => {
-      renderAt('/dashboard', 'anon', { rail: true })
+      renderAt('/dashboard', { rail: true })
       for (const label of ['Operations', 'Fleet', 'Library', 'Docs', 'Admin']) {
         expect(screen.queryByText(label)).toBeNull()
       }
     })
 
-    it('renders no recent agents block', async () => {
-      // Data that *would* render sublinks in full mode, to prove the block is
-      // absent because of rail mode, not because the list is empty.
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(() =>
-          Promise.resolve(
-            agentsResponse([
-              { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
-            ]),
-          ),
-        ),
-      )
-      const { container } = renderAt('/agents', 'kim', { rail: true })
-      await screen.findByRole('link', { name: 'Agents' })
-      await waitFor(() => expect(container.querySelector('.nav-recent')).toBeNull())
-      expect(container.querySelector('.nav-sublink')).toBeNull()
-    })
-
     it('keeps the full menu while the mobile drawer is open', () => {
       // Rail mode is a desktop-canvas concern; opening the drawer on mobile
       // must still give the full navigation, names and all.
-      renderAt('/agents', 'anon', { rail: true, open: true })
+      renderAt('/agents', { rail: true, open: true })
       const spine = document.querySelector('.spine')
       expect(spine).toHaveClass('open')
       expect(spine).not.toHaveClass('rail')
