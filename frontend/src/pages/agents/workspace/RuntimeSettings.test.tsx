@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { RuntimeSettings } from './RuntimeSettings'
 import { LegacyEditRedirect } from './sectionPages'
 import type { AgentResponse } from '../../../api/agents'
@@ -42,6 +43,26 @@ function renderSettings(overrides: Partial<AgentResponse> = {}) {
   return renderWithProviders(<RuntimeSettings agent={{ ...agent, ...overrides } as AgentResponse} />, {
     route: '/agents/a1/runtime',
   })
+}
+
+/**
+ * Renders with a handle to re-render the same tree with a new agent object,
+ * as the workspace does after a refetch. The providers are kept so the
+ * component tree (and its form state) is preserved.
+ */
+function renderMutable(initial: AgentResponse) {
+  const view = renderWithProviders(<RuntimeSettings agent={initial} />, {
+    route: '/agents/a1/runtime',
+  })
+  const rerenderWith = (next: AgentResponse) =>
+    view.rerender(
+      <QueryClientProvider client={view.queryClient}>
+        <MemoryRouter initialEntries={['/agents/a1/runtime']}>
+          <RuntimeSettings agent={next} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  return { ...view, rerenderWith }
 }
 
 describe('RuntimeSettings', () => {
@@ -163,6 +184,72 @@ describe('RuntimeSettings', () => {
     await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
     expect(putBody(fetchMock)?.replicas).toBe(2)
     expect(putBody(fetchMock)).not.toHaveProperty('minReplicas')
+  })
+
+  it('requires a model', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.clear(screen.getByLabelText('Model'))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText('Model is required')).toBeInTheDocument()
+    expect(putBody(fetchMock)).toBeUndefined()
+  })
+
+  it('rejects a negative concurrency cap', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.clear(screen.getByLabelText('Max concurrent tasks'))
+    await user.type(screen.getByLabelText('Max concurrent tasks'), '-1')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText(/too small/i)).toBeInTheDocument()
+    expect(putBody(fetchMock)).toBeUndefined()
+  })
+
+  it('keeps a typed model when the agent refetches with identical runtime content', async () => {
+    const user = userEvent.setup()
+    const view = renderMutable(agent)
+
+    await user.clear(screen.getByLabelText('Model'))
+    await user.type(screen.getByLabelText('Model'), 'claude-opus-4-8')
+    view.rerenderWith({ ...agent, llm: { ...agent.llm } } as AgentResponse)
+
+    expect(screen.getByLabelText('Model')).toHaveValue('claude-opus-4-8')
+  })
+
+  it('keeps a typed model when only other agent fields (env) change', async () => {
+    const user = userEvent.setup()
+    const view = renderMutable(agent)
+
+    await user.clear(screen.getByLabelText('Model'))
+    await user.type(screen.getByLabelText('Model'), 'claude-opus-4-8')
+    view.rerenderWith({
+      ...agent,
+      env: [{ name: 'LOG_LEVEL', value: 'debug', secret: false }],
+    } as AgentResponse)
+
+    expect(screen.getByLabelText('Model')).toHaveValue('claude-opus-4-8')
+  })
+
+  it('reflects the saved values after its own save, and then the stored agent', async () => {
+    const user = userEvent.setup()
+    const view = renderMutable(agent)
+
+    await user.clear(screen.getByLabelText('Model'))
+    await user.type(screen.getByLabelText('Model'), 'claude-opus-4-8')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('claude-opus-4-8'))
+
+    // The refetched agent carries the saved model; the form shows it too.
+    view.rerenderWith({
+      ...agent,
+      llm: { ...agent.llm, model: 'claude-opus-4-8' },
+    } as AgentResponse)
+    expect(screen.getByLabelText('Model')).toHaveValue('claude-opus-4-8')
   })
 
   it('offers no editing or save for externally managed agents', () => {

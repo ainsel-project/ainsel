@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useUpdateAgent, type AgentResponse } from '../../../api/agents'
@@ -60,15 +60,24 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
     reset,
     setValue,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<RuntimeFormInput, unknown, RuntimeFormValues>({
     resolver: zodResolver(runtimeSchema),
     defaultValues: toFormValues(agent),
   })
 
+  // Re-seed only when the runtime content of the stored agent changes. The
+  // agent object is refetched whenever any section saves (image, env, tools),
+  // so identity alone must not reset the form; and typed edits survive a
+  // refetch unless they were already saved.
+  const storedKey = JSON.stringify(toFormValues(agent))
+  const seededKey = useRef<string | null>(null)
   useEffect(() => {
-    reset(toFormValues(agent))
-  }, [agent, reset])
+    if (seededKey.current === storedKey) return
+    if (seededKey.current !== null && isDirty) return
+    seededKey.current = storedKey
+    reset(JSON.parse(storedKey) as RuntimeFormInput)
+  }, [storedKey, isDirty, reset])
 
   const provider = watch('llm.provider')
   const vision = watch('llm.vision') ?? false
@@ -80,6 +89,9 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
         id: agent.id,
         body: buildRuntimeRequest(agent.name, values),
       })
+      // The saved values are now the form's baseline: clear the dirty flag so
+      // the refetch that follows re-seeds from the stored agent.
+      reset({ ...values, providerApiKey: '' })
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : 'Save failed. Please try again.')
     }
