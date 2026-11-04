@@ -6,6 +6,7 @@ on:
     paths:
       - 'shared/testutil/**'
       - 'go.work'
+      - '.golangci.yml'
       - '.github/workflows/ci-shared-testutil.yml'
   pull_request:
     branches: [main]
@@ -13,6 +14,7 @@ on:
     paths:
       - 'shared/testutil/**'
       - 'go.work'
+      - '.golangci.yml'
       - '.github/workflows/ci-shared-testutil.yml'
 
 jobs:
@@ -31,7 +33,7 @@ jobs:
       # must run with the e2e tag or they silently compile nothing at all.
       - name: Lint
         working-directory: shared/testutil
-        run: golangci-lint run --build-tags e2e ./...
+        run: golangci-lint run -c ../../.golangci.yml --build-tags e2e ./...
       - name: Test
         working-directory: shared/testutil
         run: go test -tags e2e ./...

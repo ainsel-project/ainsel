@@ -11,7 +11,7 @@ test:
 	go test ./... -v -count=1
 
 lint:
-	golangci-lint run ./...
+	golangci-lint run -c ../../.golangci.yml ./...
 
 image:
 	docker build -t $(IMAGE):$(TAG) .
