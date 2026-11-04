@@ -60,7 +60,7 @@ export function ToolFieldArray({
   }
 
   return (
-    <div style={{ marginTop: 24 }}>
+    <>
       {/* No .cropped corner ticks: they are square ink brackets and would
           float outside this card's rounded corners. */}
       <div
@@ -101,6 +101,6 @@ export function ToolFieldArray({
           onRemove={onRemoveSelected}
         />
       </div>
-    </div>
+    </>
   )
 }

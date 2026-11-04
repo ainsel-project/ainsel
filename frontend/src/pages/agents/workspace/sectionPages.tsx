@@ -10,7 +10,6 @@ import {
   AgentMCPSection,
   AgentSkillsSection,
 } from '../AgentImageSection'
-import { AgentEnvSection } from '../AgentEnvSection'
 import { RuntimeSettings } from './RuntimeSettings'
 import { PluginSlot } from '../../../plugins/PluginSlot'
 import { SectionPage } from './SectionPage'
@@ -31,9 +30,12 @@ export function RuntimeSection() {
   const agent = useWorkspaceAgent()
   return (
     <SectionPage title="Runtime & env">
-      <RuntimeSettings agent={agent} />
-      <AgentImageSection agent={agent} />
-      <AgentEnvSection agent={agent} />
+      {/* One grid-gap mechanism for the stacked cards (issue #215); the
+          merged Environment card lives inside AgentImageSection's form. */}
+      <div className="panel-stack">
+        <RuntimeSettings agent={agent} />
+        <AgentImageSection agent={agent} />
+      </div>
     </SectionPage>
   )
 }

@@ -23,8 +23,6 @@ type RuntimeSettingsProps = {
   agent: AgentResponse
 }
 
-const GRID_STYLE = { display: 'grid', gap: 14, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }
-
 function toFormValues(agent: AgentResponse): RuntimeFormInput {
   return {
     llm: {
@@ -104,7 +102,7 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
           disabled={readOnly}
           style={{ border: 0, margin: 0, padding: 0, minWidth: 0, display: 'grid', gap: 18 }}
         >
-          <div style={GRID_STYLE}>
+          <div className="form-grid cols-2">
             <Field label="Model" htmlFor="llm.model" error={errors.llm?.model?.message}>
               <Input id="llm.model" {...register('llm.model')} />
             </Field>
@@ -154,8 +152,7 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  height: '100%',
-                  paddingTop: 6,
+                  minHeight: 36,
                 }}
               >
                 <Check
@@ -172,7 +169,7 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
           </div>
 
           {provider ? (
-            <div style={GRID_STYLE}>
+            <div className="form-grid cols-2">
               {provider === 'custom' ? (
                 <Field
                   label="Provider Base URL"
@@ -198,7 +195,7 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
             </div>
           ) : null}
 
-          <div style={GRID_STYLE}>
+          <div className="form-grid cols-2">
             <Field
               label="Max concurrent tasks"
               htmlFor="replicas"

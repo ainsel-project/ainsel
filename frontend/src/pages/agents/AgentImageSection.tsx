@@ -8,6 +8,7 @@ import { Panel } from '../../primitives/Panel'
 import { Select } from '../../primitives/Select'
 import { ImageFormContainer } from '../images/ImageFormContainer'
 import { SkillsSelector } from '../images/SkillsSelector'
+import { AgentEnvSection } from './AgentEnvSection'
 
 type AgentImageSectionProps = {
   agent: AgentResponse
@@ -78,15 +79,25 @@ function NoImagePanel({ what, hint }: { what: string; hint: string }) {
 /**
  * The Runtime & env section of the agent detail page: image picker plus the image side
  * of the referenced image (identity: display name, container URL,
- * description — and environment variables).
+ * description). The image's environment variables and the agent's own
+ * overrides are merged into one Environment card (issue #215): the image env
+ * renders inside the embedded image form, and the agent override editor is
+ * threaded in as the card's second zone — visually one card, two separate
+ * save paths.
  */
 export function AgentImageSection({ agent }: AgentImageSectionProps) {
   const imageName = agent.imageRef?.name
   return (
-    <div style={{ display: 'grid', gap: 24 }}>
+    <div className="panel-stack">
       <ImageRefPicker agent={agent} />
       {imageName ? (
-        <ImageFormContainer key={imageName} id={imageName} embedded sections="image" />
+        <ImageFormContainer
+          key={imageName}
+          id={imageName}
+          embedded
+          sections="image"
+          agentEnvSlot={<AgentEnvSection agent={agent} />}
+        />
       ) : (
         <NoImagePanel
           what="Image"

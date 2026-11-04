@@ -13,7 +13,7 @@ export function SkillsSelector({ enabledSkills, onChange, labels }: SkillsSelect
   const { data, isLoading } = useSkills({ pageSize: 200 })
   const skills = data?.items ?? []
   return (
-    <div style={{ marginTop: 24 }}>
+    <>
       <Panel title="Skills">
         <DualListPicker
           items={skills}
@@ -30,6 +30,6 @@ export function SkillsSelector({ enabledSkills, onChange, labels }: SkillsSelect
           enabledTitle={labels?.enabledTitle ?? 'Enabled on this image'}
         />
       </Panel>
-    </div>
+    </>
   )
 }
