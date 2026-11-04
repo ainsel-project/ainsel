@@ -79,7 +79,9 @@ export function AgentWorkspace() {
           ) : null}
           {agent ? (
             <WorkspaceContext.Provider value={{ agent, plugins }}>
-              <Outlet />
+              {/* Keyed by agent: a section never outlives the agent it was mounted for,
+                  so a dirty form cannot be saved onto another agent after navigation. */}
+              <Outlet key={agent.id} />
             </WorkspaceContext.Provider>
           ) : null}
         </div>

@@ -26,7 +26,7 @@ const ROLE_LABEL: Record<GroupRole, string> = {
 }
 
 // One panel per resource type, in this order — the panel-per-type shape
-// matches how AgentDetail groups its sections and keeps small groups
+// matches how the agent workspace groups its sections and keeps small groups
 // scannable. Types with no items still render, with an empty-state row.
 const RESOURCE_PANELS: { type: GroupResourceType; label: string; empty: string }[] = [
   { type: 'agent', label: 'Agents', empty: 'No agents in this group.' },

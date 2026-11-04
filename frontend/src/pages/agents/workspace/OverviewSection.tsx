@@ -1,0 +1,438 @@
+import { useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import {
+  isIdle,
+  useDeleteAgent,
+  usePauseAgent,
+  useResumeAgent,
+  useUpdateAgent,
+  type AgentEnvVar,
+  type PauseAgentRequest,
+} from '../../../api/agents'
+import { ApiError } from '../../../api/client'
+import { useAgentImage, useAgentImages, type EnvVar } from '../../../api/agentImages'
+import { useAgentPersona } from '../../../api/personas'
+import { useChannels } from '../../../api/channels'
+import { useCronTriggers } from '../../../api/cronTriggers'
+import { useInvocations, type InvocationEntry } from '../../../api/invocations'
+import { useTriggers } from '../../../api/triggers'
+import { EntityLink } from '../../../components/EntityLink'
+import { agentImagePath } from '../../../components/entityPaths'
+import { ManagedBadge } from '../../../components/ManagedBadge'
+import { Button } from '../../../primitives/Button'
+import { ConfirmModal } from '../../../primitives/ConfirmModal'
+import { Dot } from '../../../primitives/Dot'
+import { Field } from '../../../primitives/Field'
+import { Input } from '../../../primitives/Input'
+import { Panel } from '../../../primitives/Panel'
+import { Tag } from '../../../primitives/Tag'
+import { Textarea } from '../../../primitives/Textarea'
+import { isManaged } from '../../../utils/managed'
+import { mergeEnv } from './envRows'
+import { SectionPage } from './SectionPage'
+import { sectionPath, type SectionId } from './sections'
+import { useWorkspaceAgent } from './workspaceAgent'
+
+// Duration presets for the pause dialog. 'indefinite' sends an empty body:
+// the pause then lasts until someone resumes explicitly.
+const PAUSE_PRESETS: { value: string; label: string }[] = [
+  { value: '30m', label: '30 minutes' },
+  { value: '8h', label: '8 hours' },
+  { value: '24h', label: '24 hours' },
+  { value: '168h', label: '7 days' },
+  { value: 'indefinite', label: 'Indefinite' },
+]
+
+const DEFAULT_TURN_TIMEOUT_MIN = 30
+
+/** Local midnight today, as an RFC3339 instant for the invocations `since` filter. */
+function startOfToday(): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
+const FAILED_STATES: ReadonlySet<InvocationEntry['status']> = new Set(['failure', 'timeout'])
+const ACTIVE_STATES: ReadonlySet<InvocationEntry['status']> = new Set(['running', 'queued'])
+
+/** Overview section: the agent's identity, today's runs, its key facts and lifecycle actions. */
+export function OverviewSection() {
+  const agent = useWorkspaceAgent()
+  const { id } = agent
+  const navigate = useNavigate()
+  const goTo = (section: SectionId) => navigate(sectionPath(id, section))
+  const managed = isManaged(agent.managedBy)
+  const paused = agent.paused === true
+
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [pauseOpen, setPauseOpen] = useState(false)
+  const [pauseDuration, setPauseDuration] = useState('8h')
+  const [pauseError, setPauseError] = useState<string | null>(null)
+  const [draft, setDraft] = useState<{ name: string; description: string } | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  const remove = useDeleteAgent()
+  const pause = usePauseAgent()
+  const resume = useResumeAgent()
+  const update = useUpdateAgent()
+
+  // Side list decides whether the image reference is linkable: an image that
+  // was deleted renders as plain text, not a link to a 404.
+  const { data: imageData } = useAgentImages({ pageSize: 200 })
+  const imageIds = useMemo(() => new Set((imageData?.items ?? []).map((i) => i.id)), [imageData])
+  const { data: image } = useAgentImage(agent.imageRef?.name)
+  const imageLabel = agent.imageRef?.displayName ?? agent.imageRef?.name
+
+  // Fixed at mount: a per-render value would change the query key every render.
+  const [since] = useState(startOfToday)
+  const { data: invocations } = useInvocations({ agent: id, since, pageSize: 200 })
+  const { data: triggerData } = useTriggers({ pageSize: 200 })
+  const { data: cronData } = useCronTriggers({ pageSize: 200 })
+  const { data: channelData } = useChannels({ pageSize: 500 })
+  const { data: personaView } = useAgentPersona(id)
+
+  const items = invocations?.items ?? []
+  const runsToday = invocations?.total ?? items.length
+  const failuresToday = items.filter((i) => FAILED_STATES.has(i.status)).length
+  const runningNow = items.filter((i) => ACTIVE_STATES.has(i.status)).length
+
+  const triggerCount =
+    (triggerData?.items ?? []).filter((t) => t.agentRef === id).length +
+    (cronData?.items ?? []).filter((t) => t.agentRef === id).length
+
+  const inboxChannel = (channelData?.items ?? []).find(
+    (c) => c.kind === 'agent' && c.entityRef === id,
+  )
+
+  const timeout = timeoutFact(agent.env ?? [], image?.env ?? [])
+
+  // The operator's run account says whether work is in flight. An agent with
+  // nothing queued or running is idle by design: every task runs as its own Job.
+  const idle = isIdle(agent.status)
+  const statusLabel = idle ? 'Idle' : agent.status?.ready ? 'Ready' : 'Pending'
+  const statusDot = idle ? 'stale' : agent.status?.ready ? 'ok' : 'warn'
+
+  const onConfirmDelete = async () => {
+    setDeleteError(null)
+    try {
+      await remove.mutateAsync(id)
+      setConfirmOpen(false)
+      navigate('/agents', { replace: true })
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Failed to delete agent.')
+    }
+  }
+
+  const onConfirmPause = async () => {
+    setPauseError(null)
+    const body: PauseAgentRequest =
+      pauseDuration === 'indefinite' ? {} : { duration: pauseDuration }
+    try {
+      await pause.mutateAsync({ id, body })
+      setPauseOpen(false)
+    } catch (err) {
+      setPauseError(err instanceof ApiError ? err.message : 'Failed to pause agent.')
+    }
+  }
+
+  const onResume = async () => {
+    try {
+      await resume.mutateAsync(id)
+    } catch {
+      // The refetch leaves the agent paused; the button stays available.
+    }
+  }
+
+  const onSaveEdit = async () => {
+    if (!draft) return
+    setEditError(null)
+    try {
+      await update.mutateAsync({
+        id,
+        body: { name: draft.name.trim(), description: draft.description },
+      })
+      setDraft(null)
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : 'Failed to save agent.')
+    }
+  }
+
+  return (
+    <>
+      <SectionPage
+        title={
+          <>
+            {agent.name}
+            {!managed ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Edit name and description"
+                onClick={() => setDraft({ name: agent.name, description: agent.description ?? '' })}
+                style={{ marginLeft: 8 }}
+              >
+                <PencilIcon />
+              </Button>
+            ) : null}
+            {managed ? (
+              <span style={{ marginLeft: 10 }}>
+                <ManagedBadge managedBy={agent.managedBy} />
+              </span>
+            ) : null}
+            {paused ? (
+              <span style={{ marginLeft: 10 }}>
+                <Tag variant="warn">
+                  Paused
+                  {agent.pausedUntil
+                    ? ` · resumes ${new Date(agent.pausedUntil).toLocaleString()}`
+                    : ' · until resumed'}
+                </Tag>
+              </span>
+            ) : null}
+          </>
+        }
+        actions={
+          managed ? null : (
+            <>
+              {paused ? (
+                <Button variant="primary" onClick={onResume} disabled={resume.isPending}>
+                  {resume.isPending ? 'Resuming…' : 'Resume'}
+                </Button>
+              ) : (
+                <Button onClick={() => setPauseOpen(true)}>Pause</Button>
+              )}
+              <Button onClick={() => goTo('chat')}>Chat</Button>
+              <Button variant="danger" onClick={() => setConfirmOpen(true)}>
+                Delete
+              </Button>
+            </>
+          )
+        }
+      >
+        <div style={{ display: 'grid', gap: 24 }}>
+          {draft ? (
+            <Panel title="Name and description" className="cropped">
+              <div style={{ display: 'grid', gap: 12 }}>
+                <Field label="Name" htmlFor="overview-name">
+                  <Input
+                    id="overview-name"
+                    value={draft.name}
+                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  />
+                </Field>
+                <Field label="Description" htmlFor="overview-description">
+                  <Textarea
+                    id="overview-description"
+                    rows={3}
+                    value={draft.description}
+                    onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                  />
+                </Field>
+                {editError ? (
+                  <p className="field-error" role="alert">
+                    {editError}
+                  </p>
+                ) : null}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    variant="primary"
+                    onClick={onSaveEdit}
+                    disabled={update.isPending || draft.name.trim() === ''}
+                  >
+                    {update.isPending ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setEditError(null)
+                      setDraft(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </Panel>
+          ) : (
+            <div>
+              <div
+                data-testid="overview-meta"
+                style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}
+              >
+                <Dot state={statusDot} />
+                <span>{statusLabel}</span>
+                <span style={{ color: 'var(--ink-3)' }}>·</span>
+                <span>{agent.llm?.model ?? '—'}</span>
+                <span style={{ color: 'var(--ink-3)' }}>·</span>
+                {agent.imageRef ? (
+                  <EntityLink
+                    id={agent.imageRef.id}
+                    known={imageIds}
+                    label={imageLabel}
+                    path={agentImagePath}
+                  />
+                ) : (
+                  <span>—</span>
+                )}
+              </div>
+              {agent.description ? (
+                <p style={{ marginTop: 8, color: 'var(--ink-2)' }}>{agent.description}</p>
+              ) : null}
+            </div>
+          )}
+
+          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div>
+              <div className="k">Runs today</div>
+              <div className="v">{runsToday}</div>
+            </div>
+            <div>
+              <div className="k">Failures today</div>
+              <div className="v">{failuresToday}</div>
+            </div>
+            <div>
+              <div className="k">Running now</div>
+              <div className="v">{runningNow}</div>
+            </div>
+          </div>
+
+          <Panel title="Key facts" className="cropped">
+            <dl className="info-grid" style={{ margin: 0, gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              <div>
+                <dt className="k">Persona</dt>
+                <dd className="v" style={{ margin: 0 }}>
+                  {personaView?.persona ? (
+                    <Link to={sectionPath(id, 'persona')}>{personaView.persona.name}</Link>
+                  ) : personaView?.ref ? (
+                    'Missing'
+                  ) : (
+                    'None'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="k">Image</dt>
+                <dd className="v" style={{ margin: 0 }}>
+                  {agent.imageRef ? (
+                    <EntityLink
+                      id={agent.imageRef.id}
+                      known={imageIds}
+                      label={imageLabel}
+                      path={agentImagePath}
+                    />
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="k">Timeout</dt>
+                <dd className="v" style={{ margin: 0 }}>
+                  {timeout}
+                </dd>
+              </div>
+              <div>
+                <dt className="k">Triggers</dt>
+                <dd className="v" style={{ margin: 0 }}>
+                  {triggerCount}
+                </dd>
+              </div>
+              <div>
+                <dt className="k">Channel</dt>
+                <dd className="v" style={{ margin: 0 }}>
+                  {inboxChannel ? (
+                    <Link to={sectionPath(id, 'channel')}>{inboxChannel.name || agent.name}</Link>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </Panel>
+        </div>
+      </SectionPage>
+
+      <ConfirmModal
+        open={pauseOpen}
+        title="Pause agent?"
+        body={
+          <>
+            <p style={{ marginTop: 0 }}>
+              <b>{agent.name}</b> stops claiming queued tasks. Events keep arriving and route as
+              usual — the tasks wait and drain in order when the pause ends. Running tasks finish
+              normally; chat still works.
+            </p>
+            <div role="radiogroup" aria-label="Pause duration" style={{ display: 'grid', gap: 6 }}>
+              {PAUSE_PRESETS.map((p) => (
+                <label key={p.value} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="radio"
+                    name="pause-duration"
+                    value={p.value}
+                    checked={pauseDuration === p.value}
+                    onChange={() => setPauseDuration(p.value)}
+                  />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+          </>
+        }
+        confirmLabel={pause.isPending ? 'Pausing…' : 'Pause'}
+        error={pauseError}
+        onConfirm={onConfirmPause}
+        onCancel={() => {
+          setPauseError(null)
+          setPauseOpen(false)
+        }}
+      />
+
+      <ConfirmModal
+        open={confirmOpen}
+        title="Delete agent?"
+        body={
+          <>
+            <b>{agent.name}</b> will be permanently removed. Its inbox channel — subscriptions and
+            schedules — goes with it.
+          </>
+        }
+        confirmLabel={remove.isPending ? 'Deleting…' : 'Delete'}
+        destructive
+        error={deleteError}
+        onConfirm={onConfirmDelete}
+        onCancel={() => {
+          setDeleteError(null)
+          setConfirmOpen(false)
+        }}
+      />
+    </>
+  )
+}
+
+/**
+ * The turn timeout as "N min · source", from the merged env (the agent's own
+ * entry wins over the image's). Falls back to the 30 minute default.
+ */
+function timeoutFact(agentEnv: AgentEnvVar[], imageEnv: EnvVar[]): string {
+  const row = mergeEnv(agentEnv, imageEnv).find((r) => r.name === 'TURN_TIMEOUT_MS')
+  if (!row) return `${DEFAULT_TURN_TIMEOUT_MIN} min · default`
+  const fromImage = row.kind === 'image'
+  const value = fromImage ? row.imageValue : row.agentValue
+  const ms = Number(value)
+  const shown = Number.isFinite(ms) ? `${ms / 60_000} min` : String(value)
+  return `${shown} · ${fromImage ? 'image' : 'agent'}`
+}
+
+function PencilIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
