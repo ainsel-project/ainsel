@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Spine } from './Spine'
-import { recentsScope } from '../agentRecents'
 import { useAuth } from '../auth/AuthProvider'
 import './Layout.css'
 
@@ -9,7 +8,6 @@ export function Layout() {
   const { user, mode } = useAuth()
   const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
-  const agentRecentsScope = recentsScope(user)
   // In the agent workspace the spine collapses to an icon rail; the shell
   // carries the same class so its grid track narrows to match (see
   // .shell.rail in Layout.css) instead of leaving a blank 236px column.
@@ -62,7 +60,6 @@ export function Layout() {
 
       <Spine
         operator={mode === 'none' ? 'no auth' : (user?.username ?? 'anon')}
-        recentsScope={agentRecentsScope}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
         rail={rail}
