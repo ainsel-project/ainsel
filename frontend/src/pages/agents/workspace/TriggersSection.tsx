@@ -27,7 +27,12 @@ export function TriggersSection() {
   const triggersQuery = useTriggers({ pageSize: 200 })
   const cronQuery = useCronTriggers({ pageSize: 200 })
   const { data: connectorData } = useConnectors({ pageSize: 200 })
-  const { data: invocationData } = useInvocations({ agent: agent.id, since, pageSize: 200 })
+  const { data: invocationData, error: invocationError } = useInvocations({
+    agent: agent.id,
+    since,
+    pageSize: 200,
+  })
+  const countsUnavailable = invocationError != null
   const deleteSubscription = useDeleteTrigger()
   const deleteSchedule = useDeleteCronTrigger()
   const updateSchedule = useUpdateCronTrigger()
@@ -74,7 +79,23 @@ export function TriggersSection() {
   const deleting = deleteSubscription.isPending || deleteSchedule.isPending
 
   const columns: readonly Column<TriggerRow>[] = [
-    { key: 'name', header: 'Name', cell: (r) => <b>{r.name}</b> },
+    {
+      key: 'name',
+      header: 'Name',
+      cell: (r) => (
+        <>
+          <b>{r.name}</b>
+          {r.invalidReason ? (
+            <>
+              {' '}
+              <span title={r.invalidReason}>
+                <Tag variant="warn">Invalid</Tag>
+              </span>
+            </>
+          ) : null}
+        </>
+      ),
+    },
     {
       key: 'type',
       header: 'Type',
@@ -96,18 +117,21 @@ export function TriggersSection() {
       header: 'Fired 24h',
       width: 90,
       align: 'right',
-      cell: (r) => r.fired24h,
+      cell: (r) => (countsUnavailable ? '—' : r.fired24h),
     },
     {
       key: 'failed',
       header: 'Failed 24h',
       width: 90,
       align: 'right',
-      cell: (r) => (
-        <span style={{ color: r.failed24h > 0 ? 'var(--signal)' : undefined }}>
-          {r.failed24h}
-        </span>
-      ),
+      cell: (r) =>
+        countsUnavailable ? (
+          '—'
+        ) : (
+          <span style={{ color: r.failed24h > 0 ? 'var(--signal)' : undefined }}>
+            {r.failed24h}
+          </span>
+        ),
     },
     {
       key: 'actions',
@@ -200,12 +224,20 @@ export function TriggersSection() {
             Failed to load triggers.
           </p>
         ) : (
-          <RegisterTable
-            rows={rows}
-            columns={columns}
-            rowKey={(r) => `${r.type}:${r.id}`}
-            emptyLabel="Nothing flows into this agent yet — add a subscription or a schedule."
-          />
+          <>
+            {countsUnavailable ? (
+              <p className="label" style={{ color: 'var(--signal)' }}>
+                Run counts unavailable.
+              </p>
+            ) : null}
+            <RegisterTable
+              rows={rows}
+              columns={columns}
+              rowKey={(r) => `${r.type}:${r.id}`}
+              rowClassName={(r) => (r.invalidReason ? 'row-err' : undefined)}
+              emptyLabel="Nothing flows into this agent yet — add a subscription or a schedule."
+            />
+          </>
         )}
       </Panel>
 

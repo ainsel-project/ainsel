@@ -70,6 +70,35 @@ describe('toTriggerRows', () => {
     })
   })
 
+  it('explains which reference makes a trigger invalid', () => {
+    const triggers: TriggerSummary[] = [
+      {
+        id: 't-4',
+        name: 'broken',
+        agentRef: 'a1',
+        status: { agentValid: true, connectorValid: false },
+      },
+    ]
+    const crons: CronTriggerSummary[] = [
+      {
+        id: 'cr-2',
+        name: 'stale',
+        agentRef: 'a1',
+        schedule: '0 * * * *',
+        prompt: 'x',
+        enabled: true,
+        status: { agentValid: false, scheduleValid: true, ready: false },
+      },
+    ]
+
+    const rows = toTriggerRows(triggers, crons, [])
+
+    expect(rows.find((r) => r.id === 't-4')?.invalidReason).toBe(
+      'connector reference is invalid',
+    )
+    expect(rows.find((r) => r.id === 'cr-2')?.invalidReason).toBe('agent reference is invalid')
+  })
+
   it('shows schedules with source Schedule, the cron expression as filter, and their enabled flag', () => {
     const crons: CronTriggerSummary[] = [
       {

@@ -41,10 +41,15 @@ const agent = {
 const page = <T,>(items: T[]) =>
   json({ items, total: items.length, page: 1, pageSize: 200, totalPages: 1 })
 
-function stubTriggers() {
+type StubOptions = { invalidSubscription?: boolean; invocationsFail?: boolean }
+
+function stubTriggers({ invalidSubscription = false, invocationsFail = false }: StubOptions = {}) {
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     if (/\/agents\/a1(\?.*)?$/.test(url) && (init?.method ?? 'GET') === 'GET') {
       return Promise.resolve(json(agent))
+    }
+    if (url.includes('/invocations') && invocationsFail) {
+      return Promise.resolve(new Response('{"error":"boom"}', { status: 500 }))
     }
     if (url.includes('/cron-triggers') && (init?.method ?? 'GET') === 'GET') {
       return Promise.resolve(
@@ -62,7 +67,16 @@ function stubTriggers() {
     }
     if (url.includes('/triggers') && (init?.method ?? 'GET') === 'GET') {
       return Promise.resolve(
-        page([{ id: 't-1', name: 'on-doc-issue', agentRef: 'a1', connectorRef: 'c-1', filters: [] }]),
+        page([
+          {
+            id: 't-1',
+            name: 'on-doc-issue',
+            agentRef: 'a1',
+            connectorRef: 'c-1',
+            filters: [],
+            status: { agentValid: !invalidSubscription, connectorValid: true },
+          },
+        ]),
       )
     }
     return Promise.resolve(agentTestFetch(url, init))
@@ -107,6 +121,27 @@ describe('TriggersSection', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'New' }))
     await userEvent.click(screen.getByRole('button', { name: 'Schedule' }))
     expect(await screen.findByText('New schedule')).toBeInTheDocument()
+  })
+
+  it('marks a subscription whose agent reference is invalid', async () => {
+    stubTriggers({ invalidSubscription: true })
+    renderTriggers()
+    const table = await screen.findByRole('table')
+    const row = within(table).getByRole('row', { name: /on-doc-issue/ })
+    expect(within(row).getByText('Invalid')).toBeInTheDocument()
+    expect(within(row).getByTitle(/agent reference is invalid/)).toBeInTheDocument()
+    expect(within(table).getByRole('row', { name: /nightly-review/ })).not.toHaveTextContent('Invalid')
+  })
+
+  it('shows dashes and a notice instead of zero counts when run counts fail to load', async () => {
+    stubTriggers({ invocationsFail: true })
+    renderTriggers()
+    const table = await screen.findByRole('table')
+    expect(await screen.findByText('Run counts unavailable.')).toBeInTheDocument()
+    const cells = within(table).getByRole('row', { name: /on-doc-issue/ }).querySelectorAll('td')
+    expect(cells[4]).toHaveTextContent(/^—$/)
+    expect(cells[5]).toHaveTextContent(/^—$/)
+    expect(within(table).getByText('on-doc-issue')).toBeInTheDocument()
   })
 
   it('pauses a schedule through the cron update endpoint', async () => {

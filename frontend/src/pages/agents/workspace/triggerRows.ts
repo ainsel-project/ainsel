@@ -11,9 +11,16 @@ export type TriggerRow = {
   fired24h: number
   failed24h: number
   enabled: boolean
+  /** Why the trigger is invalid, when a reference is broken. */
+  invalidReason?: string
 }
 
 const DAY_MS = 24 * 3_600_000
+
+function invalidReason(reasons: (string | false)[]): string | undefined {
+  const broken = reasons.filter((r): r is string => r !== false)
+  return broken.length ? broken.join('; ') : undefined
+}
 
 function formatFilter(f: TriggerFilter): string {
   const value = f.values?.length ? f.values.join(', ') : f.value
@@ -54,6 +61,10 @@ export function toTriggerRows(
     filter: t.filters?.length ? t.filters.map(formatFilter).join(' · ') : '—',
     ...counts(t.id),
     enabled: true,
+    invalidReason: invalidReason([
+      t.status?.agentValid === false && 'agent reference is invalid',
+      t.status?.connectorValid === false && 'connector reference is invalid',
+    ]),
   }))
 
   const schedules: TriggerRow[] = crons.map((c) => ({
@@ -64,6 +75,10 @@ export function toTriggerRows(
     filter: c.schedule,
     ...counts(c.id),
     enabled: c.enabled,
+    invalidReason: invalidReason([
+      c.status?.agentValid === false && 'agent reference is invalid',
+      c.status?.scheduleValid === false && 'schedule is invalid',
+    ]),
   }))
 
   return [...subscriptions, ...schedules]
