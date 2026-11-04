@@ -22,9 +22,9 @@ function toPayload(env: AgentEnvVar[]): AgentEnvVar[] {
 }
 
 /**
- * The Runtime tab's agent-scoped environment section: one table of the image's
- * variables and this agent's own, where the first override pins an env list to
- * this agent and clearing every row hands control back to the image.
+ * The agent-scoped environment table in the Runtime & env section: one table of
+ * the image's variables and this agent's own, where the first override pins an
+ * env list to this agent and clearing every row hands control back to the image.
  *
  * Secret values are masked by the hub, so an existing secret row shows an
  * empty field: submitting it unchanged keeps the stored value.
@@ -46,7 +46,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
   const [saveError, setSaveError] = useState<string | null>(null)
 
   // Re-seed the draft when the stored list changes underneath us (a save
-  // landing, or another tab re-pointing the image), never while typing.
+  // landing, or another section re-pointing the image), never while typing.
   if (serialized !== syncedFrom) {
     const fresh = withDraftIds(stored)
     setSyncedFrom(serialized)
@@ -66,10 +66,12 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
   const onSave = () => {
     if (hasErrors) return
     setSaveError(null)
-    setSaved(draft)
     updateAgent.mutate(
       { id: agent.id, body: { name: agent.name, env: toPayload(draft) } },
       {
+        // Re-sort only once the hub has accepted the rows, so a failed save
+        // leaves the table in its previous order.
+        onSuccess: () => setSaved(draft),
         onError: (err) =>
           setSaveError(err instanceof ApiError ? err.message : 'Failed to save environment.'),
       },

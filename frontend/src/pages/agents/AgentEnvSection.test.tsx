@@ -13,7 +13,7 @@ const imageEnv = [
 ]
 
 /**
- * Stubs fetch for the Runtime tab's env section: the referenced image (which
+ * Stubs fetch for the Runtime & env section's env table: the referenced image (which
  * carries the shared defaults) and the agent update used to pin overrides.
  */
 function stubFetch(opts: { saveStatus?: number } = {}) {
@@ -206,6 +206,38 @@ describe('AgentEnvSection', () => {
 
     await user.click(screen.getByRole('button', { name: /save overrides/i }))
     await waitFor(() => expect(names()).toEqual(['LOG_LEVEL', 'AAA', 'ZED', 'API_TOKEN']))
+  })
+
+  it('keeps the previous row order when a save is rejected', async () => {
+    vi.unstubAllGlobals()
+    stubFetch({ saveStatus: 400 })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <AgentEnvSection
+        agent={agentWith([
+          { name: 'ZED', value: '1' },
+          { name: 'LOG_LEVEL', value: 'debug' },
+        ])}
+      />,
+    )
+
+    await screen.findByTitle('Overrides the image value info (claude-tooling-base:1.4)')
+    const names = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => {
+          const input = row.querySelector<HTMLInputElement>('input[aria-label="Variable name"]')
+          return input ? input.value : (row.querySelector('code')?.textContent ?? '')
+        })
+    expect(names()).toEqual(['LOG_LEVEL', 'ZED', 'API_TOKEN'])
+
+    await user.click(screen.getByRole('button', { name: /add variable/i }))
+    await user.type(screen.getAllByLabelText('Variable name')[2], 'AAA')
+    await user.click(screen.getByRole('button', { name: /save overrides/i }))
+
+    expect(await screen.findByText('invalid env name')).toBeInTheDocument()
+    expect(names()).toEqual(['LOG_LEVEL', 'ZED', 'AAA', 'API_TOKEN'])
   })
 
   it('blocks empty and duplicate names', async () => {
