@@ -15,7 +15,7 @@ export type TriggerRow = {
   invalidReason?: string
 }
 
-const DAY_MS = 24 * 3_600_000
+export const DAY_MS = 24 * 3_600_000
 
 function invalidReason(reasons: (string | false)[]): string | undefined {
   const broken = reasons.filter((r): r is string => r !== false)

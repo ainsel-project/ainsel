@@ -15,10 +15,8 @@ import { Tag } from '../../../primitives/Tag'
 import { ScheduleForm } from '../ScheduleForm'
 import { TriggerForm } from '../TriggerForm'
 import { SectionPage } from './SectionPage'
-import { toTriggerRows, type TriggerRow } from './triggerRows'
+import { DAY_MS, toTriggerRows, type TriggerRow } from './triggerRows'
 import { useWorkspaceAgent } from './workspaceAgent'
-
-const DAY_MS = 24 * 3_600_000
 
 /**
  * The agent's subscriptions and schedules as one list. Hub issue #63: the
