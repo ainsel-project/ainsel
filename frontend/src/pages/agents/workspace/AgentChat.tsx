@@ -8,6 +8,15 @@ import { Conversation } from '../../chat/Conversation'
 import { SectionPage } from './SectionPage'
 import { useWorkspaceAgent } from './workspaceAgent'
 
+/** The most recently created session; ties keep the hub's order (first wins). */
+function newestCreated<T extends { createdAt: string }>(items: T[]): T | undefined {
+  let best: T | undefined
+  for (const item of items) {
+    if (!best || Date.parse(item.createdAt) > Date.parse(best.createdAt)) best = item
+  }
+  return best
+}
+
 /**
  * The agent's one chat: the caller's newest session with this agent. Reset
  * starts a new session, which gives the agent a fresh conversation context.
@@ -17,13 +26,15 @@ export function AgentChat() {
   const { user } = useAuth()
   // Sessions are stored under the agent id the chat has always used, and the
   // hub stamps each one with the caller's sub, so both filters must match that.
-  const sessions = useChatSessions({ agent: agent.id, user: user?.sub, pageSize: 1 })
+  // The hub orders by updated_at, which late agent replies bump, so the current
+  // chat is picked by createdAt below rather than taken from the first row.
+  const sessions = useChatSessions({ agent: agent.id, user: user?.sub, pageSize: 100 })
   const create = useCreateChatSession()
   // Set by Reset or by a first send; overrides the list until the section remounts.
   const [pinnedId, setPinnedId] = useState<string>()
   const [confirmReset, setConfirmReset] = useState(false)
 
-  const sessionId = pinnedId ?? sessions.data?.items[0]?.id
+  const sessionId = pinnedId ?? newestCreated(sessions.data?.items ?? [])?.id
 
   const onReset = async () => {
     try {

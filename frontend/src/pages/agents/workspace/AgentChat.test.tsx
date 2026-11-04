@@ -34,15 +34,15 @@ vi.mock('../../../api/chat', () => ({
 
 const agent = { id: 'a-dev', name: 'dev' } as AgentResponse
 
-function session(id: string, reply: string) {
+function session(id: string, reply: string, createdAt = '2026-11-01T00:00:00Z', updatedAt = createdAt) {
   return {
     id,
     name: id,
     agentName: 'dev',
     userId: 'user-1',
-    createdAt: '2026-11-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-    messages: [{ id: 1, sessionId: id, role: 'assistant', content: reply, tokens: 1, createdAt: '2026-11-01T00:00:00Z' }],
+    createdAt,
+    updatedAt,
+    messages: [{ id: 1, sessionId: id, role: 'assistant', content: reply, tokens: 1, createdAt: updatedAt }],
   }
 }
 
@@ -59,14 +59,17 @@ function renderChat() {
 }
 
 beforeEach(() => {
-  chat.listed = [session('s-new', 'new answer'), session('s-old', 'old answer')]
+  chat.listed = [
+    session('s-new', 'new answer', '2026-11-03T00:00:00Z'),
+    session('s-old', 'old answer', '2026-11-01T00:00:00Z'),
+  ]
   chat.byId = {
-    's-new': session('s-new', 'new answer'),
-    's-old': session('s-old', 'old answer'),
-    's-fresh': session('s-fresh', 'fresh answer'),
+    's-new': session('s-new', 'new answer', '2026-11-03T00:00:00Z'),
+    's-old': session('s-old', 'old answer', '2026-11-01T00:00:00Z'),
+    's-fresh': session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'),
   }
   chat.listCalls = []
-  chat.create.mockReset().mockResolvedValue(session('s-fresh', 'fresh answer'))
+  chat.create.mockReset().mockResolvedValue(session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'))
   chat.send.mockReset()
 })
 
@@ -81,9 +84,20 @@ describe('AgentChat', () => {
     expect(screen.queryByText('old answer')).toBeNull()
   })
 
+  it('shows the most recently created session, even when an older one was updated later', () => {
+    // The hub orders by updated_at, so a late reply can float an old session to the top.
+    chat.listed = [
+      session('s-old', 'old answer', '2026-11-01T00:00:00Z', '2026-11-04T09:00:00Z'),
+      session('s-new', 'new answer', '2026-11-03T00:00:00Z', '2026-11-03T00:00:00Z'),
+    ]
+    renderChat()
+    expect(screen.getByText('new answer')).toBeInTheDocument()
+    expect(screen.queryByText('old answer')).toBeNull()
+  })
+
   it('lists the agent chat by agent id and the current user id', () => {
     renderChat()
-    expect(chat.listCalls[0]).toEqual({ agent: 'a-dev', user: 'user-1', pageSize: 1 })
+    expect(chat.listCalls[0]).toEqual({ agent: 'a-dev', user: 'user-1', pageSize: 100 })
   })
 
   it('Reset asks for confirmation, creates a new session and shows it', async () => {
@@ -117,7 +131,10 @@ describe('AgentChat', () => {
 
   it('after Reset, a remount shows the new session the list now returns first', () => {
     const first = renderChat()
-    chat.listed = [session('s-fresh', 'fresh answer'), session('s-new', 'new answer')]
+    chat.listed = [
+      session('s-fresh', 'fresh answer', '2026-11-04T00:00:00Z'),
+      session('s-new', 'new answer', '2026-11-03T00:00:00Z'),
+    ]
     first.unmount()
 
     renderChat()
