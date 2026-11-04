@@ -123,4 +123,16 @@ describe('Layout', () => {
     expect(document.querySelector('.spine')).not.toHaveClass('rail')
     expect(screen.getByText('Operations')).toBeInTheDocument()
   })
+
+  it('narrows the shell grid to the rail inside the agent workspace', () => {
+    renderLayout('/agents/a-1')
+    // The .shell grid track must shrink with the 48px rail, otherwise the
+    // canvas keeps a 236px left offset (see .shell.rail in Layout.css).
+    expect(document.querySelector('.shell')).toHaveClass('rail')
+  })
+
+  it('keeps the full shell grid outside the agent workspace', () => {
+    renderLayout('/dashboard')
+    expect(document.querySelector('.shell')).not.toHaveClass('rail')
+  })
 })

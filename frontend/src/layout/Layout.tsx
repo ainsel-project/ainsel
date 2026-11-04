@@ -10,6 +10,10 @@ export function Layout() {
   const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
   const agentRecentsScope = recentsScope(user)
+  // In the agent workspace the spine collapses to an icon rail; the shell
+  // carries the same class so its grid track narrows to match (see
+  // .shell.rail in Layout.css) instead of leaving a blank 236px column.
+  const rail = location.pathname.startsWith('/agents')
 
   // Close the drawer whenever the route changes (mobile nav selection).
   useEffect(() => {
@@ -31,8 +35,12 @@ export function Layout() {
     }
   }, [menuOpen])
 
+  const shellClasses = ['shell', menuOpen ? 'menu-open' : null, rail ? 'rail' : null]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className={menuOpen ? 'shell menu-open' : 'shell'}>
+    <div className={shellClasses}>
       <a className="skip-link" href="#content">
         Skip to content
       </a>
@@ -57,7 +65,7 @@ export function Layout() {
         recentsScope={agentRecentsScope}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
-        rail={location.pathname.startsWith('/agents')}
+        rail={rail}
       />
       <main id="content" className="canvas">
         <Outlet />

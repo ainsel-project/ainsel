@@ -167,32 +167,35 @@
 
 /* Rail mode: in the agent workspace the spine collapses to an icon rail.
    Entries render their idx only (see EntryLink in Spine.tsx); section labels
-   and recent agents are left out of the DOM. The mobile drawer never gets
-   this class, so the drawer rules below are unaffected. */
-.spine.rail {
-  width: 48px;
-  padding: 20px 6px 16px;
-}
-.spine.rail .brand {
-  padding: 4px 0 18px;
-  justify-content: center;
-}
-.spine.rail .brand h1 {
-  display: none;
-}
-.spine.rail .nav {
-  padding: 0;
-}
-.spine.rail .nav-link {
-  justify-content: center;
-  gap: 0;
-  padding: 8px 0;
-}
-.spine.rail .nav-link .idx {
-  width: auto;
-}
-.spine.rail .spine-footer {
-  display: none;
+   and recent agents are left out of the DOM. Scoped to the desktop side of
+   the drawer breakpoint below: while the mobile drawer is *closed* it may
+   still carry the class, and there it must keep the drawer's normal width. */
+@media (min-width: 1001px) {
+  .spine.rail {
+    width: 48px;
+    padding: 20px 6px 16px;
+  }
+  .spine.rail .brand {
+    padding: 4px 0 18px;
+    justify-content: center;
+  }
+  .spine.rail .brand h1 {
+    display: none;
+  }
+  .spine.rail .nav {
+    padding: 0;
+  }
+  .spine.rail .nav-link {
+    justify-content: center;
+    gap: 0;
+    padding: 8px 0;
+  }
+  .spine.rail .nav-link .idx {
+    width: auto;
+  }
+  .spine.rail .spine-footer {
+    display: none;
+  }
 }
 
 /* Mobile: the spine becomes an off-canvas drawer. */

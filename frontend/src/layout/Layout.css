@@ -9,6 +9,18 @@
   --chrome-top: 0px;
 }
 
+/* Rail mode (agent workspace): the spine collapses to a 48px icon rail, so
+   the grid track must narrow with it — otherwise the canvas keeps a 236px
+   left offset and the page shows a blank band. Scoped to the desktop side of
+   the drawer breakpoint (see the max-width: 1000px query below and the
+   drawer rules in Spine.css): on mobile the spine is an off-canvas drawer
+   and the grid stays a single column at its normal width. */
+@media (min-width: 1001px) {
+  .shell.rail {
+    grid-template-columns: 48px 1fr;
+  }
+}
+
 .skip-link {
   position: absolute;
   top: -40px;
