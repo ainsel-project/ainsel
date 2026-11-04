@@ -65,6 +65,25 @@ function stubFetch() {
   )
 }
 
+/** Installs an active plugin whose manifest contributes an agent.panel. */
+function installForgejo() {
+  installed.list = [
+    {
+      id: 'forgejo',
+      displayName: 'Forgejo',
+      ready: true,
+      disabled: false,
+      manifest: {
+        id: 'forgejo',
+        displayName: 'Forgejo',
+        version: '1.0.0',
+        pluginApi: '1.1',
+        ui: { entry: '/ui/index.js', slots: { 'agent.panel': 'AgentPanel' } },
+      },
+    },
+  ]
+}
+
 function LocationProbe() {
   const location = useLocation()
   return <p data-testid="location">{`${location.pathname}${location.search}`}</p>
@@ -125,31 +144,26 @@ describe('AgentWorkspace', () => {
   })
 
   it('renders the plugin panel for a plugin:<id> section', async () => {
+    installForgejo()
     renderWorkspace('/agents/a1/plugin:forgejo')
     expect(await screen.findByText('plugin=forgejo')).toBeInTheDocument()
   })
 
+  it('redirects a plugin:<id> section with no active agent.panel contribution to the overview', async () => {
+    installForgejo()
+    renderWorkspace('/agents/a1/plugin:gone')
+    await waitFor(() => expect(currentPath()).toBe('/agents/a1'))
+    expect(screen.queryByText(/plugin=gone/)).toBeNull()
+  })
+
   it('redirects the legacy ?tab=plugin:<id> URL to the plugin section', async () => {
+    installForgejo()
     renderWorkspace('/agents/a1?tab=plugin:forgejo')
     await waitFor(() => expect(currentPath()).toBe('/agents/a1/plugin:forgejo'))
   })
 
   it('lists an active agent.panel plugin in the nav and opens its slot on click', async () => {
-    installed.list = [
-      {
-        id: 'forgejo',
-        displayName: 'Forgejo',
-        ready: true,
-        disabled: false,
-        manifest: {
-          id: 'forgejo',
-          displayName: 'Forgejo',
-          version: '1.0.0',
-          pluginApi: '1.1',
-          ui: { entry: '/ui/index.js', slots: { 'agent.panel': 'AgentPanel' } },
-        },
-      },
-    ]
+    installForgejo()
     renderWorkspace('/agents/a1')
     await userEvent.click(await screen.findByRole('link', { name: 'Forgejo' }))
     await waitFor(() => expect(currentPath()).toBe('/agents/a1/plugin:forgejo'))
@@ -206,7 +220,7 @@ describe('AgentWorkspace', () => {
     expect(screen.getAllByRole('button', { name: /^save$/i }).length).toBeGreaterThan(1)
     expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument()
 
-    // No tools-side or skills sections leak onto this tab.
+    // No tools-side or skills sections leak onto this section.
     expect(screen.queryByRole('heading', { name: 'MCP Servers' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Skills' })).not.toBeInTheDocument()
 
@@ -281,7 +295,7 @@ describe('AgentWorkspace', () => {
     expect(screen.getByRole('option', { name: /github/i })).toBeInTheDocument()
     expect(screen.getByText(/inherited from the runtime image/i)).toBeInTheDocument()
 
-    // No image-side, skills, or picker sections on this tab.
+    // No image-side, skills, or picker sections in this section.
     expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Environment Variables' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Skills' })).not.toBeInTheDocument()
@@ -362,7 +376,7 @@ describe('AgentWorkspace', () => {
     expect(screen.getByRole('option', { name: /issue triage/i })).toBeInTheDocument()
     expect(screen.getByText(/inherited from the runtime image/i)).toBeInTheDocument()
 
-    // No image-side sections leak onto this tab, and no embedded form save:
+    // No image-side sections leak into this section, and no embedded form save:
     // the picker PUTs the agent directly.
     expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()

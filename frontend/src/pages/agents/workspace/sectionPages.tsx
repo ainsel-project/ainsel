@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
+import { usePlugins } from '../../../api/plugins'
 import { AgentPersonaSection } from '../AgentPersonaSection'
 import { AgentChat } from './AgentChat'
 import { ChannelSection } from './ChannelSection'
@@ -65,9 +66,21 @@ export function SkillsSection() {
 function PluginSection({ pluginId }: { pluginId: string }) {
   const agent = useWorkspaceAgent()
   const plugins = useWorkspacePlugins()
-  const label = plugins.find((p) => p.id === pluginId)?.label ?? pluginId
+  const { isPending } = usePlugins()
+  const contribution = plugins.find((p) => p.id === pluginId)
+  if (!contribution) {
+    // The plugin list loads first. Once it is in, an id without an active
+    // agent.panel contribution has no panel to show, so go to the overview.
+    if (isPending)
+      return (
+        <p className="label" style={{ padding: '28px 32px' }}>
+          Loading…
+        </p>
+      )
+    return <Navigate to={sectionPath(agent.id, 'overview')} replace />
+  }
   return (
-    <SectionPage title={label}>
+    <SectionPage title={contribution.label}>
       <PluginSlot slot="agent.panel" props={{ agentName: agent.id }} pluginId={pluginId} />
     </SectionPage>
   )
