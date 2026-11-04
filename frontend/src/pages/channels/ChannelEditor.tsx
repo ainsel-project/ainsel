@@ -465,7 +465,7 @@ export function ChannelEditor({ channelId, hideSubscriptions = false }: ChannelE
       </div>
 
       <RelationGraph channel={channel} edges={edges} />
-      {(isCustom || isAgentInbox) && <BridgeEditor detail={channel} />}
+      {isCustom && <BridgeEditor detail={channel} />}
 
       {channel.kind === 'connector' ? <SubscribersPanel channel={channel} edges={edges} /> : null}
 

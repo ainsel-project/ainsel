@@ -96,13 +96,20 @@ function renderChannelSection() {
 describe('ChannelSection', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('edits the agent inbox in place: header facts, bridge editor, timeline, runs', async () => {
+  it('edits the agent inbox in place: header facts, relation graph, timeline, runs', async () => {
     stubFetch()
     renderChannelSection()
-    await waitFor(() => expect(screen.getByText(/Bridges · 0/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Inbox timeline')).toBeInTheDocument())
     expect(screen.getByText('Reached inbox 24h')).toBeInTheDocument()
-    expect(screen.getByText('Inbox timeline')).toBeInTheDocument()
+    expect(screen.getByText(/Relations/i)).toBeInTheDocument()
     expect(screen.getByText('What the agent did')).toBeInTheDocument()
+  })
+
+  it('offers no bridge editor on an agent inbox: the hub rejects bridges onto inboxes', async () => {
+    stubFetch()
+    renderChannelSection()
+    await waitFor(() => expect(screen.getByText('Inbox timeline')).toBeInTheDocument())
+    expect(screen.queryByText(/Bridges ·/)).toBeNull()
   })
 
   it('shows no Subscriptions or Schedules panel: those live in the Triggers section', async () => {
