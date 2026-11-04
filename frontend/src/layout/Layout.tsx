@@ -57,6 +57,7 @@ export function Layout() {
         recentsScope={agentRecentsScope}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
+        rail={location.pathname.startsWith('/agents')}
       />
       <main id="content" className="canvas">
         <Outlet />

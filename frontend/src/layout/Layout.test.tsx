@@ -26,6 +26,7 @@ function renderLayout(route = '/dashboard') {
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<div>Dashboard page</div>} />
             <Route path="/agents" element={<div>Agents page</div>} />
+            <Route path="/agents/:id" element={<div>Agent workspace</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -103,5 +104,23 @@ describe('Layout', () => {
     expect(document.body.style.overflow).toBe('hidden')
     await user.keyboard('{Escape}')
     expect(document.body.style.overflow).toBe('')
+  })
+
+  it('collapses the spine to a rail inside the agent workspace', () => {
+    renderLayout('/agents/a-1')
+    const spine = document.querySelector('.spine')
+    expect(spine).toHaveClass('rail')
+    expect(screen.getByRole('link', { name: 'Agents' })).toHaveAttribute(
+      'aria-label',
+      'Agents',
+    )
+    // No recent-agents sublinks inside the workspace.
+    expect(document.querySelector('.nav-recent')).toBeNull()
+  })
+
+  it('keeps the full spine outside the agent workspace', () => {
+    renderLayout('/dashboard')
+    expect(document.querySelector('.spine')).not.toHaveClass('rail')
+    expect(screen.getByText('Operations')).toBeInTheDocument()
   })
 })

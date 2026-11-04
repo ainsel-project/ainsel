@@ -12,14 +12,24 @@ function emptyAgentsResponse() {
   )
 }
 
-function renderAt(path: string, scope = 'anon') {
+function renderAt(
+  path: string,
+  scope = 'anon',
+  opts: { rail?: boolean; open?: boolean } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
-        <Spine operator="kim" recentsScope={scope} />
+        <Spine
+          operator="kim"
+          recentsScope={scope}
+          rail={opts.rail}
+          open={opts.open}
+          onClose={opts.open ? () => {} : undefined}
+        />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -467,5 +477,55 @@ describe('Spine', () => {
 
     await screen.findByRole('link', { name: /Memories/i })
     expect(activeTopLevelLinks()).toEqual(['/docs'])
+  })
+
+  describe('rail mode', () => {
+    it('shows only the idx and exposes the name as title and aria-label', () => {
+      renderAt('/dashboard', 'anon', { rail: true })
+      const agents = screen.getByRole('link', { name: 'Agents' })
+      expect(agents).toHaveAttribute('aria-label', 'Agents')
+      expect(agents).toHaveAttribute('title', 'Agents')
+      expect(agents).toHaveClass('nav-link')
+      expect(agents).toHaveTextContent('02')
+      // The name text is not rendered in the rail: the idx is the only label.
+      expect(agents.querySelector('.name')).toBeNull()
+    })
+
+    it('hides section labels', () => {
+      renderAt('/dashboard', 'anon', { rail: true })
+      for (const label of ['Operations', 'Fleet', 'Library', 'Docs', 'Admin']) {
+        expect(screen.queryByText(label)).toBeNull()
+      }
+    })
+
+    it('renders no recent agents block', async () => {
+      // Data that *would* render sublinks in full mode, to prove the block is
+      // absent because of rail mode, not because the list is empty.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve(
+            agentsResponse([
+              { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
+            ]),
+          ),
+        ),
+      )
+      const { container } = renderAt('/agents', 'kim', { rail: true })
+      await screen.findByRole('link', { name: 'Agents' })
+      await waitFor(() => expect(container.querySelector('.nav-recent')).toBeNull())
+      expect(container.querySelector('.nav-sublink')).toBeNull()
+    })
+
+    it('keeps the full menu while the mobile drawer is open', () => {
+      // Rail mode is a desktop-canvas concern; opening the drawer on mobile
+      // must still give the full navigation, names and all.
+      renderAt('/agents', 'anon', { rail: true, open: true })
+      const spine = document.querySelector('.spine')
+      expect(spine).toHaveClass('open')
+      expect(spine).not.toHaveClass('rail')
+      expect(screen.getByText('Operations')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /Dashboard/i })).toBeInTheDocument()
+    })
   })
 })
