@@ -1599,6 +1599,14 @@ html[data-theme="dark"] .settings-side-item.active { color: var(--signal); }
   overflow-y: auto;
   flex: 1 1 auto;
 }
+/* Opt-in tall variant (issue #216): the agent Skills card should use the
+   available page height instead of the flat 320px cap. Same house pattern as
+   `.scroll-cap` — a viewport-capped scroll window — with a max() floor so
+   short viewports keep today's 320px behavior. Applied only via the picker's
+   `tall` prop; other dual-list contexts are unchanged. */
+.dual-list-rows--tall {
+  max-height: max(320px, calc(100vh - 480px));
+}
 .dual-list-row {
   display: block;
   position: relative;

@@ -31,3 +31,21 @@ describe('scroll cap', () => {
     )
   })
 })
+
+// The agent Skills picker opts into `.dual-list-rows--tall` (issue #216) so the
+// card grows into the available page height instead of the flat 320px cap. It is
+// the same capped-scroll-window idea as `.scroll-cap`, so it must keep a
+// viewport-relative cap and a floor that never shrinks below the default.
+describe('dual-list tall variant', () => {
+  const decls = declarationsFor(readCss('primitives.css'), '.dual-list-rows--tall')
+
+  it('caps the rows at a viewport-relative height', () => {
+    const maxHeight = decls['max-height']
+    expect(maxHeight, '.dual-list-rows--tall has no max-height').toBeTruthy()
+    expect(maxHeight, 'tall rows are not viewport-capped').toContain('100vh')
+  })
+
+  it('floors the cap at the default 320px so short viewports are unchanged', () => {
+    expect(decls['max-height'], 'tall rows may shrink below the default cap').toContain('320px')
+  })
+})

@@ -221,3 +221,66 @@ describe('DualListPicker — missing-from-catalog', () => {
     expect(onChange).toHaveBeenLastCalledWith([])
   })
 })
+
+describe('DualListPicker — onRowActivate (issue #216)', () => {
+  it('fires on row click in the available pane, without changing onChange semantics', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const onRowActivate = vi.fn()
+    render(<Wrapper onChange={onChange} onRowActivate={onRowActivate} />)
+    const row = screen.getByRole('option', { name: /aws-s3/ })
+    await user.click(row)
+    expect(onRowActivate).toHaveBeenCalledWith('aws-s3')
+    expect(row).toHaveAttribute('aria-selected', 'true')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('fires on row click in the enabled pane', async () => {
+    const user = userEvent.setup()
+    const onRowActivate = vi.fn()
+    render(<Wrapper onRowActivate={onRowActivate} />)
+    const enabled = screen.getByRole('listbox', { name: /enabled/i })
+    await user.click(within(enabled).getByRole('option', { name: /aws-iam/ }))
+    expect(onRowActivate).toHaveBeenCalledWith('aws-iam')
+  })
+
+  it('fires on Enter and Space activation', async () => {
+    const user = userEvent.setup()
+    const onRowActivate = vi.fn()
+    render(<Wrapper onRowActivate={onRowActivate} />)
+    const row = screen.getByRole('option', { name: /aws-s3/ })
+    row.focus()
+    await user.keyboard('{Enter}')
+    expect(onRowActivate).toHaveBeenLastCalledWith('aws-s3')
+    await user.keyboard(' ')
+    expect(onRowActivate).toHaveBeenLastCalledWith('aws-s3')
+  })
+
+  it('fires for the clicked row during shift-range selection', async () => {
+    const user = userEvent.setup()
+    const onRowActivate = vi.fn()
+    render(<Wrapper selectedIds={[]} onChange={vi.fn()} onRowActivate={onRowActivate} />)
+    await user.click(screen.getByRole('option', { name: /aws-iam/ }))
+    await user.keyboard('{Shift>}')
+    await user.click(screen.getByRole('option', { name: /k8s-deploy/ }))
+    await user.keyboard('{/Shift}')
+    expect(onRowActivate).toHaveBeenLastCalledWith('k8s-deploy')
+    expect(screen.getByRole('option', { name: /aws-s3/ })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('is a no-op when unset: clicking only toggles the highlight', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(<Wrapper onChange={onChange} />)
+    await user.click(screen.getByRole('option', { name: /aws-s3/ }))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('applies the tall rows class only when tall is set', () => {
+    const { unmount } = render(<Wrapper />)
+    expect(document.querySelector('.dual-list-rows--tall')).toBeNull()
+    unmount()
+    render(<Wrapper tall />)
+    expect(document.querySelectorAll('.dual-list-rows--tall')).toHaveLength(2)
+  })
+})
