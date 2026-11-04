@@ -2,7 +2,15 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { THEMES, parseColor, paletteFor, readCss, resolveVar, stripComments } from './cssThemeKit'
+import {
+  THEMES,
+  contrast,
+  parseColor,
+  paletteFor,
+  readCss,
+  resolveVar,
+  stripComments,
+} from './cssThemeKit'
 
 /**
  * Design-token guard.
@@ -29,8 +37,7 @@ const BASELINE: Record<string, string[]> = {
   'pages/agents/AgentWizard.tsx': ['--rule'],
   'pages/agents/ScheduleForm.tsx': ['--rule'],
   'pages/agents/TriggerForm.tsx': ['--rule'],
-  'pages/chat/Conversation.tsx': ['--accent', '--border', '--font-body', '--ink-1', '--surface-2'],
-  'pages/chat/chatBusy.css': ['--accent'],
+  'pages/chat/Conversation.tsx': ['--font-body'],
   'pages/connectors/ConnectorForm.tsx': ['--rule'],
   'pages/connectors/ConnectorList.tsx': ['--accent'],
   'pages/groups/GroupDetail.tsx': ['--chrome-1'],
@@ -160,12 +167,35 @@ export function blankComments(source: string): string {
   return out.join('')
 }
 
-/** `var(--x)` references per file, excluding declarations and comments. */
-function referencedTokens(file: string): Set<string> {
+/**
+ * Tokens declared by the design stylesheets (`src/design/`): the palette a
+ * component is allowed to paint with — `tokens.css` per theme plus the
+ * theme-invariant scale and font tokens (e.g. `--mono` in `fonts.css`).
+ */
+function designTokens(): Set<string> {
+  const declared = new Set<string>()
+  for (const file of walkCss(join(SRC, 'design'))) {
+    const css = stripComments(readFileSync(file, 'utf8'))
+    for (const m of css.matchAll(/(--[a-zA-Z0-9-]+)\s*:/g)) declared.add(m[1])
+  }
+  return declared
+}
+
+/**
+ * `var(--x)` references per file, excluding declarations and comments.
+ * With `fallbacklessOnly`, only references without a `, fallback`: a fallback
+ * is a legitimate deliberate default, but a fallback-less reference to an
+ * undeclared token invalidates the whole declaration (see the inline-styles
+ * spec below).
+ */
+function referencedTokens(file: string, fallbacklessOnly = false): Set<string> {
   const raw = readFileSync(file, 'utf8')
   const text = file.endsWith('.css') ? stripComments(raw) : blankComments(raw)
   const refs = new Set<string>()
-  for (const m of text.matchAll(/var\(\s*(--[a-zA-Z0-9-]+)/g)) refs.add(m[1])
+  const pattern = fallbacklessOnly
+    ? /var\(\s*(--[a-zA-Z0-9-]+)\s*\)/g
+    : /var\(\s*(--[a-zA-Z0-9-]+)/g
+  for (const m of text.matchAll(pattern)) refs.add(m[1])
   return refs
 }
 
@@ -219,6 +249,88 @@ describe('design tokens', () => {
       'These baseline entries no longer match the source. Delete them so the ' +
         'ratchet stays tight.',
     ).toEqual([])
+  })
+})
+
+/**
+ * Inline styles in components.
+ *
+ * The phantom-token check above already walks `.tsx`, but it treats every
+ * `var(--x)` the same whether or not it carries a fallback. For inline styles
+ * the distinction matters: a fallback-less `var()` to an undeclared token
+ * makes the declaration *invalid at computed-value time*, so the property
+ * silently falls back to its initial/inherited value. That is exactly how
+ * issue #212 rendered white chat text on a white background in the light
+ * theme — `background: var(--accent)` in `MessageBubble` collapsed to
+ * transparent while the text stayed `#fff` — and a guard that only reads the
+ * stylesheets under `src/design/` cannot see a `style={{}}` object at all.
+ *
+ * So: every fallback-less `var(--x)` in a `.tsx` must resolve against the
+ * design palette (`tokens.css` plus the theme-invariant design stylesheets).
+ * `var(--x, literal)` fallbacks are legitimate and skipped. Pre-existing
+ * offenders share the BASELINE ratchet above — shrink it, never grow it.
+ */
+
+/** Every `.tsx` source file (specs excluded) and its fallback-less refs. */
+function inlineStyleTokens(): Map<string, string[]> {
+  const found = new Map<string, string[]>()
+  for (const file of walk(SRC)) {
+    if (!file.endsWith('.tsx')) continue
+    const refs = [...referencedTokens(file, true)].sort()
+    if (refs.length > 0) found.set(relative(SRC, file), refs)
+  }
+  return found
+}
+
+describe('inline styles in components', () => {
+  it('resolve every fallback-less var() against the design palette', () => {
+    const declared = designTokens()
+    const introduced: string[] = []
+    for (const [file, tokens] of inlineStyleTokens()) {
+      const excused = new Set(BASELINE[file] ?? [])
+      const fresh = tokens.filter((t) => !declared.has(t) && !excused.has(t))
+      if (fresh.length > 0) introduced.push(`${file}: ${fresh.join(', ')}`)
+    }
+    expect(
+      introduced,
+      'A fallback-less var() to an undeclared token invalidates the whole ' +
+        'inline declaration, so the property silently loses its value — in the ' +
+        'light theme that meant white text on a white background. Use a token ' +
+        'declared in src/design/, or add an explicit fallback.',
+    ).toEqual([])
+  })
+
+  it('catches a phantom token in an inline style (sanity check on the guard)', () => {
+    // A guard whose failure mode is untested is a guard that silently passes.
+    const phantom = "<div style={{ background: 'var(--not-a-token)' }} />"
+    const refs = [...blankComments(phantom).matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].map((m) => m[1])
+    expect(refs).toEqual(['--not-a-token'])
+    expect(designTokens().has('--not-a-token')).toBe(false)
+    // A fallback is legitimate and must not be flagged by the scanner.
+    const fallback = "<div style={{ background: 'var(--not-a-token, #fff)' }} />"
+    const kept = [...blankComments(fallback).matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].map((m) => m[1])
+    expect(kept).toEqual([])
+  })
+
+  it('keeps the chat bubbles on palette tokens with contrast (issue #212)', () => {
+    // The regression proper: the pairings the fix chose must resolve in every
+    // theme with body-text contrast, and the component must paint with them.
+    const palettes: (string | null)[] = [null, ...THEMES]
+    for (const theme of palettes) {
+      const p = paletteFor(theme)
+      const userBg = resolveVar('var(--ink)', p)
+      const userInk = resolveVar('var(--paper)', p)
+      const asstBg = resolveVar('var(--paper-deep)', p)
+      const asstInk = resolveVar('var(--ink-2)', p)
+      expect(contrast(userBg, userInk), `user bubble, theme ${theme}`).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(asstBg, asstInk), `assistant bubble, theme ${theme}`).toBeGreaterThanOrEqual(
+        4.5,
+      )
+    }
+    const src = readFileSync(join(SRC, 'pages/chat/Conversation.tsx'), 'utf8')
+    expect(src).toContain("background: isUser ? 'var(--ink)' : 'var(--paper-deep)'")
+    expect(src).toContain("color: isUser ? 'var(--paper)' : 'var(--ink-2)'")
+    expect(src).toContain("'1px solid var(--rule-soft)'")
   })
 })
 
