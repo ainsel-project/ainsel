@@ -13,7 +13,7 @@ export function Layout() {
   // In the agent workspace the spine collapses to an icon rail; the shell
   // carries the same class so its grid track narrows to match (see
   // .shell.rail in Layout.css) instead of leaving a blank 236px column.
-  const rail = location.pathname.startsWith('/agents')
+  const rail = location.pathname === '/agents' || location.pathname.startsWith('/agents/')
 
   // Close the drawer whenever the route changes (mobile nav selection).
   useEffect(() => {

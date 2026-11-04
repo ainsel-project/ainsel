@@ -27,6 +27,7 @@ function renderLayout(route = '/dashboard') {
             <Route path="/dashboard" element={<div>Dashboard page</div>} />
             <Route path="/agents" element={<div>Agents page</div>} />
             <Route path="/agents/:id" element={<div>Agent workspace</div>} />
+            <Route path="/agentsx" element={<div>Lookalike page</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -131,5 +132,16 @@ describe('Layout', () => {
   it('keeps the full shell grid outside the agent workspace', () => {
     renderLayout('/dashboard')
     expect(document.querySelector('.shell')).not.toHaveClass('rail')
+  })
+
+  it('uses the rail on the agents list page', () => {
+    renderLayout('/agents')
+    expect(document.querySelector('.shell')).toHaveClass('rail')
+  })
+
+  it('does not use the rail for a path that only starts with /agents', () => {
+    renderLayout('/agentsx')
+    expect(document.querySelector('.shell')).not.toHaveClass('rail')
+    expect(document.querySelector('.spine')).not.toHaveClass('rail')
   })
 })
