@@ -81,7 +81,8 @@ export function OverviewSection() {
   // was deleted renders as plain text, not a link to a 404.
   const { data: imageData } = useAgentImages({ pageSize: 200 })
   const imageIds = useMemo(() => new Set((imageData?.items ?? []).map((i) => i.id)), [imageData])
-  const { data: image } = useAgentImage(agent.imageRef?.name)
+  const imageQuery = useAgentImage(agent.imageRef?.name)
+  const image = imageQuery.data
   const imageLabel = agent.imageRef?.displayName ?? agent.imageRef?.name
 
   // Fixed at mount: a per-render value would change the query key every render.
@@ -105,7 +106,10 @@ export function OverviewSection() {
     (c) => c.kind === 'agent' && c.entityRef === id,
   )
 
-  const timeout = timeoutFact(agent.env ?? [], image?.env ?? [])
+  // The image query is disabled without an image reference; only a query that
+  // will run counts as loading.
+  const imageLoading = agent.imageRef?.name !== undefined && imageQuery.isPending
+  const timeout = timeoutFact(agent.env ?? [], image?.env ?? [], imageLoading)
 
   // The operator's run account says whether work is in flight. An agent with
   // nothing queued or running is idle by design: every task runs as its own Job.
@@ -410,18 +414,26 @@ export function OverviewSection() {
   )
 }
 
+const TIMEOUT_VAR = 'TURN_TIMEOUT_MS'
+
+/** A blank or non-numeric TURN_TIMEOUT_MS is absent, so it falls through. */
+function isUsableTimeout(e: { name: string; value: string }): boolean {
+  return e.name !== TIMEOUT_VAR || (e.value.trim() !== '' && Number.isFinite(Number(e.value)))
+}
+
 /**
  * The turn timeout as "N min · source", from the merged env (the agent's own
- * entry wins over the image's). Falls back to the 30 minute default.
+ * entry wins over the image's). Falls back to the 30 minute default, or "…"
+ * while the image that may set it is still loading.
  */
-function timeoutFact(agentEnv: AgentEnvVar[], imageEnv: EnvVar[]): string {
-  const row = mergeEnv(agentEnv, imageEnv).find((r) => r.name === 'TURN_TIMEOUT_MS')
-  if (!row) return `${DEFAULT_TURN_TIMEOUT_MIN} min · default`
+function timeoutFact(agentEnv: AgentEnvVar[], imageEnv: EnvVar[], imageLoading: boolean): string {
+  const row = mergeEnv(agentEnv.filter(isUsableTimeout), imageEnv.filter(isUsableTimeout)).find(
+    (r) => r.name === TIMEOUT_VAR,
+  )
+  if (!row) return imageLoading ? '…' : `${DEFAULT_TURN_TIMEOUT_MIN} min · default`
   const fromImage = row.kind === 'image'
-  const value = fromImage ? row.imageValue : row.agentValue
-  const ms = Number(value)
-  const shown = Number.isFinite(ms) ? `${ms / 60_000} min` : String(value)
-  return `${shown} · ${fromImage ? 'image' : 'agent'}`
+  const ms = Number(fromImage ? row.imageValue : row.agentValue)
+  return `${ms / 60_000} min · ${fromImage ? 'image' : 'agent'}`
 }
 
 function PencilIcon() {

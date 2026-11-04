@@ -132,6 +132,42 @@ describe('OverviewSection', () => {
     expect(invocationsUrls[0]).toContain('since=')
   })
 
+  it('treats a blank agent TURN_TIMEOUT_MS as absent instead of showing 0 min', async () => {
+    stubAgent({ ...baseAgent, env: [{ name: 'TURN_TIMEOUT_MS', value: '' }] })
+    renderOverview()
+    await waitFor(() => expect(valueOf('Timeout')).toHaveTextContent('30 min · default'))
+    expect(valueOf('Timeout').textContent).not.toMatch(/^0 min/)
+  })
+
+  it('falls through a blank agent TURN_TIMEOUT_MS to the image value', async () => {
+    stubAgent({ ...baseAgent, env: [{ name: 'TURN_TIMEOUT_MS', value: ' ' }] }, (url) => {
+      if (!url.includes('/agent-images/claude-tooling-base')) return undefined
+      return json({
+        id: 'claude-tooling-base:1.4',
+        displayName: 'Claude Tooling Base',
+        imageURL: 'ghcr.io/ainsel/claude-tooling:1.4',
+        tools: [],
+        env: [{ name: 'TURN_TIMEOUT_MS', value: '900000' }],
+        mcpServers: [],
+        enabledSkills: [],
+      })
+    })
+    renderOverview()
+    await waitFor(() => expect(valueOf('Timeout')).toHaveTextContent('15 min · image'))
+  })
+
+  it('shows an ellipsis for the timeout while the image is loading, not the default', async () => {
+    const imageRequest = new Promise<Response>(() => {})
+    stubAgent(baseAgent, (url) => {
+      if (!url.includes('/agent-images/claude-tooling-base')) return undefined
+      return imageRequest as unknown as Response
+    })
+    renderOverview()
+    expect(await screen.findByRole('heading', { name: 'doc-writer' })).toBeInTheDocument()
+    expect(valueOf('Timeout')).toHaveTextContent('…')
+    expect(valueOf('Timeout')).not.toHaveTextContent('default')
+  })
+
   it('reads the timeout from the agent env in minutes, attributed to the agent', async () => {
     stubAgent({ ...baseAgent, env: [{ name: 'TURN_TIMEOUT_MS', value: '3600000' }] })
     renderOverview()
