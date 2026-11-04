@@ -109,27 +109,54 @@ describe('OverviewSection', () => {
     )
   })
 
-  it('counts runs, failures (failure + timeout) and running (running + queued) for today', async () => {
+  it('counts the five run states 1:1 with the Activity outcome filters', async () => {
+    // Fixtures carry task payloads: under effectiveRunState a bare
+    // { status: 'running' } with no task is `unknown`, not a live run.
     const invocations = [
       { id: 'i1', status: 'success' },
       { id: 'i2', status: 'success' },
       { id: 'i3', status: 'failure' },
-      { id: 'i4', status: 'running' },
+      { id: 'i4', status: 'timeout' },
+      // Hub-provided derived state wins over the raw status.
+      { id: 'i5', status: 'running', task: { status: 'pending', attempts: 0, runState: 'running' } },
+      // Pre-#422 fallback: claimed task with no runState still reads as running.
+      { id: 'i6', status: 'running', task: { status: 'claimed', attempts: 0 } },
+      { id: 'i7', status: 'queued', task: { status: 'pending', attempts: 0 } },
+      // Stale record: a "running" invocation with no task behind it is
+      // unknown — it counts into neither Running nor Queued.
+      { id: 'i8', status: 'running' },
     ]
     const invocationsUrls: string[] = []
     stubAgent(baseAgent, (url) => {
       if (!url.includes('/invocations')) return undefined
       invocationsUrls.push(url)
-      return json({ invocations, total: 4, capacity: 0, page: 1, pageSize: 200, totalPages: 1 })
+      return json({ invocations, total: 8, capacity: 0, page: 1, pageSize: 200, totalPages: 1 })
     })
     renderOverview()
 
-    await waitFor(() => expect(valueOf('Runs today')).toHaveTextContent('4'))
+    await waitFor(() => expect(valueOf('Runs today')).toHaveTextContent('8'))
     expect(valueOf('Failures today')).toHaveTextContent('1')
-    expect(valueOf('Running now')).toHaveTextContent('1')
+    expect(valueOf('Timeouts today')).toHaveTextContent('1')
+    expect(valueOf('Running now')).toHaveTextContent('2')
+    expect(valueOf('Queued now')).toHaveTextContent('1')
     expect(invocationsUrls[0]).toContain('agent=a1')
     expect(invocationsUrls[0]).toContain('pageSize=200')
     expect(invocationsUrls[0]).toContain('since=')
+  })
+
+  it('links each stat to the activity view with the matching filter', async () => {
+    renderOverview()
+    await waitFor(() => expect(valueOf('Runs today').querySelector('a')).not.toBeNull())
+    const expected: [string, string][] = [
+      ['Runs today', '/activity?agent=a1&since=today'],
+      ['Failures today', '/activity?agent=a1&since=today&outcome=failure'],
+      ['Timeouts today', '/activity?agent=a1&since=today&outcome=timeout'],
+      ['Running now', '/activity?agent=a1&since=today&outcome=running'],
+      ['Queued now', '/activity?agent=a1&since=today&outcome=queued'],
+    ]
+    for (const [label, href] of expected) {
+      expect(valueOf(label).querySelector('a')).toHaveAttribute('href', href)
+    }
   })
 
   it('treats a blank agent TURN_TIMEOUT_MS as absent instead of showing 0 min', async () => {

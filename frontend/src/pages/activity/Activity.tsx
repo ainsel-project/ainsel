@@ -11,6 +11,7 @@ import { Panel } from '../../primitives/Panel'
 import { Input } from '../../primitives/Input'
 import { Select } from '../../primitives/Select'
 import { Titleblock } from '../../layout/Titleblock'
+import { resolveSinceParam } from '../../utils/time'
 import { ActivityRow } from './ActivityRow'
 
 const STATUS_OPTIONS = [
@@ -37,16 +38,19 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 // Dropdown filters are URL-persisted (like q/page/pageSize already were) so
 // they survive a refresh. `page` is included in the patch type only so a
 // filter change can reset it in the same URL update; it is not read back
-// through the hook.
+// through the hook. `since` has no dropdown: it is a link-in filter (the
+// agent overview's daily stats link here with `since=today`) and resolves to
+// local midnight via the shared sentinel in utils/time.
 type ActivityFilters = {
   status?: string
   outcome?: string
   connector?: string
   agent?: string
+  since?: string
   page?: string
 }
 
-const FILTER_KEYS = ['status', 'outcome', 'connector', 'agent'] as const
+const FILTER_KEYS = ['status', 'outcome', 'connector', 'agent', 'since'] as const
 
 const STATUS_VALUES: readonly string[] = STATUS_OPTIONS.map((o) => o.value)
 const OUTCOME_VALUES: readonly string[] = OUTCOME_OPTIONS.map((o) => o.value)
@@ -64,6 +68,9 @@ export function Activity() {
   const filterOutcome = oneOf(OUTCOME_VALUES, filters.outcome)
   const filterConnector = filters.connector ?? ''
   const filterAgent = filters.agent ?? ''
+  // Only the `today` sentinel bounds the query; unknown values fall back to
+  // "any", like the enum filters above.
+  const sinceParam = resolveSinceParam(filters.since)
 
   const [params, setParams] = useSearchParams()
   const searchQuery = params.get('q') ?? ''
@@ -85,6 +92,7 @@ export function Activity() {
     connector: filterConnector || undefined,
     agent: filterAgent || undefined,
     outcome: filterOutcome ? (filterOutcome as ListEventsParams['outcome']) : undefined,
+    since: sinceParam,
   })
   const { connectorNameById } = useConnectorNames()
   const { data: triggerData } = useTriggers({ pageSize: 200 })
@@ -210,7 +218,11 @@ export function Activity() {
   // filter narrows server-side, so `total` already reflects them.
   const localFilterActive = searchTerms.length > 0
   const anyFilterActive =
-    localFilterActive || filterStatus !== '' || filterConnector !== '' || filterAgent !== ''
+    localFilterActive ||
+    filterStatus !== '' ||
+    filterConnector !== '' ||
+    filterAgent !== '' ||
+    sinceParam !== undefined
   const panelTitle = localFilterActive
     ? `Activity · ${sorted.length} of ${rows.length} on page · ${total} total`
     : `Activity · ${total} total`

@@ -14,7 +14,7 @@ import { useAgentImage, useAgentImages, type EnvVar } from '../../../api/agentIm
 import { useAgentPersona } from '../../../api/personas'
 import { useChannels } from '../../../api/channels'
 import { useCronTriggers } from '../../../api/cronTriggers'
-import { useInvocations, type InvocationEntry } from '../../../api/invocations'
+import { useInvocations, effectiveRunState, type RunState } from '../../../api/invocations'
 import { useTriggers } from '../../../api/triggers'
 import { EntityLink } from '../../../components/EntityLink'
 import { agentImagePath } from '../../../components/entityPaths'
@@ -28,6 +28,7 @@ import { Panel } from '../../../primitives/Panel'
 import { Tag } from '../../../primitives/Tag'
 import { Textarea } from '../../../primitives/Textarea'
 import { isManaged } from '../../../utils/managed'
+import { SINCE_SENTINEL, startOfToday } from '../../../utils/time'
 import { mergeEnv } from './envRows'
 import { SectionPage } from './SectionPage'
 import { sectionPath, type SectionId } from './sections'
@@ -44,16 +45,6 @@ const PAUSE_PRESETS: { value: string; label: string }[] = [
 ]
 
 const DEFAULT_TURN_TIMEOUT_MIN = 30
-
-/** Local midnight today, as an RFC3339 instant for the invocations `since` filter. */
-function startOfToday(): string {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString()
-}
-
-const FAILED_STATES: ReadonlySet<InvocationEntry['status']> = new Set(['failure', 'timeout'])
-const ACTIVE_STATES: ReadonlySet<InvocationEntry['status']> = new Set(['running', 'queued'])
 
 /** Overview section: the agent's identity, today's runs, its key facts and lifecycle actions. */
 export function OverviewSection() {
@@ -93,10 +84,28 @@ export function OverviewSection() {
   const { data: channelData } = useChannels({ pageSize: 500 })
   const { data: personaView } = useAgentPersona(id)
 
-  const items = invocations?.items ?? []
+  const items = useMemo(() => invocations?.items ?? [], [invocations])
   const runsToday = invocations?.total ?? items.length
-  const failuresToday = items.filter((i) => FAILED_STATES.has(i.status)).length
-  const runningNow = items.filter((i) => ACTIVE_STATES.has(i.status)).length
+  // Count via the derived run state, not the raw invocation status: the
+  // numbers must agree with the Activity rows each cell links to (see
+  // docs/observability.md "Queued, running, and unknown"). `unknown` items
+  // count into neither Running nor Queued. Every cell maps 1:1 to an
+  // Activity `outcome` value, so the linked view shows exactly that state.
+  const runStates = useMemo(
+    () => items.map((i) => effectiveRunState(i)),
+    [items],
+  )
+  const countState = (s: RunState) => runStates.filter((r) => r === s).length
+  const failuresToday = countState('failure')
+  const timeoutsToday = countState('timeout')
+  const runningNow = countState('running')
+  const queuedNow = countState('queued')
+  // `since=today` keeps the destination on the same day the numbers count;
+  // the counts themselves are directional (invocations vs. events), not a
+  // guarantee the linked totals match.
+  const activityLink = (outcome?: RunState) =>
+    `/activity?agent=${encodeURIComponent(id)}&since=${SINCE_SENTINEL}` +
+    (outcome ? `&outcome=${outcome}` : '')
 
   const triggerCount =
     (triggerData?.items ?? []).filter((t) => t.agentRef === id).length +
@@ -286,18 +295,36 @@ export function OverviewSection() {
             </div>
           )}
 
-          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
             <div>
               <div className="k">Runs today</div>
-              <div className="v">{runsToday}</div>
+              <div className="v">
+                <Link to={activityLink()}>{runsToday}</Link>
+              </div>
             </div>
             <div>
               <div className="k">Failures today</div>
-              <div className="v">{failuresToday}</div>
+              <div className="v">
+                <Link to={activityLink('failure')}>{failuresToday}</Link>
+              </div>
+            </div>
+            <div>
+              <div className="k">Timeouts today</div>
+              <div className="v">
+                <Link to={activityLink('timeout')}>{timeoutsToday}</Link>
+              </div>
             </div>
             <div>
               <div className="k">Running now</div>
-              <div className="v">{runningNow}</div>
+              <div className="v">
+                <Link to={activityLink('running')}>{runningNow}</Link>
+              </div>
+            </div>
+            <div>
+              <div className="k">Queued now</div>
+              <div className="v">
+                <Link to={activityLink('queued')}>{queuedNow}</Link>
+              </div>
             </div>
           </div>
 
