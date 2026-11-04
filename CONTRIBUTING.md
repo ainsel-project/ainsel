@@ -408,7 +408,7 @@ Run these before pushing:
 # go.work root is not a module — run per module (see .agent/skills/development/project-setup.md)
 for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && go build ./...); done  # all Go modules compile
 for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && go test ./...); done   # all Go tests pass (operators need `make setup-envtest` first)
-golangci-lint run -c ../../.golangci.yml ./...  # Go lint clean (run inside each component dir; root config is canonical)
+for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && golangci-lint run -c "$(git rev-parse --show-toplevel)/.golangci.yml" ./...); done  # Go lint clean (root config is canonical; works at any module depth)
 pnpm lint                     # frontend lint clean
 pnpm test                     # frontend tests pass
 pnpm build                    # frontend builds

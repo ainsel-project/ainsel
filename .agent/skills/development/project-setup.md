@@ -174,7 +174,7 @@ If the work is operating a running install rather than changing code, the
 | Operator tests fail on a fresh clone | `fork/exec .../etcd: no such file or directory` | envtest binaries missing — run `make setup-envtest` (section 3) |
 | Relative `KUBEBUILDER_ASSETS` | same etcd error, path resolved from the wrong cwd | Pass an absolute path, or leave it unset — the suites auto-discover `bin/k8s/*` |
 | golangci-lint refuses to run | `the Go language version ... used to build golangci-lint is lower than the targeted Go version` | Install a golangci-lint built with Go ≥ the repo's target (CI uses `go install ...@latest`) |
-| Operator lint misses plugin checks | plain `golangci-lint run` passes but CI flags logcheck | Operators use `.custom-gcl.yml` — `make lint` builds the custom binary |
+| Operator lint misses plugin checks | `golangci-lint run -c ../../.golangci.yml ./...` passes but CI flags logcheck | Operators use `.custom-gcl.yml` — `make lint` builds the custom binary (and a bare `golangci-lint run` is worse still: it skips the root rule set too) |
 | pnpm version mismatch | `ERR_PNPM_OUTDATED_LOCKFILE` or engine warnings | Install the exact version from `package.json#packageManager` |
 | Read-only `$HOME` | `mkdir /home/...: read-only file system` from go / golangci-lint / npm | Point `GOPATH`, `GOCACHE`, `XDG_CACHE_HOME`, and the npm cache at a writable dir |
 | Restating versions in docs or scripts | doc drifts the next time a pin bumps | Read versions from the pin files — this file's own rule |

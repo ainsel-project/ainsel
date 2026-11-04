@@ -59,7 +59,12 @@ errors, control-plane health, Docker Hub tag retention). The index with
 - **Lint and test before claiming done:** per-module `go build ./...` and
   `go test ./...` (see
   [`.agent/skills/development/project-setup.md`](.agent/skills/development/project-setup.md) — the
-  go.work root is not a module), `golangci-lint run`, `pnpm lint`,
+  go.work root is not a module),
+  `golangci-lint run -c ../../.golangci.yml ./...` (from the module directory;
+  the root config is the single source of truth — add a `../` segment per extra
+  directory level, e.g. `../../../` in `shared/auth/oidc`; a bare
+  `golangci-lint run` silently uses tool defaults, not the project rule set),
+  `pnpm lint`,
   `pnpm test`, `helm lint chart/` where applicable.
 - **When a dependency changes, so does the license manifest.** Lockfiles,
   `go.sum` and `THIRD_PARTY_LICENSES.md` / `LICENSES/` move together — see
@@ -106,7 +111,9 @@ errors, control-plane health, Docker Hub tag retention). The index with
 Before reporting work as complete:
 
 - [ ] Tests pass: `go test ./...` and `pnpm test` in any package you touched.
-- [ ] Lint passes: `golangci-lint run`, `pnpm lint`.
+- [ ] Lint passes: `golangci-lint run -c ../../.golangci.yml ./...` from each
+      Go module directory (never bare `golangci-lint run` — it drops gosec and
+      ST1000), `pnpm lint`.
 - [ ] Build passes: per-module `go build ./...`, `pnpm build` (frontend),
       `helm lint chart/` (if chart touched).
 - [ ] Commit messages use Conventional Commits style; PR title does too.
