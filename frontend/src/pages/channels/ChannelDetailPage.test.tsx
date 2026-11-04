@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { ChannelDetailPage } from './ChannelDetailPage'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
@@ -18,6 +18,11 @@ vi.mock('mermaid', () => ({
     },
   },
 }))
+
+function LocationProbe() {
+  const location = useLocation()
+  return <p data-testid="location">{location.pathname}</p>
+}
 
 const HOME = {
   id: 'ch-forgejo',
@@ -225,34 +230,21 @@ describe('ChannelDetailPage', () => {
     expect(screen.getByText('3')).toBeInTheDocument() // unmatched 24h
   })
 
-  it('renders an agent inbox channel: subscriptions, schedules, timeline, runs', async () => {
-    const calls = mockFetch()
-    renderAt('ch-inbox')
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /channel\s+review-bot/i })).toBeInTheDocument()
-      expect(screen.getByText('The inbox agent review-bot drains')).toBeInTheDocument()
-    })
-    // the inbox owns its subscription + schedule configuration
-    await waitFor(() => {
-      expect(screen.getByText('Subscriptions')).toBeInTheDocument()
-      expect(screen.getByText('on-issues')).toBeInTheDocument()
-      expect(screen.getByText('Schedules')).toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.getByText(/inv-1/)).toBeInTheDocument()
-      expect(screen.getAllByText('SUCCESS').length).toBeGreaterThanOrEqual(1)
-    })
-    // runs are looked up by the agent's registry ref, not its display name
-    const invocations = calls.find((c) => c.url.includes('/invocations'))
-    expect(invocations?.url).toContain('agent=review-bot')
-    // the relation graph: one level up only — the forgejo channel feeds this
-    // inbox, and the custom channel *also* fed by forgejo stays out of view
-    await waitFor(() => expect(screen.getByTestId('relation-diagram')).toBeInTheDocument())
-    const def = mermaidRenders.at(-1) ?? ''
-    expect(def).toContain('"forgejo"')
-    expect(def).toContain('via on-issues')
-    expect(def).not.toContain('"team-inbox"')
-    expect(screen.getByText('fed by')).toBeInTheDocument()
+  it('sends an agent inbox to its agent workspace Channel section', async () => {
+    mockFetch({ channels: [HOME, { ...INBOX, entityRef: 'a1' }, GROUP] })
+    renderWithProviders(
+      <>
+        <Routes>
+          <Route path="/channels/:id" element={<ChannelDetailPage />} />
+          <Route path="/agents/:id/channel" element={<p>agent channel</p>} />
+        </Routes>
+        <LocationProbe />
+      </>,
+      { route: '/channels/ch-inbox' },
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/agents/a1/channel'),
+    )
   })
 
   it('renders a custom channel with real bridges, graph, and gated delete', async () => {

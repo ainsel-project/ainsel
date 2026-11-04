@@ -26,6 +26,8 @@ function renderLayout(route = '/dashboard') {
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<div>Dashboard page</div>} />
             <Route path="/agents" element={<div>Agents page</div>} />
+            <Route path="/agents/:id" element={<div>Agent workspace</div>} />
+            <Route path="/agentsx" element={<div>Lookalike page</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -103,5 +105,43 @@ describe('Layout', () => {
     expect(document.body.style.overflow).toBe('hidden')
     await user.keyboard('{Escape}')
     expect(document.body.style.overflow).toBe('')
+  })
+
+  it('collapses the spine to a rail inside the agent workspace', () => {
+    renderLayout('/agents/a-1')
+    const spine = document.querySelector('.spine')
+    expect(spine).toHaveClass('rail')
+    expect(screen.getByRole('link', { name: 'Agents' })).toHaveAttribute('aria-label', 'Agents')
+    // No recent-agents sublinks inside the workspace.
+    expect(document.querySelector('.nav-recent')).toBeNull()
+  })
+
+  it('keeps the full spine outside the agent workspace', () => {
+    renderLayout('/dashboard')
+    expect(document.querySelector('.spine')).not.toHaveClass('rail')
+    expect(screen.getByText('Operations')).toBeInTheDocument()
+  })
+
+  it('narrows the shell grid to the rail inside the agent workspace', () => {
+    renderLayout('/agents/a-1')
+    // The .shell grid track must shrink with the 48px rail, otherwise the
+    // canvas keeps a 236px left offset (see .shell.rail in Layout.css).
+    expect(document.querySelector('.shell')).toHaveClass('rail')
+  })
+
+  it('keeps the full shell grid outside the agent workspace', () => {
+    renderLayout('/dashboard')
+    expect(document.querySelector('.shell')).not.toHaveClass('rail')
+  })
+
+  it('uses the rail on the agents list page', () => {
+    renderLayout('/agents')
+    expect(document.querySelector('.shell')).toHaveClass('rail')
+  })
+
+  it('does not use the rail for a path that only starts with /agents', () => {
+    renderLayout('/agentsx')
+    expect(document.querySelector('.shell')).not.toHaveClass('rail')
+    expect(document.querySelector('.spine')).not.toHaveClass('rail')
   })
 })

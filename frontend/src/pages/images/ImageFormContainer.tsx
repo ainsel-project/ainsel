@@ -26,7 +26,7 @@ type ImageFormContainerProps = {
   id: string | undefined
   /**
    * Embedded mode: the form is rendered inside another page (e.g. the agent
-   * detail's Tools / Skills tabs) instead of standing alone. Suppresses
+   * detail's Tools & MCP / Skills sections) instead of standing alone. Suppresses
    * post-save navigation and page chrome (see ImageFormView).
    */
   embedded?: boolean

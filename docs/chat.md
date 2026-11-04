@@ -4,22 +4,26 @@ AInsel's chat feature lets you talk directly to an agent from the hub UI — no 
 
 ## Starting a chat
 
-1. Navigate to **Chat** (`/chat`) in the sidebar.
-2. Click **New Chat** and select an agent from the dropdown.
-3. A new session is created and you're taken to the chat view (`/chat/<session-id>`).
+Chat lives inside the agent workspace, not in a sidebar page of its own. Open an
+agent (**Fleet → Agents**, or any `/agents/:id` link) and select the **Chat**
+section — `/agents/:id/chat`. Type a message and send it; the first message
+creates the session.
+
+Each agent keeps one conversation with you. **Reset** in the section header
+starts a fresh conversation, giving the agent a clean context instead of the
+current session's history.
 
 The agent uses its configured persona, model, and tools — the same configuration it uses when responding to events. Messages you send are delivered to the agent runtime; the agent's reply is streamed back and rendered as markdown.
 
 ## The chat view
 
 - **Message input** — Type a message and press **Enter** to send. Use **Shift+Enter** for a newline.
-- **Message history** — Previous messages in the session are displayed with timestamps and token counts.
+- **Message history** — Previous messages in the session are displayed with relative timestamps.
 - **Status messages** — System events (session created, agent started, etc.) appear as centred status lines.
-- **Delete** — Click **Delete Chat** in the titleblock to permanently remove the session and all its messages.
 
-## Managing sessions
+## Sessions
 
-The chat list (`/chat`) shows all sessions with the agent name, creation date, and last activity. You can filter by agent. Sessions are per-user — each operator sees only their own chats.
+Sessions are per-user — each operator sees only their own chats. The section always opens your most recent session with that agent; after a reset, older sessions simply stay out of view. Old links keep working: `/chat` redirects to the agent list, and `/chat/<session-id>` opens that session's agent at its Chat section.
 
 ## When to use chat vs triggers
 

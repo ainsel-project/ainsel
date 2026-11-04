@@ -25,7 +25,8 @@ export type ChatSessionSummary = Omit<ChatSession, 'messages'>
 
 export type ListChatSessionsParams = {
   agent?: string
-  userId?: string
+  /** Owner id the hub filters by; the hub pins restricted callers to their own. */
+  user?: string
   page?: number
   pageSize?: number
 }
@@ -65,11 +66,15 @@ export function sendChatMessage(sessionId: string, content: string) {
   })
 }
 
-export function useChatSessions(params: ListChatSessionsParams = {}) {
+export function useChatSessions(
+  params: ListChatSessionsParams = {},
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: ['chat', 'sessions', params],
     queryFn: () => listChatSessions(params),
     placeholderData: keepPreviousData,
+    enabled: options.enabled ?? true,
   })
 }
 

@@ -4,10 +4,10 @@ import { AuthProvider } from './auth/AuthProvider'
 import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './layout/Layout'
 import { LoginLayout } from './layout/LoginLayout'
-import { AgentDetail } from './pages/agents/AgentDetail'
-import { AgentForm } from './pages/agents/AgentForm'
 import { AgentWizard } from './pages/agents/AgentWizard'
-import { AgentList } from './pages/agents/AgentList'
+import { AgentWorkspace, AgentListPage } from './pages/agents/workspace/AgentWorkspace'
+import { OverviewSection } from './pages/agents/workspace/OverviewSection'
+import { LegacyEditRedirect, SectionRoute } from './pages/agents/workspace/sectionPages'
 import { Callback } from './pages/auth/Callback'
 import { ForcedPasswordChange } from './pages/auth/ForcedPasswordChange'
 import { ConnectorDetail } from './pages/connectors/ConnectorDetail'
@@ -16,8 +16,7 @@ import { ConnectorList } from './pages/connectors/ConnectorList'
 import { Dashboard } from './pages/dashboard/Dashboard'
 import { Activity } from './pages/activity/Activity'
 import { DocsPage } from './pages/docs/DocsPage'
-import { ChatList } from './pages/chat/ChatList'
-import { ChatView } from './pages/chat/ChatView'
+import { ChatRedirect } from './pages/chat/ChatRedirect'
 import { ImageDetailPage as ImageDetail } from './pages/images/ImageDetailPage'
 import { ImageList } from './pages/images/ImageList'
 import { Login } from './pages/login/Login'
@@ -84,13 +83,17 @@ export default function App() {
             >
               <Route path="/dashboard" element={<Dashboard />} />
 
-              <Route path="/chat" element={<ChatList />} />
-              <Route path="/chat/:id" element={<ChatView />} />
+              {/* Chat lives inside each agent; these keep old links working. */}
+              <Route path="/chat" element={<Navigate to="/agents" replace />} />
+              <Route path="/chat/:id" element={<ChatRedirect />} />
 
-              <Route path="/agents" element={<AgentList />} />
+              <Route path="/agents" element={<AgentListPage />} />
               <Route path="/agents/new" element={<AgentWizard />} />
-              <Route path="/agents/:id" element={<AgentDetail />} />
-              <Route path="/agents/:id/edit" element={<AgentForm />} />
+              <Route path="/agents/:id" element={<AgentWorkspace />}>
+                <Route index element={<OverviewSection />} />
+                <Route path=":section" element={<SectionRoute />} />
+              </Route>
+              <Route path="/agents/:id/edit" element={<LegacyEditRedirect />} />
 
               <Route path="/personas" element={<PersonaList />} />
               <Route path="/personas/new" element={<PersonaForm />} />

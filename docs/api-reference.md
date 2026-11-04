@@ -1374,7 +1374,7 @@ Create a new persona. The hub generates the ULID and inserts the initial version
 ### GET /api/v1/personas/{id}
 
 Fetch one persona, including the current `text`. Owned personas are reachable
-by id (the agent detail page reads them through
+by id (the agent workspace reads them through
 [`GET /api/v1/agents/{name}/persona`](#get-apiv1agentsnamepersona) instead), but
 they never appear in the list.
 

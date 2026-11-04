@@ -10,11 +10,11 @@ Common use cases:
 
 ## Creating a cron trigger
 
-Cron triggers are managed on the **agent detail page** (`/agents/:id`), under the **Schedules** tab.
+Cron triggers are managed in the **agent workspace** (`/agents/:id`), in the **Triggers** section (`/agents/:id/triggers`) — a single list where schedules and event subscriptions sit together.
 
-1. Navigate to an agent's detail page.
-2. Open the **Schedules** tab.
-3. Click **Add Schedule**.
+1. Open an agent in the workspace.
+2. Open the **Triggers** section.
+3. Click **New**, then **Schedule**.
 4. Fill in:
    - **Name** — a unique identifier for this trigger.
    - **Schedule** — a cron expression (e.g. `0 9 * * 1-5` for 09:00 on weekdays).

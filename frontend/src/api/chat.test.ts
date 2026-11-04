@@ -131,6 +131,15 @@ describe('api/chat', () => {
     expect(r.total).toBe(1)
   })
 
+  it('listChatSessions sends the owner filter as the user query param', async () => {
+    await listChatSessions({ agent: 'a-dev', user: 'u1', pageSize: 1 })
+    const [url] = mockFetch().mock.calls[0]
+    const params = new URLSearchParams(String(url).split('?')[1])
+    expect(params.get('agent')).toBe('a-dev')
+    expect(params.get('user')).toBe('u1')
+    expect(params.has('userId')).toBe(false)
+  })
+
   it('getChatSession GETs /chat/sessions/{id} and returns the session', async () => {
     const s = await getChatSession('s1')
     const [url, init] = mockFetch().mock.calls[0]

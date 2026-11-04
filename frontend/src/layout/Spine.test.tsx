@@ -12,14 +12,20 @@ function emptyAgentsResponse() {
   )
 }
 
-function renderAt(path: string, scope = 'anon') {
+function renderAt(path: string, scope = 'anon', opts: { rail?: boolean; open?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
-        <Spine operator="kim" recentsScope={scope} />
+        <Spine
+          operator="kim"
+          recentsScope={scope}
+          rail={opts.rail}
+          open={opts.open}
+          onClose={opts.open ? () => {} : undefined}
+        />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -118,6 +124,12 @@ describe('Spine', () => {
     }
   })
 
+  it('has no Chat item: chat lives inside each agent', () => {
+    renderAt('/dashboard')
+    expect(screen.getByRole('link', { name: /Dashboard/i })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Chat/i })).toBeNull()
+  })
+
   it('groups the shared catalogs under Library', () => {
     renderAt('/dashboard')
 
@@ -135,14 +147,8 @@ describe('Spine', () => {
 
   it('links the library entries to their catalog routes', () => {
     renderAt('/dashboard')
-    expect(screen.getByRole('link', { name: /Images/i })).toHaveAttribute(
-      'href',
-      '/agent-images',
-    )
-    expect(screen.getByRole('link', { name: /Personas/i })).toHaveAttribute(
-      'href',
-      '/personas',
-    )
+    expect(screen.getByRole('link', { name: /Images/i })).toHaveAttribute('href', '/agent-images')
+    expect(screen.getByRole('link', { name: /Personas/i })).toHaveAttribute('href', '/personas')
   })
 
   it('pads to five with the most recently updated agents when nothing was clicked', async () => {
@@ -169,9 +175,7 @@ describe('Spine', () => {
     // Five now, not three: the two oldest of the six get cut.
     expect(screen.getByRole('link', { name: /nightly-sweeper/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /ancient-agent/i })).toBeInTheDocument()
-    expect(
-      screen.queryByRole('link', { name: /least-relevant/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /least-relevant/i })).not.toBeInTheDocument()
     // None of these were clicked, so all of them are filler.
     expect(document.querySelectorAll('.nav-sublink.padded')).toHaveLength(5)
   })
@@ -198,9 +202,9 @@ describe('Spine', () => {
 
     renderAt('/agents', 'kim')
     await screen.findByRole('link', { name: /nightly-sweeper/i })
-    const links = Array.from(
-      document.querySelectorAll('.nav-recent .nav-sublink .name'),
-    ).map((el) => el.textContent)
+    const links = Array.from(document.querySelectorAll('.nav-recent .nav-sublink .name')).map(
+      (el) => el.textContent,
+    )
     // issue-triager is unclicked but newest, so it pads the last slot.
     expect(links).toEqual(['nightly-sweeper', 'pr-reviewer', 'issue-triager'])
     // Clicked ones are theirs (not padded); the single pad slot is.
@@ -228,9 +232,7 @@ describe('Spine', () => {
 
     renderAt('/agents', 'kim')
     await screen.findByRole('link', { name: /nightly-sweeper/i })
-    expect(
-      screen.queryByRole('link', { name: /gone-agent/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /gone-agent/i })).not.toBeInTheDocument()
     expect(document.querySelectorAll('.nav-recent .nav-sublink')).toHaveLength(1)
   })
 
@@ -259,25 +261,27 @@ describe('Spine', () => {
         if (url.includes('/plugins')) {
           return Promise.resolve(
             new Response(
-              JSON.stringify({ items: [
-                {
-                  id: 'memory-plugin',
-                  displayName: 'Memory Plugin',
-                  ready: true,
-                  manifest: {
+              JSON.stringify({
+                items: [
+                  {
                     id: 'memory-plugin',
                     displayName: 'Memory Plugin',
-                    pluginApi: '1.1',
-                    ui: {
-                      entry: '/static/ui/index.js',
-                      pages: [
-                        { path: '/', label: 'Memories', section: 'Memory' },
-                        { path: '/loose', label: 'Loose' },
-                      ],
+                    ready: true,
+                    manifest: {
+                      id: 'memory-plugin',
+                      displayName: 'Memory Plugin',
+                      pluginApi: '1.1',
+                      ui: {
+                        entry: '/static/ui/index.js',
+                        pages: [
+                          { path: '/', label: 'Memories', section: 'Memory' },
+                          { path: '/loose', label: 'Loose' },
+                        ],
+                      },
                     },
                   },
-                },
-              ] }),
+                ],
+              }),
               { status: 200 },
             ),
           )
@@ -355,10 +359,9 @@ describe('Spine', () => {
         }
         if (url.includes('plugin-context')) {
           return Promise.resolve(
-            new Response(
-              JSON.stringify({ isAdmin: true, sub: 'u', username: 'kim', groups: [] }),
-              { status: 200 },
-            ),
+            new Response(JSON.stringify({ isAdmin: true, sub: 'u', username: 'kim', groups: [] }), {
+              status: 200,
+            }),
           )
         }
         return Promise.resolve(emptyAgentsResponse())
@@ -377,18 +380,11 @@ describe('Spine', () => {
     renderAt('/p/memory/setup')
 
     await screen.findByRole('link', { name: /Setup/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory/setup',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory/setup'])
     // aria-current follows the same rule as the class, so assistive tech
     // never sees two "current page" links either.
-    expect(screen.getByRole('link', { name: /Setup/i })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
-    expect(screen.getByRole('link', { name: /Memories/i })).not.toHaveAttribute(
-      'aria-current',
-    )
+    expect(screen.getByRole('link', { name: /Setup/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /Memories/i })).not.toHaveAttribute('aria-current')
   })
 
   it('highlights only the nested plugin entry, not the root entry (plugin-owned heading)', async () => {
@@ -396,9 +392,7 @@ describe('Spine', () => {
     renderAt('/p/memory/setup')
 
     await screen.findByRole('link', { name: /Setup/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory/setup',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory/setup'])
   })
 
   it('highlights the root plugin entry on its own path', async () => {
@@ -406,9 +400,7 @@ describe('Spine', () => {
     renderAt('/p/memory')
 
     await screen.findByRole('link', { name: /Memories/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory'])
   })
 
   it('keeps the nested entry highlighted on deep links under its path', async () => {
@@ -416,17 +408,15 @@ describe('Spine', () => {
     renderAt('/p/memory/setup/42')
 
     await screen.findByRole('link', { name: /Setup/i })
-    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual([
-      '/p/memory/setup',
-    ])
+    expect(activePluginLinks().map((el) => el.getAttribute('href'))).toEqual(['/p/memory/setup'])
   })
 
   // The most-specific-match rule is not plugin-only: every top-level nav
   // entry (built-in and plugin) is resolved through one combined
   // activeNavPath, so the sidebar has a single uniform matching rule.
   function activeTopLevelLinks() {
-    return Array.from(document.querySelectorAll('a.nav-link.active')).map(
-      (el) => el.getAttribute('href'),
+    return Array.from(document.querySelectorAll('a.nav-link.active')).map((el) =>
+      el.getAttribute('href'),
     )
   }
 
@@ -467,5 +457,55 @@ describe('Spine', () => {
 
     await screen.findByRole('link', { name: /Memories/i })
     expect(activeTopLevelLinks()).toEqual(['/docs'])
+  })
+
+  describe('rail mode', () => {
+    it('shows only the idx and exposes the name as title and aria-label', () => {
+      renderAt('/dashboard', 'anon', { rail: true })
+      const agents = screen.getByRole('link', { name: 'Agents' })
+      expect(agents).toHaveAttribute('aria-label', 'Agents')
+      expect(agents).toHaveAttribute('title', 'Agents')
+      expect(agents).toHaveClass('nav-link')
+      expect(agents).toHaveTextContent('02')
+      // The name text is not rendered in the rail: the idx is the only label.
+      expect(agents.querySelector('.name')).toBeNull()
+    })
+
+    it('hides section labels', () => {
+      renderAt('/dashboard', 'anon', { rail: true })
+      for (const label of ['Operations', 'Fleet', 'Library', 'Docs', 'Admin']) {
+        expect(screen.queryByText(label)).toBeNull()
+      }
+    })
+
+    it('renders no recent agents block', async () => {
+      // Data that *would* render sublinks in full mode, to prove the block is
+      // absent because of rail mode, not because the list is empty.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve(
+            agentsResponse([
+              { id: 'a-1', name: 'nightly-sweeper', updatedAt: '2026-09-01T00:00:00Z' },
+            ]),
+          ),
+        ),
+      )
+      const { container } = renderAt('/agents', 'kim', { rail: true })
+      await screen.findByRole('link', { name: 'Agents' })
+      await waitFor(() => expect(container.querySelector('.nav-recent')).toBeNull())
+      expect(container.querySelector('.nav-sublink')).toBeNull()
+    })
+
+    it('keeps the full menu while the mobile drawer is open', () => {
+      // Rail mode is a desktop-canvas concern; opening the drawer on mobile
+      // must still give the full navigation, names and all.
+      renderAt('/agents', 'anon', { rail: true, open: true })
+      const spine = document.querySelector('.spine')
+      expect(spine).toHaveClass('open')
+      expect(spine).not.toHaveClass('rail')
+      expect(screen.getByText('Operations')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /Dashboard/i })).toBeInTheDocument()
+    })
   })
 })

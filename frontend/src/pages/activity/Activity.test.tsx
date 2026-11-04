@@ -387,7 +387,7 @@ describe('Activity', () => {
 
     // e1 (newest): single match resolves to names
     const triggerLink = await screen.findByRole('link', { name: 'Open subscription On doc issue' })
-    expect(triggerLink).toHaveAttribute('href', '/agents/doc-writer?tab=channel')
+    expect(triggerLink).toHaveAttribute('href', '/agents/doc-writer/triggers')
     const agentLink = screen.getByRole('link', { name: 'Open agent Doc Writer' })
     expect(agentLink).toHaveAttribute('href', '/agents/doc-writer')
 

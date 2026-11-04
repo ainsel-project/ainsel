@@ -29,7 +29,7 @@ const BASELINE: Record<string, string[]> = {
   'pages/agents/AgentWizard.tsx': ['--rule'],
   'pages/agents/ScheduleForm.tsx': ['--rule'],
   'pages/agents/TriggerForm.tsx': ['--rule'],
-  'pages/chat/ChatView.tsx': ['--accent', '--border', '--font-body', '--ink-1', '--surface-2'],
+  'pages/chat/Conversation.tsx': ['--accent', '--border', '--font-body', '--ink-1', '--surface-2'],
   'pages/chat/chatBusy.css': ['--accent'],
   'pages/connectors/ConnectorForm.tsx': ['--rule'],
   'pages/connectors/ConnectorList.tsx': ['--accent'],

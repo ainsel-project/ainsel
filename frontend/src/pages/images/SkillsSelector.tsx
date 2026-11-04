@@ -5,7 +5,7 @@ import { Panel } from '../../primitives/Panel'
 type SkillsSelectorProps = {
   enabledSkills: string[]
   onChange: (ids: string[]) => void
-  /** Wording for non-image contexts, e.g. the agent detail Skills tab. */
+  /** Wording for non-image contexts, e.g. the agent detail Skills section. */
   labels?: { enabledTitle?: string; emptyLabel?: string }
 }
 

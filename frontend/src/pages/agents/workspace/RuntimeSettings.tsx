@@ -1,0 +1,229 @@
+import { useEffect, useRef, useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useUpdateAgent, type AgentResponse } from '../../../api/agents'
+import { ApiError } from '../../../api/client'
+import { Button } from '../../../primitives/Button'
+import { Check } from '../../../primitives/Check'
+import { Field } from '../../../primitives/Field'
+import { Input } from '../../../primitives/Input'
+import { Panel } from '../../../primitives/Panel'
+import { Select } from '../../../primitives/Select'
+import { isManaged } from '../../../utils/managed'
+import {
+  API_KEY_LABELS,
+  LLM_PROVIDERS,
+  buildRuntimeRequest,
+  runtimeSchema,
+  type RuntimeFormInput,
+  type RuntimeFormValues,
+} from '../agentFormModel'
+
+type RuntimeSettingsProps = {
+  agent: AgentResponse
+}
+
+const GRID_STYLE = { display: 'grid', gap: 14, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }
+
+function toFormValues(agent: AgentResponse): RuntimeFormInput {
+  return {
+    llm: {
+      model: agent.llm?.model ?? '',
+      provider: agent.llm?.provider ?? '',
+      maxTurns: agent.llm?.maxTurns,
+      temperature: agent.llm?.temperature,
+      contextWindow: agent.llm?.contextWindow,
+      vision: agent.llm?.vision ?? false,
+    },
+    customProviderUrl: agent.customProvider?.url ?? '',
+    providerApiKey: '',
+    replicas: agent.replicas ?? 1,
+  }
+}
+
+/**
+ * The model, provider, context and scaling settings of an agent, edited on the
+ * Runtime & env section. Saving sends only these fields plus the agent's name;
+ * the hub reads absent fields on update as "leave unchanged".
+ *
+ * Externally managed agents (issue #146) are read-only here: the hub refuses
+ * the PUT with 409, so the fields are disabled and Save is not offered.
+ */
+export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
+  const readOnly = isManaged(agent.managedBy)
+  const updateAgent = useUpdateAgent()
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting, isDirty },
+  } = useForm<RuntimeFormInput, unknown, RuntimeFormValues>({
+    resolver: zodResolver(runtimeSchema),
+    defaultValues: toFormValues(agent),
+  })
+
+  // Re-seed only when the runtime content of the stored agent changes. The
+  // agent object is refetched whenever any section saves (image, env, tools),
+  // so identity alone must not reset the form; and typed edits survive a
+  // refetch unless they were already saved.
+  const storedKey = JSON.stringify(toFormValues(agent))
+  const seededKey = useRef<string | null>(null)
+  useEffect(() => {
+    if (seededKey.current === storedKey) return
+    if (seededKey.current !== null && isDirty) return
+    seededKey.current = storedKey
+    reset(JSON.parse(storedKey) as RuntimeFormInput)
+  }, [storedKey, isDirty, reset])
+
+  const provider = watch('llm.provider')
+  const vision = watch('llm.vision') ?? false
+
+  const onSubmit = handleSubmit(async (values) => {
+    setSaveError(null)
+    try {
+      await updateAgent.mutateAsync({
+        id: agent.id,
+        body: buildRuntimeRequest(agent.name, values),
+      })
+      // The saved values are now the form's baseline: clear the dirty flag so
+      // the refetch that follows re-seeds from the stored agent.
+      reset({ ...values, providerApiKey: '' })
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Save failed. Please try again.')
+    }
+  })
+
+  return (
+    <Panel title="Model & scaling" className="cropped">
+      <form onSubmit={onSubmit} noValidate style={{ display: 'grid', gap: 18 }}>
+        <fieldset
+          disabled={readOnly}
+          style={{ border: 0, margin: 0, padding: 0, minWidth: 0, display: 'grid', gap: 18 }}
+        >
+          <div style={GRID_STYLE}>
+            <Field label="Model" htmlFor="llm.model" error={errors.llm?.model?.message}>
+              <Input id="llm.model" {...register('llm.model')} />
+            </Field>
+            <Field label="Max Turns" htmlFor="llm.maxTurns">
+              <Input id="llm.maxTurns" type="number" min={1} {...register('llm.maxTurns')} />
+            </Field>
+            <Field label="Temperature" htmlFor="llm.temperature">
+              <Input
+                id="llm.temperature"
+                type="number"
+                step={0.1}
+                min={0}
+                max={2}
+                {...register('llm.temperature')}
+              />
+            </Field>
+            <Field
+              label="Context Window"
+              htmlFor="llm.contextWindow"
+              error={errors.llm?.contextWindow?.message}
+              hint="Tokens declared in pi's models.json. Defaults to 131072 (128k) — must match what the LLM endpoint actually enforces, or context compaction fires too late; raise it only if the endpoint accepts more."
+            >
+              <Input
+                id="llm.contextWindow"
+                type="number"
+                min={1024}
+                placeholder="131072 (128k default)"
+                {...register('llm.contextWindow')}
+              />
+            </Field>
+            <Field label="Provider" htmlFor="llm.provider">
+              <Select
+                id="llm.provider"
+                value={provider ?? ''}
+                onChange={(v) => setValue('llm.provider', v, { shouldDirty: true })}
+                options={LLM_PROVIDERS}
+              />
+              <input type="hidden" {...register('llm.provider')} />
+            </Field>
+            <Field
+              label="Image Input"
+              htmlFor="llm.vision"
+              hint="pi attaches screenshots and image files only while this is on. The endpoint is never probed: images sent to a model that cannot see them fail the request, and while this is off a model that can see them receives none. Takes effect when the agent's pod next starts."
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  height: '100%',
+                  paddingTop: 6,
+                }}
+              >
+                <Check
+                  checked={vision}
+                  onChange={(v) => setValue('llm.vision', v, { shouldDirty: true })}
+                  aria-label="Image Input"
+                  disabled={readOnly}
+                />
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-3)' }}>
+                  {vision ? 'Images are sent' : 'Text only'}
+                </span>
+              </div>
+            </Field>
+          </div>
+
+          {provider ? (
+            <div style={GRID_STYLE}>
+              {provider === 'custom' ? (
+                <Field
+                  label="Provider Base URL"
+                  htmlFor="customProviderUrl"
+                  error={errors.customProviderUrl?.message}
+                >
+                  <Input
+                    id="customProviderUrl"
+                    {...register('customProviderUrl')}
+                    placeholder="https://api.example.com/v1"
+                  />
+                </Field>
+              ) : null}
+              <Field label={API_KEY_LABELS[provider] ?? 'API Key'} htmlFor="providerApiKey">
+                <Input
+                  id="providerApiKey"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Leave blank to keep existing key"
+                  {...register('providerApiKey')}
+                />
+              </Field>
+            </div>
+          ) : null}
+
+          <div style={GRID_STYLE}>
+            <Field
+              label="Max concurrent tasks"
+              htmlFor="replicas"
+              error={errors.replicas?.message}
+              hint="Up to this many tasks run at once, each in its own container. 0 pauses the agent."
+            >
+              <Input id="replicas" type="number" min={0} {...register('replicas')} />
+            </Field>
+          </div>
+        </fieldset>
+
+        {saveError ? (
+          <p role="alert" className="label" style={{ margin: 0, color: 'var(--signal)' }}>
+            {saveError}
+          </p>
+        ) : null}
+
+        {readOnly ? null : (
+          <div>
+            <Button type="submit" variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        )}
+      </form>
+    </Panel>
+  )
+}

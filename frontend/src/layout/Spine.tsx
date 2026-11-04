@@ -15,7 +15,6 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     label: 'Operations',
     items: [
       { idx: '01', name: 'Dashboard', to: '/dashboard' },
-      { idx: '06', name: 'Chat', to: '/chat' },
       { idx: '12', name: 'Channels', to: '/channels' },
       { idx: '13', name: 'Activity', to: '/activity' },
       { idx: '14', name: 'Observability', to: '/observability' },
@@ -23,9 +22,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   },
   {
     label: 'Fleet',
-    items: [
-      { idx: '02', name: 'Agents', to: '/agents' },
-    ],
+    items: [{ idx: '02', name: 'Agents', to: '/agents' }],
   },
   {
     // Shared catalogs an agent draws from. Agent-scoped configuration lives on
@@ -40,9 +37,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   },
   {
     label: 'Docs',
-    items: [
-      { idx: '10', name: 'Docs', to: '/docs' },
-    ],
+    items: [{ idx: '10', name: 'Docs', to: '/docs' }],
   },
   {
     label: 'Admin',
@@ -65,6 +60,54 @@ type SpineProps = {
   /** Mobile drawer state; on desktop the spine is always visible. */
   open?: boolean
   onClose?: () => void
+  /**
+   * Collapse the spine to a ~48px icon rail (used in the agent workspace):
+   * each entry shows only its idx, with the name carried by `title` and
+   * `aria-label`; section labels and the recent-agents block are dropped.
+   * Ignored while the mobile drawer is open — the drawer always shows the
+   * full navigation.
+   */
+  rail?: boolean
+}
+
+/**
+ * One top-level nav entry, rendered identically in all three render paths
+ * (built-in item, plugin entry inside a built-in section, plugin-owned
+ * section). In rail mode the visible text collapses to the idx alone, so the
+ * name moves to `title` + `aria-label` to keep the link nameable.
+ */
+function EntryLink({
+  to,
+  idx,
+  name,
+  tag,
+  active,
+  collapsed,
+}: {
+  to: string
+  idx: string
+  name: string
+  tag?: string
+  active: boolean
+  collapsed: boolean
+}) {
+  return (
+    <Link
+      to={to}
+      className={active ? 'nav-link active' : 'nav-link'}
+      aria-current={active ? 'page' : undefined}
+      aria-label={collapsed ? name : undefined}
+      title={collapsed ? name : undefined}
+    >
+      <span className="idx">{idx}</span>
+      {collapsed ? null : (
+        <>
+          <span className="name">{name}</span>
+          {tag ? <span className="nav-tag">{tag}</span> : <span />}
+        </>
+      )}
+    </Link>
+  )
 }
 
 /**
@@ -140,10 +183,14 @@ export function Spine({
   recentsScope = 'anon',
   open = false,
   onClose,
+  rail = false,
 }: SpineProps) {
   const { data: pluginItems } = usePlugins()
   const { data: callerContext } = usePluginCallerContext()
   const location = useLocation()
+  // The rail is a desktop-canvas affordance: with the mobile drawer open the
+  // user has explicitly asked for the full navigation, so never collapse it.
+  const collapsed = rail && !open
 
   const availablePlugins = useMemo(
     () => activePlugins(Array.isArray(pluginItems) ? pluginItems : []),
@@ -161,10 +208,7 @@ export function Spine({
   // another entry (built-in or plugin) the day one becomes a prefix of it.
   // Deep links still keep their entry highlighted (/docs/mcp → Docs).
   const allNavEntries = useMemo(
-    () => [
-      ...SECTIONS.flatMap((section) => section.items),
-      ...pluginNavEntries,
-    ],
+    () => [...SECTIONS.flatMap((section) => section.items), ...pluginNavEntries],
     [pluginNavEntries],
   )
   const activePath = useMemo(
@@ -192,24 +236,25 @@ export function Spine({
       const section = SECTIONS[i]
       sectionElements.push(
         <div key={section.label}>
-          <div className="nav-section">
-            <span className="label">{section.label}</span>
-          </div>
+          {collapsed ? null : (
+            <div className="nav-section">
+              <span className="label">{section.label}</span>
+            </div>
+          )}
           {section.items.map((item) => {
             const active = item.to === activePath
             return (
-            <div key={item.to}>
-              <Link
-                to={item.to}
-                className={active ? 'nav-link active' : 'nav-link'}
-                aria-current={active ? 'page' : undefined}
-              >
-                <span className="idx">{item.idx}</span>
-                <span className="name">{item.name}</span>
-                {item.tag ? <span className="nav-tag">{item.tag}</span> : <span />}
-              </Link>
-              {item.to === '/agents' ? <RecentAgents scope={recentsScope} /> : null}
-            </div>
+              <div key={item.to}>
+                <EntryLink
+                  to={item.to}
+                  idx={item.idx}
+                  name={item.name}
+                  tag={item.tag}
+                  active={active}
+                  collapsed={collapsed}
+                />
+                {item.to === '/agents' && !collapsed ? <RecentAgents scope={recentsScope} /> : null}
+              </div>
             )
           })}
           {/* Plugin entries share the built-in entries' matching rule: plain
@@ -218,15 +263,13 @@ export function Spine({
             const active = entry.to === activePath
             return (
               <div key={entry.to}>
-                <Link
+                <EntryLink
                   to={entry.to}
-                  className={active ? 'nav-link active' : 'nav-link'}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  <span className="idx">P·{idx + 1}</span>
-                  <span className="name">{entry.label}</span>
-                  <span />
-                </Link>
+                  idx={`P·${idx + 1}`}
+                  name={entry.label}
+                  active={active}
+                  collapsed={collapsed}
+                />
               </div>
             )
           })}
@@ -240,22 +283,22 @@ export function Spine({
           if (BUILT_IN_SECTIONS.has(label)) continue
           sectionElements.push(
             <div key={`plugin-section-${label}`}>
-              <div className="nav-section">
-                <span className="label">{label}</span>
-              </div>
+              {collapsed ? null : (
+                <div className="nav-section">
+                  <span className="label">{label}</span>
+                </div>
+              )}
               {entries.map((entry, idx) => {
                 const active = entry.to === activePath
                 return (
                   <div key={entry.to}>
-                    <Link
+                    <EntryLink
                       to={entry.to}
-                      className={active ? 'nav-link active' : 'nav-link'}
-                      aria-current={active ? 'page' : undefined}
-                    >
-                      <span className="idx">P·{idx + 1}</span>
-                      <span className="name">{entry.label}</span>
-                      <span />
-                    </Link>
+                      idx={`P·${idx + 1}`}
+                      name={entry.label}
+                      active={active}
+                      collapsed={collapsed}
+                    />
                   </div>
                 )
               })}
@@ -271,7 +314,12 @@ export function Spine({
   return (
     <>
       {open ? <div className="spine-backdrop" aria-hidden="true" onClick={onClose} /> : null}
-      <aside id="spine" className={open ? 'spine open' : 'spine'}>
+      <aside
+        id="spine"
+        className={['spine', open ? 'open' : null, collapsed ? 'rail' : null]
+          .filter(Boolean)
+          .join(' ')}
+      >
         <div className="brand">
           <div className="brand-mark">
             <span />

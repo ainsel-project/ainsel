@@ -18,6 +18,7 @@ import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Autocomplete } from '../../primitives/Autocomplete'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
+import { sectionPath } from '../agents/workspace/sections'
 
 const ROLE_LABEL: Record<GroupRole, string> = {
   reader: 'Reader',
@@ -26,7 +27,7 @@ const ROLE_LABEL: Record<GroupRole, string> = {
 }
 
 // One panel per resource type, in this order — the panel-per-type shape
-// matches how AgentDetail groups its sections and keeps small groups
+// matches how the agent workspace groups its sections and keeps small groups
 // scannable. Types with no items still render, with an empty-state row.
 const RESOURCE_PANELS: { type: GroupResourceType; label: string; empty: string }[] = [
   { type: 'agent', label: 'Agents', empty: 'No agents in this group.' },
@@ -41,7 +42,7 @@ const RESOURCE_PANELS: { type: GroupResourceType; label: string; empty: string }
 ]
 
 // Detail route for one resource. Triggers have no detail route of their own,
-// so they link to the owning agent's trigger tab; an unresolvable owner
+// so they link to the owning agent's Triggers section; an unresolvable owner
 // renders the name unlinked rather than pointing at a 404.
 function groupResourceHref(item: GroupResourceItem): string | null {
   const id = encodeURIComponent(item.id)
@@ -62,7 +63,7 @@ function groupResourceHref(item: GroupResourceItem): string | null {
       return `/settings/mcp-servers/${id}`
     case 'trigger':
     case 'cron-trigger':
-      return item.agentRef ? `/agents/${encodeURIComponent(item.agentRef)}?tab=triggers` : null
+      return item.agentRef ? sectionPath(item.agentRef, 'triggers') : null
   }
 }
 
@@ -80,10 +81,7 @@ export function GroupDetail() {
 
   const memberIds = new Set((data?.members ?? []).map((m) => m.user.id))
   const nonMembers = (users.data ?? []).filter((u) => !memberIds.has(u.id))
-  const userById = useMemo(
-    () => new Map((users.data ?? []).map((u) => [u.id, u])),
-    [users.data],
-  )
+  const userById = useMemo(() => new Map((users.data ?? []).map((u) => [u.id, u])), [users.data])
 
   const onAddMember = async () => {
     if (!id || !selectedUserId) return
@@ -156,11 +154,7 @@ export function GroupDetail() {
       width: 80,
       align: 'right',
       cell: (m) => (
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={() => setConfirmUserId(m.user.id)}
-        >
+        <Button variant="danger" size="sm" onClick={() => setConfirmUserId(m.user.id)}>
           Remove
         </Button>
       ),
@@ -172,8 +166,7 @@ export function GroupDetail() {
       <Titleblock
         crumbs={
           <>
-            Admin / <Link to="/groups">Groups</Link> /{' '}
-            <b>{data?.group.name ?? id ?? '—'}</b>
+            Admin / <Link to="/groups">Groups</Link> / <b>{data?.group.name ?? id ?? '—'}</b>
           </>
         }
         title={<>{data?.group.name ?? <em>Group</em>}</>}
@@ -303,7 +296,8 @@ export function GroupDetail() {
         title="Remove member?"
         body={
           <>
-            <b>{confirmMember ? userDisplayName(confirmMember.user) : confirmUserId}</b> will be removed from this group.
+            <b>{confirmMember ? userDisplayName(confirmMember.user) : confirmUserId}</b> will be
+            removed from this group.
           </>
         }
         confirmLabel={removeMember.isPending ? 'Removing…' : 'Remove'}

@@ -27,11 +27,11 @@ in the hub's PostgreSQL database.
 | **Persona** | The versioned prompt that defines an agent's behaviour. Shared templates live in the library; an agent can fork its own private copy. | **Library → Personas** (`/personas`) |
 | **Agent Image** | The runtime profile: container image with tools, env vars, skills and MCP servers that agents inherit from. | **Library → Images** (`/agent-images`) |
 | **Connector** | Bridge between AInsel and an external system (Forgejo/GitHub webhooks today; any signed webhook source via config). | **Admin → Connectors** (`/connectors`) |
-| **Trigger** | Rule that decides when an agent fires (event type + filter). | Agent detail page |
+| **Trigger** | Rule that decides when an agent fires (event type + filter). | Agent workspace → **Triggers** (`/agents/:id/triggers`) |
 | **Skill** | A reusable capability an agent can invoke (e.g. forgejo, git, shell). | **Library → Skills** (`/skills`) |
 | **MCP server** | A registry entry for a remote MCP server agents can connect to. | **Library → MCPs** (`/settings`) |
 
-The sidebar mirrors this: **Fleet** holds the agents you operate, **Library** holds the shared building blocks they draw from, and **Admin** holds users, groups and connectors. Anything an agent owns outright is edited on that agent's detail tabs, not in the library.
+The sidebar mirrors this: **Fleet** holds the agents you operate, **Library** holds the shared building blocks they draw from, and **Admin** holds users, groups and connectors. Anything an agent owns outright is edited in sections inside that agent's workspace (`/agents/:id`), not in the library.
 
 Under **Agents**, the sidebar also lists up to five shortcuts: the agents you last opened, filled out with the most recently updated ones if you have opened fewer. That list is per account and per browser — it is not synced when you switch machines, and it only ever shows agents the hub lets you read.
 
@@ -53,9 +53,9 @@ Under **Agents**, the sidebar also lists up to five shortcuts: the agents you la
 
    *The wizard's first step: identity and group.*
 
-6. **Tune the agent** — After creation, the agent's detail tabs hold what belongs to that agent alone: **Persona** (fork an agent-owned copy of a shared template), **Runtime** (switch image, override environment variables), **Tools** (tool selection and MCP servers) and **Skills**. Overrides start out inherited from the image; the first change pins them to the agent.
+6. **Tune the agent** — After creation, the agent's workspace holds what belongs to that agent alone, one section each: **Persona** (fork an agent-owned copy of a shared template), **Runtime & env** (switch image, override environment variables), **Tools & MCP** (tool selection and MCP servers) and **Skills**. Overrides start out inherited from the image; the first change pins them to the agent.
 
-7. **Add triggers** — Decide when the agent fires from its **Triggers** and **Schedule** tabs.
+7. **Add triggers** — Decide when the agent fires from its **Triggers** section, where event subscriptions and cron schedules share one list (add entries with **New**). The agent's own **Channel** section shows and edits the channel its events arrive on. That agent-owned channel is not listed on the Channels page, and its old `/channels/<id>` link redirects to the agent's Channel section.
 
 8. **Watch it work** — Monitor activity on the dashboard (`/dashboard`), drill into invocations (`/activity`), and check token usage and errors (`/observability`).
 
