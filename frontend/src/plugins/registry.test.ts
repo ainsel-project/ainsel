@@ -4,6 +4,7 @@ import type { PluginListItem } from '../api/plugins'
 import {
   activePlugins,
   navEntries,
+  pluginPages,
   findPage,
   activeNavPath,
   slotContributions,
@@ -172,6 +173,25 @@ describe('registry', () => {
       ]
       const entries = navEntries(plugins, true)
       expect(entries.map((e) => e.label)).toEqual(['Admin'])
+    })
+  })
+
+  describe('pluginPages', () => {
+    it('returns one plugin\'s page entries, admin-filtered', () => {
+      const plugin = {
+        id: 'mem0',
+        manifest: mockManifest({
+          ui: {
+            entry: '/ui/index.js',
+            pages: [
+              { path: '/', label: 'Mem' },
+              { path: '/setup', label: 'Setup', visibility: 'admin' },
+            ],
+          },
+        }),
+      }
+      expect(pluginPages(plugin, true).map((e) => e.to)).toEqual(['/p/mem0', '/p/mem0/setup'])
+      expect(pluginPages(plugin, false).map((e) => e.to)).toEqual(['/p/mem0'])
     })
   })
 

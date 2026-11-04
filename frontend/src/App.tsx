@@ -46,6 +46,7 @@ import { SkillDetail } from './pages/skills/SkillDetail'
 import { PluginPage } from './plugins/PluginPage'
 import { PluginList } from './pages/plugins/PluginList'
 import { PluginDetail } from './pages/plugins/PluginDetail'
+import { PluginsWorkspace } from './pages/plugins/PluginsWorkspace'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -118,8 +119,6 @@ export default function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/users" element={<UserList />} />
               <Route path="/audit" element={<AuditEvents />} />
-              <Route path="/plugins" element={<PluginList />} />
-              <Route path="/plugins/:id" element={<PluginDetail />} />
               <Route path="/groups" element={<GroupList />} />
               <Route path="/groups/new" element={<GroupForm />} />
               <Route path="/groups/:id" element={<GroupDetail />} />
@@ -144,7 +143,14 @@ export default function App() {
                 <Route path="mcp-servers/new" element={<MCPServerForm />} />
                 <Route path="mcp-servers/:name" element={<MCPServerForm />} />
               </Route>
-              <Route path="/p/:pluginId/*" element={<PluginPage />} />
+              {/* All plugin surfaces share the roster-sidebar workspace
+                  (issue #211): the Plugins spine button opens it, and the
+                  roster survives deep links into plugin pages. */}
+              <Route element={<PluginsWorkspace />}>
+                <Route path="/plugins" element={<PluginList />} />
+                <Route path="/plugins/:id" element={<PluginDetail />} />
+                <Route path="/p/:pluginId/*" element={<PluginPage />} />
+              </Route>
             </Route>
 
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
