@@ -5,16 +5,26 @@ import { Button } from '../../../primitives/Button'
 import { Input } from '../../../primitives/Input'
 import { RegisterTable, type Column } from '../../../primitives/RegisterTable'
 import { Tag } from '../../../primitives/Tag'
-import { envNameErrors, tableRows, type EnvRow, type TableRow } from './envRows'
+import {
+  envNameErrors,
+  newDraftId,
+  tableRows,
+  type DraftEnvVar,
+  type EnvRow,
+  type TableRow,
+} from './envRows'
 
 const MASK = '••••••••'
 
 type EnvTableProps = {
-  agentEnv: AgentEnvVar[]
+  /** The editor's draft: the agent's own entries, as edited. */
+  agentEnv: DraftEnvVar[]
+  /** The entries as last saved; the table keeps rows in this order. */
+  savedEnv: DraftEnvVar[]
   imageEnv: EnvVar[]
   imageName: string
   readOnly: boolean
-  onChange: (next: AgentEnvVar[]) => void
+  onChange: (next: DraftEnvVar[]) => void
 }
 
 /** Small inline marker (lock, warning) with a tooltip. */
@@ -51,12 +61,21 @@ const LockIcon = () => (
  * with an Override action) and the agent's own entries (overrides and
  * agent-only, editable). Controlled: the parent owns the draft list.
  *
- * Secret values are never rendered from the image; a secret agent value is
- * masked by the hub, so its field is empty and "unchanged" on submit.
+ * Only the image entry's own secret flag masks the image value; an agent
+ * entry's secret flag masks the agent's value. Image secrets are never rendered.
  */
-export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: EnvTableProps) {
+export function EnvTable({
+  agentEnv,
+  savedEnv,
+  imageEnv,
+  imageName,
+  readOnly,
+  onChange,
+}: EnvTableProps) {
   const errors = envNameErrors(agentEnv)
-  const rows = tableRows(agentEnv, imageEnv)
+  const rows = tableRows(agentEnv, savedEnv, imageEnv)
+  const imageSecret = (name: string) => imageEnv.find((e) => e.name === name)?.secret === true
+  const shownImageValue = (row: EnvRow) => (imageSecret(row.name) ? MASK : row.imageValue)
 
   const patchAgent = (index: number, patch: Partial<AgentEnvVar>) =>
     onChange(agentEnv.map((e, i) => (i === index ? { ...e, ...patch } : e)))
@@ -64,14 +83,19 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
   const overrideImage = (row: EnvRow) =>
     onChange([
       ...agentEnv,
-      { name: row.name, value: row.secret ? '' : (row.imageValue ?? ''), secret: row.secret },
+      {
+        id: newDraftId(),
+        name: row.name,
+        value: row.secret ? '' : (row.imageValue ?? ''),
+        secret: row.secret,
+      },
     ])
 
   const columns: Column<TableRow>[] = [
     {
       key: 'name',
       header: 'Name',
-      width: '28%',
+      width: '30%',
       cell: (row) => {
         if (row.kind === 'image') {
           const title = `From image ${imageName}${row.secret ? ' · secret' : ''}`
@@ -92,7 +116,6 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
           )
         }
         const idx = row.agentIndex ?? -1
-        const shown = row.secret ? MASK : row.imageValue
         return (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -104,7 +127,7 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
                 onChange={(e) => patchAgent(idx, { name: e.target.value })}
               />
               {row.kind === 'override' ? (
-                <Badge title={`Overrides the image value ${shown} (${imageName})`}>
+                <Badge title={`Overrides the image value ${shownImageValue(row)} (${imageName})`}>
                   <span style={{ fontWeight: 700, color: 'var(--signal)' }}>!</span>
                 </Badge>
               ) : null}
@@ -117,7 +140,7 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
     {
       key: 'value',
       header: 'Value',
-      width: '34%',
+      width: '44%',
       cell: (row) => {
         if (row.kind === 'image') {
           return (
@@ -132,16 +155,37 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
           )
         }
         const idx = row.agentIndex ?? -1
+        const secret = agentEnv[idx]?.secret === true
         return (
           <div>
-            <Input
-              aria-label="Variable value"
-              placeholder={row.secret ? 'unchanged' : 'value'}
-              type={row.secret ? 'password' : 'text'}
-              value={row.agentValue ?? ''}
-              disabled={readOnly}
-              onChange={(e) => patchAgent(idx, { value: e.target.value })}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Input
+                aria-label="Variable value"
+                placeholder={secret ? 'unchanged' : 'value'}
+                type={secret ? 'password' : 'text'}
+                value={row.agentValue ?? ''}
+                disabled={readOnly}
+                onChange={(e) => patchAgent(idx, { value: e.target.value })}
+              />
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 12,
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={secret}
+                  disabled={readOnly}
+                  onChange={(e) => patchAgent(idx, { secret: e.target.checked })}
+                />
+                Secret
+              </label>
+            </div>
             {row.kind === 'override' ? (
               <div
                 style={{
@@ -151,26 +195,12 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
                   textDecoration: 'line-through',
                 }}
               >
-                {`${row.secret ? MASK : row.imageValue} from image`}
+                {`${shownImageValue(row)} from image`}
               </div>
             ) : null}
           </div>
         )
       },
-    },
-    {
-      key: 'secret',
-      header: 'Secret',
-      width: 80,
-      cell: (row) => (
-        <input
-          type="checkbox"
-          aria-label="Secret"
-          checked={row.secret}
-          disabled={row.kind === 'image' || readOnly}
-          onChange={(e) => patchAgent(row.agentIndex ?? -1, { secret: e.target.checked })}
-        />
-      ),
     },
     {
       key: 'source',
@@ -181,7 +211,7 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
     {
       key: 'actions',
       header: '',
-      width: 120,
+      width: 130,
       align: 'right',
       cell: (row) => {
         if (readOnly) return null
@@ -227,7 +257,9 @@ export function EnvTable({ agentEnv, imageEnv, imageName, readOnly, onChange }: 
           <Button
             type="button"
             size="sm"
-            onClick={() => onChange([...agentEnv, { name: '', value: '', secret: false }])}
+            onClick={() =>
+              onChange([...agentEnv, { id: newDraftId(), name: '', value: '', secret: false }])
+            }
           >
             + Add variable
           </Button>

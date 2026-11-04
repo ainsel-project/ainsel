@@ -175,6 +175,39 @@ describe('AgentEnvSection', () => {
     await waitFor(() => expect(lastPutBody(calls)?.env).toEqual([]))
   })
 
+  it('keeps a new row in place until save, then re-sorts into saved order', async () => {
+    stubFetch()
+    const user = userEvent.setup()
+    renderWithProviders(
+      <AgentEnvSection
+        agent={agentWith([
+          { name: 'ZED', value: '1' },
+          { name: 'LOG_LEVEL', value: 'debug' },
+        ])}
+      />,
+    )
+
+    // Wait for the image so LOG_LEVEL is known to be an override (listed first).
+    await screen.findByTitle('Overrides the image value info (claude-tooling-base:1.4)')
+    const names = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => {
+          const input = row.querySelector<HTMLInputElement>('input[aria-label="Variable name"]')
+          return input ? input.value : (row.querySelector('code')?.textContent ?? '')
+        })
+    expect(names()).toEqual(['LOG_LEVEL', 'ZED', 'API_TOKEN'])
+
+    await user.click(screen.getByRole('button', { name: /add variable/i }))
+    await user.type(screen.getAllByLabelText('Variable name')[2], 'AAA')
+    // Still in entry order: the new row sorts after ZED until the next save.
+    expect(names()).toEqual(['LOG_LEVEL', 'ZED', 'AAA', 'API_TOKEN'])
+
+    await user.click(screen.getByRole('button', { name: /save overrides/i }))
+    await waitFor(() => expect(names()).toEqual(['LOG_LEVEL', 'AAA', 'ZED', 'API_TOKEN']))
+  })
+
   it('blocks empty and duplicate names', async () => {
     const calls = stubFetch()
     const user = userEvent.setup()

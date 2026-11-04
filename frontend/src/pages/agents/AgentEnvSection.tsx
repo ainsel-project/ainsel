@@ -6,7 +6,7 @@ import { Button } from '../../primitives/Button'
 import { Panel } from '../../primitives/Panel'
 import { isManaged } from '../../utils/managed'
 import { EnvTable } from './workspace/EnvTable'
-import { envNameErrors } from './workspace/envRows'
+import { envNameErrors, withDraftIds, type DraftEnvVar } from './workspace/envRows'
 
 type AgentEnvSectionProps = {
   agent: AgentResponse
@@ -39,22 +39,26 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
 
   const stored = agent.env ?? []
   const serialized = JSON.stringify(stored)
-  const [draft, setDraft] = useState<AgentEnvVar[]>(stored)
+  const [draft, setDraft] = useState<DraftEnvVar[]>(() => withDraftIds(stored))
+  // The env the table orders its rows by: set on load, re-seeded, and at each save.
+  const [saved, setSaved] = useState<DraftEnvVar[]>(draft)
   const [syncedFrom, setSyncedFrom] = useState(serialized)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   // Re-seed the draft when the stored list changes underneath us (a save
   // landing, or another tab re-pointing the image), never while typing.
   if (serialized !== syncedFrom) {
+    const fresh = withDraftIds(stored)
     setSyncedFrom(serialized)
-    setDraft(stored)
+    setDraft(fresh)
+    setSaved(fresh)
     setSaveError(null)
   }
 
   const dirty = JSON.stringify(toPayload(draft)) !== JSON.stringify(toPayload(stored))
   const hasErrors = envNameErrors(draft).some((e) => e !== null)
 
-  const onChange = (next: AgentEnvVar[]) => {
+  const onChange = (next: DraftEnvVar[]) => {
     setSaveError(null)
     setDraft(next)
   }
@@ -62,6 +66,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
   const onSave = () => {
     if (hasErrors) return
     setSaveError(null)
+    setSaved(draft)
     updateAgent.mutate(
       { id: agent.id, body: { name: agent.name, env: toPayload(draft) } },
       {
@@ -88,6 +93,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
           <div style={{ display: 'grid', gap: 8 }}>
             <EnvTable
               agentEnv={draft}
+              savedEnv={saved}
               imageEnv={image.data?.env ?? []}
               imageName={imageName}
               readOnly={readOnly}
