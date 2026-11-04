@@ -1,0 +1,40 @@
+name: CI - shared/auth/oidc
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shared/auth/oidc/**'
+      - 'go.work'
+      - '.github/workflows/ci-shared-auth-oidc.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'shared/auth/oidc/**'
+      - 'go.work'
+      - '.github/workflows/ci-shared-auth-oidc.yml'
+
+jobs:
+  ci:
+    name: Lint, Test, Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      - name: Lint
+        working-directory: shared/auth/oidc
+        run: golangci-lint run ./...
+      - name: Test
+        working-directory: shared/auth/oidc
+        run: |
+          go test -v -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+      - name: Build
+        working-directory: shared/auth/oidc
+        run: go build ./...
