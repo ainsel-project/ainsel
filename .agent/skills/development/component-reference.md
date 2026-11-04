@@ -43,7 +43,7 @@ pnpm --filter frontend build      # tsc + Vite production build
 # From the component directory (e.g., services/hub/)
 go build ./...                    # Compile check
 go test ./...                     # Unit tests
-golangci-lint run                 # Lint (if installed)
+golangci-lint run -c ../../.golangci.yml ./...  # Lint (if installed; root config is canonical)
 
 # Or from repo root (go workspace):
 go build ./services/hub/...

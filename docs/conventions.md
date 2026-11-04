@@ -1,6 +1,6 @@
 # AInsel Conventions
 
-Repo-wide conventions for commits, branches, entity naming, code style, and PRs. Tooling-specific config (CI workflows, lint configs, Dockerfiles) lives next to its tool.
+Repo-wide conventions for commits, branches, entity naming, code style, and PRs. Tooling-specific config (CI workflows, lint configs, Dockerfiles) lives next to its tool — the one exception is the Go lint config: the root `.golangci.yml` is shared by all Go modules (issue #207).
 
 ---
 
@@ -167,10 +167,11 @@ to rename things safely.
 ### Go
 
 - `gofmt` is mandatory; CI fails on unformatted code.
-- `golangci-lint` runs per module with that module's `.golangci.yml` (this is
-  what CI uses); the root `.golangci.yml` mirrors the same rule set for
-  ad-hoc runs. Every package must carry a `// Package X ...` doc comment
-  (staticcheck ST1000).
+- `golangci-lint` runs per module with the root `.golangci.yml` — the single
+  source of truth (issue #207). CI uses
+  `golangci-lint run -c ../../.golangci.yml ./...` from the module directory;
+  use the same command for ad-hoc runs. Every package must carry a
+  `// Package X ...` doc comment (staticcheck ST1000).
 - Tests live next to source as `*_test.go`. Prefer table-driven tests.
 - `go.work` joins every Go module; when you change a file in `shared/api/`,
   downstream modules pick it up automatically — no `replace` directives

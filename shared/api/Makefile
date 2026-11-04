@@ -8,7 +8,7 @@ test:
 
 lint:
 	@echo "Running linter..."
-	golangci-lint run ./...
+	golangci-lint run -c ../../.golangci.yml ./...
 
 fmt:
 	@echo "Formatting code..."

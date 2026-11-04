@@ -1,10 +1,21 @@
-# golangci-lint configuration for the AInsel monorepo.
+# golangci-lint configuration for the AInsel monorepo — the single source of
+# truth for Go linting (issue #207).
 #
-# Note: the Go CI workflows run `golangci-lint run ./...` with the module
-# directory as the working-directory, so they use the module-local
-# `.golangci.yml` files (e.g. `services/hub/.golangci.yml`) — not this one.
-# This root config is the fallback for ad-hoc runs and keeps the same rule
-# set so the modules stay consistent.
+# Every Go CI workflow runs `golangci-lint run -c ../../.golangci.yml ./...`
+# with the module directory as the working-directory, so this file is what CI
+# uses for all modules. For ad-hoc runs inside a module directory, pass it
+# explicitly the same way:
+#
+#   golangci-lint run -c ../../.golangci.yml ./...
+#
+# Without `-c`, golangci-lint falls back to tool defaults (no gosec, no
+# ST1000 enforcement) instead of the project rule set. All CI modules sit two
+# levels below the repo root; deeper modules (e.g. shared/auth/oidc) need more
+# `../` segments in the `-c` path.
+#
+# Note on path-scoped settings: if `issues.exclude-files` / `exclude-rules`
+# paths are ever added here, they resolve relative to the run directory
+# (the module directory in CI), not the repo root — write them module-relative.
 #
 # Enables gosec with a starter set of security rules (issue #307) and
 # requires package doc comments (issue #163).
@@ -15,8 +26,9 @@ run:
   timeout: 5m
 
 linters:
-  # Preserve default linters (errcheck, gosimple, govet, ineffassign,
-  # staticcheck, unused) and add gosec for security scanning.
+  # golangci-lint v2's standard set (errcheck, govet, ineffassign,
+  # staticcheck, unused) plus gosec for security scanning.
+  default: standard
   enable:
     - gosec
   settings:

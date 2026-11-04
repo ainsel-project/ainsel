@@ -408,7 +408,7 @@ Run these before pushing:
 # go.work root is not a module — run per module (see .agent/skills/development/project-setup.md)
 for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && go build ./...); done  # all Go modules compile
 for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && go test ./...); done   # all Go tests pass (operators need `make setup-envtest` first)
-golangci-lint run             # Go lint clean (run inside each component dir)
+for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && golangci-lint run -c "$(git rev-parse --show-toplevel)/.golangci.yml" ./...); done  # Go lint clean (root config is canonical; works at any module depth)
 pnpm lint                     # frontend lint clean
 pnpm test                     # frontend tests pass
 pnpm build                    # frontend builds
@@ -426,9 +426,11 @@ paths, and anything that touches the canonical event schema.
 
 ## Code style
 
-- **Go**: `gofmt`, `golangci-lint` with the module-local `.golangci.yml`
-  (each Go module has its own config — that is what CI runs; the root
-  `.golangci.yml` mirrors the same rule set for ad-hoc runs). Keep
+- **Go**: `gofmt`, `golangci-lint` with the root `.golangci.yml` — the single
+  source of truth (issue #207). CI runs each module with
+  `golangci-lint run -c ../../.golangci.yml ./...` from the module directory;
+  use the same command for ad-hoc runs (without `-c`, golangci-lint silently
+  falls back to tool defaults). Keep
   packages small and named for what they do. Tests live next to source.
 - **TypeScript**: Prettier + ESLint with the configs at repo root. Prefer
   composition over inheritance; co-locate component, styles, and tests.
