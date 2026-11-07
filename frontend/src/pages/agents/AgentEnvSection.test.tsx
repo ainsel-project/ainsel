@@ -96,6 +96,7 @@ describe('AgentEnvSection', () => {
 
     await screen.findByText('LOG_LEVEL')
     expect(screen.getByText('API_TOKEN')).toBeInTheDocument()
+    expect(screen.getByText('Agent overrides')).toBeInTheDocument()
     expect(screen.getByText(/Currently inherited from the runtime image/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /save overrides/i })).toBeDisabled()
   })
@@ -274,12 +275,14 @@ describe('AgentEnvSection', () => {
     expect(await screen.findByText('invalid env name')).toBeInTheDocument()
   })
 
-  it('explains that env needs an image when none is linked', async () => {
-    renderWithProviders(<AgentEnvSection agent={agentWith(undefined, { noImage: true })} />)
+  it('renders nothing when no image is linked', async () => {
+    // The merged Environment card only exists with an image; the image
+    // picker's no-image hint is the single prompt (issue #215).
+    const { container } = renderWithProviders(
+      <AgentEnvSection agent={agentWith(undefined, { noImage: true })} />,
+    )
 
-    expect(await screen.findByText(/No image linked yet/i)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /environment/i })).toBeInTheDocument()
-    expect(screen.getByText(/pick one above/i)).toBeInTheDocument()
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
     expect(screen.queryByRole('button', { name: /add variable/i })).not.toBeInTheDocument()
   })
 })

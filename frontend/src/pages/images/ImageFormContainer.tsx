@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -32,12 +33,16 @@ type ImageFormContainerProps = {
   embedded?: boolean
   /** Which form sections to render; see ImageFormViewProps.sections. */
   sections?: 'all' | 'image' | 'tools' | 'skills'
+  /** Second zone of the merged Environment card in embedded 'image' mode —
+   *  see ImageFormViewProps.agentEnvSlot. */
+  agentEnvSlot?: ReactNode
 }
 
 export function ImageFormContainer({
   id,
   embedded = false,
   sections = 'all',
+  agentEnvSlot,
 }: ImageFormContainerProps) {
   const isEdit = id !== undefined
   const navigate = useNavigate()
@@ -195,6 +200,7 @@ export function ImageFormContainer({
       id={id}
       embedded={embedded}
       sections={sections}
+      agentEnvSlot={agentEnvSlot}
       image={image}
       readOnly={isManaged(image?.managedBy)}
       register={register}

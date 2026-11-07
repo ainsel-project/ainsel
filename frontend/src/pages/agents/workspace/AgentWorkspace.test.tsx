@@ -117,10 +117,13 @@ describe('AgentWorkspace', () => {
     installed.list = []
   })
 
-  it('renders the runtime section and its environment editor on /agents/:id/runtime', async () => {
+  it('renders the runtime section on /agents/:id/runtime', async () => {
     renderWorkspace('/agents/a1/runtime')
     expect(await screen.findByRole('heading', { name: 'Runtime & env' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Environment' })).toBeInTheDocument()
+    // a1 has no image linked: the merged Environment card is absent and the
+    // image picker's no-image hint is the single prompt (issue #215).
+    expect(screen.queryByRole('heading', { name: 'Environment' })).not.toBeInTheDocument()
+    expect(await screen.findAllByText(/No image linked yet/i)).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'Runtime & env' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -197,7 +200,11 @@ describe('AgentWorkspace', () => {
     // The embedded editor loads the referenced image's identity and env.
     const urlInput = await screen.findByLabelText('Image URL')
     await waitFor(() => expect(urlInput).toHaveValue('ghcr.io/ainsel/claude-tooling:1.4'))
-    expect(screen.getByRole('heading', { name: 'Environment Variables' })).toBeInTheDocument()
+    // One merged Environment card with two labelled zones (issue #215):
+    // the image env (saved with the image) and the agent overrides.
+    expect(screen.getAllByRole('heading', { name: 'Environment' })).toHaveLength(1)
+    expect(screen.getByText('Image environment')).toBeInTheDocument()
+    expect(screen.getByText('Agent overrides')).toBeInTheDocument()
     // Runtime settings and the image editor each carry a Save.
     expect(screen.getByLabelText('Model')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /^save$/i }).length).toBeGreaterThan(1)
