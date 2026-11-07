@@ -31,8 +31,3 @@ export const imageSchema = z.object({
   mcpServers: z.array(z.string()),
   enabledSkills: z.array(z.string()),
 })
-
-export type ExampleSchemaValues = z.infer<typeof exampleSchema>
-export type ToolSchemaValues = z.infer<typeof toolSchema>
-export type EnvVarSchemaValues = z.infer<typeof envVarSchema>
-export type ImageSchemaValues = z.infer<typeof imageSchema>
