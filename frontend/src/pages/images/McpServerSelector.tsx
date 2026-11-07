@@ -33,7 +33,7 @@ export function McpServerSelector({ mcpServers, envNames, onChange, refresh }: M
   }
 
   return (
-    <div style={{ marginTop: 24 }}>
+    <>
       <Panel title="MCP Servers">
         <DualListPicker
           items={servers}
@@ -64,6 +64,6 @@ export function McpServerSelector({ mcpServers, envNames, onChange, refresh }: M
           </div>
         ) : null}
       </Panel>
-    </div>
+    </>
   )
 }

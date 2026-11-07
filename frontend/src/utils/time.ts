@@ -1,3 +1,25 @@
+/** Local midnight today, as an RFC3339 instant for `since` query filters. */
+export function startOfToday(): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
+// The only accepted `since` URL value. Hand-edited or stale URLs with any
+// other value fall back to "any", mirroring the enum guards on the Activity
+// page — arbitrary ISO values in links are not promised stability.
+export const SINCE_SENTINEL = 'today'
+
+/**
+ * Resolve a `since` URL parameter to an RFC3339 instant for the events API.
+ * Only the `today` sentinel is valid (resolved to local midnight, the same
+ * instant the agent overview counts its daily stats from); anything else
+ * yields undefined so the query stays unbounded.
+ */
+export function resolveSinceParam(v: string | undefined): string | undefined {
+  return v === SINCE_SENTINEL ? startOfToday() : undefined
+}
+
 export function formatRelative(
   input: string | null | undefined,
   nowMs: number = Date.now(),

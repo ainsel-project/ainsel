@@ -127,6 +127,23 @@ describe('Dashboard', () => {
     expect(errorsPlate).toHaveClass('alert')
   })
 
+  // #217: the plate is labelled "Errors · 1h", so the summary request has to
+  // carry that window. On the endpoint a range-less call is legitimate — it
+  // means "everything still retained" for MCP consumers — so the response body
+  // cannot tell the two apart and the prefix-matched mock above answers either.
+  // Only the requested URL pins the windowed semantics the label claims.
+  it('requests the 1h windowed summary for the errors plate', async () => {
+    renderWithProviders(<Dashboard />)
+    await waitFor(() => expect(screen.getByText('3')).toBeInTheDocument())
+    const summaryUrls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/observability/metrics/summary'))
+    expect(summaryUrls).not.toHaveLength(0)
+    for (const url of summaryUrls) {
+      expect(url).toContain('range=1h')
+    }
+  })
+
   it('renders the connector register with both connectors', async () => {
     renderWithProviders(<Dashboard />)
     // The register renders connector names as <a> links; the activity stream

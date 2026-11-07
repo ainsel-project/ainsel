@@ -10,72 +10,78 @@ type EnvVarFieldArrayProps = {
   register: UseFormRegister<ImageFormValues>
   watch: UseFormWatch<ImageFormValues>
   errors: FieldErrors<ImageFormValues>
+  /** Bare mode: no Panel wrapper or title — the caller supplies the card
+   *  chrome (used by the merged Environment card on the agent Runtime & env
+   *  page, where the image env is one zone of the card). */
+  bare?: boolean
 }
 
-export function EnvVarFieldArray({ control, register, watch, errors }: EnvVarFieldArrayProps) {
+export function EnvVarFieldArray({
+  control,
+  register,
+  watch,
+  errors,
+  bare = false,
+}: EnvVarFieldArrayProps) {
   const {
     fields: envFields,
     append: appendEnv,
     remove: removeEnv,
   } = useFieldArray({ control, name: 'env' })
 
-  return (
-    <div style={{ marginTop: 24 }}>
-      <Panel title="Environment Variables">
-        <div style={{ display: 'grid', gap: 8 }}>
-          {envFields.map((field, idx) => (
-            <div
-              key={field.id}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr auto auto',
-                gap: 8,
-                alignItems: 'start',
-              }}
-            >
-              <div>
-                <Input placeholder="NAME" {...register(`env.${idx}.name`)} />
-                {errors.env?.[idx]?.name?.message ? (
-                  <div className="field-error">{errors.env[idx].name.message}</div>
-                ) : null}
-              </div>
-              <Input
-                placeholder={watch(`env.${idx}.secret`) ? '••••••••' : 'value'}
-                type={watch(`env.${idx}.secret`) ? 'password' : 'text'}
-                {...register(`env.${idx}.value`)}
-              />
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  fontSize: 12,
-                  whiteSpace: 'nowrap',
-                  cursor: 'pointer',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  {...register(`env.${idx}.secret`)}
-                  checked={!!watch(`env.${idx}.secret`)}
-                />
-                Secret
-              </label>
-              <Button type="button" aria-label="Remove variable" onClick={() => removeEnv(idx)}>
-                ×
-              </Button>
-            </div>
-          ))}
+  const rows = (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {envFields.map((field, idx) => (
+        <div
+          key={field.id}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr auto auto',
+            gap: 8,
+            alignItems: 'start',
+          }}
+        >
           <div>
-            <Button
-              type="button"
-              onClick={() => appendEnv({ name: '', value: '', secret: false })}
-            >
-              Add Variable
-            </Button>
+            <Input placeholder="NAME" {...register(`env.${idx}.name`)} />
+            {errors.env?.[idx]?.name?.message ? (
+              <div className="field-error">{errors.env[idx].name.message}</div>
+            ) : null}
           </div>
+          <Input
+            placeholder={watch(`env.${idx}.secret`) ? '••••••••' : 'value'}
+            type={watch(`env.${idx}.secret`) ? 'password' : 'text'}
+            {...register(`env.${idx}.value`)}
+          />
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 12,
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              {...register(`env.${idx}.secret`)}
+              checked={!!watch(`env.${idx}.secret`)}
+            />
+            Secret
+          </label>
+          <Button type="button" aria-label="Remove variable" onClick={() => removeEnv(idx)}>
+            ×
+          </Button>
         </div>
-      </Panel>
+      ))}
+      <div>
+        <Button type="button" onClick={() => appendEnv({ name: '', value: '', secret: false })}>
+          Add Variable
+        </Button>
+      </div>
     </div>
   )
+
+  if (bare) return rows
+  return <Panel title="Environment Variables">{rows}</Panel>
 }

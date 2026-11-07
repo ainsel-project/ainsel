@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type {
   Control,
   FieldErrors,
@@ -58,6 +59,9 @@ export type ImageFormViewProps = {
   /** Externally managed image (issue #146): the form is view-only — no save,
    *  delete, or MCP refresh, which the hub refuses with 409 anyway. */
   readOnly?: boolean
+  /** Second zone of the merged Environment card (embedded 'image' mode):
+   *  the agent's own override editor, with its own separate save path. */
+  agentEnvSlot?: ReactNode
 }
 
 export function ImageFormView({
@@ -88,6 +92,7 @@ export function ImageFormView({
   isSaving,
   isDeleting,
   readOnly = false,
+  agentEnvSlot,
 }: ImageFormViewProps) {
   const navigate = useNavigate()
   const mcpServers = watch('mcpServers') ?? []
@@ -149,7 +154,11 @@ export function ImageFormView({
         id="image-form"
         onSubmit={onSubmit}
         noValidate
-        style={embedded ? { maxWidth: 1100 } : { padding: '28px 32px', maxWidth: 1100 }}
+        style={
+          embedded
+            ? { display: 'grid', gap: 24, maxWidth: 1100 }
+            : { display: 'grid', gap: 24, padding: '28px 32px', maxWidth: 1100 }
+        }
       >
         {submitError ? <Notice variant="err">{submitError}</Notice> : null}
         {mcpWarnings.length > 0 ? (
@@ -194,7 +203,34 @@ export function ImageFormView({
         ) : null}
 
         {sections === 'all' || sections === 'image' ? (
-          <EnvVarFieldArray control={control} register={register} watch={watch} errors={errors} />
+          embedded ? (
+            /* Merged Environment card (issue #215): one card, two zones with
+               separate save paths — the image env saves with the image Save
+               above; the agent overrides slot saves on its own. */
+            <Panel title="Environment">
+              <div style={{ display: 'grid', gap: 20 }}>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div className="label" style={{ fontSize: 13 }}>
+                    Image environment
+                  </div>
+                  <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
+                    Edits the shared image: saving with the image Save above updates this
+                    environment for every agent that references it.
+                  </p>
+                  <EnvVarFieldArray
+                    bare
+                    control={control}
+                    register={register}
+                    watch={watch}
+                    errors={errors}
+                  />
+                </div>
+                {agentEnvSlot}
+              </div>
+            </Panel>
+          ) : (
+            <EnvVarFieldArray control={control} register={register} watch={watch} errors={errors} />
+          )
         ) : null}
 
         {sections === 'all' ? (

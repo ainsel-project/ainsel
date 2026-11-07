@@ -50,6 +50,13 @@ to an agent, or SKIP, where no trigger matched](images/activity-stream.webp)
 `SKIP` rows are as useful as `MATCH` ones: they are how you find a trigger
 filter that is quietly too narrow.*
 
+Besides the dropdown filters, the Activity page accepts a `since` URL parameter
+with the value `today`, which bounds the list to the current local day. It has
+no dropdown — it exists so the agent overview's daily stat cells (Runs today,
+Failures today, Timeouts today, Running now, Queued now) can link straight to
+the matching filtered view at `/activity?agent=<id>&since=today&outcome=<state>`.
+Any other `since` value is ignored and the history stays unbounded.
+
 The event detail view lists each invocation matched to that event with its agent, trigger, status, duration, and total token usage. Below that it renders the full agent conversation transcript for the invocation: the user prompt, assistant thinking and text, tool calls, and tool results. These messages are served by [`GET /api/v1/observability/conversations`](api-reference.md).
 
 ![The event detail view for a matched pull_request.opened event: event id,
@@ -78,7 +85,11 @@ backs the row — a pruned record or a task that was never enqueued — and is n
 rendered as queued or running. A task still queued past the hub's start deadline
 (`TASK_START_TIMEOUT_SECONDS`) is flagged *stuck*. The Activity page's Outcome
 filter accepts all five states (`queued`, `running`, `success`, `failure`,
-`timeout`) and filters over the whole history, not just the loaded page.
+`timeout`) and filters over the whole history, not just the loaded page. The
+agent overview's stat cells count with this same derived state — a non-terminal
+record with no task behind it is `unknown` and shows up as neither Running now
+nor Queued now — and each cell links to Activity with the matching `outcome`
+and `since=today` applied.
 
 ## Metrics
 
@@ -90,6 +101,11 @@ at:
 ```
 GET /api/v1/observability/metrics/summary
 ```
+
+Console panels pass `?range=1h|6h|24h|7d` so a figure labelled with a window is that
+window; omitting it answers with everything so far (the lifetime counter total under
+Prometheus, everything still retained under Postgres) — the semantics MCP consumers
+rely on. See [API reference](api-reference.md#get-apiv1observabilitymetricssummary).
 
 ### Hub metrics
 

@@ -64,6 +64,7 @@ function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
         const connector = q.get('connector') ?? ''
         const agent = q.get('agent') ?? ''
         const outcome = q.get('outcome') ?? ''
+        const since = q.get('since') ?? ''
         const limit = Number(q.get('limit') ?? '100')
         const offset = Number(q.get('offset') ?? '0')
 
@@ -71,6 +72,7 @@ function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
           .filter((e) => {
             if (status && e.status !== status) return false
             if (connector && e.connector !== connector) return false
+            if (since && new Date(e.timestamp as string).getTime() < Date.parse(since)) return false
             if (agent) {
               const matches = (e.matches ?? []) as { agent: string }[]
               if (!matches.some((m) => m.agent === agent)) return false
@@ -183,6 +185,48 @@ describe('Activity', () => {
         expect(screen.getByLabelText(/filter by outcome/i)).toHaveValue('failure'),
       )
       expect(lastEventsUrl().get('outcome')).toBe('failure')
+    })
+
+    it('resolves since=today to local midnight for the events API', async () => {
+      const { container } = renderActivity('/activity?since=today')
+      await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
+      const d = new Date(lastEventsUrl().get('since')!)
+      expect([d.getHours(), d.getMinutes(), d.getSeconds()]).toEqual([0, 0, 0])
+      expect(d.toDateString()).toBe(new Date().toDateString())
+    })
+
+    it('bounds the list to today when since=today', async () => {
+      // e2 is a week old; the other two samples are from the last minute.
+      const aged = sampleEvents.map((e) =>
+        e.id === 'e2'
+          ? { ...e, timestamp: new Date(Date.now() - 7 * 86_400_000).toISOString() }
+          : e,
+      )
+      mockFetch(aged)
+      const { container } = renderActivity('/activity?since=today')
+      await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
+      expect(container.querySelectorAll('tbody tr.activity-row').length).toBe(2)
+      expect(screen.getByText('Activity · 2 total')).toBeInTheDocument()
+    })
+
+    it('ignores an unknown since value in the URL', async () => {
+      const { container } = renderActivity('/activity?since=yesterday')
+      await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
+      expect(lastEventsUrl().get('since')).toBeNull()
+      expect(container.querySelectorAll('tbody tr.activity-row').length).toBe(3)
+    })
+
+    it('reports a filtered-empty list as a filter result when only since is active', async () => {
+      // All samples are older than today: the bound empties the list.
+      const aged = sampleEvents.map((e) => ({
+        ...e,
+        timestamp: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+      }))
+      mockFetch(aged)
+      renderActivity('/activity?since=today')
+      await waitFor(() =>
+        expect(screen.getByText('No events match the filter.')).toBeInTheDocument(),
+      )
     })
 
     it('keeps unrelated URL params when filters change', async () => {

@@ -118,6 +118,13 @@
 }
 .panel > .panel-body { padding: 16px; min-width: 0; }
 
+/* One grid-gap source of truth for stacked cards. Replaces the per-file
+   marginTop/gap hacks so spacing between panels is visible in devtools. */
+.panel-stack {
+  display: grid;
+  gap: 24px;
+}
+
 /* ===== Chat panel (scrollable message area) ===== */
 .panel.chat-panel {
   height: 100%;
@@ -670,6 +677,20 @@ table.reg tr.reg-detail > td {
   font-size: 13px;
   font-weight: 600;
   margin-top: 4px;
+}
+
+/* ===== Form grid ===== */
+/* Generic form field grid; usable outside .form-section (e.g. inside panels).
+   The .form-section > .form-grid rules below stay for the numbered sections. */
+.form-grid {
+  display: grid;
+  gap: 14px;
+}
+.form-grid.cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.form-grid.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 /* ===== Form section (numbered) ===== */

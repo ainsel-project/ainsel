@@ -3,7 +3,6 @@ import { useUpdateAgent, type AgentEnvVar, type AgentResponse } from '../../api/
 import { useAgentImage } from '../../api/agentImages'
 import { ApiError } from '../../api/client'
 import { Button } from '../../primitives/Button'
-import { Panel } from '../../primitives/Panel'
 import { isManaged } from '../../utils/managed'
 import { EnvTable } from './workspace/EnvTable'
 import { envNameErrors, withDraftIds, type DraftEnvVar } from './workspace/envRows'
@@ -22,9 +21,14 @@ function toPayload(env: AgentEnvVar[]): AgentEnvVar[] {
 }
 
 /**
- * The agent-scoped environment table in the Runtime & env section: one table of
- * the image's variables and this agent's own, where the first override pins an
- * env list to this agent and clearing every row hands control back to the image.
+ * The agent's own overrides zone of the merged Environment card on the
+ * Runtime & env section: one table of the image's variables and this agent's
+ * own, where the first override pins an env list to this agent and clearing
+ * every row hands control back to the image. The card itself is rendered by
+ * the embedded image form (ImageFormView), which hosts this zone as a slot
+ * next to the image's own environment — the two zones keep separate saves.
+ * With no image linked the card has nothing to inherit, so nothing renders;
+ * the image picker's no-image hint is the single prompt.
  *
  * Secret values are masked by the hub, so an existing secret row shows an
  * empty field: submitting it unchanged keeps the stored value.
@@ -78,46 +82,47 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
     )
   }
 
-  if (!imageName) {
-    return (
-      <Panel title="Environment">
-        <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
-          No image linked yet — pick one above to configure environment variables.
-        </p>
-      </Panel>
-    )
-  }
+  if (!imageName) return null
 
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      <div style={{ marginTop: 24 }}>
-        <Panel title="Environment">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <EnvTable
-              agentEnv={draft}
-              savedEnv={saved}
-              imageEnv={image.data?.env ?? []}
-              imageName={imageName}
-              readOnly={readOnly}
-              onChange={onChange}
-            />
-            {readOnly ? null : (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <Button
-                  type="button"
-                  onClick={onSave}
-                  disabled={!dirty || hasErrors || updateAgent.isPending}
-                >
-                  {updateAgent.isPending ? 'Saving…' : 'Save overrides'}
-                </Button>
-              </div>
-            )}
-          </div>
-        </Panel>
+    <div
+      style={{ display: 'grid', gap: 8 }}
+      onKeyDown={(e) => {
+        // This zone renders inside the embedded image <form>; Enter in one of
+        // its fields must not submit that form — it would save the shared image.
+        if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
+          e.preventDefault()
+        }
+      }}
+    >
+      <div className="label" style={{ fontSize: 13 }}>
+        Agent overrides
       </div>
+      <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
+        Saved on this agent only — the image environment above is shared with every agent using it.
+      </p>
+      <EnvTable
+        agentEnv={draft}
+        savedEnv={saved}
+        imageEnv={image.data?.env ?? []}
+        imageName={imageName}
+        readOnly={readOnly}
+        onChange={onChange}
+      />
+      {readOnly ? null : (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Button
+            type="button"
+            onClick={onSave}
+            disabled={!dirty || hasErrors || updateAgent.isPending}
+          >
+            {updateAgent.isPending ? 'Saving…' : 'Save overrides'}
+          </Button>
+        </div>
+      )}
 
       {agent.env ? null : (
-        <p className="label" style={{ margin: '0 0 4px', color: 'var(--ink-3)' }}>
+        <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
           Currently inherited from the runtime image — the first change pins the environment to this
           agent.
         </p>

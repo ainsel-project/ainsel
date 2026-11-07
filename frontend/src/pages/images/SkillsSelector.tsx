@@ -26,7 +26,7 @@ export function SkillsSelector({ enabledSkills, onChange, labels, previewable = 
   const [previewId, setPreviewId] = useState<string | null>(null)
   const skills = data?.items ?? []
   return (
-    <div style={{ marginTop: 24, display: 'grid', gap: 16 }}>
+    <>
       <Panel title="Skills">
         <DualListPicker
           items={skills}
@@ -46,7 +46,7 @@ export function SkillsSelector({ enabledSkills, onChange, labels, previewable = 
         />
       </Panel>
       {previewable && previewId ? <SkillPreview id={previewId} /> : null}
-    </div>
+    </>
   )
 }
 
