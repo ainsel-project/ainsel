@@ -102,6 +102,11 @@ at:
 GET /api/v1/observability/metrics/summary
 ```
 
+Console panels pass `?range=1h|6h|24h|7d` so a figure labelled with a window is that
+window; omitting it answers with everything so far (the lifetime counter total under
+Prometheus, everything still retained under Postgres) — the semantics MCP consumers
+rely on. See [API reference](api-reference.md#get-apiv1observabilitymetricssummary).
+
 ### Hub metrics
 
 The following counters are exported by the hub. No other ainsel components export custom metrics today (see [Operator metrics](#operator-metrics) for controller-runtime defaults, and the note below for future work).

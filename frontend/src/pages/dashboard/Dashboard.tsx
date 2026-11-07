@@ -13,7 +13,11 @@ export function Dashboard() {
   const agents = useAgents({ pageSize: 1 })
   const connectors = useConnectors({ pageSize: 1 })
   const triggers = useTriggers({ pageSize: 1 })
-  const summary = useObservabilitySummary()
+  // The summary endpoint is range-less by design for MCP consumers: without a
+  // `range` it answers with everything the hub still retains (up to 7d of
+  // task logs), not the last hour. The "Errors · 1h" plate claims a window, so
+  // it has to request one (issue #217).
+  const summary = useObservabilitySummary('1h')
 
   const errorCount = summary.data?.routingErrors ?? 0
 
