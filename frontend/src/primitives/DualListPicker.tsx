@@ -14,6 +14,15 @@ export type DualListPickerProps<T> = {
   emptyLabel?: string
   availableTitle?: string
   enabledTitle?: string
+  /**
+   * Fired in addition to the highlight toggle when a row is activated (click,
+   * shift-click anchor, Enter/Space) in either pane. Lets a caller show a
+   * read-only preview of the activated item. Optional and no-op by default so
+   * existing contexts keep their exact behavior (issue #216).
+   */
+  onRowActivate?: (id: string) => void
+  /** Opt into the viewport-capped tall variant of the row lists (issue #216). */
+  tall?: boolean
 }
 
 type IndexedRow<T> = { id: string; item: T | null; missing: boolean }
@@ -41,6 +50,8 @@ export function DualListPicker<T>(props: DualListPickerProps<T>) {
     emptyLabel = 'No items available.',
     availableTitle = 'Available',
     enabledTitle = 'Enabled',
+    onRowActivate,
+    tall = false,
   } = props
 
   const [availableQuery, setAvailableQuery] = useState('')
@@ -144,7 +155,7 @@ export function DualListPicker<T>(props: DualListPickerProps<T>) {
         role="listbox"
         aria-multiselectable="true"
         aria-label={title}
-        className="dual-list-rows"
+        className={tall ? 'dual-list-rows dual-list-rows--tall' : 'dual-list-rows'}
       >
         {isLoading ? (
           <li className="dual-list-placeholder">Loading…</li>
@@ -161,6 +172,7 @@ export function DualListPicker<T>(props: DualListPickerProps<T>) {
                 className={selected ? 'dual-list-row selected' : 'dual-list-row'}
                 tabIndex={0}
                 onClick={(e) => {
+                  onRowActivate?.(row.id)
                   if (e.shiftKey && anchor) {
                     const ids = visible.map((r) => r.id)
                     const a = ids.indexOf(anchor)
@@ -179,6 +191,7 @@ export function DualListPicker<T>(props: DualListPickerProps<T>) {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
                     setSel(toggleInSet(sel, row.id))
+                    onRowActivate?.(row.id)
                   }
                 }}
               >
