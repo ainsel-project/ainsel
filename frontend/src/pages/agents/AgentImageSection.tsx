@@ -255,6 +255,7 @@ export function AgentSkillsSection({ agent }: AgentImageSectionProps) {
       <SkillsSelector
         enabledSkills={effective}
         onChange={onChange}
+        previewable
         labels={{
           enabledTitle: 'Enabled on this agent',
           emptyLabel:
