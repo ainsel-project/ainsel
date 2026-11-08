@@ -14,6 +14,13 @@
 
 <!-- How was this tested? What should reviewers check? -->
 
+## Provenance
+
+<!-- If a model generated any part of this diff, name its family and the licence it
+     arrived under (e.g. "Apache-2.0 <family> release", "hosted API whose terms assign
+     outputs") — not the tool's product name. Write `none` if hand-written.
+     See docs/model-licensing.md. -->
+
 ## Related issues
 
 <!-- Closes #NNN -->

@@ -123,6 +123,11 @@ pins a single image tag per component.
 - One topic per PR. Don't bundle unrelated changes — open separate PRs.
 - The PR description should explain *why*, not just *what*.
 - Run lints and tests locally before opening (see [Code style](#4-code-style)).
+- **Record AI provenance.** If a model generated any part of the diff, name its
+  *family* and the licence it arrived under — not the product name. A reviewer cannot
+  check an obligation against a brand, and the licence is what decides whether the code
+  carries one. Write `none` when the diff is hand-written. What to check before
+  adopting a model is in [Model Licensing](model-licensing.md).
 
 ### PR Labels
 

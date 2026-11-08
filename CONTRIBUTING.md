@@ -391,6 +391,10 @@ the chart version (or the component `image.tag` values) explicitly.
   the repository allows, so the PR title becomes the commit subject on the
   trunk (see [Why PRs squash-merge into `main`](#why-prs-squash-merge-into-main)).
 - The PR description should explain *why*, not just *what*.
+- If a model generated any part of the diff, record its **family and licence** in the
+  description rather than the tool's product name — the licence is what decides whether
+  the code arrives with an obligation. See
+  [Model Licensing](docs/model-licensing.md).
 - Reference the issue you're addressing if there is one.
 - Rebase your branch on `main` regularly:
   `git fetch origin && git rebase origin/main`.

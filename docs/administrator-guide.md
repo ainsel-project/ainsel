@@ -715,7 +715,17 @@ platform supplements this with:
 
 Not yet platform-enforced:
 **rate limiting per agent/repo** (*Planned*);
-**approval workflows for destructive actions** (*Planned*).
+**approval workflows for destructive actions** (*Planned*);
+**model licence checks** (*never platform-enforced — see below*).
+
+### Model licensing
+
+The model named in `Agent.spec.llm.model` arrives under its own licence, and some
+model licences restrict use *by business type* rather than restricting the model file:
+the shape that puts a deployment in breach while every agent keeps running happily.
+AInsel ships no weights and enforces no model licence, so the reading is this role's.
+Three questions to answer before enabling a model, and what to record afterwards:
+[Model Licensing](model-licensing.md).
 
 ### Updating agents
 
