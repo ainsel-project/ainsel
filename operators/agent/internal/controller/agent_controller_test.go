@@ -723,4 +723,88 @@ var _ = Describe("Agent Controller", func() {
 			Expect(k8sClient.Create(ctx, agent)).NotTo(Succeed())
 		})
 	})
+
+	// Model licence record: purely informational. The operator cannot verify
+	// a model's licence, so the condition says only whether the
+	// administrator recorded one (docs/model-licensing.md), and recording is
+	// never blocking.
+	Context("When an Agent records (or omits) its model licence", func() {
+		ctx := context.Background()
+
+		findLicenceCondition := func(conditions []metav1.Condition, condType string) *metav1.Condition {
+			for i := range conditions {
+				if conditions[i].Type == condType {
+					return &conditions[i]
+				}
+			}
+			return nil
+		}
+
+		BeforeEach(func() {
+			ensureAgentFixtures(ctx)
+		})
+
+		AfterEach(func() {
+			cleanupAgentFixtures(ctx)
+		})
+
+		It("should flag an unrecorded licence without blocking the reconcile", func() {
+			// The fixture Agent carries no ModelLicense.
+			nn := types.NamespacedName{Name: fixtureAgentName, Namespace: "default"}
+			controllerReconciler := &AgentReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Reporting ModelLicenseRecorded=False with reason ModelLicenseUnrecorded")
+			got := &ainselv1alpha1.Agent{}
+			Expect(k8sClient.Get(ctx, nn, got)).To(Succeed())
+			cond := findLicenceCondition(got.Status.Conditions, ainselv1alpha1.AgentConditionModelLicenseRecorded)
+			Expect(cond).NotTo(BeNil(), "the reconcile must set a ModelLicenseRecorded condition")
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("ModelLicenseUnrecorded"))
+			Expect(cond.Message).To(ContainSubstring("spec.llm.modelLicense"))
+
+			By("Continuing to reconcile regardless — the record is not a gate")
+			deploy := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "agent-" + fixtureAgentName, Namespace: "default"}, deploy)).To(Succeed())
+		})
+
+		It("should report the recorded licence without verifying it", func() {
+			agent := &ainselv1alpha1.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-with-license", Namespace: "default"},
+				Spec: ainselv1alpha1.AgentSpec{
+					ImageRef: ainselv1alpha1.AgentImageRef{Name: fixtureImageName},
+					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona000000000EE"},
+					LLM: ainselv1alpha1.AgentLLM{
+						Model:        "qwen3-coder-next",
+						Provider:     ainselv1alpha1.AgentLLMProviderOllamaCloud,
+						ModelLicense: "Apache-2.0",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, agent) })
+
+			nn := types.NamespacedName{Name: "agent-with-license", Namespace: "default"}
+			controllerReconciler := &AgentReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Reporting ModelLicenseRecorded=True with the recorded value")
+			got := &ainselv1alpha1.Agent{}
+			Expect(k8sClient.Get(ctx, nn, got)).To(Succeed())
+			cond := findLicenceCondition(got.Status.Conditions, ainselv1alpha1.AgentConditionModelLicenseRecorded)
+			Expect(cond).NotTo(BeNil(), "the reconcile must set a ModelLicenseRecorded condition")
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("Recorded"))
+			Expect(cond.Message).To(ContainSubstring("Apache-2.0"))
+			Expect(cond.Message).To(ContainSubstring("not verified by the operator"))
+		})
+	})
 })

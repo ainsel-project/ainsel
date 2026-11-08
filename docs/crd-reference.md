@@ -46,6 +46,7 @@ for its container image and tool catalog.
 | `llm.maxTurns` | int | No | Maximum tool-use loop turns |
 | `llm.temperature` | float64 | No | LLM sampling temperature |
 | `llm.vision` | bool | No | Whether pi sends image input. When true the operator advertises `"input": ["text", "image"]` to pi, so screenshots and image attachments are attached; while false pi sends none, even to a model that can see them. The endpoint is never probed: images sent to a model that cannot see them fail the request. Takes effect when the agent's pod next starts (the init container copies `models.json` in at start). Default false |
+| `llm.modelLicense` | string | No | The licence the named model arrives under, as reviewed by whoever set it (e.g. `Apache-2.0`, `Qwen Community License 1.0`). The operator mirrors the value into the `ModelLicenseRecorded` status condition and reports the absence, but never verifies it — a model licence can restrict a deployment by business type while every agent keeps running, and a controller cannot judge a business model. See [Model Licensing](model-licensing.md) |
 | `persona.id` | string | Yes | ULID of a persona managed by the hub. The operator mounts a ConfigMap named `persona-<id>` (rendered by the hub) at `/etc/agent/persona.md` |
 | `enabledTools[]` | []string | No | List of tool names to enable for this agent (e.g. `forgejo`, `git`, `shell`) |
 | `skills.items[]` | []string | No | Agent-scoped skill selection (skill ids). Present = explicit override (`items: []` = no skills at all); absent = inherit the referenced image's `enabledSkills` |
@@ -69,7 +70,7 @@ for its container image and tool catalog.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `conditions` | []Condition | `Ready`, `ConsumerReady`, `Degraded` |
+| `conditions` | []Condition | `Ready`, `ConsumerReady`, `Degraded`
 | `replicas` | int32 | Containers running now (operator, from the Deployment) |
 | `pendingTasks` | int32 | Tasks waiting for this agent — **written by the hub**, read by the operator |
 | `activeTasks` | int32 | Tasks claimed and in flight — hub-written; scale-down waits for these to finish |
@@ -110,6 +111,7 @@ spec:
   llm:
     model: unsloth/gpt-oss-120b-GGUF:F16
     provider: ollama-cloud
+    modelLicense: Apache-2.0
     maxTurns: 25
     temperature: 0.3
   persona:

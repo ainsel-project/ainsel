@@ -21,6 +21,7 @@ const agent = {
     maxTurns: 40,
     temperature: 0.5,
     contextWindow: 200000,
+    modelLicense: 'Anthropic Commercial Terms',
     vision: true,
   },
   persona: { id: 'p1' },
@@ -93,6 +94,7 @@ describe('RuntimeSettings', () => {
     expect(screen.getByLabelText('Temperature')).toHaveValue(0.5)
     expect(screen.getByLabelText('Context Window')).toHaveValue(200000)
     expect(screen.getByLabelText(/^provider$/i)).toHaveValue('ollama-cloud')
+    expect(screen.getByLabelText('Model License')).toHaveValue('Anthropic Commercial Terms')
     expect(screen.getByLabelText(/ollama cloud api key/i)).toHaveAttribute(
       'placeholder',
       'Leave blank to keep existing key',
@@ -117,6 +119,20 @@ describe('RuntimeSettings', () => {
       name: 'doc-writer',
       llm: { model: 'claude-opus-4-8' },
       replicas: 2,
+    })
+  })
+
+  it('sends a recorded model licence and leaves a blank one unchanged', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.clear(screen.getByLabelText('Model License'))
+    await user.type(screen.getByLabelText('Model License'), 'Apache-2.0')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)).toMatchObject({
+      llm: { modelLicense: 'Apache-2.0' },
     })
   })
 

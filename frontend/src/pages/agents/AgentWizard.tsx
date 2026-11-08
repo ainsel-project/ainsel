@@ -42,6 +42,7 @@ const STEPS = [
       'llm.maxTurns',
       'llm.temperature',
       'llm.contextWindow',
+      'llm.modelLicense',
       'llm.vision',
       'customProviderUrl',
       'providerApiKey',
@@ -387,6 +388,17 @@ export function AgentWizard() {
                       min={1024}
                       placeholder="131072 (128k default)"
                       {...register('llm.contextWindow')}
+                    />
+                  </Field>
+                  <Field
+                    label="Model License"
+                    htmlFor="llm.modelLicense"
+                    hint="The licence this model arrives under, as you reviewed it (e.g. Apache-2.0). Recorded in the agent's status, never verified by the operator."
+                  >
+                    <Input
+                      id="llm.modelLicense"
+                      placeholder="Apache-2.0"
+                      {...register('llm.modelLicense')}
                     />
                   </Field>
                 </div>

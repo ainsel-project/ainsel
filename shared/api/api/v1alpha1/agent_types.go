@@ -184,6 +184,18 @@ type AgentLLM struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1024
 	ContextWindow *int `json:"contextWindow,omitempty"`
+	// ModelLicense records the licence the named model arrives under, as
+	// reviewed and accepted by whoever set it — e.g. "Apache-2.0",
+	// "Qwen Community License 1.0", "Anthropic Commercial Terms". The
+	// operator mirrors the value into status.conditions
+	// (ModelLicenseRecorded) and reports the absence, but never verifies the
+	// value: a model licence can restrict a deployment by business type
+	// while every agent keeps running, and no controller can judge a
+	// business model — so flagging an unrecorded licence is honest, while
+	// "validating" one would be false comfort. See docs/model-licensing.md.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	ModelLicense string `json:"modelLicense,omitempty"`
 	// Cost is the price of this model in USD per million tokens, written to
 	// the agent's generated pi models.json so pi can compute usage.cost for
 	// every message. Without it pi defaults the cost to zero and the hub's
@@ -398,6 +410,10 @@ const (
 	AgentConditionPersonaConfigMapReady = "PersonaConfigMapReady"
 	AgentConditionImageEnvSecretReady   = "ImageEnvSecretReady"
 	AgentConditionDegraded              = "Degraded"
+	// AgentConditionModelLicenseRecorded mirrors Agent.spec.llm.modelLicense:
+	// False while unset (Reason ModelLicenseUnrecorded), True when recorded.
+	// Recording status only — the operator does not verify the licence text.
+	AgentConditionModelLicenseRecorded = "ModelLicenseRecorded"
 )
 
 // +kubebuilder:object:root=true

@@ -32,6 +32,7 @@ function toFormValues(agent: AgentResponse): RuntimeFormInput {
       temperature: agent.llm?.temperature,
       contextWindow: agent.llm?.contextWindow,
       vision: agent.llm?.vision ?? false,
+      modelLicense: agent.llm?.modelLicense ?? '',
     },
     customProviderUrl: agent.customProvider?.url ?? '',
     providerApiKey: '',
@@ -131,6 +132,17 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
                 min={1024}
                 placeholder="131072 (128k default)"
                 {...register('llm.contextWindow')}
+              />
+            </Field>
+            <Field
+              label="Model License"
+              htmlFor="llm.modelLicense"
+              hint="The licence this model arrives under, as you reviewed it (e.g. Apache-2.0). Recorded in the agent's status, never verified by the operator. Blank leaves it unchanged."
+            >
+              <Input
+                id="llm.modelLicense"
+                placeholder="Apache-2.0"
+                {...register('llm.modelLicense')}
               />
             </Field>
             <Field label="Provider" htmlFor="llm.provider">
