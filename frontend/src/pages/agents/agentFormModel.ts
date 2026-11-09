@@ -35,7 +35,7 @@ export const API_KEY_LABELS: Record<string, string> = {
 }
 
 /** The LLM block: model, sampling, context and vision, shared by every agent write form. */
-export const llmSchema = z.object({
+const llmSchema = z.object({
   model: z.string().min(1, 'Model is required'),
   provider: z.string().optional(),
   maxTurns: z.coerce.number().int().min(1).optional(),
@@ -57,10 +57,10 @@ export const llmSchema = z.object({
 // running. 0 pauses the agent. Always sent as a concrete number, like
 // `vision`, because the hub reads an absent value on update as
 // "leave unchanged".
-export const replicasSchema = z.coerce.number().int().min(0).optional()
+const replicasSchema = z.coerce.number().int().min(0).optional()
 
 /** A custom provider needs its base URL. */
-export function requireCustomProviderUrl(
+function requireCustomProviderUrl(
   data: { llm: { provider?: string }; customProviderUrl?: string },
   ctx: z.RefinementCtx,
 ) {
@@ -132,7 +132,7 @@ export const agentDefaults: AgentFormInput = {
  * The provider credential blocks for a write. A block is attached only when a
  * key was entered, so an edit that leaves the key blank keeps the stored one.
  */
-export function buildProviderRequest(
+function buildProviderRequest(
   provider: string,
   apiKey: string,
   customProviderUrl: string,
