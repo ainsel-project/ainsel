@@ -13,6 +13,8 @@
     "preview": "vite preview",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
+    "pretest:guard": "node scripts/gen-plugin-shared.mjs",
+    "test:guard": "node scripts/check-test-env.mjs",
     "lint": "eslint src --max-warnings=0",
     "format": "prettier --write src"
   },
