@@ -42,12 +42,8 @@ vi.mock('../../../api/plugins', async (importOriginal) => {
 vi.mock('../../../plugins/loader', () => {
   return {
     loadPluginModule: vi.fn(async () => ({
-      AgentPanel: ({ agentName }: { agentName: string }) => (
-        <p>{`agentName=${agentName}`}</p>
-      ),
-      PersonaPanel: ({ personaId }: { personaId: string }) => (
-        <p>{`personaId=${personaId}`}</p>
-      ),
+      AgentPanel: ({ agentName }: { agentName: string }) => <p>{`agentName=${agentName}`}</p>,
+      PersonaPanel: ({ personaId }: { personaId: string }) => <p>{`personaId=${personaId}`}</p>,
       ObsSection: ({ range }: { range: string }) => <p>{`range=${range}`}</p>,
       RunPanel: ({ invocationId, agentName }: { invocationId: string; agentName: string }) => (
         <p>{`invocationId=${invocationId} agentName=${agentName}`}</p>
@@ -118,26 +114,25 @@ function mockFetch() {
     'fetch',
     vi.fn((url: string) => {
       if (url.includes('/invocations') && url.includes('event=')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(sampleInvocations), { status: 200 }),
-        )
+        return Promise.resolve(new Response(JSON.stringify(sampleInvocations), { status: 200 }))
       }
       if (url.includes('/observability/conversations') && url.includes('invocation=inv-1')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(sampleConversation), { status: 200 }),
-        )
+        return Promise.resolve(new Response(JSON.stringify(sampleConversation), { status: 200 }))
       }
       if (url.includes('/events/evt-')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(sampleEvent), { status: 200 }),
-        )
+        return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
       }
       if (url.includes('/connectors')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
               items: [
-                { id: 'c-111', name: 'forgejo-main', signatureHeader: 'x-ainsel-signature', disabled: false },
+                {
+                  id: 'c-111',
+                  name: 'forgejo-main',
+                  signatureHeader: 'x-ainsel-signature',
+                  disabled: false,
+                },
               ],
               total: 1,
               page: 1,
@@ -186,9 +181,7 @@ describe('EventView', () => {
   // #152 — the Connector KPI must show the connector's name, not its raw id.
   it('shows the connector name in the Connector KPI', async () => {
     renderEventView('/observability/events/evt-1234567890000000000')
-    const kpi = await waitFor(
-      () => screen.getByText('Connector').closest('.kpi') as HTMLElement,
-    )
+    const kpi = await waitFor(() => screen.getByText('Connector').closest('.kpi') as HTMLElement)
     await waitFor(() => expect(within(kpi).getByText('forgejo-main')).toBeInTheDocument())
     expect(within(kpi).queryByText('c-111')).toBeNull()
   })
@@ -204,27 +197,26 @@ describe('EventView', () => {
         }
         if (url.includes('/connectors')) {
           return Promise.resolve(
-            new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }), {
-              status: 200,
-            }),
+            new Response(
+              JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),
+              {
+                status: 200,
+              },
+            ),
           )
         }
         return Promise.resolve(new Response('{}', { status: 200 }))
       }),
     )
     renderEventView('/observability/events/evt-1234567890000000000')
-    const kpi = await waitFor(
-      () => screen.getByText('Connector').closest('.kpi') as HTMLElement,
-    )
+    const kpi = await waitFor(() => screen.getByText('Connector').closest('.kpi') as HTMLElement)
     const el = await waitFor(() => within(kpi).getByText('c-111'))
     expect(el).toHaveAttribute('title', 'c-111')
   })
 
   it('renders the absolute timestamp in the When KPI', async () => {
     renderEventView('/observability/events/evt-1234567890000000000')
-    await waitFor(() =>
-      expect(screen.getByText('2026-06-10 08:31:25Z')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText('2026-06-10 08:31:25Z')).toBeInTheDocument())
   })
 
   it('renders matches', async () => {
@@ -263,7 +255,12 @@ describe('EventView', () => {
             new Response(
               JSON.stringify({
                 items: [
-                  { id: 'c-111', name: 'monorepo', signatureHeader: 'X-Hub-Signature-256', disabled: false },
+                  {
+                    id: 'c-111',
+                    name: 'monorepo',
+                    signatureHeader: 'X-Hub-Signature-256',
+                    disabled: false,
+                  },
                 ],
                 total: 1,
                 page: 1,
@@ -362,9 +359,7 @@ describe('EventView', () => {
           )
         }
         if (url.includes('/events/evt-')) {
-          return Promise.resolve(
-            new Response(JSON.stringify(sampleEvent), { status: 200 }),
-          )
+          return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
         }
         return Promise.resolve(new Response('{}', { status: 200 }))
       }),
@@ -392,7 +387,11 @@ describe('EventView', () => {
                     triggerName: 't2',
                     status: 'running',
                     timestamp: '2026-06-10T08:35:25Z',
-                    task: { status: 'pending', attempts: 2, error: 'Turn timed out after 600000ms' },
+                    task: {
+                      status: 'pending',
+                      attempts: 2,
+                      error: 'Turn timed out after 600000ms',
+                    },
                   },
                 ],
                 total: 1,
@@ -406,7 +405,9 @@ describe('EventView', () => {
           )
         }
         if (url.includes('/observability/conversations') && url.includes('invocation=inv-2')) {
-          return Promise.resolve(new Response(JSON.stringify({ messages: [], total: 0 }), { status: 200 }))
+          return Promise.resolve(
+            new Response(JSON.stringify({ messages: [], total: 0 }), { status: 200 }),
+          )
         }
         if (url.includes('/events/evt-')) {
           return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
@@ -415,9 +416,7 @@ describe('EventView', () => {
       }),
     )
     renderEventView('/observability/events/evt-1234567890000000001')
-    await waitFor(() =>
-      expect(screen.getByText(/Waiting in queue/)).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText(/Waiting in queue/)).toBeInTheDocument())
     expect(screen.getByText(/attempt 2 failed, retrying/)).toBeInTheDocument()
     expect(screen.getByText('queued · attempt 2')).toBeInTheDocument()
     expect(screen.queryByText(/No conversation recorded/)).not.toBeInTheDocument()
@@ -457,7 +456,9 @@ describe('EventView', () => {
           )
         }
         if (url.includes('/observability/conversations') && url.includes('invocation=inv-stuck')) {
-          return Promise.resolve(new Response(JSON.stringify({ messages: [], total: 0 }), { status: 200 }))
+          return Promise.resolve(
+            new Response(JSON.stringify({ messages: [], total: 0 }), { status: 200 }),
+          )
         }
         if (url.includes('/events/evt-')) {
           return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
@@ -466,9 +467,7 @@ describe('EventView', () => {
       }),
     )
     renderEventView('/observability/events/evt-1234567890000000003')
-    await waitFor(() =>
-      expect(screen.getByText('queued · attempt 1 · stuck')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText('queued · attempt 1 · stuck')).toBeInTheDocument())
   })
 
   // #422: in per-task Job mode the task row stays "pending" while the pod
@@ -510,7 +509,9 @@ describe('EventView', () => {
           )
         }
         if (url.includes('/observability/conversations') && url.includes('invocation=inv-job')) {
-          return Promise.resolve(new Response(JSON.stringify({ messages: [], total: 0 }), { status: 200 }))
+          return Promise.resolve(
+            new Response(JSON.stringify({ messages: [], total: 0 }), { status: 200 }),
+          )
         }
         if (url.includes('/events/evt-')) {
           return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
@@ -569,9 +570,7 @@ describe('EventView', () => {
           await vi.advanceTimersByTimeAsync(10)
         })
       }
-      expect(
-        screen.getByText('No conversation recorded for this invocation.'),
-      ).toBeInTheDocument()
+      expect(screen.getByText('No conversation recorded for this invocation.')).toBeInTheDocument()
 
       // The run produces its transcript messages; without polling the page
       // would keep showing the empty state until a manual refresh. Advance one
@@ -606,8 +605,7 @@ describe('EventView', () => {
     const invocationHeading = await screen.findByText('Invocation inv-1 · review-bot')
     const payloadHeading = screen.getByText('Payload')
     expect(
-      invocationHeading.compareDocumentPosition(payloadHeading) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      invocationHeading.compareDocumentPosition(payloadHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   })
 

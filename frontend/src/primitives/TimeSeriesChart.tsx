@@ -42,8 +42,7 @@ export function TimeSeriesChart({
     return points
       .map((p, i) => {
         const x = PADDING.left + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW)
-        const y =
-          PADDING.top + innerH - (maxValue > 0 ? (p.value / maxValue) * innerH : 0)
+        const y = PADDING.top + innerH - (maxValue > 0 ? (p.value / maxValue) * innerH : 0)
         return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
       })
       .join(' ')
@@ -97,13 +96,7 @@ export function TimeSeriesChart({
         ))}
         {/* Y axis max label */}
         {maxValue > 0 ? (
-          <text
-            x={6}
-            y={PADDING.top - 4}
-            fontFamily="var(--mono)"
-            fontSize={9}
-            fill="var(--ink-4)"
-          >
+          <text x={6} y={PADDING.top - 4} fontFamily="var(--mono)" fontSize={9} fill="var(--ink-4)">
             {maxValue}
           </text>
         ) : null}

@@ -211,9 +211,7 @@ describe('personas API', () => {
     const p = await rollbackPersona('01HX1', 2)
     expect(p.currentVersion).toBe(3)
 
-    const call = vi
-      .mocked(fetch)
-      .mock.calls.find((c) => String(c[0]).includes('/rollback'))
+    const call = vi.mocked(fetch).mock.calls.find((c) => String(c[0]).includes('/rollback'))
     expect(call?.[1]?.method).toBe('POST')
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ toVersion: 2 })
   })
@@ -234,9 +232,7 @@ describe('personas API — version access control', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 }),
-        ),
+        Promise.resolve(new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })),
       ),
     )
     await expect(call()).rejects.toMatchObject({

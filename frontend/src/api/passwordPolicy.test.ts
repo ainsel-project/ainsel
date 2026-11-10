@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  DEFAULT_PASSWORD_POLICY,
-  getPasswordPolicy,
-  passwordPolicyHint,
-} from './passwordPolicy'
+import { DEFAULT_PASSWORD_POLICY, getPasswordPolicy, passwordPolicyHint } from './passwordPolicy'
 
 afterEach(() => {
   vi.unstubAllGlobals()

@@ -13,10 +13,9 @@ describe('api/connectors', () => {
 
   it('listConnectors GETs /connectors with pagination params', async () => {
     mockFetch().mockResolvedValue(
-      new Response(
-        JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),
-        { status: 200 },
-      ),
+      new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }), {
+        status: 200,
+      }),
     )
     await listConnectors({ pageSize: 200 })
     const [url, init] = mockFetch().mock.calls[0]

@@ -242,7 +242,15 @@ describe('ActivityRow', () => {
   it('renders failure tag and error detail in expanded view', () => {
     const withRun: ActivityEntry = {
       ...entry,
-      matches: [{ trigger: 't1', agent: 'doc-writer', runStatus: 'failure', error: 'agent crashed', durationMs: 500 }],
+      matches: [
+        {
+          trigger: 't1',
+          agent: 'doc-writer',
+          runStatus: 'failure',
+          error: 'agent crashed',
+          durationMs: 500,
+        },
+      ],
     }
     const { container } = renderWithProviders(
       <table>
@@ -295,7 +303,13 @@ describe('ActivityRow', () => {
     const withRun: ActivityEntry = {
       ...entry,
       matches: [
-        { trigger: 't1', agent: 'doc-writer', runState: 'queued', taskStatus: 'pending', stuck: true },
+        {
+          trigger: 't1',
+          agent: 'doc-writer',
+          runState: 'queued',
+          taskStatus: 'pending',
+          stuck: true,
+        },
       ],
     }
     renderWithProviders(
@@ -358,9 +372,7 @@ describe('ActivityRow', () => {
     expect(matches[1].textContent).toContain('sec-bot')
     // collapsed cell shows comma-separated agent links
     const collapsedRow = container.querySelector('tr.activity-row') as HTMLElement
-    const agentLinks = Array.from(
-      collapsedRow.querySelectorAll('a[aria-label^="Open agent"]'),
-    )
+    const agentLinks = Array.from(collapsedRow.querySelectorAll('a[aria-label^="Open agent"]'))
     expect(agentLinks.map((l) => l.getAttribute('href'))).toEqual([
       '/agents/infra-bot',
       '/agents/sec-bot',

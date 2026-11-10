@@ -14,18 +14,16 @@ function wrapper(initial: string) {
 
 describe('useUrlFilters', () => {
   it('returns undefined for absent params', () => {
-    const { result } = renderHook(
-      () => useUrlFilters<F>(['agent', 'connector', 'page']),
-      { wrapper: wrapper('/triggers') },
-    )
+    const { result } = renderHook(() => useUrlFilters<F>(['agent', 'connector', 'page']), {
+      wrapper: wrapper('/triggers'),
+    })
     expect(result.current.filters).toEqual({})
   })
 
   it('parses existing query params', () => {
-    const { result } = renderHook(
-      () => useUrlFilters<F>(['agent', 'connector', 'page']),
-      { wrapper: wrapper('/triggers?agent=doc-writer&page=2') },
-    )
+    const { result } = renderHook(() => useUrlFilters<F>(['agent', 'connector', 'page']), {
+      wrapper: wrapper('/triggers?agent=doc-writer&page=2'),
+    })
     expect(result.current.filters.agent).toBe('doc-writer')
     expect(result.current.filters.page).toBe('2')
     expect(result.current.filters.connector).toBeUndefined()

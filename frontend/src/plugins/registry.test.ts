@@ -82,10 +82,7 @@ describe('registry', () => {
     })
 
     it('sorts plugins by id', () => {
-      const items: PluginListItem[] = [
-        mockItem({ id: 'b' }),
-        mockItem({ id: 'a' }),
-      ]
+      const items: PluginListItem[] = [mockItem({ id: 'b' }), mockItem({ id: 'a' })]
       const active = activePlugins(items)
       expect(active.map((p) => p.id)).toEqual(['a', 'b'])
     })
@@ -115,7 +112,7 @@ describe('registry', () => {
       ])
     })
 
-    it('keeps a section of the plugin\'s own and puts pages without one under Plugins', () => {
+    it("keeps a section of the plugin's own and puts pages without one under Plugins", () => {
       const plugins = [
         {
           id: 'test',
@@ -164,9 +161,7 @@ describe('registry', () => {
           manifest: mockManifest({
             ui: {
               entry: '/static/ui/index.js',
-              pages: [
-                { path: '/admin', label: 'Admin', section: 'Admin', visibility: 'admin' },
-              ],
+              pages: [{ path: '/admin', label: 'Admin', section: 'Admin', visibility: 'admin' }],
             },
           }),
         },
@@ -177,7 +172,7 @@ describe('registry', () => {
   })
 
   describe('pluginPages', () => {
-    it('returns one plugin\'s page entries, admin-filtered', () => {
+    it("returns one plugin's page entries, admin-filtered", () => {
       const plugin = {
         id: 'mem0',
         manifest: mockManifest({
@@ -369,9 +364,7 @@ describe('registry', () => {
         { to: '/p/memory/setup' },
         { to: '/p/memory/setup/detail' },
       ]
-      expect(activeNavPath(entries, '/p/memory/setup/detail')).toBe(
-        '/p/memory/setup/detail',
-      )
+      expect(activeNavPath(entries, '/p/memory/setup/detail')).toBe('/p/memory/setup/detail')
     })
 
     it('does not cross-activate sibling entries', () => {

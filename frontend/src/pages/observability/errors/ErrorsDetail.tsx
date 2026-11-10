@@ -51,7 +51,14 @@ export function ErrorsDetail() {
   const range: Range = isRange(params.get('range')) ? (params.get('range') as Range) : '24h'
 
   const setRange = (next: Range) =>
-    setParams((prev) => { const p = new URLSearchParams(prev); p.set('range', next); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('range', next)
+        return p
+      },
+      { replace: true },
+    )
 
   const { filters, setFilters, reset } = useUrlFilters<ErrorFilters>(['severity', 'source'])
   const { data, isLoading, error, refetch } = useErrors({ limit: 200 })
@@ -68,11 +75,13 @@ export function ErrorsDetail() {
 
   const hasFilter = !!(filters.severity || filters.source)
 
-  const chartState =
-    timeseries.isLoading ? 'loading'
-    : timeseries.error instanceof ServiceUnavailableError ? 'unavailable'
-    : timeseries.error ? 'error'
-    : 'ready'
+  const chartState = timeseries.isLoading
+    ? 'loading'
+    : timeseries.error instanceof ServiceUnavailableError
+      ? 'unavailable'
+      : timeseries.error
+        ? 'error'
+        : 'ready'
 
   const chartSeries = useMemo(
     () => [{ name: 'routing_errors', points: timeseries.data?.points ?? [] }],
@@ -135,7 +144,11 @@ export function ErrorsDetail() {
             Operations / <Link to="/observability">Observability</Link> / <b>Errors</b>
           </>
         }
-        title={<>Error <em>Detail</em></>}
+        title={
+          <>
+            Error <em>Detail</em>
+          </>
+        }
         actions={<RangeSelector value={range} onChange={setRange} />}
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
@@ -179,7 +192,9 @@ export function ErrorsDetail() {
               />
             </div>
             {hasFilter && (
-              <Button size="sm" onClick={reset}>↺ Clear</Button>
+              <Button size="sm" onClick={reset}>
+                ↺ Clear
+              </Button>
             )}
           </div>
 

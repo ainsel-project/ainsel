@@ -58,9 +58,7 @@ export function RegisterTable<T>({
   onSort,
   renderDetail,
 }: RegisterTableProps<T>) {
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  )
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>())
 
   if (rows.length === 0 && emptyLabel) {
     return (
@@ -122,9 +120,7 @@ export function RegisterTable<T>({
       <table className="reg">
         <thead>
           <tr>
-            {renderDetail ? (
-              <th className="rowtoggle" aria-label="Details" scope="col" />
-            ) : null}
+            {renderDetail ? <th className="rowtoggle" aria-label="Details" scope="col" /> : null}
             {withRowNumbers ? <th className="rowno">#</th> : null}
             {columns.map((col) => (
               <th

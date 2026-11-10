@@ -1,9 +1,4 @@
-import type {
-  Control,
-  UseFormRegister,
-  UseFormSetValue,
-  UseFormWatch,
-} from 'react-hook-form'
+import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import { Button } from '../../primitives/Button'
 import { Check } from '../../primitives/Check'
 import { Field } from '../../primitives/Field'
@@ -59,7 +54,12 @@ export function ToolEditor({
     return (
       <div className="md-right">
         <header className="md-bar">
-          <h4 title={tool.name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Tool · {tool.name || `#${toolIndex + 1}`}</h4>
+          <h4
+            title={tool.name}
+            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            Tool · {tool.name || `#${toolIndex + 1}`}
+          </h4>
           <div className="md-bar-grow" />
           <Tag>mcp</Tag>
         </header>
@@ -68,19 +68,19 @@ export function ToolEditor({
             <Check
               aria-label="enabled"
               checked={tool.enabled}
-              onChange={(next) => setValue(`tools.${toolIndex}.enabled`, next, { shouldDirty: true })}
+              onChange={(next) =>
+                setValue(`tools.${toolIndex}.enabled`, next, { shouldDirty: true })
+              }
             />
-            <span className="tool-state-text">
-              {tool.enabled ? 'Enabled' : 'Disabled'}
-            </span>
+            <span className="tool-state-text">{tool.enabled ? 'Enabled' : 'Disabled'}</span>
             <span className="label tool-state-spacer">{tool.mcpSource} MCP</span>
           </div>
 
           <div className="tool-fqn">{tool.name}</div>
 
           <p className="tool-hint">
-            MCP tools are auto-populated by the <b>Refresh MCP Tools</b> button. Edit the MCP
-            server configuration to change which tools appear here.
+            MCP tools are auto-populated by the <b>Refresh MCP Tools</b> button. Edit the MCP server
+            configuration to change which tools appear here.
           </p>
           {tool.description ? (
             <Field label="Description" htmlFor="">
@@ -108,9 +108,7 @@ export function ToolEditor({
             checked={tool.enabled}
             onChange={(next) => setValue(`tools.${toolIndex}.enabled`, next, { shouldDirty: true })}
           />
-          <span className="tool-state-text">
-            {tool.enabled ? 'Enabled' : 'Disabled'}
-          </span>
+          <span className="tool-state-text">{tool.enabled ? 'Enabled' : 'Disabled'}</span>
         </div>
         <div className="tool-title">
           <h2>{tool.name || <em>unnamed</em>}</h2>
@@ -132,11 +130,9 @@ export function ToolEditor({
               id={`tool-kind-${toolIndex}`}
               value={kindValue}
               onChange={(v) =>
-                setValue(
-                  `tools.${toolIndex}.kind`,
-                  v as ToolFormValue['kind'],
-                  { shouldDirty: true },
-                )
+                setValue(`tools.${toolIndex}.kind`, v as ToolFormValue['kind'], {
+                  shouldDirty: true,
+                })
               }
               options={KIND_OPTIONS}
             />
@@ -144,10 +140,7 @@ export function ToolEditor({
           </Field>
         </div>
 
-        <Field
-          label="Description (markdown)"
-          htmlFor={`tool-description-${toolIndex}`}
-        >
+        <Field label="Description (markdown)" htmlFor={`tool-description-${toolIndex}`}>
           <Textarea
             id={`tool-description-${toolIndex}`}
             rows={6}

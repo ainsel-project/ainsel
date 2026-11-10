@@ -136,8 +136,15 @@ export function useDeleteGroup() {
 export function useAddGroupMembers() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ groupId, userIds, role }: { groupId: string; userIds: string[]; role: GroupRole }) =>
-      addGroupMembers(groupId, userIds, role),
+    mutationFn: ({
+      groupId,
+      userIds,
+      role,
+    }: {
+      groupId: string
+      userIds: string[]
+      role: GroupRole
+    }) => addGroupMembers(groupId, userIds, role),
     onSuccess: (_data, { groupId }) => {
       qc.invalidateQueries({ queryKey: ['groups', groupId] })
     },

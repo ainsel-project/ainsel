@@ -29,7 +29,7 @@ const now = Date.now()
 const sampleEvents = [
   {
     id: 'e1',
-    timestamp: new Date(now - 30_000).toISOString(),   // newest
+    timestamp: new Date(now - 30_000).toISOString(), // newest
     connector: 'c-111',
     status: 'matched',
     matches: [{ trigger: 't1', agent: 'doc-writer' }],
@@ -37,17 +37,20 @@ const sampleEvents = [
   },
   {
     id: 'e2',
-    timestamp: new Date(now - 240_000).toISOString(),  // oldest
+    timestamp: new Date(now - 240_000).toISOString(), // oldest
     connector: 'c-222',
     status: 'error',
     payload: { action: 'push', ref: 'refs/heads/main' },
   },
   {
     id: 'e3',
-    timestamp: new Date(now - 120_000).toISOString(),  // middle
+    timestamp: new Date(now - 120_000).toISOString(), // middle
     connector: 'c-333',
     status: 'unmatched',
-    matches: [{ trigger: 't2', agent: 'infra-bot' }, { trigger: 't3', agent: 'sec-bot' }],
+    matches: [
+      { trigger: 't2', agent: 'infra-bot' },
+      { trigger: 't3', agent: 'sec-bot' },
+    ],
   },
 ]
 
@@ -85,16 +88,12 @@ function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
           })
           .sort(
             (a, b) =>
-              new Date(b.timestamp as string).getTime() -
-              new Date(a.timestamp as string).getTime(),
+              new Date(b.timestamp as string).getTime() - new Date(a.timestamp as string).getTime(),
           )
         const page = filtered.slice(offset, offset + limit)
 
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ events: page, total: filtered.length }),
-            { status: 200 },
-          ),
+          new Response(JSON.stringify({ events: page, total: filtered.length }), { status: 200 }),
         )
       }
       if (url.includes('/connectors')) {
@@ -110,18 +109,16 @@ function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
       }
       if (url.includes('/triggers')) {
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ items: sampleTriggers, total: sampleTriggers.length }),
-            { status: 200 },
-          ),
+          new Response(JSON.stringify({ items: sampleTriggers, total: sampleTriggers.length }), {
+            status: 200,
+          }),
         )
       }
       if (url.includes('/agents')) {
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ items: sampleAgents, total: sampleAgents.length }),
-            { status: 200 },
-          ),
+          new Response(JSON.stringify({ items: sampleAgents, total: sampleAgents.length }), {
+            status: 200,
+          }),
         )
       }
       return Promise.resolve(new Response('{}', { status: 200 }))
@@ -231,9 +228,7 @@ describe('Activity', () => {
 
     it('keeps unrelated URL params when filters change', async () => {
       const { search } = renderActivity('/activity?q=pull_request&page=2&pageSize=50')
-      await waitFor(() =>
-        expect(screen.getByLabelText(/filter by status/i)).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByLabelText(/filter by status/i)).toBeInTheDocument())
       await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'error')
       await waitFor(() => expect(search.current).toContain('status=error'))
       expect(search.current).toContain('q=pull_request')
@@ -242,9 +237,7 @@ describe('Activity', () => {
 
     it('resets page to 1 when a filter changes', async () => {
       const { search } = renderActivity('/activity?page=3')
-      await waitFor(() =>
-        expect(screen.getByLabelText(/filter by status/i)).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByLabelText(/filter by status/i)).toBeInTheDocument())
       await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'matched')
       await waitFor(() => expect(search.current).toContain('status=matched'))
       expect(search.current).toContain('page=1')
@@ -279,9 +272,7 @@ describe('Activity', () => {
 
   it('renders all three events with status tags', async () => {
     const { container } = renderWithProviders(<Activity />, { route: '/activity' })
-    await waitFor(() =>
-      expect(container.querySelector('tbody tr')).not.toBeNull(),
-    )
+    await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
     const body = container.querySelector('tbody') as HTMLElement
     expect(body.textContent).toContain('Monorepo Connector')
     expect(body.textContent).toContain('Infra Tooling')
@@ -327,9 +318,7 @@ describe('Activity', () => {
 
   it('renders resolved connector names in table and filter dropdown', async () => {
     const { container } = renderWithProviders(<Activity />, { route: '/activity' })
-    await waitFor(() =>
-      expect(container.querySelector('tbody tr')).not.toBeNull(),
-    )
+    await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
     const body = container.querySelector('tbody') as HTMLElement
     expect(body.textContent).toContain('Monorepo Connector')
     expect(body.textContent).toContain('Infra Tooling')
@@ -358,9 +347,7 @@ describe('Activity', () => {
 
   it('renders trigger and agent columns with comma-separated matches', async () => {
     const { container } = renderWithProviders(<Activity />, { route: '/activity' })
-    await waitFor(() =>
-      expect(container.querySelector('tbody tr')).not.toBeNull(),
-    )
+    await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
     const rows = container.querySelectorAll('tbody tr.activity-row')
     // e1: single match, resolved to registry names
     expect(rows[0].textContent).toContain('On doc issue')
@@ -378,10 +365,9 @@ describe('Activity', () => {
       vi.fn((url: string) => {
         if (url.includes('/events')) {
           return Promise.resolve(
-            new Response(
-              JSON.stringify({ events: sampleEvents, total: sampleEvents.length }),
-              { status: 200 },
-            ),
+            new Response(JSON.stringify({ events: sampleEvents, total: sampleEvents.length }), {
+              status: 200,
+            }),
           )
         }
         if (url.includes('/connectors')) {
@@ -730,13 +716,12 @@ describe('Activity', () => {
       expect(options.map((o) => o.textContent)).toContain('Any outcome')
       // queued and running are separate outcomes (#422): no worker yet vs
       // being worked on.
-      expect(options.map((o) => o.value).filter(Boolean).sort()).toEqual([
-        'failure',
-        'queued',
-        'running',
-        'success',
-        'timeout',
-      ])
+      expect(
+        options
+          .map((o) => o.value)
+          .filter(Boolean)
+          .sort(),
+      ).toEqual(['failure', 'queued', 'running', 'success', 'timeout'])
     })
 
     it('filters by success to show only events with a successful run', async () => {

@@ -1,0 +1,4 @@
+# Mirrors frontend/.prettierignore: prettier only reads the ignore file
+# in its working directory, and the root "format" script runs from here.
+# Keep both in step.
+frontend/src/design/tokens.css

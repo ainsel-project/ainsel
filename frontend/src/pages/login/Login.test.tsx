@@ -90,9 +90,11 @@ describe('Login', () => {
     seedConfig({ authMode: 'local' })
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ message: 'invalid credentials' }), { status: 401 }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ message: 'invalid credentials' }), { status: 401 }),
+        ),
     )
 
     renderLogin()
@@ -117,7 +119,12 @@ describe('Login', () => {
           JSON.stringify({
             token: 'tok',
             expiresAt: '2030-01-01T00:00:00Z',
-            user: { sub: 'local:admin', username: 'admin', isAdmin: true, mustChangePassword: true },
+            user: {
+              sub: 'local:admin',
+              username: 'admin',
+              isAdmin: true,
+              mustChangePassword: true,
+            },
           }),
           { status: 200 },
         ),

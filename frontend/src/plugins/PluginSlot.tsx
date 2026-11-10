@@ -15,7 +15,10 @@ interface PluginSlotProps<S extends SlotId> {
   props: SlotProps[S]
   /** Optional single plugin id to limit contributions to that plugin */
   pluginId?: string
-  render?: (contribution: { plugin: ActivePlugin; exportName: string }, element: JSX.Element) => React.ReactNode
+  render?: (
+    contribution: { plugin: ActivePlugin; exportName: string },
+    element: JSX.Element,
+  ) => React.ReactNode
 }
 
 /**
@@ -60,7 +63,10 @@ export function PluginSlot<S extends SlotId>({
 interface PluginSlotContributionProps<S extends SlotId> {
   contribution: { plugin: ActivePlugin; exportName: string }
   slotProps: SlotProps[S]
-  render?: (contribution: { plugin: ActivePlugin; exportName: string }, element: JSX.Element) => React.ReactNode
+  render?: (
+    contribution: { plugin: ActivePlugin; exportName: string },
+    element: JSX.Element,
+  ) => React.ReactNode
 }
 
 function PluginSlotContribution<S extends SlotId>({

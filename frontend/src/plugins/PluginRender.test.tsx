@@ -27,7 +27,11 @@ const manifest = (id: string, extra: object = {}) => ({
     ...extra,
   },
 })
-const active = (id: string): ActivePlugin => ({ id, displayName: id.toUpperCase(), manifest: manifest(id) })
+const active = (id: string): ActivePlugin => ({
+  id,
+  displayName: id.toUpperCase(),
+  manifest: manifest(id),
+})
 
 function wrap(ui: React.ReactElement, route = '/') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -53,7 +57,9 @@ describe('plugin rendering', () => {
   beforeEach(() => {
     vi.mocked(loadPluginModule).mockReset()
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.mocked(usePlugins).mockReturnValue({ data: [], isPending: false } as unknown as ReturnType<typeof usePlugins>)
+    vi.mocked(usePlugins).mockReturnValue({ data: [], isPending: false } as unknown as ReturnType<
+      typeof usePlugins
+    >)
     vi.mocked(usePluginCallerContext).mockReturnValue({
       data: { isAdmin: false, sub: 'u1', username: 'ursula', groups: [] },
       isPending: false,
@@ -65,7 +71,13 @@ describe('plugin rendering', () => {
       if (p.id === 'broken') throw new Error('boom')
       return { AgentPanel: (props: object) => <p>{`${p.id} ${JSON.stringify(props)}`}</p> }
     })
-    wrap(<PluginSlot plugins={[active('mem0'), active('broken')]} slot="agent.panel" props={{ agentName: 'reviewer' }} />)
+    wrap(
+      <PluginSlot
+        plugins={[active('mem0'), active('broken')]}
+        slot="agent.panel"
+        props={{ agentName: 'reviewer' }}
+      />,
+    )
     expect(await screen.findByText('mem0 {"agentName":"reviewer"}')).toBeInTheDocument()
     expect(await screen.findByText(/Plugin BROKEN failed to load/)).toBeInTheDocument()
   })
@@ -88,13 +100,18 @@ describe('plugin rendering', () => {
       data: [{ id: 'mem0', displayName: 'MEM0', manifest: manifest('mem0') }],
       isPending: false,
     } as unknown as ReturnType<typeof usePlugins>)
-    vi.mocked(loadPluginModule).mockResolvedValue({ default: () => <PageWithContext label="home" /> })
+    vi.mocked(loadPluginModule).mockResolvedValue({
+      default: () => <PageWithContext label="home" />,
+    })
     wrap(<div />, '/p/mem0')
     expect(await screen.findByText('home for mem0')).toBeInTheDocument()
   })
 
   it('waits for the plugin list instead of redirecting a deep link', () => {
-    vi.mocked(usePlugins).mockReturnValue({ data: undefined, isPending: true } as unknown as ReturnType<typeof usePlugins>)
+    vi.mocked(usePlugins).mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof usePlugins>)
     wrap(<div />, '/p/mem0/memories')
     expect(screen.getByText('Loading plugin…')).toBeInTheDocument()
     expect(screen.queryByText('Dashboard')).not.toBeInTheDocument()

@@ -102,21 +102,39 @@ export function Activity() {
   const total = data?.total ?? 0
 
   const setPage = (p: number) => {
-    setParams((prev) => { const n = new URLSearchParams(prev); n.set('page', String(p)); return n }, { replace: true })
+    setParams(
+      (prev) => {
+        const n = new URLSearchParams(prev)
+        n.set('page', String(p))
+        return n
+      },
+      { replace: true },
+    )
   }
 
   const setPageSize = (n: number) => {
-    setParams((prev) => { const next = new URLSearchParams(prev); next.set('pageSize', String(n)); next.set('page', '1'); return next }, { replace: true })
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('pageSize', String(n))
+        next.set('page', '1')
+        return next
+      },
+      { replace: true },
+    )
   }
 
   const handleSearchChange = (v: string) => {
-    setParams((prev) => {
-      const n = new URLSearchParams(prev)
-      if (v) n.set('q', v)
-      else n.delete('q')
-      n.set('page', '1')
-      return n
-    }, { replace: true })
+    setParams(
+      (prev) => {
+        const n = new URLSearchParams(prev)
+        if (v) n.set('q', v)
+        else n.delete('q')
+        n.set('page', '1')
+        return n
+      },
+      { replace: true },
+    )
   }
 
   // Filter changes keep resetting page to 1 (one URL patch each).
@@ -151,8 +169,9 @@ export function Activity() {
 
   const connectorOptions = useMemo(
     () =>
-      Array.from(connectorNameById, ([id, name]) => ({ value: id, label: name }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+      Array.from(connectorNameById, ([id, name]) => ({ value: id, label: name })).sort((a, b) =>
+        a.label.localeCompare(b.label),
+      ),
     [connectorNameById],
   )
 
@@ -192,7 +211,11 @@ export function Activity() {
         if (m.runStatus) parts.push(m.runStatus)
       }
       if (r.payload != null) {
-        try { parts.push(JSON.stringify(r.payload)) } catch { /* ignore */ }
+        try {
+          parts.push(JSON.stringify(r.payload))
+        } catch {
+          /* ignore */
+        }
       }
       return parts.join(' ').toLowerCase()
     }
@@ -294,10 +317,7 @@ export function Activity() {
           </div>
         </div>
 
-        <Panel
-          title={panelTitle}
-          className="cropped"
-        >
+        <Panel title={panelTitle} className="cropped">
           {isLoading ? (
             <div className="label" style={{ padding: 14 }}>
               Loading…

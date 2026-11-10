@@ -175,10 +175,7 @@ export function PluginDetail() {
   // The plugin's own pages, as links back into the plugin area. Admin view
   // only (the whole detail is admin-gated), so every page is visible here.
   const pageEntries = useMemo(
-    () =>
-      plugin?.manifest
-        ? pluginPages({ id: plugin.id, manifest: plugin.manifest }, true)
-        : [],
+    () => (plugin?.manifest ? pluginPages({ id: plugin.id, manifest: plugin.manifest }, true) : []),
     [plugin],
   )
 
@@ -420,10 +417,7 @@ export function PluginDetail() {
         {pageEntries.length > 0 && (
           <Panel title="Pages">
             <div style={{ padding: 16 }}>
-              <PluginPagesNav
-                plugin={{ id: plugin.id, manifest: plugin.manifest! }}
-                isAdmin
-              />
+              <PluginPagesNav plugin={{ id: plugin.id, manifest: plugin.manifest! }} isAdmin />
             </div>
           </Panel>
         )}

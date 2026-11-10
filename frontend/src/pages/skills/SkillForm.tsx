@@ -230,11 +230,7 @@ export function SkillForm() {
               error={errors.tags?.message}
               hint="Comma-separated tags for filtering, e.g. review, security, go"
             >
-              <Input
-                id="tags"
-                placeholder="review, security, go"
-                {...register('tags')}
-              />
+              <Input id="tags" placeholder="review, security, go" {...register('tags')} />
             </Field>
           </div>
         </section>

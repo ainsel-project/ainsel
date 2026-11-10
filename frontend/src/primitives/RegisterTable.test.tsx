@@ -52,12 +52,7 @@ describe('RegisterTable', () => {
   it('skips the rowno column when withRowNumbers={false}', () => {
     const rows: Row[] = [{ id: 'a', name: 'alpha', status: 'ok' }]
     const { container } = render(
-      <RegisterTable
-        rows={rows}
-        columns={columns}
-        rowKey={(r) => r.id}
-        withRowNumbers={false}
-      />,
+      <RegisterTable rows={rows} columns={columns} rowKey={(r) => r.id} withRowNumbers={false} />,
     )
     expect(container.querySelector('.rowno')).toBeNull()
   })

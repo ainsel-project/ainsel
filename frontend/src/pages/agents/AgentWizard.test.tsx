@@ -73,10 +73,9 @@ function defaultFetch(url: string, init?: RequestInit): Response {
     )
   }
   if (method === 'POST' && url.includes('/agents')) {
-    return new Response(
-      JSON.stringify({ id: 'new-id', name: 'fresh', llm: { model: 'm' } }),
-      { status: 200 },
-    )
+    return new Response(JSON.stringify({ id: 'new-id', name: 'fresh', llm: { model: 'm' } }), {
+      status: 200,
+    })
   }
   return new Response('{}', { status: 200 })
 }
@@ -103,26 +102,20 @@ function postBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> 
 
 /** Select helpers wait for the query behind each picker to land first. */
 async function selectGroup(user: ReturnType<typeof userEvent.setup>) {
-  await waitFor(() =>
-    expect(screen.getByRole('option', { name: /Team A/i })).toBeInTheDocument(),
-  )
+  await waitFor(() => expect(screen.getByRole('option', { name: /Team A/i })).toBeInTheDocument())
   await user.selectOptions(screen.getByLabelText('Group'), 'g1')
 }
 
 async function selectImage(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() =>
-    expect(
-      screen.getByRole('option', { name: /Claude Tooling Base/i }),
-    ).toBeInTheDocument(),
+    expect(screen.getByRole('option', { name: /Claude Tooling Base/i })).toBeInTheDocument(),
   )
   await user.selectOptions(screen.getByLabelText(/runtime image/i), IMAGE_ID)
 }
 
 async function selectPersona(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() =>
-    expect(
-      screen.getByRole('option', { name: /test-persona/i }),
-    ).toBeInTheDocument(),
+    expect(screen.getByRole('option', { name: /test-persona/i })).toBeInTheDocument(),
   )
   await user.selectOptions(screen.getByLabelText(/^persona$/i), PERSONA_ID)
 }
@@ -159,9 +152,7 @@ describe('AgentWizard', () => {
   let fetchMock: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    fetchMock = vi.fn((url: string, init?: RequestInit) =>
-      Promise.resolve(defaultFetch(url, init)),
-    )
+    fetchMock = vi.fn((url: string, init?: RequestInit) => Promise.resolve(defaultFetch(url, init)))
     vi.stubGlobal('fetch', fetchMock)
   })
   afterEach(() => {
@@ -176,14 +167,13 @@ describe('AgentWizard', () => {
         .getAllByRole('button')
         .map((b) => b.textContent?.replace(/§\d+/, '').trim()),
     ).toEqual(['Identity', 'Runtime', 'Model', 'Persona', 'Review'])
-    expect(
-      within(steps).getByRole('button', { name: /identity/i }),
-    ).toHaveAttribute('aria-current', 'step')
+    expect(within(steps).getByRole('button', { name: /identity/i })).toHaveAttribute(
+      'aria-current',
+      'step',
+    )
     expect(screen.getByLabelText('Name')).toBeInTheDocument()
     // The visible step is exposed as a named region for screen readers.
-    expect(
-      screen.getByRole('region', { name: /step 1 of 5: identity/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /step 1 of 5: identity/i })).toBeInTheDocument()
   })
 
   it('blocks Next until the required identity fields are filled', async () => {
@@ -199,9 +189,7 @@ describe('AgentWizard', () => {
     await user.type(screen.getByLabelText('Name'), 'my-agent')
     await selectGroup(user)
     // Picking a group clears its error without another Next click.
-    await waitFor(() =>
-      expect(screen.queryByText(/group is required/i)).not.toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.queryByText(/group is required/i)).not.toBeInTheDocument())
     await user.click(next())
     expect(await screen.findByLabelText(/runtime image/i)).toBeInTheDocument()
   })
@@ -213,9 +201,7 @@ describe('AgentWizard', () => {
     await selectImage(user)
     expect(await screen.findByText(/this image brings/i)).toBeInTheDocument()
     expect(screen.getByText(/2 tools · 1 skills · 1 MCP servers · 1 env vars/)).toBeInTheDocument()
-    expect(
-      screen.getByText(/overridden per agent after creation/i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/overridden per agent after creation/i)).toBeInTheDocument()
   })
 
   it('validates the model step before letting the user move on', async () => {
@@ -227,13 +213,11 @@ describe('AgentWizard', () => {
     await user.click(screen.getByRole('button', { name: /^next$/i }))
 
     expect(await screen.findByText(/model is required/i)).toBeInTheDocument()
-    expect(
-      await screen.findByText(/url is required for custom providers/i),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/url is required for custom providers/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/^persona$/i)).not.toBeInTheDocument()
   })
 
-  it('creates the agent with every step\'s values in one POST', async () => {
+  it("creates the agent with every step's values in one POST", async () => {
     const user = userEvent.setup()
     renderWizard()
 
@@ -287,9 +271,7 @@ describe('AgentWizard', () => {
     await user.click(next())
 
     // The review step restates the choice before submitting.
-    expect(
-      await screen.findByText(/gpt-4-vision · ollama-cloud · images on/),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/gpt-4-vision · ollama-cloud · images on/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /create agent/i }))
 
@@ -343,9 +325,7 @@ describe('AgentWizard', () => {
     const user = userEvent.setup()
     renderWizard()
 
-    await user.click(
-      (await screen.findAllByRole('button', { name: /review/i }))[0],
-    )
+    await user.click((await screen.findAllByRole('button', { name: /review/i }))[0])
     expect(await screen.findByText(/name is required/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /create agent/i })).not.toBeInTheDocument()
   })

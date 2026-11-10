@@ -55,7 +55,11 @@ export function ConnectorRegister() {
       title={`Connector Register · ${String(data?.total ?? 0).padStart(2, '0')} entries`}
       className="cropped"
     >
-      {isLoading ? <div className="label" style={{ padding: 14 }}>Loading…</div> : null}
+      {isLoading ? (
+        <div className="label" style={{ padding: 14 }}>
+          Loading…
+        </div>
+      ) : null}
       {error ? (
         <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
           Failed to load connectors.

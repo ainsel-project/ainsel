@@ -50,19 +50,43 @@
   margin-top: 2px;
 }
 
-.journey-dot.ok { background: var(--signal); }
-.journey-dot.err { background: var(--err); }
-.journey-dot.warn { background: var(--warn); }
-.journey-dot.stale { background: var(--stale); }
-.journey-dot.default { background: var(--ink-4); }
-
-@keyframes journey-pulse {
-  0% { box-shadow: 0 0 0 1px var(--rule-soft), 0 0 0 0 var(--signal-glow); }
-  70% { box-shadow: 0 0 0 1px var(--rule-soft), 0 0 0 9px transparent; }
-  100% { box-shadow: 0 0 0 1px var(--rule-soft), 0 0 0 0 transparent; }
+.journey-dot.ok {
+  background: var(--signal);
+}
+.journey-dot.err {
+  background: var(--err);
+}
+.journey-dot.warn {
+  background: var(--warn);
+}
+.journey-dot.stale {
+  background: var(--stale);
+}
+.journey-dot.default {
+  background: var(--ink-4);
 }
 
-.journey-dot.pulse { animation: journey-pulse 1.6s ease-out infinite; }
+@keyframes journey-pulse {
+  0% {
+    box-shadow:
+      0 0 0 1px var(--rule-soft),
+      0 0 0 0 var(--signal-glow);
+  }
+  70% {
+    box-shadow:
+      0 0 0 1px var(--rule-soft),
+      0 0 0 9px transparent;
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px var(--rule-soft),
+      0 0 0 0 transparent;
+  }
+}
+
+.journey-dot.pulse {
+  animation: journey-pulse 1.6s ease-out infinite;
+}
 
 .journey-body {
   min-width: 0;
@@ -99,8 +123,13 @@ a.journey-channel:hover {
   flex: none;
 }
 
-.journey-channel .ch-mark.produced { background: var(--ink); }
-.journey-channel .ch-mark.direct { background: var(--ink-4); border-radius: var(--radius-pill); }
+.journey-channel .ch-mark.produced {
+  background: var(--ink);
+}
+.journey-channel .ch-mark.direct {
+  background: var(--ink-4);
+  border-radius: var(--radius-pill);
+}
 
 .journey-meta {
   font-size: 12px;

@@ -96,8 +96,7 @@ export function PersonaForm() {
       <Titleblock
         crumbs={
           <>
-            Library / <Link to="/personas">Personas</Link> /{' '}
-            <b>{isEdit ? 'Edit' : 'New'}</b>
+            Library / <Link to="/personas">Personas</Link> / <b>{isEdit ? 'Edit' : 'New'}</b>
           </>
         }
         title={
@@ -108,12 +107,7 @@ export function PersonaForm() {
         actions={
           <>
             <Button onClick={() => navigate(-1)}>Cancel</Button>
-            <Button
-              type="submit"
-              variant="primary"
-              form="persona-form"
-              disabled={isSubmitting}
-            >
+            <Button type="submit" variant="primary" form="persona-form" disabled={isSubmitting}>
               {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
             </Button>
           </>
@@ -149,18 +143,9 @@ export function PersonaForm() {
           </header>
           <div className="form-grid">
             <Field label="Name" htmlFor="name" error={errors.name?.message}>
-              <Input
-                id="name"
-                autoFocus
-                placeholder="code-reviewer"
-                {...register('name')}
-              />
+              <Input id="name" autoFocus placeholder="code-reviewer" {...register('name')} />
             </Field>
-            <Field
-              label="Description"
-              htmlFor="description"
-              error={errors.description?.message}
-            >
+            <Field label="Description" htmlFor="description" error={errors.description?.message}>
               <Input
                 id="description"
                 placeholder="What this persona is for"
@@ -182,11 +167,7 @@ export function PersonaForm() {
             <span className="idx">§02</span>
             <h3>Persona Text</h3>
           </header>
-          <Field
-            label="Persona text"
-            htmlFor="text"
-            error={errors.text?.message}
-          >
+          <Field label="Persona text" htmlFor="text" error={errors.text?.message}>
             <Textarea
               id="text"
               rows={20}

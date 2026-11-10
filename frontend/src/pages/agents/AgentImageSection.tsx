@@ -99,10 +99,7 @@ export function AgentImageSection({ agent }: AgentImageSectionProps) {
           agentEnvSlot={<AgentEnvSection agent={agent} />}
         />
       ) : (
-        <NoImagePanel
-          what="Image"
-          hint="No image linked yet — pick one above to configure it."
-        />
+        <NoImagePanel what="Image" hint="No image linked yet — pick one above to configure it." />
       )}
     </div>
   )
@@ -152,9 +149,7 @@ export function AgentMCPSection({ agent }: AgentImageSectionProps) {
       { id: agent.id, body: { name: agent.name, mcp: { servers: names } } },
       {
         onError: (err) =>
-          setSaveError(
-            err instanceof ApiError ? err.message : 'Failed to update MCP servers.',
-          ),
+          setSaveError(err instanceof ApiError ? err.message : 'Failed to update MCP servers.'),
       },
     )
   }
@@ -184,9 +179,7 @@ export function AgentMCPSection({ agent }: AgentImageSectionProps) {
               const missing = !envNameSet.has(tokenEnv)
               return (
                 <span style={{ color: missing ? 'var(--signal)' : undefined }}>
-                  {missing
-                    ? `⚠ $${tokenEnv} not in env`
-                    : `reads token from $${tokenEnv}`}
+                  {missing ? `⚠ $${tokenEnv} not in env` : `reads token from $${tokenEnv}`}
                 </span>
               )
             }}
@@ -199,8 +192,8 @@ export function AgentMCPSection({ agent }: AgentImageSectionProps) {
       </div>
       {agent.mcp ? null : (
         <p className="label" style={{ margin: '0 0 4px', color: 'var(--ink-3)' }}>
-          Currently inherited from the runtime image — the first change pins the
-          MCP selection to this agent.
+          Currently inherited from the runtime image — the first change pins the MCP selection to
+          this agent.
         </p>
       )}
       {saveError ? (
@@ -224,9 +217,7 @@ export function AgentSkillsSection({ agent }: AgentImageSectionProps) {
   const updateAgent = useUpdateAgent()
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  const effective = agent.skills
-    ? agent.skills.items
-    : (image.data?.enabledSkills ?? [])
+  const effective = agent.skills ? agent.skills.items : (image.data?.enabledSkills ?? [])
 
   const onChange = (items: string[]) => {
     setSaveError(null)
@@ -234,9 +225,7 @@ export function AgentSkillsSection({ agent }: AgentImageSectionProps) {
       { id: agent.id, body: { name: agent.name, skills: { items } } },
       {
         onError: (err) =>
-          setSaveError(
-            err instanceof ApiError ? err.message : 'Failed to update skills.',
-          ),
+          setSaveError(err instanceof ApiError ? err.message : 'Failed to update skills.'),
       },
     )
   }
@@ -258,14 +247,13 @@ export function AgentSkillsSection({ agent }: AgentImageSectionProps) {
         previewable
         labels={{
           enabledTitle: 'Enabled on this agent',
-          emptyLabel:
-            'No skills available. Create skills first to enable them on this agent.',
+          emptyLabel: 'No skills available. Create skills first to enable them on this agent.',
         }}
       />
       {agent.skills ? null : (
         <p className="label" style={{ margin: '0 0 4px', color: 'var(--ink-3)' }}>
-          Currently inherited from the runtime image — the first change pins the
-          skill selection to this agent.
+          Currently inherited from the runtime image — the first change pins the skill selection to
+          this agent.
         </p>
       )}
       {saveError ? (

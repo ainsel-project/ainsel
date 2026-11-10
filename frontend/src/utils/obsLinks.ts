@@ -9,13 +9,15 @@ function buildSearch(params: Record<string, string | undefined>): string {
   return s ? `?${s}` : ''
 }
 
-export function eventsLink(opts: {
-  filters?: EventFilter[]
-  status?: string
-  connector?: string
-  agent?: string
-  range?: string
-} = {}): string {
+export function eventsLink(
+  opts: {
+    filters?: EventFilter[]
+    status?: string
+    connector?: string
+    agent?: string
+    range?: string
+  } = {},
+): string {
   return `/observability/events${buildSearch({
     q: opts.filters?.length ? encodeEventFilters(opts.filters) : undefined,
     status: opts.status,
@@ -25,7 +27,9 @@ export function eventsLink(opts: {
   })}`
 }
 
-export function routingLink(opts: { agent?: string; trigger?: string; range?: string } = {}): string {
+export function routingLink(
+  opts: { agent?: string; trigger?: string; range?: string } = {},
+): string {
   return `/observability/routing${buildSearch({
     agent: opts.agent,
     trigger: opts.trigger,
@@ -33,7 +37,9 @@ export function routingLink(opts: { agent?: string; trigger?: string; range?: st
   })}`
 }
 
-export function errorsLink(opts: { severity?: string; source?: string; range?: string } = {}): string {
+export function errorsLink(
+  opts: { severity?: string; source?: string; range?: string } = {},
+): string {
   return `/observability/errors${buildSearch({ severity: opts.severity, source: opts.source, range: opts.range })}`
 }
 

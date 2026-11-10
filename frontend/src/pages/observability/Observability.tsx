@@ -40,11 +40,7 @@ const METRICS: TimeseriesParams['metric'][] = [
   'routing_errors',
 ]
 
-function deriveState(
-  isLoading: boolean,
-  error: unknown,
-  hasData: boolean,
-): SectionState {
+function deriveState(isLoading: boolean, error: unknown, hasData: boolean): SectionState {
   if (isLoading) return 'loading'
   if (error instanceof ServiceUnavailableError) return 'unavailable'
   if (error) return 'error'
@@ -81,11 +77,7 @@ export function Observability() {
   // pinned — so a missing Prometheus costs nothing here: the token tile and
   // table stay lit from the records. The paragraph below appears only when no
   // metrics source at all is configured.
-  const summaryState = deriveState(
-    summary.isLoading,
-    summary.error,
-    Boolean(summary.data),
-  )
+  const summaryState = deriveState(summary.isLoading, summary.error, Boolean(summary.data))
   const tokensUnavailable = tokensSummary.error instanceof ServiceUnavailableError
 
   const chartLoadingOrError =
@@ -148,9 +140,8 @@ export function Observability() {
               <SummaryCards summary={summary.data} tokens={tokensSummary.data} range={range} />
               {tokensUnavailable ? (
                 <p className="label" style={{ marginTop: 8 }}>
-                  Token usage needs a metrics source — the hub's own conversation
-                  rows, or the agent counters with Prometheus — so that tile stays
-                  empty without one.
+                  Token usage needs a metrics source — the hub's own conversation rows, or the agent
+                  counters with Prometheus — so that tile stays empty without one.
                 </p>
               ) : null}
             </>
@@ -158,9 +149,7 @@ export function Observability() {
             <Panel className="cropped">
               <SectionStatus
                 state={summaryState}
-                title={
-                  summaryState === 'unavailable' ? 'No metrics source configured' : undefined
-                }
+                title={summaryState === 'unavailable' ? 'No metrics source configured' : undefined}
                 detail={unavailableDetail(summary.error)}
                 onRetry={() => {
                   summary.refetch()

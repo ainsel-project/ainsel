@@ -2,7 +2,13 @@ import { act, render, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import { AuthProvider, useAuth } from './AuthProvider'
-import { ApiError, UnauthorizedError, request, setUnauthorizedHandler, setPasswordChangeRequiredHandler } from '../api/client'
+import {
+  ApiError,
+  UnauthorizedError,
+  request,
+  setUnauthorizedHandler,
+  setPasswordChangeRequiredHandler,
+} from '../api/client'
 import type { ResolvedConfig } from '../runtime-config'
 
 // react-oidc-context is mocked so OidcBridge can be driven with a precise
@@ -28,7 +34,10 @@ let mockOidc: {
 }
 
 vi.mock('react-oidc-context', () => ({
-  AuthProvider: ({ children, ...props }: { children: ReactNode }) => { providerProps = props; return <>{children}</> },
+  AuthProvider: ({ children, ...props }: { children: ReactNode }) => {
+    providerProps = props
+    return <>{children}</>
+  },
   useAuth: () => mockOidc,
 }))
 
@@ -214,7 +223,10 @@ describe('AuthProvider (local mode)', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         new Response(
-          JSON.stringify({ message: 'password change required', code: 'password_change_required' }),
+          JSON.stringify({
+            message: 'password change required',
+            code: 'password_change_required',
+          }),
           { status: 403 },
         ),
       ),
@@ -223,9 +235,9 @@ describe('AuthProvider (local mode)', () => {
     rerender()
     expect(result.current.user?.mustChangePassword).toBe(true)
     expect(result.current.token).toBe('local-tok')
-    expect(
-      JSON.parse(localStorage.getItem('ainsel.local.user') ?? '{}').mustChangePassword,
-    ).toBe(true)
+    expect(JSON.parse(localStorage.getItem('ainsel.local.user') ?? '{}').mustChangePassword).toBe(
+      true,
+    )
   })
 
   it('setMustChangePassword persists the flag for a reload', async () => {
@@ -261,7 +273,10 @@ describe('AuthProvider (oidc+local coexistence mode)', () => {
 
   function seedLocalSession(expiresAt = new Date(Date.now() + 60_000).toISOString()) {
     localStorage.setItem('ainsel.local.token', 'local-tok')
-    localStorage.setItem('ainsel.local.user', JSON.stringify({ sub: 'local:bob', username: 'bob', isAdmin: false }))
+    localStorage.setItem(
+      'ainsel.local.user',
+      JSON.stringify({ sub: 'local:bob', username: 'bob', isAdmin: false }),
+    )
     localStorage.setItem('ainsel.local.expiresAt', expiresAt)
   }
 
@@ -383,21 +398,39 @@ describe('AuthProvider (oidc+local coexistence mode)', () => {
 
 describe('OIDC provider configuration', () => {
   it('uses standard scopes without a vendor project ID', () => {
-    seedConfig({ authMode: 'oidc', oidcIssuer: 'https://idp.test/application/o/app/', oidcClientId: 'app' })
-    render(<Wrapper><span /></Wrapper>)
+    seedConfig({
+      authMode: 'oidc',
+      oidcIssuer: 'https://idp.test/application/o/app/',
+      oidcClientId: 'app',
+    })
+    render(
+      <Wrapper>
+        <span />
+      </Wrapper>,
+    )
     expect(providerProps.scope).toBe('openid profile email offline_access')
     expect(providerProps.authority).toBe('https://idp.test/application/o/app/')
   })
 
   it('uses explicitly configured provider scopes', () => {
     seedConfig({ ...OIDC_CFG, oidcScopes: 'openid email custom:audience' })
-    render(<Wrapper><span /></Wrapper>)
+    render(
+      <Wrapper>
+        <span />
+      </Wrapper>,
+    )
     expect(providerProps.scope).toBe('openid email custom:audience')
   })
 
   it('keeps legacy project scopes when explicitly supplied', () => {
     seedConfig(OIDC_CFG)
-    render(<Wrapper><span /></Wrapper>)
-    expect(providerProps.scope).toBe('openid profile email urn:zitadel:iam:org:project:id:test-project:aud')
+    render(
+      <Wrapper>
+        <span />
+      </Wrapper>,
+    )
+    expect(providerProps.scope).toBe(
+      'openid profile email urn:zitadel:iam:org:project:id:test-project:aud',
+    )
   })
 })

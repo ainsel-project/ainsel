@@ -5,12 +5,7 @@ import { TokenManager } from './TokenManager'
 import { tokenStatus } from './tokenStatus'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
-function makeToken(
-  id: string,
-  name: string,
-  createdAt: string,
-  revokedAt: string | null = null,
-) {
+function makeToken(id: string, name: string, createdAt: string, revokedAt: string | null = null) {
   return {
     id,
     name,
@@ -39,7 +34,10 @@ function defaultFetch(url: string): Response {
 
 describe('TokenManager', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
+    )
   })
 
   afterEach(() => {
@@ -122,9 +120,30 @@ describe('TokenManager', () => {
       vi.fn((url: string) => {
         if (url.includes('/user-tokens')) {
           const tokens = [
-            { id: 'tok-live', name: 'Live', createdAt: '2026-09-01T00:00:00Z', expiresAt: '2999-01-01T00:00:00Z', lastUsedAt: null, revokedAt: null },
-            { id: 'tok-old', name: 'Old', createdAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-31T00:00:00Z', lastUsedAt: null, revokedAt: null },
-            { id: 'tok-gone', name: 'Gone', createdAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-31T00:00:00Z', lastUsedAt: null, revokedAt: '2026-02-01T00:00:00Z' },
+            {
+              id: 'tok-live',
+              name: 'Live',
+              createdAt: '2026-09-01T00:00:00Z',
+              expiresAt: '2999-01-01T00:00:00Z',
+              lastUsedAt: null,
+              revokedAt: null,
+            },
+            {
+              id: 'tok-old',
+              name: 'Old',
+              createdAt: '2026-01-01T00:00:00Z',
+              expiresAt: '2026-01-31T00:00:00Z',
+              lastUsedAt: null,
+              revokedAt: null,
+            },
+            {
+              id: 'tok-gone',
+              name: 'Gone',
+              createdAt: '2026-01-01T00:00:00Z',
+              expiresAt: '2026-01-31T00:00:00Z',
+              lastUsedAt: null,
+              revokedAt: '2026-02-01T00:00:00Z',
+            },
           ]
           return Promise.resolve(new Response(JSON.stringify(tokens), { status: 200 }))
         }
@@ -146,8 +165,15 @@ describe('TokenManager', () => {
 
   it('tokenStatus derives label from expiry and revocation', () => {
     const now = new Date('2026-09-16T12:00:00Z')
-    expect(tokenStatus({ revokedAt: null, expiresAt: '2026-12-31T00:00:00Z' }, now).label).toBe('Active')
-    expect(tokenStatus({ revokedAt: null, expiresAt: '2026-01-31T00:00:00Z' }, now).label).toBe('Expired')
-    expect(tokenStatus({ revokedAt: '2026-02-01T00:00:00Z', expiresAt: '2026-01-31T00:00:00Z' }, now).label).toBe('Revoked')
+    expect(tokenStatus({ revokedAt: null, expiresAt: '2026-12-31T00:00:00Z' }, now).label).toBe(
+      'Active',
+    )
+    expect(tokenStatus({ revokedAt: null, expiresAt: '2026-01-31T00:00:00Z' }, now).label).toBe(
+      'Expired',
+    )
+    expect(
+      tokenStatus({ revokedAt: '2026-02-01T00:00:00Z', expiresAt: '2026-01-31T00:00:00Z' }, now)
+        .label,
+    ).toBe('Revoked')
   })
 })

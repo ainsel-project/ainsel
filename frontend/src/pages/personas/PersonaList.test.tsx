@@ -69,9 +69,7 @@ describe('PersonaList', () => {
 
   it('shows the New Persona header action', async () => {
     renderWithProviders(<PersonaList />, { route: '/personas' })
-    expect(
-      await screen.findByRole('button', { name: /new persona/i }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /new persona/i })).toBeInTheDocument()
   })
 
   it('shows empty state when no personas', async () => {

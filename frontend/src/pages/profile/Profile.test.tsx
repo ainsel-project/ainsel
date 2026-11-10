@@ -155,7 +155,7 @@ describe('Profile', () => {
   it('lists peat and tallow as theme options', async () => {
     renderWithProviders(<Profile />, { route: '/profile' })
     const select = screen.getByLabelText('Theme')
-    const options = Array.from(select.querySelectorAll('option')).map(o => o.value)
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.value)
     expect(options).toContain('peat')
     expect(options).toContain('tallow')
   })
@@ -243,9 +243,7 @@ describe('Profile', () => {
     await waitFor(() => expect(screen.getByText('kim')).toBeInTheDocument())
     await fillPasswordForm('secret123', 'short', 'short')
     await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'password must be at least 8 characters',
-      ),
+      expect(screen.getByRole('alert')).toHaveTextContent('password must be at least 8 characters'),
     )
   })
 
@@ -260,7 +258,9 @@ describe('Profile', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('New passwords do not match.'),
     )
     expect(
-      fetchMock.mock.calls.some(([url, init]) => url.includes('/auth/password') && init?.method === 'PUT'),
+      fetchMock.mock.calls.some(
+        ([url, init]) => url.includes('/auth/password') && init?.method === 'PUT',
+      ),
     ).toBe(false)
   })
 

@@ -5,8 +5,7 @@
 // produces the right shape.
 // Override with VITE_API_URL=<absolute-url> at build time when needed.
 const BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ??
-  `${import.meta.env.BASE_URL}api/v1`
+  (import.meta.env.VITE_API_URL as string | undefined) ?? `${import.meta.env.BASE_URL}api/v1`
 
 let authToken: string | null = null
 
@@ -159,10 +158,7 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
-export async function request<T = unknown>(
-  path: string,
-  options: RequestOptions = {},
-): Promise<T> {
+export async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, query, signal } = options
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (authToken) headers.Authorization = `Bearer ${authToken}`

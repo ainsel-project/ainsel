@@ -38,13 +38,7 @@ describe('DualListPicker — rendering', () => {
   })
 
   it('uses custom titles when provided', () => {
-    render(
-      <DualListPicker
-        {...baseProps}
-        availableTitle="Catalog"
-        enabledTitle="On this image"
-      />,
-    )
+    render(<DualListPicker {...baseProps} availableTitle="Catalog" enabledTitle="On this image" />)
     expect(screen.getByText(/Catalog \(2\)/)).toBeInTheDocument()
     expect(screen.getByText(/On this image \(1\)/)).toBeInTheDocument()
   })
@@ -59,12 +53,7 @@ describe('DualListPicker — rendering', () => {
 
   it('shows emptyLabel in the available pane when items is empty', () => {
     render(
-      <DualListPicker
-        {...baseProps}
-        items={[]}
-        selectedIds={[]}
-        emptyLabel="Nothing here yet."
-      />,
+      <DualListPicker {...baseProps} items={[]} selectedIds={[]} emptyLabel="Nothing here yet." />,
     )
     expect(screen.getByText('Nothing here yet.')).toBeInTheDocument()
   })

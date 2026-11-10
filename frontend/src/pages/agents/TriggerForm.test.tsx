@@ -8,7 +8,13 @@ function defaultFetch(url: string, init?: RequestInit): Response {
   if ((init?.method ?? 'GET') === 'GET' && url.includes('/groups')) {
     return new Response(
       JSON.stringify([
-        { id: 'g1', name: 'Team A', description: '', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+        {
+          id: 'g1',
+          name: 'Team A',
+          description: '',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
       ]),
       { status: 200 },
     )
@@ -98,7 +104,9 @@ describe('TriggerForm', () => {
     // Wait for connector to be selected; Autocomplete shows the connector name
     // as the visible input value, while the hidden input retains the id.
     await waitFor(() =>
-      expect((screen.getByLabelText('Source channel') as HTMLInputElement).value).toBe('insel-monorepo'),
+      expect((screen.getByLabelText('Source channel') as HTMLInputElement).value).toBe(
+        'insel-monorepo',
+      ),
     )
     expect((screen.getByTestId('hidden-connectorRef') as HTMLInputElement).value).toBe('c1')
   })
@@ -146,9 +154,7 @@ describe('TriggerForm', () => {
     // The Select should show 'not-contains', not fall back to 'eq'
     const selects = screen.getAllByRole('combobox')
     // The filter-row select is the one inside the filter row (not the connector Autocomplete)
-    const filterSelect = selects.find(
-      (s) => (s as HTMLSelectElement).value === 'not-contains',
-    )
+    const filterSelect = selects.find((s) => (s as HTMLSelectElement).value === 'not-contains')
     expect(filterSelect).toBeDefined()
   })
 
@@ -181,9 +187,7 @@ describe('TriggerForm', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const onSaved = vi.fn()
-    renderWithProviders(
-      <TriggerForm agentId="doc-writer" onClose={() => {}} onSaved={onSaved} />,
-    )
+    renderWithProviders(<TriggerForm agentId="doc-writer" onClose={() => {}} onSaved={onSaved} />)
     await userEvent.type(screen.getByLabelText('Name'), 'test-trigger')
     const connectorInput = screen.getByLabelText('Source channel')
     await userEvent.click(connectorInput)

@@ -52,7 +52,12 @@ function CreateTokenModal({
 
   if (!open) return null
   return createPortal(
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-token-dialog-title">
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-token-dialog-title"
+    >
       <div className="modal-box">
         <h3 id="create-token-dialog-title">New MCP Token</h3>
         <div className="modal-body" style={{ display: 'grid', gap: 16 }}>
@@ -101,16 +106,15 @@ function CreateTokenModal({
   )
 }
 
-function NewTokenDisplay({
-  token,
-  onClose,
-}: {
-  token: CreatedToken | null
-  onClose: () => void
-}) {
+function NewTokenDisplay({ token, onClose }: { token: CreatedToken | null; onClose: () => void }) {
   if (token === null) return null
   return createPortal(
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-token-display-title">
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="new-token-display-title"
+    >
       <div className="modal-box">
         <h3 id="new-token-display-title">Token Created</h3>
         <div className="modal-body" style={{ display: 'grid', gap: 12 }}>
@@ -236,9 +240,7 @@ export function TokenManager() {
                       {tok.lastUsedAt ? new Date(tok.lastUsedAt).toLocaleDateString() : '—'}
                     </td>
                     <td style={{ padding: '8px 16px' }}>
-                      <span className={tokenStatus(tok).className}>
-                        {tokenStatus(tok).label}
-                      </span>
+                      <span className={tokenStatus(tok).className}>{tokenStatus(tok).label}</span>
                     </td>
                     <td style={{ padding: '8px 16px', textAlign: 'right' }}>
                       {!tok.revokedAt && (
@@ -272,7 +274,11 @@ export function TokenManager() {
         )}
       </Panel>
 
-      <CreateTokenModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
+      <CreateTokenModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={handleCreated}
+      />
 
       <NewTokenDisplay token={newToken} onClose={() => setNewToken(null)} />
 

@@ -1,0 +1,9 @@
+# Design guard tests read this file's source text and pattern-match it —
+# src/design/tokens.guard.test.ts finds each theme with
+# /html\[data-theme="([^"]+)"\]/. Prettier formats CSS with single quotes
+# (singleQuote: true), which turns those selectors into
+# html[data-theme='dark'] and the guards then match nothing, so 29 assertions
+# in tokens.guard / themeContrast / spineContrast / codeSurfaces go red.
+# Formatted CSS and source-shape guards cannot both hold here; the guards win.
+# Making those matchers quote-agnostic is what would lift this exclusion.
+src/design/tokens.css

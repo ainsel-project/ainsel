@@ -49,19 +49,66 @@ export function EventsDetail() {
   const filterAgent = params.get('agent') ?? ''
 
   const setRange = (next: Range) =>
-    setParams((prev) => { const p = new URLSearchParams(prev); p.set('range', next); p.delete('page'); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('range', next)
+        p.delete('page')
+        return p
+      },
+      { replace: true },
+    )
 
   const setStatus = (v: string) =>
-    setParams((prev) => { const p = new URLSearchParams(prev); if (v) { p.set('status', v) } else { p.delete('status') } p.delete('page'); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        if (v) {
+          p.set('status', v)
+        } else {
+          p.delete('status')
+        }
+        p.delete('page')
+        return p
+      },
+      { replace: true },
+    )
 
   const setConnector = (v: string) =>
-    setParams((prev) => { const p = new URLSearchParams(prev); if (v) { p.set('connector', v) } else { p.delete('connector') } p.delete('page'); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        if (v) {
+          p.set('connector', v)
+        } else {
+          p.delete('connector')
+        }
+        p.delete('page')
+        return p
+      },
+      { replace: true },
+    )
 
   const clearAgent = () =>
-    setParams((prev) => { const p = new URLSearchParams(prev); p.delete('agent'); p.delete('page'); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.delete('agent')
+        p.delete('page')
+        return p
+      },
+      { replace: true },
+    )
 
   const setPage = (n: number) =>
-    setParams((prev) => { const p = new URLSearchParams(prev); p.set('page', String(n)); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('page', String(n))
+        return p
+      },
+      { replace: true },
+    )
 
   const { data, isLoading, error } = useRecentEvents(500)
   const { connectorNameById } = useConnectorNames()
@@ -76,9 +123,9 @@ export function EventsDetail() {
   }, [data, connectorNameById])
 
   const filtered: ActivityEntry[] = useMemo(() => {
-    const rows = (data ?? []).slice().sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    )
+    const rows = (data ?? [])
+      .slice()
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     return rows.filter((r) => {
       if (filterStatus && r.status !== (filterStatus as ActivityStatus)) return false
       if (filterConnector && r.connector !== filterConnector) return false
@@ -106,15 +153,21 @@ export function EventsDetail() {
   const toggleExpanded = (id: string) =>
     setExpandedIds((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
       return next
     })
 
-  const chartState =
-    timeseries.isLoading ? 'loading'
-    : timeseries.error instanceof ServiceUnavailableError ? 'unavailable'
-    : timeseries.error ? 'error'
-    : 'ready'
+  const chartState = timeseries.isLoading
+    ? 'loading'
+    : timeseries.error instanceof ServiceUnavailableError
+      ? 'unavailable'
+      : timeseries.error
+        ? 'error'
+        : 'ready'
 
   const chartSeries = useMemo(
     () => [{ name: 'events_consumed', points: timeseries.data?.points ?? [] }],
@@ -129,7 +182,11 @@ export function EventsDetail() {
             Operations / <Link to="/observability">Observability</Link> / <b>Events</b>
           </>
         }
-        title={<>Events <em>Detail</em></>}
+        title={
+          <>
+            Events <em>Detail</em>
+          </>
+        }
         actions={<RangeSelector value={range} onChange={setRange} />}
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
@@ -157,8 +214,12 @@ export function EventsDetail() {
               <div className="field">
                 <span className="label">Agent</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className="label" style={{ fontWeight: 600 }}>{filterAgent}</span>
-                  <button type="button" className="remove" onClick={clearAgent}>×</button>
+                  <span className="label" style={{ fontWeight: 600 }}>
+                    {filterAgent}
+                  </span>
+                  <button type="button" className="remove" onClick={clearAgent}>
+                    ×
+                  </button>
                 </div>
               </div>
             ) : null}
@@ -189,7 +250,9 @@ export function EventsDetail() {
             className="cropped"
           >
             {isLoading ? (
-              <div className="label" style={{ padding: 14 }}>Loading…</div>
+              <div className="label" style={{ padding: 14 }}>
+                Loading…
+              </div>
             ) : error ? (
               <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
                 Failed to load events.
@@ -217,7 +280,9 @@ export function EventsDetail() {
                         <ActivityRow
                           key={e.id}
                           entry={e}
-                          connectorName={e.connector ? connectorNameById.get(e.connector) : undefined}
+                          connectorName={
+                            e.connector ? connectorNameById.get(e.connector) : undefined
+                          }
                           expanded={expandedIds.has(e.id)}
                           onToggle={() => toggleExpanded(e.id)}
                           tokens={tokensMap.get(e.id) ?? 0}

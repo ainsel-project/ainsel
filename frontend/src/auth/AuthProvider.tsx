@@ -1,14 +1,11 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { AuthProvider as OidcProvider, useAuth as useOidcAuth } from 'react-oidc-context'
 import { WebStorageStateStore } from 'oidc-client-ts'
-import { setAuthToken, setUnauthorizedHandler, setPasswordChangeRequiredHandler } from '../api/client'
+import {
+  setAuthToken,
+  setUnauthorizedHandler,
+  setPasswordChangeRequiredHandler,
+} from '../api/client'
 import { login as apiLogin } from '../api/auth'
 import { runtimeConfig, type AuthMode, type ResolvedConfig } from '../runtime-config'
 
@@ -194,9 +191,11 @@ function oidcProviderConfig(cfg: ResolvedConfig) {
     redirect_uri: `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, '')}/auth/callback`,
     post_logout_redirect_uri: `${window.location.origin}${import.meta.env.BASE_URL}`,
     response_type: 'code',
-    scope: cfg.oidcScopes || (cfg.oidcProjectId
-      ? `openid profile email urn:zitadel:iam:org:project:id:${cfg.oidcProjectId}:aud`
-      : 'openid profile email offline_access'),
+    scope:
+      cfg.oidcScopes ||
+      (cfg.oidcProjectId
+        ? `openid profile email urn:zitadel:iam:org:project:id:${cfg.oidcProjectId}:aud`
+        : 'openid profile email offline_access'),
     loadUserInfo: true,
     userStore: new WebStorageStateStore({ store: window.localStorage }),
     automaticSilentRenew: true,
@@ -303,8 +302,12 @@ function OidcBridge({ children }: { children: ReactNode }) {
 // browser would produce confusing /auth/me results and mixed-origin calls.
 function OidcLocalBridge({ children }: { children: ReactNode }) {
   const oidc = useOidcAuth()
-  const { session, loginLocal, logoutLocal, setMustChangePassword: setLocalMustChange } =
-    useLocalSession()
+  const {
+    session,
+    loginLocal,
+    logoutLocal,
+    setMustChangePassword: setLocalMustChange,
+  } = useLocalSession()
 
   // Same expired-user rule as OidcBridge: an expired stored user still
   // exposes its dead access token and must count as unauthenticated.
@@ -417,7 +420,17 @@ function OidcLocalBridge({ children }: { children: ReactNode }) {
       signinRedirect,
       signoutRedirect: logout,
     }),
-    [oidc, token, user, session, activeMethod, login, logout, setMustChangePassword, signinRedirect],
+    [
+      oidc,
+      token,
+      user,
+      session,
+      activeMethod,
+      login,
+      logout,
+      setMustChangePassword,
+      signinRedirect,
+    ],
   )
 
   return <AuthCtx.Provider value={state}>{children}</AuthCtx.Provider>

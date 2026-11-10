@@ -14,8 +14,19 @@ import { PluginSlot } from './PluginSlot'
 import { PluginPage } from './PluginPage'
 import type { ActivePlugin } from './registry'
 
-const fixtureDir = join(process.cwd(), '..', 'services', 'hub', 'internal', 'plugintest', 'hello', 'static')
-const manifest = JSON.parse(readFileSync(join(fixtureDir, 'ainsel-plugin.json'), 'utf-8')) as PluginManifest
+const fixtureDir = join(
+  process.cwd(),
+  '..',
+  'services',
+  'hub',
+  'internal',
+  'plugintest',
+  'hello',
+  'static',
+)
+const manifest = JSON.parse(
+  readFileSync(join(fixtureDir, 'ainsel-plugin.json'), 'utf-8'),
+) as PluginManifest
 
 // The module's bare imports must resolve to the console's packages, as the
 // import map makes them in the browser; vite resolves bare imports relative to
@@ -62,7 +73,10 @@ describe('fixture plugin in the console', () => {
   })
 
   it('renders the agent.panel slot with the slot props', async () => {
-    renderAt('/', <PluginSlot plugins={[plugin]} slot="agent.panel" props={{ agentName: 'reviewer' }} />)
+    renderAt(
+      '/',
+      <PluginSlot plugins={[plugin]} slot="agent.panel" props={{ agentName: 'reviewer' }} />,
+    )
     expect(await screen.findByText('Hello agent reviewer')).toBeInTheDocument()
   })
 

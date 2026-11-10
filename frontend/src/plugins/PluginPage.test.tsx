@@ -28,16 +28,21 @@ function mockHub(plugins: unknown[], isAdmin = false) {
   mockQueryFetch.mockImplementation((url: string) => {
     if (url.includes('plugin-context')) {
       return Promise.resolve(
-        new Response(
-          JSON.stringify({ isAdmin, sub: 'user-1', username: 'testuser', groups: [] }),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify({ isAdmin, sub: 'user-1', username: 'testuser', groups: [] }), {
+          status: 200,
+        }),
       )
     }
     if (url.includes('/plugins')) {
       return Promise.resolve(
         new Response(
-          JSON.stringify({ items: plugins, total: plugins.length, page: 1, pageSize: 200, totalPages: 1 }),
+          JSON.stringify({
+            items: plugins,
+            total: plugins.length,
+            page: 1,
+            pageSize: 200,
+            totalPages: 1,
+          }),
           { status: 200 },
         ),
       )
@@ -96,9 +101,12 @@ describe('PluginPage', () => {
 
     renderPluginPage('/p/unknown-plugin')
 
-    await waitFor(() => {
-      expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    }, { timeout: 3000 })
+    await waitFor(
+      () => {
+        expect(screen.getByText('Dashboard')).toBeInTheDocument()
+      },
+      { timeout: 3000 },
+    )
   })
 
   it('redirects to dashboard when page is not found', async () => {
@@ -106,9 +114,12 @@ describe('PluginPage', () => {
 
     renderPluginPage('/p/mem0/unknown-page')
 
-    await waitFor(() => {
-      expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    }, { timeout: 3000 })
+    await waitFor(
+      () => {
+        expect(screen.getByText('Dashboard')).toBeInTheDocument()
+      },
+      { timeout: 3000 },
+    )
   })
 
   it('redirects to dashboard when admin page accessed by non-admin', async () => {
@@ -116,8 +127,11 @@ describe('PluginPage', () => {
 
     renderPluginPage('/p/mem0/admin')
 
-    await waitFor(() => {
-      expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    }, { timeout: 3000 })
+    await waitFor(
+      () => {
+        expect(screen.getByText('Dashboard')).toBeInTheDocument()
+      },
+      { timeout: 3000 },
+    )
   })
 })

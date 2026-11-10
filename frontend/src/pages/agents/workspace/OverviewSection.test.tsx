@@ -118,7 +118,11 @@ describe('OverviewSection', () => {
       { id: 'i3', status: 'failure' },
       { id: 'i4', status: 'timeout' },
       // Hub-provided derived state wins over the raw status.
-      { id: 'i5', status: 'running', task: { status: 'pending', attempts: 0, runState: 'running' } },
+      {
+        id: 'i5',
+        status: 'running',
+        task: { status: 'pending', attempts: 0, runState: 'running' },
+      },
       // Pre-#422 fallback: claimed task with no runState still reads as running.
       { id: 'i6', status: 'running', task: { status: 'claimed', attempts: 0 } },
       { id: 'i7', status: 'queued', task: { status: 'pending', attempts: 0 } },

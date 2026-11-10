@@ -52,11 +52,7 @@ describe('PluginSlot', () => {
     ]
 
     const result = renderPluginSlot(
-      <PluginSlot
-        plugins={plugins}
-        slot="agent.panel"
-        props={{ agentName: 'test-agent' }}
-      />,
+      <PluginSlot plugins={plugins} slot="agent.panel" props={{ agentName: 'test-agent' }} />,
     )
 
     // Should render null (no wrapper element)
@@ -75,11 +71,7 @@ describe('PluginSlot', () => {
     vi.spyOn(loaderModule, 'loadPluginModule').mockImplementation(mockImporter)
 
     renderPluginSlot(
-      <PluginSlot
-        plugins={plugins}
-        slot="agent.panel"
-        props={{ agentName: 'test-agent' }}
-      />,
+      <PluginSlot plugins={plugins} slot="agent.panel" props={{ agentName: 'test-agent' }} />,
     )
 
     // Loading text should be visible

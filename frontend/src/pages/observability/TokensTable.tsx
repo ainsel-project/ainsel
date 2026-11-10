@@ -100,10 +100,7 @@ const columns: readonly Column<TokensSubjectRow>[] = [
 ]
 
 export function TokensTable({ rows }: TokensTableProps) {
-  const sorted = useMemo(
-    () => [...rows].sort((a, b) => b.totalTokens - a.totalTokens),
-    [rows],
-  )
+  const sorted = useMemo(() => [...rows].sort((a, b) => b.totalTokens - a.totalTokens), [rows])
   return (
     <RegisterTable
       rows={sorted}

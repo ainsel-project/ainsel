@@ -48,7 +48,9 @@
   font-size: 11px;
   background: var(--paper);
   color: var(--ink);
-  border: 1px solid var(--rule-soft); border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   padding: 6px 8px;
   outline: none;
   margin-bottom: 0.75rem;
@@ -97,7 +99,9 @@
   text-decoration: none;
   padding: 5px 8px;
   border-bottom: 1px solid var(--rule-ghost);
-  transition: color 0.1s, background 0.1s;
+  transition:
+    color 0.1s,
+    background 0.1s;
 }
 
 .docs-nav a:hover {
@@ -160,7 +164,9 @@
   text-decoration: none;
   padding: 8px 12px;
   border: 1px solid var(--rule-soft);
-  transition: border-color 0.1s, background 0.1s;
+  transition:
+    border-color 0.1s,
+    background 0.1s;
 }
 
 .docs-prev-next-link:hover {

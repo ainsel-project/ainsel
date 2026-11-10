@@ -91,11 +91,7 @@ export function chartUnit(source?: MetricsSource, step?: string): string {
   return 'events / period'
 }
 
-export type MetricName =
-  | 'events_consumed'
-  | 'triggers_matched'
-  | 'events_routed'
-  | 'routing_errors'
+export type MetricName = 'events_consumed' | 'triggers_matched' | 'events_routed' | 'routing_errors'
 
 export type TimeseriesParams = {
   range: Range

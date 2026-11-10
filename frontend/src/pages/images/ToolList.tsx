@@ -46,7 +46,15 @@ function SectionHeader({ label, on, total }: { label: string; on: number; total:
   )
 }
 
-export function ToolList({ tools, activeSource, selectedIndex, onSelect, onToggle, onToggleAll, onAdd }: Props) {
+export function ToolList({
+  tools,
+  activeSource,
+  selectedIndex,
+  onSelect,
+  onToggle,
+  onToggleAll,
+  onAdd,
+}: Props) {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -85,11 +93,7 @@ export function ToolList({ tools, activeSource, selectedIndex, onSelect, onToggl
 
   const enabledInSource = sourceTools.filter(({ t }) => t.enabled).length
   const headerLabel =
-    activeSource === 'all'
-      ? 'All Tools'
-      : activeSource === 'native'
-        ? 'Native'
-        : activeSource
+    activeSource === 'all' ? 'All Tools' : activeSource === 'native' ? 'Native' : activeSource
 
   return (
     <div className="md-left">
@@ -106,7 +110,12 @@ export function ToolList({ tools, activeSource, selectedIndex, onSelect, onToggl
             <button
               type="button"
               className="tool-bulk-btn"
-              onClick={() => onToggleAll(sourceTools.map(({ i }) => i), true)}
+              onClick={() =>
+                onToggleAll(
+                  sourceTools.map(({ i }) => i),
+                  true,
+                )
+              }
               aria-label="all on"
             >
               All on
@@ -114,14 +123,19 @@ export function ToolList({ tools, activeSource, selectedIndex, onSelect, onToggl
             <button
               type="button"
               className="tool-bulk-btn off"
-              onClick={() => onToggleAll(sourceTools.map(({ i }) => i), false)}
+              onClick={() =>
+                onToggleAll(
+                  sourceTools.map(({ i }) => i),
+                  false,
+                )
+              }
               aria-label="all off"
             >
               All off
             </button>
           </>
         ) : null}
-        {(activeSource === 'all' || activeSource === 'native') ? (
+        {activeSource === 'all' || activeSource === 'native' ? (
           <button type="button" className="btn btn-sm btn-primary" onClick={onAdd}>
             ＋ Add
           </button>
@@ -160,7 +174,11 @@ export function ToolList({ tools, activeSource, selectedIndex, onSelect, onToggl
                     key={i}
                     role="button"
                     tabIndex={0}
-                    className={i === selectedIndex ? 'tool-row active' : `tool-row${!t.enabled ? ' tool-row-off' : ''}`}
+                    className={
+                      i === selectedIndex
+                        ? 'tool-row active'
+                        : `tool-row${!t.enabled ? ' tool-row-off' : ''}`
+                    }
                     onClick={() => onSelect(i)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -190,7 +208,8 @@ export function ToolList({ tools, activeSource, selectedIndex, onSelect, onToggl
                         {t.isNew ? <span className="tool-new-badge">new</span> : null}
                       </div>
                       <div className="tool-meta">
-                        {t.kind}{!t.enabled ? ' · off' : ''}
+                        {t.kind}
+                        {!t.enabled ? ' · off' : ''}
                       </div>
                     </div>
                   </div>

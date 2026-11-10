@@ -119,15 +119,7 @@ function ChangePasswordPanel() {
   )
 }
 
-function Row({
-  label,
-  value,
-  action,
-}: {
-  label: string
-  value: string
-  action?: React.ReactNode
-}) {
+function Row({ label, value, action }: { label: string; value: string; action?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
       <span className="label">{label}</span>

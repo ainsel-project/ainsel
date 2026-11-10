@@ -33,9 +33,7 @@ describe('api/conversations', () => {
   })
 
   it('returns [] when the envelope has no messages', async () => {
-    mockFetch().mockResolvedValue(
-      new Response(JSON.stringify({ total: 0 }), { status: 200 }),
-    )
+    mockFetch().mockResolvedValue(new Response(JSON.stringify({ total: 0 }), { status: 200 }))
     const result = await listConversations({ invocation: 'inv-1' })
     expect(result).toEqual({ messages: [], total: 0 })
   })

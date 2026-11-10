@@ -10,7 +10,13 @@ function defaultFetch(url: string, init?: RequestInit): Response {
   if (url.match(/\/api\/v1\/groups(\?|$)/) && method === 'GET') {
     return new Response(
       JSON.stringify([
-        { id: 'g1', name: 'Team A', description: '', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+        {
+          id: 'g1',
+          name: 'Team A',
+          description: '',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
       ]),
       { status: 200 },
     )
@@ -50,9 +56,7 @@ describe('PersonaForm', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string, init?: RequestInit) =>
-        Promise.resolve(defaultFetch(url, init)),
-      ),
+      vi.fn((url: string, init?: RequestInit) => Promise.resolve(defaultFetch(url, init))),
     )
   })
   afterEach(() => {
@@ -71,9 +75,7 @@ describe('PersonaForm', () => {
     await userEvent.type(screen.getByLabelText(/persona text/i), 'Help with docs.')
     await userEvent.selectOptions(await screen.findByLabelText('Group'), 'g1')
     await userEvent.click(screen.getByRole('button', { name: /create/i }))
-    await waitFor(() =>
-      expect(screen.getByText('DETAIL:01HXNEW')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText('DETAIL:01HXNEW')).toBeInTheDocument())
   })
 
   it('loads existing persona in edit mode', async () => {
@@ -84,9 +86,7 @@ describe('PersonaForm', () => {
       { route: '/personas/01HX1/edit' },
     )
     await waitFor(() =>
-      expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe(
-        'code-reviewer',
-      ),
+      expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('code-reviewer'),
     )
   })
 

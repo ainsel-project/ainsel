@@ -57,9 +57,7 @@ export function LogStream({ range }: LogStreamProps) {
 
   const agentOptions = useMemo(
     () =>
-      Array.from(
-        new Set(rows.map((r) => r.agent).filter((v): v is string => !!v)),
-      )
+      Array.from(new Set(rows.map((r) => r.agent).filter((v): v is string => !!v)))
         .sort()
         .map((v) => {
           const label = rows.find((r) => r.agent === v)?.agentName ?? v
@@ -69,10 +67,7 @@ export function LogStream({ range }: LogStreamProps) {
   )
 
   const filtered: LogEntry[] = useMemo(
-    () =>
-      filterLevel
-        ? rows.filter((r) => r.level === filterLevel)
-        : rows,
+    () => (filterLevel ? rows.filter((r) => r.level === filterLevel) : rows),
     [rows, filterLevel],
   )
 
@@ -91,10 +86,7 @@ export function LogStream({ range }: LogStreamProps) {
       }
       className="cropped"
     >
-      <div
-        className="toolbar"
-        style={{ borderBottom: 0, padding: '10px 14px 14px' }}
-      >
+      <div className="toolbar" style={{ borderBottom: 0, padding: '10px 14px 14px' }}>
         <div className="field">
           <span className="label">Agent</span>
           <Select

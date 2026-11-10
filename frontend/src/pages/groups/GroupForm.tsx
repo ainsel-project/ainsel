@@ -3,11 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import {
-  useGroup,
-  useCreateGroup,
-  useUpdateGroup,
-} from '../../api/groups'
+import { useGroup, useCreateGroup, useUpdateGroup } from '../../api/groups'
 import { ApiError } from '../../api/client'
 import { Button } from '../../primitives/Button'
 import { Field } from '../../primitives/Field'

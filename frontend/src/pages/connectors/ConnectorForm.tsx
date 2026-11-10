@@ -202,9 +202,7 @@ export function ConnectorForm() {
                 </span>
                 <Button
                   size="sm"
-                  onClick={() =>
-                    created.webhookSecretValue && copy(created.webhookSecretValue)
-                  }
+                  onClick={() => created.webhookSecretValue && copy(created.webhookSecretValue)}
                 >
                   ⧉ Copy
                 </Button>
@@ -235,8 +233,7 @@ export function ConnectorForm() {
       <Titleblock
         crumbs={
           <>
-            Admin / <Link to="/connectors">Connectors</Link> /{' '}
-            <b>{isEdit ? 'Edit' : 'New'}</b>
+            Admin / <Link to="/connectors">Connectors</Link> / <b>{isEdit ? 'Edit' : 'New'}</b>
           </>
         }
         title={
@@ -247,12 +244,7 @@ export function ConnectorForm() {
         actions={
           <>
             <Button onClick={() => navigate(-1)}>Cancel</Button>
-            <Button
-              type="submit"
-              variant="primary"
-              form="connector-form"
-              disabled={isSubmitting}
-            >
+            <Button type="submit" variant="primary" form="connector-form" disabled={isSubmitting}>
               {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
             </Button>
           </>
@@ -310,9 +302,7 @@ export function ConnectorForm() {
               <Select
                 id="signatureHeaderPreset"
                 value={signatureHeaderPreset}
-                onChange={(v) =>
-                  setValue('signatureHeaderPreset', v, { shouldValidate: true })
-                }
+                onChange={(v) => setValue('signatureHeaderPreset', v, { shouldValidate: true })}
                 options={PRESET_OPTIONS}
               />
               <input type="hidden" {...register('signatureHeaderPreset')} />

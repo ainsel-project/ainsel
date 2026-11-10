@@ -67,8 +67,7 @@ export function useCreateTrigger() {
 export function useUpdateTrigger() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: TriggerRequest }) =>
-      updateTrigger(id, body),
+    mutationFn: ({ id, body }: { id: string; body: TriggerRequest }) => updateTrigger(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['triggers'] }),
   })
 }

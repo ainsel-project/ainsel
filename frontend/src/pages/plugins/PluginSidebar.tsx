@@ -24,8 +24,7 @@ export function PluginSidebar({ selectedId }: PluginSidebarProps) {
 
   const needle = query.trim().toLowerCase()
   const plugins = activePlugins(data ?? []).filter(
-    (p) =>
-      p.displayName.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle),
+    (p) => p.displayName.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle),
   )
 
   return (

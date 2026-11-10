@@ -30,17 +30,21 @@ export function TokensDetail() {
   const range: Range = isRange(params.get('range')) ? (params.get('range') as Range) : '24h'
 
   const setRange = (next: Range) =>
-    setParams((prev) => { const p = new URLSearchParams(prev); p.set('range', next); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('range', next)
+        return p
+      },
+      { replace: true },
+    )
 
   const allTime = useTokensLedger()
   const bySubject = useTokensBySubject(range)
   // Side list decides which rows are linkable: an agent that was deleted (or
   // is not readable by this caller) renders plain text, not a 404.
   const { data: agentData } = useAgents({ pageSize: 200 })
-  const agentIds = useMemo(
-    () => new Set((agentData?.items ?? []).map((a) => a.id)),
-    [agentData],
-  )
+  const agentIds = useMemo(() => new Set((agentData?.items ?? []).map((a) => a.id)), [agentData])
 
   const rows: TokensSubjectRow[] = useMemo(
     () => [...(bySubject.data?.rows ?? [])].sort((a, b) => b.totalTokens - a.totalTokens),
@@ -58,7 +62,14 @@ export function TokensDetail() {
     // state is unknown and the legacy rendering stays.
     const anyCostFlag = rows.some((r) => r.costReported !== undefined)
     const costReported = rows.some((r) => r.costReported === true)
-    return { input, output, cacheRead, cacheWrite, costUsd, costNotReported: anyCostFlag && !costReported }
+    return {
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      costUsd,
+      costNotReported: anyCostFlag && !costReported,
+    }
   }, [rows])
 
   const columns: readonly Column<TokensSubjectRow>[] = [
@@ -68,7 +79,12 @@ export function TokensDetail() {
       cell: (r) => (
         <>
           <b>{r.repo || '—'}</b>
-          {r.eventType ? <> <Tag>{r.eventType}</Tag></> : null}
+          {r.eventType ? (
+            <>
+              {' '}
+              <Tag>{r.eventType}</Tag>
+            </>
+          ) : null}
         </>
       ),
     },
@@ -76,9 +92,7 @@ export function TokensDetail() {
       key: 'agent',
       header: 'Agent',
       width: 160,
-      cell: (r) => (
-        <EntityLink id={r.agentId} known={agentIds} label={r.agent} path={agentPath} />
-      ),
+      cell: (r) => <EntityLink id={r.agentId} known={agentIds} label={r.agent} path={agentPath} />,
     },
     {
       key: 'model',
@@ -186,7 +200,11 @@ export function TokensDetail() {
             Operations / <Link to="/observability">Observability</Link> / <b>Tokens</b>
           </>
         }
-        title={<>Token <em>Detail</em></>}
+        title={
+          <>
+            Token <em>Detail</em>
+          </>
+        }
         actions={<RangeSelector value={range} onChange={setRange} />}
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
@@ -223,9 +241,7 @@ export function TokensDetail() {
 
         <Panel
           title={`By Agent · ${range}`}
-          right={
-            <span className="label">{metricsSourceLabel(bySubject.data?.source) ?? ''}</span>
-          }
+          right={<span className="label">{metricsSourceLabel(bySubject.data?.source) ?? ''}</span>}
           className="cropped"
         >
           {bySubject.isLoading ? (

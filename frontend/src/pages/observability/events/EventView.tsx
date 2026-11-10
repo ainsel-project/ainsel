@@ -84,10 +84,7 @@ function transcriptEmptyState(invocation: InvocationEntry): string {
 
 function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
   const { data: agentData } = useAgents({ pageSize: 200 })
-  const agentIds = useMemo(
-    () => new Set((agentData?.items ?? []).map((a) => a.id)),
-    [agentData],
-  )
+  const agentIds = useMemo(() => new Set((agentData?.items ?? []).map((a) => a.id)), [agentData])
   const conversations = useConversations(
     { invocation: invocation.id },
     // Keep polling the transcript while the invocation runs so the
@@ -136,7 +133,10 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
           {/* The derived run state: a task with no worker yet reads queued
               (never running), a live per-task Job run reads running (never
               queued), and a row with nothing behind it reads unknown. */}
-          <Tag variant={invocationStatusVariant(runState)}>{runState}{queuedDetail}</Tag>
+          <Tag variant={invocationStatusVariant(runState)}>
+            {runState}
+            {queuedDetail}
+          </Tag>
         </Kpi>
         <Kpi label="Duration" size={28}>
           {formatDuration(invocation.durationMs)}
@@ -176,10 +176,7 @@ export function EventView() {
   // deleted (or is not readable by this caller) renders plain text, not a 404.
   const { data: agentData } = useAgents({ pageSize: 200 })
   const { data: connectorData } = useConnectors({ pageSize: 200 })
-  const agentIds = useMemo(
-    () => new Set((agentData?.items ?? []).map((a) => a.id)),
-    [agentData],
-  )
+  const agentIds = useMemo(() => new Set((agentData?.items ?? []).map((a) => a.id)), [agentData])
   const connectorIds = useMemo(
     () => new Set((connectorData?.items ?? []).map((c) => c.id)),
     [connectorData],

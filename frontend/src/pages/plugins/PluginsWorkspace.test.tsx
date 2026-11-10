@@ -83,10 +83,9 @@ function stubPlugins(items: unknown[], isAdmin = false) {
     vi.fn((url: string) => {
       if (url.includes('plugin-context')) {
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ isAdmin, sub: 'u', username: 'kim', groups: [] }),
-            { status: 200 },
-          ),
+          new Response(JSON.stringify({ isAdmin, sub: 'u', username: 'kim', groups: [] }), {
+            status: 200,
+          }),
         )
       }
       return Promise.resolve(pluginsResponse(items))
@@ -192,8 +191,6 @@ describe('PluginsWorkspace', () => {
   it('has no roster selection on the all-plugins list', async () => {
     renderWorkspace('/plugins')
     await screen.findByRole('link', { name: /Memory/i })
-    expect(
-      document.querySelector('.plugin-sidebar-link[aria-current]'),
-    ).toBeNull()
+    expect(document.querySelector('.plugin-sidebar-link[aria-current]')).toBeNull()
   })
 })

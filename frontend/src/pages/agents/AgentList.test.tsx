@@ -113,8 +113,8 @@ describe('AgentList', () => {
     await userEvent.selectOptions(select, '50')
     await waitFor(() =>
       expect(
-        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(
-          ([url]) => String(url).includes('pageSize=50'),
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
+          String(url).includes('pageSize=50'),
         ),
       ).toBe(true),
     )
@@ -299,8 +299,8 @@ describe('AgentList', () => {
 
     await waitFor(() =>
       expect(
-        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(
-          ([url]) => String(url).includes('search=triage'),
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
+          String(url).includes('search=triage'),
         ),
       ).toBe(true),
     )

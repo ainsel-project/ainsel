@@ -100,12 +100,7 @@ function EntryLink({
   )
 }
 
-export function Spine({
-  operator,
-  open = false,
-  onClose,
-  rail = false,
-}: SpineProps) {
+export function Spine({ operator, open = false, onClose, rail = false }: SpineProps) {
   const location = useLocation()
   // The rail is a desktop-canvas affordance: with the mobile drawer open the
   // user has explicitly asked for the full navigation, so never collapse it.
@@ -116,7 +111,11 @@ export function Spine({
   // nested path. The rule keeps at most one entry active, and deep links
   // still keep their entry highlighted (/docs/mcp → Docs).
   const activePath = useMemo(
-    () => activeNavPath(SECTIONS.flatMap((section) => section.items), location.pathname),
+    () =>
+      activeNavPath(
+        SECTIONS.flatMap((section) => section.items),
+        location.pathname,
+      ),
     [location.pathname],
   )
 

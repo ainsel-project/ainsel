@@ -21,7 +21,12 @@ type SkillsSelectorProps = {
   previewable?: boolean
 }
 
-export function SkillsSelector({ enabledSkills, onChange, labels, previewable = false }: SkillsSelectorProps) {
+export function SkillsSelector({
+  enabledSkills,
+  onChange,
+  labels,
+  previewable = false,
+}: SkillsSelectorProps) {
   const { data, isLoading } = useSkills({ pageSize: 200 })
   const [previewId, setPreviewId] = useState<string | null>(null)
   const skills = data?.items ?? []

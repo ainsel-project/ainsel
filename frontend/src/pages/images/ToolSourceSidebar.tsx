@@ -80,9 +80,12 @@ export function ToolSourceSidebar({
       <div className="md-sources-list">
         {sources.map((s, i) => (
           <div key={s.key}>
-            {i > 0 && s.key !== 'all' && s.key !== 'native' && (sources[i - 1]?.key === 'native' || sources[i - 1]?.key === 'all') && (
-              <div className="md-sources-sep" />
-            )}
+            {i > 0 &&
+              s.key !== 'all' &&
+              s.key !== 'native' &&
+              (sources[i - 1]?.key === 'native' || sources[i - 1]?.key === 'all') && (
+                <div className="md-sources-sep" />
+              )}
             <button
               type="button"
               className={s.key === activeSource ? 'src-item active' : 'src-item'}

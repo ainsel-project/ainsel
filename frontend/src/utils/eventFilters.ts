@@ -5,7 +5,10 @@ const SEPARATOR = '|'
 export function encodeEventFilters(filters: EventFilter[]): string {
   return filters
     .filter((f) => f.field && f.op && f.value)
-    .map((f) => `${encodeURIComponent(f.field)}:${encodeURIComponent(f.op)}:${encodeURIComponent(f.value)}`)
+    .map(
+      (f) =>
+        `${encodeURIComponent(f.field)}:${encodeURIComponent(f.op)}:${encodeURIComponent(f.value)}`,
+    )
     .join(SEPARATOR)
 }
 
@@ -42,12 +45,18 @@ export function matchesEventFilters(payload: unknown, filters: EventFilter[]): b
     const raw = getPath(payload, f.field)
     const val = raw === undefined || raw === null ? '' : String(raw)
     switch (f.op) {
-      case 'eq': return val === f.value
-      case 'neq': return val !== f.value
-      case 'contains': return val.includes(f.value)
-      case 'startsWith': return val.startsWith(f.value)
-      case 'endsWith': return val.endsWith(f.value)
-      default: return false
+      case 'eq':
+        return val === f.value
+      case 'neq':
+        return val !== f.value
+      case 'contains':
+        return val.includes(f.value)
+      case 'startsWith':
+        return val.startsWith(f.value)
+      case 'endsWith':
+        return val.endsWith(f.value)
+      default:
+        return false
     }
   })
 }

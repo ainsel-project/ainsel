@@ -16,10 +16,9 @@ describe('api/agentImages', () => {
 
   it('listAgentImages GETs /agent-images with pagination', async () => {
     mockFetch().mockResolvedValue(
-      new Response(
-        JSON.stringify({ items: [], total: 5, page: 1, pageSize: 20, totalPages: 1 }),
-        { status: 200 },
-      ),
+      new Response(JSON.stringify({ items: [], total: 5, page: 1, pageSize: 20, totalPages: 1 }), {
+        status: 200,
+      }),
     )
     await listAgentImages({ page: 1, pageSize: 20 })
     const [url] = mockFetch().mock.calls[0]

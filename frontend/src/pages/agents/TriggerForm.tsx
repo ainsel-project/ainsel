@@ -190,7 +190,11 @@ export function TriggerForm({ agentId, trigger, onClose, onSaved }: TriggerFormP
         <Field label="Agent" htmlFor="tf-agentRef">
           <Input id="tf-agentRef" value={agentId} disabled readOnly />
         </Field>
-        <Field label="Source channel" htmlFor="tf-connectorRef" error={errors.connectorRef?.message}>
+        <Field
+          label="Source channel"
+          htmlFor="tf-connectorRef"
+          error={errors.connectorRef?.message}
+        >
           <Autocomplete
             id="tf-connectorRef"
             value={connectorRefValue}
@@ -242,8 +246,8 @@ export function TriggerForm({ agentId, trigger, onClose, onSaved }: TriggerFormP
             }}
           >
             No filters — this trigger will fire on <strong>every event</strong> from the selected
-            connector. Add at least one filter (e.g. <code>type</code> eq{' '}
-            <code>issues</code>) to limit which events reach the agent.
+            connector. Add at least one filter (e.g. <code>type</code> eq <code>issues</code>) to
+            limit which events reach the agent.
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 6 }}>
@@ -256,7 +260,9 @@ export function TriggerForm({ agentId, trigger, onClose, onSaved }: TriggerFormP
                   options={FILTER_OP_OPTIONS}
                 />
                 <Input
-                  placeholder={MULTI_VALUE_OPS.has(watch(`filters.${i}.op`)) ? 'value1, value2, …' : 'value'}
+                  placeholder={
+                    MULTI_VALUE_OPS.has(watch(`filters.${i}.op`)) ? 'value1, value2, …' : 'value'
+                  }
                   {...register(`filters.${i}.value`)}
                 />
                 <button
@@ -280,8 +286,8 @@ export function TriggerForm({ agentId, trigger, onClose, onSaved }: TriggerFormP
         </button>
         <p className="label" style={{ marginTop: 10 }}>
           Tip: To filter by event type, add a filter with field <code>type</code>
-          (derived from the webhook source's event-type header). Example: field ={' '}
-          <code>type</code>, op = <code>eq</code>, value = <code>issues</code>.
+          (derived from the webhook source's event-type header). Example: field = <code>type</code>,
+          op = <code>eq</code>, value = <code>issues</code>.
         </p>
       </section>
 

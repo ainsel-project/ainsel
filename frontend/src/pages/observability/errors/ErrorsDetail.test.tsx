@@ -25,26 +25,33 @@ const ERRORS = [
 
 function defaultFetch(url: string): Response {
   if (url.includes('/errors')) {
-    return new Response(
-      JSON.stringify({ errors: ERRORS, total: ERRORS.length }),
-      { status: 200 },
-    )
+    return new Response(JSON.stringify({ errors: ERRORS, total: ERRORS.length }), { status: 200 })
   }
   if (url.includes('/observability/metrics/timeseries')) {
-    return new Response(
-      JSON.stringify({ metric: 'routing_errors', range: '24h', points: [] }),
-      { status: 200 },
-    )
+    return new Response(JSON.stringify({ metric: 'routing_errors', range: '24h', points: [] }), {
+      status: 200,
+    })
   }
   return new Response('{}', { status: 200 })
 }
 
 function withSpy(children: ReactNode, route: string) {
   let search = ''
-  function Spy() { search = useLocation().search; return null }
+  function Spy() {
+    search = useLocation().search
+    return null
+  }
   const result = renderWithProviders(
     <Routes>
-      <Route path="*" element={<>{children}<Spy /></>} />
+      <Route
+        path="*"
+        element={
+          <>
+            {children}
+            <Spy />
+          </>
+        }
+      />
     </Routes>,
     { route },
   )
@@ -53,9 +60,14 @@ function withSpy(children: ReactNode, route: string) {
 
 describe('ErrorsDetail', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
+    )
   })
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('renders the page heading', () => {
     renderWithProviders(<ErrorsDetail />, { route: '/observability/errors' })
@@ -115,7 +127,10 @@ describe('ErrorsDetail', () => {
     renderWithProviders(<ErrorsDetail />, { route: '/observability/errors' })
     await waitFor(() => {
       const link = screen.getAllByText(/view events →/i)[0]
-      expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('/observability/events'))
+      expect(link.closest('a')).toHaveAttribute(
+        'href',
+        expect.stringContaining('/observability/events'),
+      )
       expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('status=error'))
     })
   })

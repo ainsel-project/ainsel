@@ -101,10 +101,7 @@ export function ConfirmModal({
         ) : null}
         <div className="modal-actions">
           <Button onClick={onCancel}>{cancelLabel}</Button>
-          <Button
-            variant={destructive ? 'danger' : 'primary'}
-            onClick={onConfirm}
-          >
+          <Button variant={destructive ? 'danger' : 'primary'} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>

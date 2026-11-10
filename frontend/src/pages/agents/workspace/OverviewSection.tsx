@@ -91,10 +91,7 @@ export function OverviewSection() {
   // docs/observability.md "Queued, running, and unknown"). `unknown` items
   // count into neither Running nor Queued. Every cell maps 1:1 to an
   // Activity `outcome` value, so the linked view shows exactly that state.
-  const runStates = useMemo(
-    () => items.map((i) => effectiveRunState(i)),
-    [items],
-  )
+  const runStates = useMemo(() => items.map((i) => effectiveRunState(i)), [items])
   const countState = (s: RunState) => runStates.filter((r) => r === s).length
   const failuresToday = countState('failure')
   const timeoutsToday = countState('timeout')
