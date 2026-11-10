@@ -3,7 +3,10 @@
 package version
 
 var (
-	Version   = "dev"
-	Commit    = "unknown"
+	// Version is the release version, stamped at link time (default "dev").
+	Version = "dev"
+	// Commit is the git commit the binary was built from, stamped at link time.
+	Commit = "unknown"
+	// BuildDate is when the binary was built, stamped at link time.
 	BuildDate = "unknown"
 )

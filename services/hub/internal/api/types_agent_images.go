@@ -68,6 +68,8 @@ type AgentImageSidecarInfo struct {
 	MCPPath string                 `json:"mcpPath,omitempty"`
 	Env     []AgentImageEnvVarInfo `json:"env,omitempty"`
 }
+
+// AgentImageStatusInfo is the API representation of an AgentImage's phase.
 type AgentImageStatusInfo struct {
 	Phase string `json:"phase"`
 }

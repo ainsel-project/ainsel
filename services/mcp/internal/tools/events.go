@@ -12,11 +12,15 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// EventTools wraps the hub's queue endpoints (/api/v1/queue/*) so an MCP
+// client can inspect the EVENTS stream and read recent events.
 type EventTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewEventTools returns EventTools pointed at hubURL, with a 15 s request
+// timeout.
 func NewEventTools(hubURL string) *EventTools {
 	return &EventTools{
 		HubURL:     hubURL,

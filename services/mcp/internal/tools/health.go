@@ -10,11 +10,15 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// HealthTools wraps the hub's /api/v1/platform/health endpoint so an MCP
+// client can ask how the ainsel namespace is doing.
 type HealthTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewHealthTools returns HealthTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewHealthTools(hubURL string) *HealthTools {
 	return &HealthTools{
 		HubURL:     hubURL,

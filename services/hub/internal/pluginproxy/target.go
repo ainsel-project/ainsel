@@ -15,14 +15,22 @@ import (
 type Surface string
 
 const (
-	SurfaceUI  Surface = "ui"
+	// SurfaceUI is a plugin's static console bundle, served relative to
+	// manifest.ui.entry.
+	SurfaceUI Surface = "ui"
+	// SurfaceAPI is a plugin's own HTTP backend, mounted at manifest.api.basePath.
 	SurfaceAPI Surface = "api"
+	// SurfaceMCP is a plugin's MCP endpoint, at manifest.mcp.path.
 	SurfaceMCP Surface = "mcp"
 )
 
 var (
+	// ErrInvalidPath rejects a path remainder that fails validation, e.g. one
+	// carrying an escape or traversal attempt.
 	ErrInvalidPath = errors.New("invalid plugin path")
-	ErrNoSurface   = errors.New("plugin does not serve this surface")
+	// ErrNoSurface is returned when the plugin's manifest declares no such
+	// surface.
+	ErrNoSurface = errors.New("plugin does not serve this surface")
 )
 
 // Resolve maps the escaped remainder after /api/v1/plugins/<id>/<surface>

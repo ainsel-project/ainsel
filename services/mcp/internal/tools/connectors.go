@@ -13,11 +13,15 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// ConnectorTools wraps the hub's /api/v1/connectors endpoints so an MCP
+// client can list connectors, inspect one, and update it.
 type ConnectorTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewConnectorTools returns ConnectorTools pointed at hubURL, with a 10 s
+// request timeout.
 func NewConnectorTools(hubURL string) *ConnectorTools {
 	return &ConnectorTools{
 		HubURL:     hubURL,

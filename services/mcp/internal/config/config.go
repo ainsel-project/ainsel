@@ -12,6 +12,8 @@ import (
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
+// Config is the MCP service's runtime configuration, read entirely from the
+// environment.
 type Config struct {
 	Port                   int
 	OIDCIssuer             string
@@ -27,6 +29,8 @@ type Config struct {
 	PluginToolsPollInterval time.Duration
 }
 
+// Load reads the configuration, falling back to defaults where a variable is
+// unset.
 func Load() Config {
 	oidcCfg := oidc.FromEnvironment()
 	return Config{

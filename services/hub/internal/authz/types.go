@@ -11,9 +11,12 @@ import "time"
 type GroupRole string
 
 const (
+	// RoleReader may see the group's resources but not change them.
 	RoleReader GroupRole = "reader"
+	// RoleWriter may change the group's resources; it covers RoleReader.
 	RoleWriter GroupRole = "writer"
-	RoleOwner  GroupRole = "owner"
+	// RoleOwner is the top role: it covers RoleWriter and RoleReader.
+	RoleOwner GroupRole = "owner"
 )
 
 // roleCovers returns true if `have` covers `need`.

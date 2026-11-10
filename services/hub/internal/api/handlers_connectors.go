@@ -15,17 +15,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// WebhookConnectorCreateRequest is the POST body for creating a
+// WebhookConnector.
 type WebhookConnectorCreateRequest struct {
 	Name            string `json:"name"`
 	GroupID         string `json:"groupId"`
 	SignatureHeader string `json:"signatureHeader"`
 }
 
+// WebhookConnectorUpdateRequest is the PUT body for updating a
+// WebhookConnector; a field that is absent keeps its current value.
 type WebhookConnectorUpdateRequest struct {
 	Name     string `json:"name,omitempty"`
 	Disabled *bool  `json:"disabled,omitempty"`
 }
 
+// WebhookConnectorResponse is the REST representation of a
+// WebhookConnector.
 type WebhookConnectorResponse struct {
 	ID                 string                  `json:"id"`
 	Name               string                  `json:"name"`
@@ -47,6 +53,8 @@ type WebhookConnectorResponse struct {
 	GroupID string `json:"groupId,omitempty"`
 }
 
+// WebhookConnectorStatus mirrors the CRD status: overall readiness plus the
+// conditions as the operator wrote them.
 type WebhookConnectorStatus struct {
 	Ready      bool        `json:"ready"`
 	Conditions interface{} `json:"conditions,omitempty"`

@@ -18,11 +18,15 @@ import (
 // rejected by the API server with an opaque error; catch it here instead.
 const minContextWindow = 1024
 
+// AgentTools wraps the hub's /api/v1/agents endpoints so an MCP client can
+// list agents, inspect one, and update it.
 type AgentTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewAgentTools returns AgentTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewAgentTools(hubURL string) *AgentTools {
 	return &AgentTools{
 		HubURL:     hubURL,

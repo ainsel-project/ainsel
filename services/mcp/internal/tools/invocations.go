@@ -20,6 +20,8 @@ type InvocationTools struct {
 	HTTPClient *http.Client
 }
 
+// NewInvocationTools returns InvocationTools pointed at hubURL, with a 10 s
+// request timeout.
 func NewInvocationTools(hubURL string) *InvocationTools {
 	return &InvocationTools{
 		HubURL:     hubURL,

@@ -13,11 +13,15 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// CronTriggerTools wraps the hub's /api/v1/cron-triggers endpoints so an MCP
+// client can list, inspect, create, edit, and delete cron schedules.
 type CronTriggerTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewCronTriggerTools returns CronTriggerTools pointed at hubURL, with a 10 s
+// request timeout.
 func NewCronTriggerTools(hubURL string) *CronTriggerTools {
 	return &CronTriggerTools{
 		HubURL:     hubURL,

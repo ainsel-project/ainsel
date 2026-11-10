@@ -6,11 +6,15 @@ import (
 	"strings"
 )
 
+// ConnectorConfig carries the hub settings that decide where a connector's
+// webhook is served and which image new receivers are built from.
 type ConnectorConfig struct {
 	PlatformExternalURL string
 	ImageWebhook        string
 }
 
+// LoadConnectorConfig reads the connector settings from the environment,
+// leaving a field empty when its variable is unset.
 func LoadConnectorConfig() ConnectorConfig {
 	return ConnectorConfig{
 		PlatformExternalURL: os.Getenv("PLATFORM_EXTERNAL_URL"),

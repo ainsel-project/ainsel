@@ -31,6 +31,8 @@ type UsageTools struct {
 	HTTPClient *http.Client
 }
 
+// NewUsageTools returns UsageTools pointed at hubURL, with a 15 s request
+// timeout.
 func NewUsageTools(hubURL string) *UsageTools {
 	return &UsageTools{
 		HubURL:     hubURL,

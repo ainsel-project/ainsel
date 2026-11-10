@@ -11,11 +11,15 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// MetricsTools wraps the hub's /api/v1/observability/metrics/query endpoint
+// so an MCP client can run PromQL against the platform's metrics.
 type MetricsTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewMetricsTools returns MetricsTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewMetricsTools(hubURL string) *MetricsTools {
 	return &MetricsTools{
 		HubURL:     hubURL,

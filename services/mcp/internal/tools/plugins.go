@@ -24,6 +24,8 @@ type PluginTools struct {
 	HTTPClient *http.Client
 }
 
+// NewPluginTools returns PluginTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewPluginTools(hubURL string) *PluginTools {
 	return &PluginTools{
 		HubURL:     hubURL,

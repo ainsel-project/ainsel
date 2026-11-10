@@ -24,6 +24,8 @@ type ChannelTools struct {
 	HTTPClient *http.Client
 }
 
+// NewChannelTools returns ChannelTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewChannelTools(hubURL string) *ChannelTools {
 	return &ChannelTools{
 		HubURL:     hubURL,

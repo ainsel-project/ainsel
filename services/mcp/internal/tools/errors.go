@@ -21,6 +21,8 @@ type ErrorTools struct {
 	HTTPClient *http.Client
 }
 
+// NewErrorTools returns ErrorTools pointed at hubURL, with a 15 s request
+// timeout.
 func NewErrorTools(hubURL string) *ErrorTools {
 	return &ErrorTools{
 		HubURL:     hubURL,
