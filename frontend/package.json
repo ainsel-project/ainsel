@@ -16,7 +16,8 @@
     "pretest:guard": "node scripts/gen-plugin-shared.mjs",
     "test:guard": "node scripts/check-test-env.mjs",
     "lint": "eslint src --max-warnings=0",
-    "format": "prettier --write src"
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
   },
   "dependencies": {
     "@ainsel/plugin-sdk": "workspace:*",
