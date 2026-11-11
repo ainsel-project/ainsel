@@ -201,6 +201,10 @@ type AgentLLMInfo struct {
 	// should match the context limit the actual LLM endpoint enforces. A
 	// pointer keeps it distinguishable from "unset".
 	ContextWindow *int `json:"contextWindow,omitempty"`
+	// ModelLicense mirrors spec.llm.modelLicense: the licence the named model
+	// arrives under, as reviewed by whoever set it. Mirrored verbatim — the
+	// hub never verifies the value (docs/model-licensing.md).
+	ModelLicense string `json:"modelLicense,omitempty"`
 }
 
 // AgentPersonaInfo is the REST representation of an Agent's persona reference.
@@ -351,6 +355,7 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 			Temperature:   a.Spec.LLM.Temperature,
 			Vision:        a.Spec.LLM.Vision,
 			ContextWindow: a.Spec.LLM.ContextWindow,
+			ModelLicense:  a.Spec.LLM.ModelLicense,
 		},
 		EnabledTools: a.Spec.EnabledTools,
 		UpdatedAt:    agentUpdatedAt(a),
@@ -924,6 +929,9 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		}
 		if req.LLM.ContextWindow != nil {
 			spec.LLM.ContextWindow = req.LLM.ContextWindow
+		}
+		if req.LLM.ModelLicense != "" {
+			spec.LLM.ModelLicense = req.LLM.ModelLicense
 		}
 	}
 	if req.Persona != nil && (newAgent || req.Persona.ID != "") {

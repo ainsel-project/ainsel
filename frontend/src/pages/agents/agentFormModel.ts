@@ -51,6 +51,13 @@ const llmSchema = z.object({
   // `vision` on update as "leave unchanged", so the form must send false
   // explicitly to turn image input back off.
   vision: z.boolean().optional(),
+  // Free-text licence record, optional. Empty input means "leave whatever is
+  // stored": the hub's LLM patch semantics treat an absent/blank field as
+  // "leave unchanged". The operator does not verify the value.
+  modelLicense: z.preprocess(
+    (v) => (v === '' || v === undefined || v === null ? undefined : v),
+    z.string().max(256).optional(),
+  ),
 })
 
 // Concurrency cap: the operator keeps at most this many per-task Jobs
@@ -120,6 +127,7 @@ export const agentDefaults: AgentFormInput = {
     temperature: 1,
     vision: false,
     contextWindow: undefined,
+    modelLicense: undefined,
   },
   customProviderUrl: '',
   providerApiKey: '',

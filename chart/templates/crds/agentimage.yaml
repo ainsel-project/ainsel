@@ -192,6 +192,9 @@ spec:
                       type: boolean
                     examples:
                       items:
+                        description: |-
+                          AgentImageToolExample is a short usage illustration for an image tool:
+                          a title plus a code snippet shown alongside the tool in the UI.
                         properties:
                           snippet:
                             type: string

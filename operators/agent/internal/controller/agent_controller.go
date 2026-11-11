@@ -164,6 +164,30 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
+	// 4.27. Model licence record: purely informational. The model named in
+	// spec.llm.model comes with its own licence; some restrict a deployment
+	// by business type while every agent keeps running
+	// (docs/model-licensing.md). The operator cannot read terms, so the
+	// condition reports whether the administrator recorded one, never its
+	// correctness. Non-blocking by design — reconciliation continues.
+	if lic := strings.TrimSpace(agent.Spec.LLM.ModelLicense); lic != "" {
+		apimeta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+			Type:               ainselv1alpha1.AgentConditionModelLicenseRecorded,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Recorded",
+			Message:            fmt.Sprintf("model licence recorded: %s (not verified by the operator)", lic),
+			LastTransitionTime: metav1.Now(),
+		})
+	} else {
+		apimeta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+			Type:               ainselv1alpha1.AgentConditionModelLicenseRecorded,
+			Status:             metav1.ConditionFalse,
+			Reason:             "ModelLicenseUnrecorded",
+			Message:            "spec.llm.modelLicense is empty: the operator does not check model licences; record the licence reviewed for this model (docs/model-licensing.md)",
+			LastTransitionTime: metav1.Now(),
+		})
+	}
+
 	// 4.5. ConfigMap with Pi models.json for ollama-cloud agents (must exist before Deployment)
 	if err := r.reconcilePiModelsConfigMap(ctx, &agent, agentName); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling Pi models ConfigMap: %w", err)

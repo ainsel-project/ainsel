@@ -12,6 +12,11 @@ export type AgentLLM = {
   /** Context window (tokens) declared in pi's models.json; should match the
    *  limit the actual LLM endpoint enforces, or compaction fires too late. */
   contextWindow?: number
+  /** The licence the named model arrives under, as reviewed by whoever set it
+   *  (e.g. "Apache-2.0", "Qwen Community License 1.0"). The operator records
+   *  it in the ModelLicenseRecorded condition; it never verifies the value —
+   *  no controller can judge a business model. See docs/model-licensing.md. */
+  modelLicense?: string
 }
 export type AgentPersona = { id: string }
 export type AgentImageRef = {

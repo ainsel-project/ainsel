@@ -189,6 +189,10 @@ spec:
                 - name
                 type: object
               llm:
+                description: |-
+                  AgentLLM configures the agent's LLM backend: model, provider, sampling
+                  parameters, and the vision/context-window/cost overrides written to the
+                  agent's generated pi models.json.
                 properties:
                   contextWindow:
                     description: |-
@@ -241,6 +245,19 @@ spec:
                   maxTurns:
                     type: integer
                   model:
+                    type: string
+                  modelLicense:
+                    description: |-
+                      ModelLicense records the licence the named model arrives under, as
+                      reviewed and accepted by whoever set it — e.g. "Apache-2.0",
+                      "Qwen Community License 1.0", "Anthropic Commercial Terms". The
+                      operator mirrors the value into status.conditions
+                      (ModelLicenseRecorded) and reports the absence, but never verifies the
+                      value: a model licence can restrict a deployment by business type
+                      while every agent keeps running, and no controller can judge a
+                      business model — so flagging an unrecorded licence is honest, while
+                      "validating" one would be false comfort. See docs/model-licensing.md.
+                    maxLength: 256
                     type: string
                   provider:
                     description: |-
@@ -320,6 +337,9 @@ spec:
                     type: array
                 type: object
               memory:
+                description: |-
+                  AgentMemory configures the agent's long-term memory. Enabled turns memory
+                  on; Provider names the memory backend (empty means the platform default).
                 properties:
                   enabled:
                     type: boolean

@@ -24,6 +24,9 @@ spec:
     - jsonPath: .status.replicas
       name: Replicas
       type: integer
+    - jsonPath: .status.paused
+      name: Paused
+      type: boolean
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -83,6 +86,15 @@ spec:
                     - key
                     type: object
                     x-kubernetes-map-type: atomic
+                  baseUrl:
+                    description: |-
+                      BaseURL overrides the provider's API base URL written to the agent's
+                      generated models.json — e.g. a different Alibaba MaaS region than the
+                      built-in ap-southeast-1 endpoint, or a private compatible-mode
+                      endpoint. Unset means the built-in URL
+                      (https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1).
+                      The endpoint is never probed.
+                    type: string
                 type: object
               customProvider:
                 description: |-
@@ -176,12 +188,90 @@ spec:
                 - name
                 type: object
               llm:
+                description: |-
+                  AgentLLM configures the agent's LLM backend: model, provider, sampling
+                  parameters, and the vision/context-window/cost overrides written to the
+                  agent's generated pi models.json.
                 properties:
+                  contextWindow:
+                    description: |-
+                      ContextWindow overrides the context window (in tokens) written to the
+                      agent's generated models.json. It must match what the actual LLM
+                      endpoint enforces, not the model's paper limit: when the declared
+                      window exceeds the endpoint's real limit, neither pi's own overflow
+                      threshold nor the auto-compact preflight can fire before the endpoint
+                      rejects the request with a context-overflow error (e.g. an Ollama
+                      server serving a 131072-token context). 0 / unset means the single
+                      uniform default of 131072 (128k). Raise it via this field only if the
+                      endpoint actually allows more — the controller cannot detect the
+                      endpoint's real limit.
+                    minimum: 1024
+                    type: integer
+                  cost:
+                    description: |-
+                      Cost is the price of this model in USD per million tokens, written to
+                      the agent's generated pi models.json so pi can compute usage.cost for
+                      every message. Without it pi defaults the cost to zero and the hub's
+                      cost figures (conversation rows, token tiles, by-event totals) are all
+                      exactly 0. The four rates are priced separately because prompt-cache
+                      traffic is billed very differently from plain input (on Anthropic,
+                      roughly cacheRead 0.1x / cacheWrite 1.25x of input): a cost derived
+                      from an input+output total alone would be wrong in both directions.
+                      All four fields are required when the block is set — pi's model schema
+                      demands a complete cost object.
+                    properties:
+                      cacheRead:
+                        description: CacheRead is the USD price per million prompt-cache
+                          read tokens.
+                        type: number
+                      cacheWrite:
+                        description: CacheWrite is the USD price per million prompt-cache
+                          write tokens.
+                        type: number
+                      input:
+                        description: Input is the USD price per million uncached input
+                          tokens.
+                        type: number
+                      output:
+                        description: Output is the USD price per million output tokens.
+                        type: number
+                    required:
+                    - cacheRead
+                    - cacheWrite
+                    - input
+                    - output
+                    type: object
                   maxTurns:
                     type: integer
                   model:
                     type: string
+                  modelLicense:
+                    description: |-
+                      ModelLicense records the licence the named model arrives under, as
+                      reviewed and accepted by whoever set it — e.g. "Apache-2.0",
+                      "Qwen Community License 1.0", "Anthropic Commercial Terms". The
+                      operator mirrors the value into status.conditions
+                      (ModelLicenseRecorded) and reports the absence, but never verifies the
+                      value: a model licence can restrict a deployment by business type
+                      while every agent keeps running, and no controller can judge a
+                      business model — so flagging an unrecorded licence is honest, while
+                      "validating" one would be false comfort. See docs/model-licensing.md.
+                    maxLength: 256
+                    type: string
                   provider:
+                    description: |-
+                      Provider selects the LLM backend. It has no default on purpose: an
+                      unset or unknown provider fails the reconcile with a Ready=False
+                      condition (reason InvalidLLMProvider) instead of silently sending
+                      traffic and the API key to a third-party SaaS. The enum rejects any
+                      non-empty value outside the list at the API server; the empty value
+                      stays schema-valid for one release so stored Agents are not broken
+                      by a CRD upgrade, and is rejected by the operator.
+                    enum:
+                    - ollama-cloud
+                    - opencode
+                    - alibaba-cloud
+                    - custom
                     type: string
                   temperature:
                     type: number
@@ -246,6 +336,9 @@ spec:
                     type: array
                 type: object
               memory:
+                description: |-
+                  AgentMemory configures the agent's long-term memory. Enabled turns memory
+                  on; Provider names the memory backend (empty means the platform default).
                 properties:
                   enabled:
                     type: boolean
@@ -285,6 +378,12 @@ spec:
                     - key
                     type: object
                     x-kubernetes-map-type: atomic
+                  baseUrl:
+                    description: |-
+                      BaseURL overrides the provider's API base URL written to the agent's
+                      generated models.json. Unset means the built-in URL
+                      (https://ollama.com/v1). The endpoint is never probed.
+                    type: string
                 type: object
               openCode:
                 description: |-
@@ -317,6 +416,30 @@ spec:
                     - key
                     type: object
                     x-kubernetes-map-type: atomic
+                  baseUrl:
+                    description: |-
+                      BaseURL overrides the provider's API base URL written to the agent's
+                      generated models.json. Unset means the built-in URL
+                      (https://opencode.ai/zen/go/v1). The endpoint is never probed.
+                    type: string
+                type: object
+              pause:
+                description: |-
+                  Pause temporarily withholds task delivery from this agent: while active,
+                  the hub's claim endpoint hands out no tasks, so pending agent_tasks rows
+                  accumulate as a backlog that drains (in id order) once the pause ends.
+                  Event ingestion and routing are unaffected — nothing is lost while the
+                  agent is paused. Nil means the agent runs normally. This is orthogonal
+                  to Scaling, which governs pod count, not task delivery.
+                properties:
+                  pausedUntil:
+                    description: |-
+                      PausedUntil is when the pause ends. While it is in the future the agent
+                      stays paused; once it has passed the agent is running again without any
+                      further action. Nil means the pause is indefinite and must be lifted
+                      explicitly.
+                    format: date-time
+                    type: string
                 type: object
               persona:
                 description: AgentPersona points the agent runtime at a persona managed
@@ -412,11 +535,20 @@ spec:
                     type: boolean
                 type: object
               scaling:
-                description: AgentScaling holds the desired replica count for the
-                  agent deployment.
+                description: |-
+                  AgentScaling holds the concurrency policy for the agent's task runs. Every
+                  queued task runs as its own Kubernetes Job — one pod, one task, exit — so
+                  Replicas is the cap on how many of those Jobs run at once. The agent's
+                  Deployment exists only as the pod template those Jobs are built from and is
+                  kept at zero replicas.
                 properties:
                   replicas:
+                    description: |-
+                      Replicas caps the number of task Jobs running at once for this agent.
+                      Each task runs in its own Job, so this is the agent's concurrency limit.
+                      Defaults to 1. Set to 0 to pause the agent: due tasks stay queued.
                     format: int32
+                    minimum: 0
                     type: integer
                 type: object
               skills:
@@ -443,6 +575,14 @@ spec:
           status:
             description: AgentStatus defines the observed state of an Agent.
             properties:
+              activeTasks:
+                description: |-
+                  ActiveTasks is agent_tasks rows currently being worked by a task pod.
+                  In the per-task Job model a row is only marked claimed by a pod that has
+                  already started running it, so this is a live-work count, not a drain
+                  signal.
+                format: int32
+                type: integer
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -500,14 +640,71 @@ spec:
                   type: object
                 type: array
               lastInvocation:
+                description: |-
+                  LastInvocation is when the hub last enqueued a task for this agent. It
+                  is the idle clock for scaling down: quiet is measured from the last piece
+                  of work arriving, not from the last pod exiting.
                 format: date-time
                 type: string
               observedGeneration:
                 format: int64
                 type: integer
-              replicas:
+              paused:
+                description: |-
+                  Paused mirrors the effective pause state of spec.pause (nil, expired or
+                  active) as observed by the operator on its last reconcile, so
+                  `kubectl get agents` shows which agents are withholding task delivery.
+                  The authoritative check always evaluates spec.pause at read time; this
+                  field is display state and may lag until the next reconcile.
+                type: boolean
+              pendingTaskIds:
+                description: |-
+                  PendingTaskIDs lists the oldest runnable pending task ids (retry
+                  backoff elapsed), oldest first, capped at a fixed size. The operator
+                  creates one Job per id, bounded by spec.scaling.replicas. Written by the
+                  hub alongside the counts.
+                items:
+                  format: int64
+                  type: integer
+                type: array
+              pendingTasks:
+                description: PendingTasks is agent_tasks rows waiting to be claimed.
                 format: int32
                 type: integer
+              queueObservedAt:
+                description: QueueObservedAt is when PendingTasks/ActiveTasks were
+                  last measured.
+                format: date-time
+                type: string
+              replicas:
+                description: Replicas is the number of ready pods, as observed by
+                  the operator.
+                format: int32
+                type: integer
+              scaling:
+                description: |-
+                  Scaling explains the pod count the operator is driving toward. It exists
+                  because zero pods is now a valid steady state, and a reader needs to tell
+                  "asleep, waiting for work" from "broken".
+                properties:
+                  desired:
+                    description: |-
+                      Desired is the number of task Jobs the operator is keeping in flight,
+                      bounded by spec.scaling.replicas. Compare with status.replicas (ready
+                      pods) to see whether it is still catching up.
+                    format: int32
+                    type: integer
+                  message:
+                    description: Message is a one-line human-readable explanation,
+                      safe to show in a UI.
+                    type: string
+                  reason:
+                    description: |-
+                      Reason is a stable code for the decision: JobPerTask (work is running
+                      as per-task Jobs) or Capped (more tasks are due than the concurrency
+                      cap allows).
+                    type: string
+                type: object
             type: object
         type: object
     served: true

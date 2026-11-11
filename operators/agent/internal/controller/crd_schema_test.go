@@ -95,6 +95,49 @@ func TestAgentCRDHasPauseFields(t *testing.T) {
 	}
 }
 
+// TestAgentCRDHasModelLicense guards the model-licence record (spec.llm.modelLicense):
+// without the schema field the API server silently prunes it, so the
+// ModelLicenseRecorded condition would never move to True and an administrator's
+// licence review would survive only in git history.
+func TestAgentCRDHasModelLicense(t *testing.T) {
+	b, err := os.ReadFile("../../config/crd/bases/ainsel.dev_agents.yaml")
+	if err != nil {
+		t.Fatalf("read CRD: %v", err)
+	}
+
+	var doc map[string]any
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("unmarshal CRD: %v", err)
+	}
+
+	spec := mustMap(t, doc, "spec")
+	versions := mustSlice(t, spec, "versions")
+	if len(versions) == 0 {
+		t.Fatal("no versions in CRD")
+	}
+	v0 := mustMap(t, versions[0], "")
+	oapi := mustMap(t, mustMap(t, mustMap(t, v0, "schema"), "openAPIV3Schema"), "properties")
+
+	specProps := mustMap(t, mustMap(t, oapi, "spec"), "properties")
+	llm := mustMap(t, specProps, "llm")
+	llmProps := mustMap(t, llm, "properties")
+	license, ok := llmProps["modelLicense"]
+	if !ok {
+		t.Errorf("Agent CRD spec.llm schema missing 'modelLicense'; found keys: %v", keys(llmProps))
+		return
+	}
+	licMap, ok := license.(map[string]any)
+	if !ok {
+		t.Fatalf("modelLicense schema is not a map")
+	}
+	if typ, ok := licMap["type"].(string); !ok || typ != "string" {
+		t.Errorf("modelLicense schema must be type string, got %v", licMap["type"])
+	}
+	if req, ok := licMap["required"]; ok {
+		t.Errorf("modelLicense must remain optional, but schema carries: %v", req)
+	}
+}
+
 // TestAgentCRDProviderEnumAndBaseURLs guards issue #96: the checked-in Agent
 // CRD must constrain spec.llm.provider to the four supported values with no
 // default (a default would just move the silent-Ollama-Cloud fallback into
