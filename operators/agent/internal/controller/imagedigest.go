@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -60,9 +61,15 @@ type cachedToken struct {
 // of the given image reference (e.g. "dpinsel/ainsel-pi:dev"). It returns
 // the digest string (e.g. "sha256:abc123...") or an error.
 //
+// Registries are contacted over HTTPS only, unless the registry host (exact
+// host:port, e.g. "zot.platform.svc:5000") is listed in insecureRegistries,
+// in which case plain HTTP is used and HTTPS is never tried. There is no
+// automatic fallback: a failed HTTPS attempt is an error, not a cue to
+// downgrade.
+//
 // Digest-pinned references (repo@sha256:…) already carry their digest and are
 // returned as-is without contacting the registry.
-func resolveImageDigest(ctx context.Context, imageRef string) (string, error) {
+func resolveImageDigest(ctx context.Context, imageRef string, insecureRegistries []string) (string, error) {
 	// A digest-pinned ref is immutable; its digest is already known.
 	if _, digest, ok := splitDigest(imageRef); ok {
 		return digest, nil
@@ -80,51 +87,36 @@ func resolveImageDigest(ctx context.Context, imageRef string) (string, error) {
 		}
 	}
 
-	// Docker Hub is HTTPS-only. Every other registry is tried over HTTPS
-	// first and falls back to HTTP on a connection failure, so plain-HTTP
-	// internal registries (e.g. zot) keep working while HTTPS registries
-	// such as GHCR/ECR are used securely by default.
-	schemes := []string{"https", "http"}
-	if isDockerHub(registry) {
-		schemes = []string{"https"}
+	scheme := "https"
+	if slices.Contains(insecureRegistries, registry) {
+		scheme = "http"
+	}
+	url := fmt.Sprintf("%s://%s/v2/%s/manifests/%s", scheme, registry, repository, tag)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating manifest request: %w", err)
+	}
+	req.Header.Set("Accept", manifestAcceptTypes)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	var lastErr error
-	for _, scheme := range schemes {
-		url := fmt.Sprintf("%s://%s/v2/%s/manifests/%s", scheme, registry, repository, tag)
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
-		if err != nil {
-			return "", fmt.Errorf("creating manifest request: %w", err)
-		}
-		req.Header.Set("Accept", manifestAcceptTypes)
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			// Transport failure (e.g. TLS handshake against an HTTP-only
-			// registry): try the next scheme.
-			lastErr = fmt.Errorf("fetching manifest for %s: %w", imageRef, err)
-			continue
-		}
-
-		status := resp.StatusCode
-		digest := resp.Header.Get("Docker-Content-Digest")
-		_ = resp.Body.Close()
-
-		if status != http.StatusOK {
-			// A definitive registry answer (auth, not-found, etc.) — no
-			// point falling back to HTTP for this.
-			return "", fmt.Errorf("registry returned %d for %s", status, imageRef)
-		}
-		if digest == "" {
-			return "", fmt.Errorf("no Docker-Content-Digest header for %s", imageRef)
-		}
-		return digest, nil
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching manifest for %s: %w", imageRef, err)
 	}
-	return "", lastErr
+	status := resp.StatusCode
+	digest := resp.Header.Get("Docker-Content-Digest")
+	_ = resp.Body.Close()
+
+	if status != http.StatusOK {
+		return "", fmt.Errorf("registry returned %d for %s", status, imageRef)
+	}
+	if digest == "" {
+		return "", fmt.Errorf("no Docker-Content-Digest header for %s", imageRef)
+	}
+	return digest, nil
 }
 
 // splitDigest separates a digest-pinned reference (repo@sha256:…) into the
@@ -134,11 +126,6 @@ func splitDigest(ref string) (base, digest string, ok bool) {
 		return ref[:i], ref[i+1:], true
 	}
 	return ref, "", false
-}
-
-// isDockerHub reports whether the registry host is Docker Hub.
-func isDockerHub(registry string) bool {
-	return registry == dockerHubRegistry || strings.Contains(registry, "docker.io")
 }
 
 // parseImageRef splits an image reference into registry, repository, and tag.

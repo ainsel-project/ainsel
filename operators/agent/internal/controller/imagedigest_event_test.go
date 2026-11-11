@@ -16,7 +16,9 @@ import (
 // digestFailureFixtures builds a reconciler whose image points at a registry
 // that answers 401 to the anonymous manifest request — which is what every
 // registry outside Docker Hub does today, since resolveImageDigest only
-// authenticates anonymously. Recorder is left nil when recorder is nil.
+// authenticates anonymously. The fake registry is plain HTTP, so it is listed
+// as insecure; otherwise the HTTPS attempt would fail before any 401. Recorder
+// is left nil when recorder is nil.
 //
 // The returned image reference is the one on the AgentImage: passing
 // imageObject()'s digest-pinned default instead would skip the registry
@@ -30,8 +32,9 @@ func digestFailureFixtures(t *testing.T, recorder *record.FakeRecorder) (*AgentR
 	}))
 	t.Cleanup(srv.Close)
 
+	registry := strings.TrimPrefix(srv.URL, "http://")
 	img := imageObject()
-	img.Spec.ImageURL = strings.TrimPrefix(srv.URL, "http://") + "/ainsel/pi:dev"
+	img.Spec.ImageURL = registry + "/ainsel/pi:dev"
 	agent := scalingAgent(nil)
 
 	scheme := scalingFixtures()
@@ -41,7 +44,7 @@ func digestFailureFixtures(t *testing.T, recorder *record.FakeRecorder) (*AgentR
 		WithStatusSubresource(&ainselv1alpha1.Agent{}).
 		Build()
 
-	r := &AgentReconciler{Client: c, Scheme: scheme}
+	r := &AgentReconciler{Client: c, Scheme: scheme, InsecureRegistries: []string{registry}}
 	if recorder != nil {
 		r.Recorder = recorder
 	}

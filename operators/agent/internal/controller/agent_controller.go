@@ -69,6 +69,11 @@ type AgentReconciler struct {
 	// AgentGracePeriod is the pod terminationGracePeriodSeconds for agent
 	// deployments. Zero uses the default (1800).
 	AgentGracePeriod int64
+
+	// InsecureRegistries lists registry hosts (exact host:port) that image
+	// digest resolution contacts over plain HTTP. Every other registry is
+	// HTTPS only.
+	InsecureRegistries []string
 }
 
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete

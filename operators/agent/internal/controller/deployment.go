@@ -681,7 +681,7 @@ func (r *AgentReconciler) stampPodTemplateAnnotations(ctx context.Context, agent
 	// the pod template. When a mutable tag (e.g. :dev) is rebuilt, the
 	// digest changes, which causes Kubernetes to perform a rolling
 	// restart so agents pick up the new image automatically.
-	if digest, err := resolveImageDigest(ctx, podImage); err != nil {
+	if digest, err := resolveImageDigest(ctx, podImage, r.InsecureRegistries); err != nil {
 		// Non-blocking by design: a registry outage or an unsupported registry
 		// must never stop the Deployment from reconciling. But the lost restart
 		// trigger is invisible from the outside — the agent just keeps running
