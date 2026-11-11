@@ -17,7 +17,7 @@ import { TriggersSection } from './TriggersSection'
 import { parseSection, sectionPath, type SectionId } from './sections'
 import { useWorkspaceAgent, useWorkspacePlugins } from './workspaceAgent'
 
-export function PersonaSection() {
+function PersonaSection() {
   const agent = useWorkspaceAgent()
   return (
     <SectionPage title="Persona">
@@ -26,7 +26,7 @@ export function PersonaSection() {
   )
 }
 
-export function RuntimeSection() {
+function RuntimeSection() {
   const agent = useWorkspaceAgent()
   return (
     <SectionPage title="Runtime & env">
@@ -46,7 +46,7 @@ export function LegacyEditRedirect() {
   return <Navigate to={sectionPath(id, 'runtime')} replace />
 }
 
-export function ToolsSection() {
+function ToolsSection() {
   const agent = useWorkspaceAgent()
   return (
     <SectionPage title="Tools & MCP">
@@ -56,7 +56,7 @@ export function ToolsSection() {
   )
 }
 
-export function SkillsSection() {
+function SkillsSection() {
   const agent = useWorkspaceAgent()
   return (
     <SectionPage title="Skills">

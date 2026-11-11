@@ -6,7 +6,7 @@ import type { EnvVar } from '../../../api/agentImages'
  * override: an agent entry shadowing an image entry of the same name.
  * agent: an agent-only entry.
  */
-export type EnvRowKind = 'image' | 'override' | 'agent'
+type EnvRowKind = 'image' | 'override' | 'agent'
 
 export type EnvRow = {
   name: string
