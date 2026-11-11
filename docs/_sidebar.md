@@ -13,6 +13,7 @@
 - [Database Schema](database-schema)
 - [Event Schema](event-schema)
 - [MCP Server](mcp)
+- [Model Licensing](model-licensing)
 - [Plugin Reference](plugin-reference)
 - [Naming Convention](naming)
 - [Observability](observability)
