@@ -185,6 +185,9 @@ type SimpleAgentResponse struct {
 	GroupName string `json:"groupName,omitempty"`
 }
 
+// AgentLLMInfo is the REST representation of an Agent's LLM backend: model,
+// provider, and the sampling/capability overrides written to the agent's
+// generated pi models.json.
 type AgentLLMInfo struct {
 	Model       string   `json:"model"`
 	Provider    string   `json:"provider,omitempty"`
@@ -206,23 +209,28 @@ type AgentPersonaInfo struct {
 	ID string `json:"id"`
 }
 
+// AgentMemoryInfo is the REST representation of an Agent's memory backend.
 type AgentMemoryInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Provider string `json:"provider,omitempty"`
 }
 
+// AgentOllamaCloudInfo is the REST representation of Ollama Cloud credentials.
 type AgentOllamaCloudInfo struct {
 	// APIKey is the Ollama Cloud API key. If provided, the backend will create
 	// a secret to store it. On response, this field is always empty for security.
 	APIKey string `json:"apiKey,omitempty"`
 }
 
+// AgentOpenCodeInfo is the REST representation of OpenCode credentials.
 type AgentOpenCodeInfo struct {
 	// APIKey is the OpenCode API key. If provided, the backend will create
 	// a secret to store it. On response, this field is always empty for security.
 	APIKey string `json:"apiKey,omitempty"`
 }
 
+// AgentAlibabaCloudInfo is the REST representation of Alibaba Token Plan
+// credentials.
 type AgentAlibabaCloudInfo struct {
 	// APIKey is the Alibaba Token Plan API key. If provided, the backend will create
 	// a secret to store it. On response, this field is always empty for security.
@@ -238,6 +246,8 @@ type AgentCustomProviderInfo struct {
 	APIKey string `json:"apiKey,omitempty"`
 }
 
+// SimpleAgentStatus is the REST representation of an Agent's runtime status,
+// carrying what the operator observed about its Deployment or task Jobs.
 type SimpleAgentStatus struct {
 	Ready    bool  `json:"ready"`
 	Replicas int32 `json:"replicas"`

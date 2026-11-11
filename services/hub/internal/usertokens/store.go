@@ -18,6 +18,7 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
+// ErrNotFound is returned when no token row matches the lookup.
 var ErrNotFound = errors.New("not found")
 
 // Token is a single user API token row. The plaintext is never stored.

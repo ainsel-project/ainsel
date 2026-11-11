@@ -10,13 +10,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ErrNotFound is returned when no MCP server row has the given name.
 var ErrNotFound = errors.New("mcp server not found")
+
+// ErrAlreadyExists is returned when a server with the same name is already
+// registered.
 var ErrAlreadyExists = errors.New("mcp server with this name already exists")
 
+// Store persists MCP server registrations in Postgres.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
+// NewStore returns a Store backed by pool.
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }

@@ -27,6 +27,8 @@ type ActivityTools struct {
 	HTTPClient *http.Client
 }
 
+// NewActivityTools returns ActivityTools pointed at hubURL, with a 30 s
+// request timeout.
 func NewActivityTools(hubURL string) *ActivityTools {
 	return &ActivityTools{
 		HubURL:     hubURL,

@@ -19,6 +19,8 @@ type MCPServerTools struct {
 	HTTPClient *http.Client
 }
 
+// NewMCPServerTools returns MCPServerTools pointed at hubURL, with a 10 s
+// request timeout.
 func NewMCPServerTools(hubURL string) *MCPServerTools {
 	return &MCPServerTools{
 		HubURL:     hubURL,

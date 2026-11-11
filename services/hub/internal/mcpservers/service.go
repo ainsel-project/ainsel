@@ -90,6 +90,7 @@ type Service struct {
 	store *Store
 }
 
+// NewService returns a Service reading and writing through s.
 func NewService(s *Store) *Service {
 	return &Service{store: s}
 }

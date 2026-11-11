@@ -12,7 +12,10 @@ import (
 )
 
 var (
+	// ErrNotFound is returned when no row matches the lookup.
 	ErrNotFound      = errors.New("not found")
+	// ErrAlreadyExists is returned when a uniqueness constraint rejects the
+	// write.
 	ErrAlreadyExists = errors.New("already exists")
 )
 

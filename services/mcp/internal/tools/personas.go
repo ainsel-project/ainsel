@@ -21,6 +21,8 @@ type PersonaTools struct {
 	HTTPClient *http.Client
 }
 
+// NewPersonaTools returns PersonaTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewPersonaTools(hubURL string) *PersonaTools {
 	return &PersonaTools{
 		HubURL:     hubURL,

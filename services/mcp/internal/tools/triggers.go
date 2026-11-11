@@ -14,11 +14,15 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// TriggerTools wraps the hub's /api/v1/triggers endpoints so an MCP client
+// can list, inspect, create, update, and delete triggers.
 type TriggerTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewTriggerTools returns TriggerTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewTriggerTools(hubURL string) *TriggerTools {
 	return &TriggerTools{
 		HubURL:     hubURL,

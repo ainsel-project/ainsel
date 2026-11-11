@@ -10,11 +10,14 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// LogTools wraps the hub's /api/v1/observability/logs endpoint so an MCP
+// client can read an agent's logs or search across them.
 type LogTools struct {
 	HubURL     string
 	HTTPClient *http.Client
 }
 
+// NewLogTools returns LogTools pointed at hubURL, with a 10 s request timeout.
 func NewLogTools(hubURL string) *LogTools {
 	return &LogTools{
 		HubURL:     hubURL,

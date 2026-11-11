@@ -20,6 +20,8 @@ type SkillTools struct {
 	HTTPClient *http.Client
 }
 
+// NewSkillTools returns SkillTools pointed at hubURL, with a 10 s request
+// timeout.
 func NewSkillTools(hubURL string) *SkillTools {
 	return &SkillTools{
 		HubURL:     hubURL,

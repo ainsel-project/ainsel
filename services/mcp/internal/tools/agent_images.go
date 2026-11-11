@@ -21,6 +21,8 @@ type AgentImageTools struct {
 	HTTPClient *http.Client
 }
 
+// NewAgentImageTools returns AgentImageTools pointed at hubURL, with a 10 s
+// request timeout.
 func NewAgentImageTools(hubURL string) *AgentImageTools {
 	return &AgentImageTools{
 		HubURL:     hubURL,

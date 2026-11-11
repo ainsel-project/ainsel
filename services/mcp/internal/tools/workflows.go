@@ -17,6 +17,8 @@ type WorkflowTools struct {
 	HTTPClient *http.Client
 }
 
+// NewWorkflowTools returns WorkflowTools pointed at hubURL, with a 10 s
+// request timeout.
 func NewWorkflowTools(hubURL string) *WorkflowTools {
 	return &WorkflowTools{
 		HubURL:     hubURL,
