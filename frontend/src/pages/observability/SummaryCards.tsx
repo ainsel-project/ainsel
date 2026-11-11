@@ -1,9 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import type {
-  ObservabilitySummary,
-  Range,
-  TokensSummary,
-} from '../../api/observability'
+import type { ObservabilitySummary, Range, TokensSummary } from '../../api/observability'
 import { Sparkbar } from '../../primitives/Sparkbar'
 import { errorsLink, eventsLink, routingLink, tokensLink } from '../../utils/obsLinks'
 import { abbreviateNumber, formatPercent, formatUSD } from '../../utils/format'
@@ -110,9 +106,7 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
       code: 'TK·06',
       value: cacheHitRate(tokens),
       formatter: (n) => formatPercent(n, 0),
-      sub: cacheNotReported
-        ? 'not reported by the provider'
-        : 'a drop re-bills the prompt prefix',
+      sub: cacheNotReported ? 'not reported by the provider' : 'a drop re-bills the prompt prefix',
     },
     {
       key: 'cost',
@@ -120,9 +114,7 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
       code: 'TK·07',
       value: costNotReported ? undefined : tokens?.costUsd,
       formatter: (n) => formatUSD(n),
-      sub: costNotReported
-        ? 'not reported — model unpriced'
-        : 'needs spec.llm.cost pricing',
+      sub: costNotReported ? 'not reported — model unpriced' : 'needs spec.llm.cost pricing',
       to: tokensLink({ range }),
     },
   ]
@@ -136,9 +128,7 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
               <span className="label">{c.label}</span>
               <span className="code">{c.code}</span>
             </div>
-            <div className="figure num">
-              {c.value !== undefined ? c.formatter(c.value) : '—'}
-            </div>
+            <div className="figure num">{c.value !== undefined ? c.formatter(c.value) : '—'}</div>
             {c.spark ? <Sparkbar values={c.spark} alert={c.alert} /> : null}
             <div className="sub">
               <span>{c.sub}</span>

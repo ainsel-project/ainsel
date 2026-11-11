@@ -60,4 +60,3 @@ describe('applyTheme', () => {
     expect(document.documentElement.dataset.theme).toBe('dark')
   })
 })
-

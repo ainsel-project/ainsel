@@ -1,11 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  formatISO,
-  formatRelative,
-  resolveSinceParam,
-  SINCE_SENTINEL,
-  startOfToday,
-} from './time'
+import { formatISO, formatRelative, resolveSinceParam, SINCE_SENTINEL, startOfToday } from './time'
 
 describe('startOfToday', () => {
   it('is local midnight of the current day', () => {
@@ -52,15 +46,15 @@ describe('formatRelative', () => {
   })
 
   it('returns "<n>h <n>m" for hours', () => {
-    expect(
-      formatRelative(new Date(now - 3 * 3600_000 - 15 * 60_000).toISOString(), now),
-    ).toBe('3h 15m')
+    expect(formatRelative(new Date(now - 3 * 3600_000 - 15 * 60_000).toISOString(), now)).toBe(
+      '3h 15m',
+    )
   })
 
   it('returns "<n>d <n>h" for days', () => {
-    expect(
-      formatRelative(new Date(now - 2 * 86400_000 - 4 * 3600_000).toISOString(), now),
-    ).toBe('2d 4h')
+    expect(formatRelative(new Date(now - 2 * 86400_000 - 4 * 3600_000).toISOString(), now)).toBe(
+      '2d 4h',
+    )
   })
 
   it('returns "—" for empty input', () => {

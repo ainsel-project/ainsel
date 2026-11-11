@@ -50,24 +50,14 @@ describe('ConfirmModal', () => {
 
   it('calls onCancel when cancel button clicked', async () => {
     const onCancel = vi.fn()
-    render(
-      <ConfirmModal
-        open
-        title="t"
-        body="b"
-        onConfirm={() => {}}
-        onCancel={onCancel}
-      />,
-    )
+    render(<ConfirmModal open title="t" body="b" onConfirm={() => {}} onCancel={onCancel} />)
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
     expect(onCancel).toHaveBeenCalled()
   })
 
   it('calls onCancel on Escape', async () => {
     const onCancel = vi.fn()
-    render(
-      <ConfirmModal open title="t" body="b" onConfirm={() => {}} onCancel={onCancel} />,
-    )
+    render(<ConfirmModal open title="t" body="b" onConfirm={() => {}} onCancel={onCancel} />)
     await userEvent.keyboard('{Escape}')
     expect(onCancel).toHaveBeenCalled()
   })

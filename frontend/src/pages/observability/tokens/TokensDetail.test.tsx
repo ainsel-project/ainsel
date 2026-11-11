@@ -29,7 +29,10 @@ function defaultFetch(url: string): Response {
   if (url.endsWith('/tokens')) {
     // The cumulative ledger behind the "Total Tokens (all time)" tile.
     return new Response(
-      JSON.stringify({ tokens: [], total: { totalTokens: 1_000_000, inputTokens: 700_000, outputTokens: 300_000 } }),
+      JSON.stringify({
+        tokens: [],
+        total: { totalTokens: 1_000_000, inputTokens: 700_000, outputTokens: 300_000 },
+      }),
       { status: 200 },
     )
   }
@@ -40,19 +43,21 @@ function defaultFetch(url: string): Response {
     )
   }
   if (url.includes('/tokens/by-subject')) {
-    return new Response(
-      JSON.stringify({ range: '24h', rows: TOKEN_ROWS }),
-      { status: 200 },
-    )
+    return new Response(JSON.stringify({ range: '24h', rows: TOKEN_ROWS }), { status: 200 })
   }
   return new Response('{}', { status: 200 })
 }
 
 describe('TokensDetail', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
+    )
   })
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('renders the page heading', () => {
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
@@ -105,21 +110,24 @@ describe('TokensDetail', () => {
     // The tile used to read /tokens/summary, which answers the server default
     // range (24h) when no range is given — so the "all time" figure was
     // really a 24h figure. It must read the cumulative ledger instead.
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.endsWith('/tokens')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ tokens: [], total: { totalTokens: 5_000_000 } }),
-          { status: 200 },
-        ))
-      }
-      if (url.includes('/tokens/summary')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ totalTokens: 600_000 }),
-          { status: 200 },
-        ))
-      }
-      return Promise.resolve(defaultFetch(url))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.endsWith('/tokens')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ tokens: [], total: { totalTokens: 5_000_000 } }), {
+              status: 200,
+            }),
+          )
+        }
+        if (url.includes('/tokens/summary')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ totalTokens: 600_000 }), { status: 200 }),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     await waitFor(() => expect(screen.getByText('5M')).toBeInTheDocument())
     expect(screen.queryByText('600K')).not.toBeInTheDocument()
@@ -142,29 +150,52 @@ describe('TokensDetail', () => {
   it('renders cache and cost columns so the visible columns sum to the total', async () => {
     // Total includes cache traffic; without the cache columns the displayed
     // columns do not add up for a cache-aware provider (issue #281).
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.includes('/tokens/by-subject')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          range: '24h',
-          rows: [{
-            agent: 'cached-bot', repo: 'r', model: 'm',
-            inputTokens: 1000, outputTokens: 500,
-            cacheReadTokens: 8000, cacheWriteTokens: 100,
-            totalTokens: 9600, costUsd: 1.25,
-          }],
-        }), { status: 200 }))
-      }
-      if (url.includes('/tokens/summary')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          totalTokens: 9600, inputTokens: 1000, outputTokens: 500, costUsd: 1.25,
-        }), { status: 200 }))
-      }
-      return Promise.resolve(new Response('{}', { status: 200 }))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/tokens/by-subject')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                range: '24h',
+                rows: [
+                  {
+                    agent: 'cached-bot',
+                    repo: 'r',
+                    model: 'm',
+                    inputTokens: 1000,
+                    outputTokens: 500,
+                    cacheReadTokens: 8000,
+                    cacheWriteTokens: 100,
+                    totalTokens: 9600,
+                    costUsd: 1.25,
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/tokens/summary')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                totalTokens: 9600,
+                inputTokens: 1000,
+                outputTokens: 500,
+                costUsd: 1.25,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     await waitFor(() => expect(screen.getByText('cached-bot')).toBeInTheDocument())
-    expect(screen.getByText('8K')).toBeInTheDocument()  // cache read
-    expect(screen.getByText('100')).toBeInTheDocument()  // cache write
+    expect(screen.getByText('8K')).toBeInTheDocument() // cache read
+    expect(screen.getByText('100')).toBeInTheDocument() // cache write
     // $1.25 appears both as the row cost and the Cost KPI.
     expect(screen.getAllByText('$1.25').length).toBeGreaterThanOrEqual(2)
   })
@@ -173,26 +204,50 @@ describe('TokensDetail', () => {
     // Issue #75: the hub flags rows where no conversation ever reported a
     // cache or cost figure. The summed zeros there are placeholders and must
     // not render as measured 0 / $0.00 — in the row cells and in the Cost KPI.
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.includes('/tokens/by-subject')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          range: '24h',
-          rows: [{
-            agent: 'silent-bot', repo: 'r', model: 'm',
-            inputTokens: 1000, outputTokens: 500,
-            cacheReadTokens: 0, cacheWriteTokens: 0,
-            totalTokens: 1500, costUsd: 0,
-            cacheReported: false, costReported: false,
-          }],
-        }), { status: 200 }))
-      }
-      if (url.includes('/tokens/summary')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          totalTokens: 1500, inputTokens: 1000, outputTokens: 500, costUsd: 0,
-        }), { status: 200 }))
-      }
-      return Promise.resolve(new Response('{}', { status: 200 }))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/tokens/by-subject')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                range: '24h',
+                rows: [
+                  {
+                    agent: 'silent-bot',
+                    repo: 'r',
+                    model: 'm',
+                    inputTokens: 1000,
+                    outputTokens: 500,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    totalTokens: 1500,
+                    costUsd: 0,
+                    cacheReported: false,
+                    costReported: false,
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/tokens/summary')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                totalTokens: 1500,
+                inputTokens: 1000,
+                outputTokens: 500,
+                costUsd: 0,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     await waitFor(() => expect(screen.getByText('silent-bot')).toBeInTheDocument())
     // Two cache cells, the row's cost cell, and the Cost KPI all say so.
@@ -203,14 +258,24 @@ describe('TokensDetail', () => {
   it('labels the table with the backend that answered', async () => {
     // Records-first since #411: the default answer comes from the hub's own
     // conversation rows, and the panel says so.
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.includes('/tokens/by-subject')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          range: '24h', source: 'postgres', rows: TOKEN_ROWS,
-        }), { status: 200 }))
-      }
-      return Promise.resolve(defaultFetch(url))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/tokens/by-subject')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                range: '24h',
+                source: 'postgres',
+                rows: TOKEN_ROWS,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     await waitFor(() => expect(screen.getByText('doc-writer')).toBeInTheDocument())
     expect(screen.getByText('hub records')).toBeInTheDocument()
@@ -219,18 +284,34 @@ describe('TokensDetail', () => {
   it('renders pre-migration rows with an empty subject as a dash', async () => {
     // Rows written before migration 0024 have no repo/event_type. They are
     // still consumption and must render — as "—", not a blank cell (#411).
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.includes('/tokens/by-subject')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          range: '24h', source: 'postgres',
-          rows: [{
-            agent: 'legacy-bot', repo: '', eventType: '', model: 'kimi',
-            inputTokens: 40, outputTokens: 8, totalTokens: 48,
-          }],
-        }), { status: 200 }))
-      }
-      return Promise.resolve(defaultFetch(url))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/tokens/by-subject')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                range: '24h',
+                source: 'postgres',
+                rows: [
+                  {
+                    agent: 'legacy-bot',
+                    repo: '',
+                    eventType: '',
+                    model: 'kimi',
+                    inputTokens: 40,
+                    outputTokens: 8,
+                    totalTokens: 48,
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     await waitFor(() => expect(screen.getByText('legacy-bot')).toBeInTheDocument())
     expect(screen.getByText('—')).toBeInTheDocument()
@@ -239,15 +320,23 @@ describe('TokensDetail', () => {
   it('shows the hub reason on a 503 without naming Prometheus as required', async () => {
     // The panel is records-backed now, so the unavailable copy names the
     // general condition, not Prometheus specifically (#411).
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.includes('/tokens/by-subject')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ error: 'no metrics source configured: set observability.prometheus.url or the hub database' }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } },
-        ))
-      }
-      return Promise.resolve(defaultFetch(url))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/tokens/by-subject')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error:
+                  'no metrics source configured: set observability.prometheus.url or the hub database',
+              }),
+              { status: 503, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
     renderWithProviders(<TokensDetail />, { route: '/observability/tokens' })
     await waitFor(() =>
       expect(screen.getByText('No metrics source configured')).toBeInTheDocument(),

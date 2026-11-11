@@ -44,12 +44,8 @@ vi.mock('../../api/plugins', async (importOriginal) => {
 vi.mock('../../plugins/loader', () => {
   return {
     loadPluginModule: vi.fn(async () => ({
-      AgentPanel: ({ agentName }: { agentName: string }) => (
-        <p>{`agentName=${agentName}`}</p>
-      ),
-      PersonaPanel: ({ personaId }: { personaId: string }) => (
-        <p>{`personaId=${personaId}`}</p>
-      ),
+      AgentPanel: ({ agentName }: { agentName: string }) => <p>{`agentName=${agentName}`}</p>,
+      PersonaPanel: ({ personaId }: { personaId: string }) => <p>{`personaId=${personaId}`}</p>,
       ObsSection: ({ range }: { range: string }) => <p>{`range=${range}`}</p>,
       RunPanel: ({ invocationId, agentName }: { invocationId: string; agentName: string }) => (
         <p>{`invocationId=${invocationId} agentName=${agentName}`}</p>
@@ -132,8 +128,7 @@ function defaultFetch(url: string): Response {
     )
   }
   if (url.includes('/observability/metrics/timeseries')) {
-    const m =
-      new URL(url, 'http://x/').searchParams.get('metric') ?? 'events_routed'
+    const m = new URL(url, 'http://x/').searchParams.get('metric') ?? 'events_routed'
     return new Response(JSON.stringify(timeseriesPayload(m)), { status: 200 })
   }
   if (url.includes('/observability/logs')) {
@@ -145,17 +140,17 @@ function defaultFetch(url: string): Response {
         labels: { app: 'hub', agent: 'doc-writer', level: 'info' },
       },
     ]
-    return new Response(
-      JSON.stringify({ logs, total: logs.length, query: '' }),
-      { status: 200 },
-    )
+    return new Response(JSON.stringify({ logs, total: logs.length, query: '' }), { status: 200 })
   }
   return new Response('{}', { status: 200 })
 }
 
 describe('Observability', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
+    )
   })
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -199,24 +194,29 @@ describe('Observability', () => {
     // Issue #75: a window whose runtime never reported cache or cost must not
     // render a measured-looking 0% or $0.00 — the numerics there are
     // placeholders, and the tiles must say "not reported" instead.
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.includes('/observability/metrics/tokens/summary')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({
-            totalTokens: 1200,
-            inputTokens: 1000,
-            outputTokens: 200,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            costUsd: 0,
-            cacheReported: false,
-            costReported: false,
-          }),
-          { status: 200 },
-        ))
-      }
-      return Promise.resolve(defaultFetch(url))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/observability/metrics/tokens/summary')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                totalTokens: 1200,
+                inputTokens: 1000,
+                outputTokens: 200,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                costUsd: 0,
+                cacheReported: false,
+                costReported: false,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
     renderWithProviders(<Observability />, { route: '/observability' })
     await waitFor(() => expect(screen.getByText(/Cache Hit Rate/)).toBeInTheDocument())
     expect(screen.getByText('not reported by the provider')).toBeInTheDocument()
@@ -302,24 +302,30 @@ describe('Observability', () => {
     // summary was rendered for, not on hardcoded paths.
     renderWithProviders(<Observability />, { route: '/observability?range=6h' })
     await waitFor(() => expect(screen.getByText('1.2K')).toBeInTheDocument())
-    expect(
-      screen.getByRole('link', { name: /Events Consumed · 6h/ }),
-    ).toHaveAttribute('href', '/observability/events?range=6h')
-    expect(
-      screen.getByRole('link', { name: /Triggers Matched · 6h/ }),
-    ).toHaveAttribute('href', '/observability/routing?range=6h')
-    expect(
-      screen.getByRole('link', { name: /Events Routed · 6h/ }),
-    ).toHaveAttribute('href', '/observability/routing?range=6h')
-    expect(
-      screen.getByRole('link', { name: /Errors · 6h/ }),
-    ).toHaveAttribute('href', '/observability/errors?range=6h')
-    expect(
-      screen.getByRole('link', { name: /Tokens · 6h/ }),
-    ).toHaveAttribute('href', '/observability/tokens?range=6h')
-    expect(
-      screen.getByRole('link', { name: /Cost · 6h/ }),
-    ).toHaveAttribute('href', '/observability/tokens?range=6h')
+    expect(screen.getByRole('link', { name: /Events Consumed · 6h/ })).toHaveAttribute(
+      'href',
+      '/observability/events?range=6h',
+    )
+    expect(screen.getByRole('link', { name: /Triggers Matched · 6h/ })).toHaveAttribute(
+      'href',
+      '/observability/routing?range=6h',
+    )
+    expect(screen.getByRole('link', { name: /Events Routed · 6h/ })).toHaveAttribute(
+      'href',
+      '/observability/routing?range=6h',
+    )
+    expect(screen.getByRole('link', { name: /Errors · 6h/ })).toHaveAttribute(
+      'href',
+      '/observability/errors?range=6h',
+    )
+    expect(screen.getByRole('link', { name: /Tokens · 6h/ })).toHaveAttribute(
+      'href',
+      '/observability/tokens?range=6h',
+    )
+    expect(screen.getByRole('link', { name: /Cost · 6h/ })).toHaveAttribute(
+      'href',
+      '/observability/tokens?range=6h',
+    )
   })
 
   it('falls back to unavailable when summary returns 503', async () => {
@@ -370,7 +376,8 @@ describe('Observability', () => {
           return Promise.resolve(
             new Response(
               JSON.stringify({
-                error: 'no metrics source configured: set observability.prometheus.url or the hub database',
+                error:
+                  'no metrics source configured: set observability.prometheus.url or the hub database',
               }),
               { status: 503, headers: { 'Content-Type': 'application/json' } },
             ),
@@ -407,9 +414,7 @@ describe('Observability', () => {
       )
       // The sample log line is info-level, so the client-side level filter
       // empties the list.
-      await waitFor(() =>
-        expect(screen.getByText('No log entries.')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('No log entries.')).toBeInTheDocument())
     })
 
     it('clearing the level removes it from the URL and keeps range', async () => {
@@ -417,9 +422,7 @@ describe('Observability', () => {
       await waitFor(() =>
         expect(screen.getByLabelText(/filter logs by level/i)).toHaveValue('info'),
       )
-      await waitFor(() =>
-        expect(screen.getByText('request handled')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('request handled')).toBeInTheDocument())
 
       await userEvent.selectOptions(screen.getByLabelText(/filter logs by level/i), '')
       await waitFor(() => expect(search.current).not.toContain('level'))
@@ -433,20 +436,14 @@ describe('Observability', () => {
       )
       const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls as [string][]
       const logsCall = calls.find(([u]) => u.includes('/observability/logs'))
-      expect(
-        new URL(logsCall![0], 'http://x/').searchParams.get('agent'),
-      ).toBe('doc-writer')
+      expect(new URL(logsCall![0], 'http://x/').searchParams.get('agent')).toBe('doc-writer')
     })
 
     it('falls back to "any level" for an invalid level in the URL', async () => {
       renderObservability('/observability?level=bogus')
-      await waitFor(() =>
-        expect(screen.getByLabelText(/filter logs by level/i)).toHaveValue(''),
-      )
+      await waitFor(() => expect(screen.getByLabelText(/filter logs by level/i)).toHaveValue(''))
       // The info-level sample row stays visible.
-      await waitFor(() =>
-        expect(screen.getByText('request handled')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('request handled')).toBeInTheDocument())
     })
   })
 
@@ -454,18 +451,14 @@ describe('Observability', () => {
     it('renders a panel for the Mem0 plugin with the current range', async () => {
       renderWithProviders(<Observability />, { route: '/observability' })
       await waitFor(() => expect(screen.getByText('1.2K')).toBeInTheDocument())
-      await waitFor(() =>
-        expect(screen.getByText('range=24h')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('range=24h')).toBeInTheDocument())
     })
 
     it('updates plugin range when the range selector changes', async () => {
       renderWithProviders(<Observability />, { route: '/observability' })
       await waitFor(() => expect(screen.getByText('1.2K')).toBeInTheDocument())
       await userEvent.click(screen.getByRole('button', { name: '7d' }))
-      await waitFor(() =>
-        expect(screen.getByText('range=7d')).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText('range=7d')).toBeInTheDocument())
     })
   })
 })

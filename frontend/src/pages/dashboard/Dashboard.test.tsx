@@ -94,10 +94,7 @@ function routeResponse(url: string): Response {
         status: 'error',
       },
     ]
-    return new Response(
-      JSON.stringify({ events, total: events.length }),
-      { status: 200 },
-    )
+    return new Response(JSON.stringify({ events, total: events.length }), { status: 200 })
   }
   return new Response('{}', { status: 200 })
 }
@@ -148,7 +145,9 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />)
     // The register renders connector names as <a> links; the activity stream
     // renders them as <b>. Scope to the link form to disambiguate.
-    await waitFor(() => expect(screen.getByRole('link', { name: 'insel-monorepo' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'insel-monorepo' })).toBeInTheDocument(),
+    )
     expect(screen.getByRole('link', { name: 'infra-tooling' })).toBeInTheDocument()
   })
 
@@ -196,7 +195,9 @@ describe('Dashboard', () => {
               matches: [{ trigger: 't1', agent: 'doc-writer', agentId: 'doc-writer' }],
             },
           ]
-          return Promise.resolve(new Response(JSON.stringify({ events, total: 1 }), { status: 200 }))
+          return Promise.resolve(
+            new Response(JSON.stringify({ events, total: 1 }), { status: 200 }),
+          )
         }
         return Promise.resolve(routeResponse(url))
       }),
@@ -274,22 +275,18 @@ describe('Dashboard', () => {
       vi.fn((url: string) => {
         if (url.includes('/observability/metrics/timeseries')) {
           return Promise.resolve(
-            new Response(
-              JSON.stringify({ error: 'query failed: context deadline exceeded' }),
-              { status: 500, headers: { 'Content-Type': 'application/json' } },
-            ),
+            new Response(JSON.stringify({ error: 'query failed: context deadline exceeded' }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }),
           )
         }
         return Promise.resolve(routeResponse(url))
       }),
     )
     renderWithProviders(<Dashboard />)
-    await waitFor(() =>
-      expect(screen.getByText('Failed to load throughput')).toBeInTheDocument(),
-    )
-    expect(
-      screen.queryByText('query failed: context deadline exceeded'),
-    ).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Failed to load throughput')).toBeInTheDocument())
+    expect(screen.queryByText('query failed: context deadline exceeded')).not.toBeInTheDocument()
     expect(throughputPanel().querySelector('.ss-detail')).toBeNull()
   })
 })

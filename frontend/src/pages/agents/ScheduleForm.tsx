@@ -21,13 +21,10 @@ const schema = z.object({
   schedule: z
     .string()
     .min(1, 'Schedule is required')
-    .refine(
-      (v) => {
-        const parts = v.trim().split(/\s+/)
-        return parts.length === 5
-      },
-      'Must be a 5-field cron expression: minute hour day-of-month month day-of-week',
-    ),
+    .refine((v) => {
+      const parts = v.trim().split(/\s+/)
+      return parts.length === 5
+    }, 'Must be a 5-field cron expression: minute hour day-of-month month day-of-week'),
   prompt: z.string().min(1, 'Prompt is required'),
   enabled: z.boolean(),
   groupId: z.string().optional(),
@@ -171,7 +168,12 @@ export function ScheduleForm({ agentId, trigger, onClose, onSaved }: ScheduleFor
 
       <div className="form-grid cols-2">
         <Field label="Name" htmlFor="sf-name" error={errors.name?.message}>
-          <Input id="sf-name" autoFocus {...register('name')} placeholder="e.g. Nightly stale issue sweep" />
+          <Input
+            id="sf-name"
+            autoFocus
+            {...register('name')}
+            placeholder="e.g. Nightly stale issue sweep"
+          />
         </Field>
         <Field label="Agent" htmlFor="sf-agentRef">
           <Input id="sf-agentRef" value={agentId} disabled readOnly />
@@ -215,7 +217,9 @@ export function ScheduleForm({ agentId, trigger, onClose, onSaved }: ScheduleFor
           </div>
         </Field>
         <Field label="Enabled" htmlFor="sf-enabled">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%', paddingTop: 6 }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%', paddingTop: 6 }}
+          >
             <Check
               checked={enabled}
               onChange={(v) => setValue('enabled', v)}
@@ -229,7 +233,12 @@ export function ScheduleForm({ agentId, trigger, onClose, onSaved }: ScheduleFor
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <Field label="Prompt" htmlFor="sf-prompt" error={errors.prompt?.message} hint="Sent verbatim to the agent as the user message on each fire.">
+        <Field
+          label="Prompt"
+          htmlFor="sf-prompt"
+          error={errors.prompt?.message}
+          hint="Sent verbatim to the agent as the user message on each fire."
+        >
           <Textarea
             id="sf-prompt"
             rows={5}

@@ -3,7 +3,9 @@ import { render, screen } from '@testing-library/react'
 import { ConversationTranscript } from './ConversationTranscript'
 import type { ConversationMessage } from '../../../api/conversations'
 
-function msg(partial: Partial<ConversationMessage> & Pick<ConversationMessage, 'id' | 'role' | 'content'>): ConversationMessage {
+function msg(
+  partial: Partial<ConversationMessage> & Pick<ConversationMessage, 'id' | 'role' | 'content'>,
+): ConversationMessage {
   return {
     agentName: 'review-bot',
     createdAt: '2026-06-10T08:31:26Z',

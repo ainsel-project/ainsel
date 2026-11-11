@@ -43,15 +43,18 @@ const RESOURCES = {
 }
 
 function mockFetch(resources: { items: unknown[] } = RESOURCES) {
-  vi.stubGlobal('fetch', vi.fn((url: string) => {
-    const path = String(url).split('?')[0]
-    const ok = (payload: unknown) =>
-      Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }))
-    if (path.endsWith('/groups/g1/resources')) return ok(resources)
-    if (path.endsWith('/groups/g1')) return ok({ group: GROUP, members: MEMBERS })
-    if (path.endsWith('/users')) return ok([])
-    return ok({})
-  }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) => {
+      const path = String(url).split('?')[0]
+      const ok = (payload: unknown) =>
+        Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }))
+      if (path.endsWith('/groups/g1/resources')) return ok(resources)
+      if (path.endsWith('/groups/g1')) return ok({ group: GROUP, members: MEMBERS })
+      if (path.endsWith('/users')) return ok([])
+      return ok({})
+    }),
+  )
 }
 
 function renderPage() {
@@ -87,10 +90,7 @@ describe('GroupDetail resources section', () => {
     expect(screen.getByText('Docs MCP')).toBeInTheDocument()
 
     // Detail links per type.
-    expect(screen.getByRole('link', { name: 'Review Bot' })).toHaveAttribute(
-      'href',
-      '/agents/a-1',
-    )
+    expect(screen.getByRole('link', { name: 'Review Bot' })).toHaveAttribute('href', '/agents/a-1')
     expect(screen.getByRole('link', { name: 'Base Image' })).toHaveAttribute(
       'href',
       '/agent-images/img-1',
@@ -119,7 +119,9 @@ describe('GroupDetail resources section', () => {
     mockFetch({ items: [] })
     renderPage()
 
-    await waitFor(() => expect(screen.getByText('This group owns no resources.')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText('This group owns no resources.')).toBeInTheDocument(),
+    )
     expect(screen.queryByText('Agents · 0')).not.toBeInTheDocument()
   })
 

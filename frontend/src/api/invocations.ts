@@ -63,10 +63,7 @@ export function taskRunState(t: InvocationTaskState): RunState {
  * record exists; otherwise `unknown` — a "running" record with no task behind
  * it (hub died before enqueue, or a pruned record) claims nothing.
  */
-export function effectiveRunState(inv: {
-  status: string
-  task?: InvocationTaskState
-}): RunState {
+export function effectiveRunState(inv: { status: string; task?: InvocationTaskState }): RunState {
   if (inv.task) return taskRunState(inv.task)
   if (inv.status === 'success' || inv.status === 'failure' || inv.status === 'timeout') {
     return inv.status
@@ -134,7 +131,9 @@ export function useInvocations(
     refetchInterval?:
       | number
       | false
-      | ((query: { state: { data: Paginated<InvocationEntry> | undefined } }) => number | false | undefined)
+      | ((query: {
+          state: { data: Paginated<InvocationEntry> | undefined }
+        }) => number | false | undefined)
     /** False skips the query entirely (e.g. run panels that only apply to consumer channels). */
     enabled?: boolean
   } = {},

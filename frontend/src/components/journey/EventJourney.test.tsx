@@ -180,7 +180,12 @@ describe('EventJourney', () => {
             new Response(
               JSON.stringify({
                 items: [
-                  { id: 'c-f5cc476e', name: 'forgejo-main', signatureHeader: 'x-sig', disabled: false },
+                  {
+                    id: 'c-f5cc476e',
+                    name: 'forgejo-main',
+                    signatureHeader: 'x-sig',
+                    disabled: false,
+                  },
                 ],
                 total: 1,
                 page: 1,
@@ -233,9 +238,12 @@ describe('EventJourney', () => {
       vi.fn((url: string) => {
         if (url.includes('/connectors')) {
           return Promise.resolve(
-            new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }), {
-              status: 200,
-            }),
+            new Response(
+              JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),
+              {
+                status: 200,
+              },
+            ),
           )
         }
         return Promise.resolve(new Response('{}', { status: 200 }))

@@ -40,9 +40,7 @@ describe('always-dark code surfaces', () => {
   it.each(THEMES)('the well stays dark and legible in the %s theme', (theme) => {
     for (const selector of ALWAYS_DARK_SURFACES) {
       const { bg, ink } = surfaceColors(selector, theme)
-      expect(bg, `${selector} background did not resolve to a hex color`).toMatch(
-        /^#[0-9a-f]{6}$/i,
-      )
+      expect(bg, `${selector} background did not resolve to a hex color`).toMatch(/^#[0-9a-f]{6}$/i)
       expect(ink, `${selector} text did not resolve to a hex color`).toMatch(/^#[0-9a-f]{6}$/i)
       expect(
         luminance(bg),

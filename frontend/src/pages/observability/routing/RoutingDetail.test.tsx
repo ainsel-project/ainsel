@@ -53,7 +53,13 @@ const INVOCATIONS = [
 function defaultFetch(url: string): Response {
   if (url.includes('/invocations')) {
     return new Response(
-      JSON.stringify({ invocations: INVOCATIONS, total: INVOCATIONS.length, page: 1, pageSize: 50, capacity: 1000 }),
+      JSON.stringify({
+        invocations: INVOCATIONS,
+        total: INVOCATIONS.length,
+        page: 1,
+        pageSize: 50,
+        capacity: 1000,
+      }),
       { status: 200 },
     )
   }
@@ -66,9 +72,14 @@ function defaultFetch(url: string): Response {
 
 describe('RoutingDetail', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
+    )
   })
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('renders the page heading', () => {
     renderWithProviders(<RoutingDetail />, { route: '/observability/routing' })
@@ -159,7 +170,10 @@ describe('RoutingDetail', () => {
     renderWithProviders(<RoutingDetail />, { route: '/observability/routing' })
     await waitFor(() => {
       const link = screen.getAllByText(/view events →/i)[0]
-      expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('/observability/events'))
+      expect(link.closest('a')).toHaveAttribute(
+        'href',
+        expect.stringContaining('/observability/events'),
+      )
       expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('status=matched'))
     })
   })

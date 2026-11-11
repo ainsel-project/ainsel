@@ -13,10 +13,9 @@ describe('api/agents', () => {
 
   it('listAgents GETs /agents with pagination params', async () => {
     mockFetch().mockResolvedValue(
-      new Response(
-        JSON.stringify({ items: [], total: 14, page: 1, pageSize: 1, totalPages: 14 }),
-        { status: 200 },
-      ),
+      new Response(JSON.stringify({ items: [], total: 14, page: 1, pageSize: 1, totalPages: 14 }), {
+        status: 200,
+      }),
     )
     const out = await listAgents({ pageSize: 1 })
     const [url] = mockFetch().mock.calls[0]

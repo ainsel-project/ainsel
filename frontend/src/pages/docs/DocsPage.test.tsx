@@ -248,7 +248,9 @@ describe('DocsPage', () => {
     const nav = await screen.findByRole('navigation')
     await waitFor(() => {
       expect(within(nav).getByRole('link', { name: 'Architecture' })).toHaveClass('active')
-      expect(within(nav).getByRole('link', { name: 'Administrator Guide' })).not.toHaveClass('active')
+      expect(within(nav).getByRole('link', { name: 'Administrator Guide' })).not.toHaveClass(
+        'active',
+      )
     })
   })
 
@@ -300,10 +302,7 @@ describe('DocsPage', () => {
       'https://example.com/pic.png',
     )
     // '../' points outside docs/, which is never served as a docs asset.
-    expect(screen.getByAltText('Escaping')).toHaveAttribute(
-      'src',
-      '../frontend/public/favicon.svg',
-    )
+    expect(screen.getByAltText('Escaping')).toHaveAttribute('src', '../frontend/public/favicon.svg')
   })
 
   it('does not treat link text ending in "!" as an image', async () => {

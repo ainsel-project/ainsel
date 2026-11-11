@@ -6,7 +6,11 @@ import type { ToolFormValue } from './ImageDetail.types'
 function makeNative(name: string): ToolFormValue {
   return { name, kind: 'shell', enabled: true, isNew: false, description: '', examples: [] }
 }
-function makeMCP(server: string, toolName: string, opts: Partial<ToolFormValue> = {}): ToolFormValue {
+function makeMCP(
+  server: string,
+  toolName: string,
+  opts: Partial<ToolFormValue> = {},
+): ToolFormValue {
   return {
     name: `mcp__${server}__${toolName}`,
     kind: 'mcp',
@@ -39,7 +43,7 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     expect(screen.getByText('run_shell')).toBeInTheDocument()
     expect(screen.getByText('list')).toBeInTheDocument()
@@ -56,7 +60,7 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     expect(screen.getByText('run_shell')).toBeInTheDocument()
     expect(screen.queryByText('list')).not.toBeInTheDocument()
@@ -72,7 +76,7 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     expect(screen.queryByText('run_shell')).not.toBeInTheDocument()
     expect(screen.getByText('list')).toBeInTheDocument()
@@ -90,7 +94,7 @@ describe('ToolList', () => {
         onToggle={onToggle}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     // The "list" tool is at index 1 in tools array, currently enabled
     const listCheckbox = screen.getByRole('checkbox', { name: /toggle list/i })
@@ -108,7 +112,7 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     expect(screen.getByText('new')).toBeInTheDocument()
   })
@@ -123,7 +127,7 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     expect(screen.queryByRole('button', { name: /all on/i })).not.toBeInTheDocument()
 
@@ -137,7 +141,7 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     expect(screen.getByRole('button', { name: /all on/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /all off/i })).toBeInTheDocument()
@@ -155,7 +159,7 @@ describe('ToolList', () => {
         onToggle={onToggle}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     await userEvent.click(screen.getByRole('checkbox', { name: /toggle list/i }))
     expect(onSelect).not.toHaveBeenCalled()
@@ -178,7 +182,7 @@ describe('ToolList', () => {
         onToggle={onToggle}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     screen.getByRole('checkbox', { name: /toggle list/i }).focus()
     await userEvent.keyboard(' ')
@@ -198,12 +202,12 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={onToggleAll}
         onAdd={noop}
-      />
+      />,
     )
     await userEvent.click(screen.getByRole('button', { name: /all on/i }))
     expect(onToggleAll).toHaveBeenCalledWith(
       Array.from({ length: 16 }, (_, i) => i),
-      true
+      true,
     )
   })
 
@@ -217,7 +221,7 @@ describe('ToolList', () => {
         onToggle={noop}
         onToggleAll={noop}
         onAdd={noop}
-      />
+      />,
     )
     const search = screen.getByRole('textbox')
     await userEvent.type(search, 'lis')

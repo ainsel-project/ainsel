@@ -54,51 +54,75 @@ describe('matchesEventFilters', () => {
   })
 
   it('eq matches exact value', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'eq', value: 'opened' }])).toBe(true)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'eq', value: 'opened' }])).toBe(
+      true,
+    )
   })
 
   it('eq does not match different value', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'eq', value: 'closed' }])).toBe(false)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'eq', value: 'closed' }])).toBe(
+      false,
+    )
   })
 
   it('neq matches when value differs', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'neq', value: 'closed' }])).toBe(true)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'neq', value: 'closed' }])).toBe(
+      true,
+    )
   })
 
   it('neq does not match when value is equal', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'neq', value: 'opened' }])).toBe(false)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'neq', value: 'opened' }])).toBe(
+      false,
+    )
   })
 
   it('contains matches substring', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'contains', value: 'open' }])).toBe(true)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'contains', value: 'open' }])).toBe(
+      true,
+    )
   })
 
   it('contains does not match absent substring', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'contains', value: 'xyz' }])).toBe(false)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'contains', value: 'xyz' }])).toBe(
+      false,
+    )
   })
 
   it('startsWith matches prefix', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'startsWith', value: 'open' }])).toBe(true)
+    expect(
+      matchesEventFilters(payload, [{ field: 'action', op: 'startsWith', value: 'open' }]),
+    ).toBe(true)
   })
 
   it('startsWith does not match wrong prefix', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'startsWith', value: 'ned' }])).toBe(false)
+    expect(
+      matchesEventFilters(payload, [{ field: 'action', op: 'startsWith', value: 'ned' }]),
+    ).toBe(false)
   })
 
   it('endsWith matches suffix', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'endsWith', value: 'ned' }])).toBe(true)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'endsWith', value: 'ned' }])).toBe(
+      true,
+    )
   })
 
   it('endsWith does not match wrong suffix', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'endsWith', value: 'open' }])).toBe(false)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'endsWith', value: 'open' }])).toBe(
+      false,
+    )
   })
 
   it('navigates nested dot-notation paths', () => {
-    expect(matchesEventFilters(payload, [{ field: 'nested.key', op: 'eq', value: 'value' }])).toBe(true)
+    expect(matchesEventFilters(payload, [{ field: 'nested.key', op: 'eq', value: 'value' }])).toBe(
+      true,
+    )
   })
 
   it('returns false for unknown op', () => {
-    expect(matchesEventFilters(payload, [{ field: 'action', op: 'regex', value: '.*' }])).toBe(false)
+    expect(matchesEventFilters(payload, [{ field: 'action', op: 'regex', value: '.*' }])).toBe(
+      false,
+    )
   })
 
   it('coerces numeric field to string for comparison', () => {

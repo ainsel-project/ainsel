@@ -411,8 +411,9 @@ describe('PluginDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: /approve permissions/i }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Approve the following permissions for this plugin?'))
-      .toBeInTheDocument()
+    expect(
+      within(dialog).getByText('Approve the following permissions for this plugin?'),
+    ).toBeInTheDocument()
     // The modal must match the approve payload: declared rows only, no expansion.
     expect(within(dialog).getByText('perm1')).toBeInTheDocument()
     expect(within(dialog).getByText('perm2')).toBeInTheDocument()
@@ -432,7 +433,9 @@ describe('PluginDetail', () => {
     expect(screen.getByText('Verified')).toBeInTheDocument()
     expect(screen.getByText('test-signer')).toBeInTheDocument()
     expect(screen.getByText('Checked')).toBeInTheDocument()
-    expect(screen.getByText(new Date('2024-01-01T00:00:00Z').toLocaleDateString())).toBeInTheDocument()
+    expect(
+      screen.getByText(new Date('2024-01-01T00:00:00Z').toLocaleDateString()),
+    ).toBeInTheDocument()
     expect(screen.getByText('Image')).toBeInTheDocument()
     expect(screen.getByText('example.com/plugin')).toBeInTheDocument()
   })

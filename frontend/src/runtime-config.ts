@@ -29,9 +29,7 @@ declare global {
 export function runtimeConfig(): ResolvedConfig {
   const c = window.__AINSEL_CONFIG__
   if (!c) {
-    throw new Error(
-      "runtime-config.js missing: window.__AINSEL_CONFIG__ is not defined",
-    )
+    throw new Error('runtime-config.js missing: window.__AINSEL_CONFIG__ is not defined')
   }
 
   if (c.authMode === 'local' || c.authMode === 'none') {
@@ -45,7 +43,7 @@ export function runtimeConfig(): ResolvedConfig {
     // needs a complete client config regardless of the local settings.
     if (!oidcIssuer || !oidcClientId) {
       throw new Error(
-        "runtime-config.js incomplete: " +
+        'runtime-config.js incomplete: ' +
           "authMode 'oidc+local' requires oidcIssuer and oidcClientId",
       )
     }
@@ -54,8 +52,8 @@ export function runtimeConfig(): ResolvedConfig {
   if (c.authMode === 'oidc' || !allEmpty) {
     if (!oidcIssuer || !oidcClientId) {
       throw new Error(
-        "runtime-config.js incomplete: " +
-          "window.__AINSEL_CONFIG__ must have oidcIssuer and oidcClientId",
+        'runtime-config.js incomplete: ' +
+          'window.__AINSEL_CONFIG__ must have oidcIssuer and oidcClientId',
       )
     }
     return { ...c, authMode: 'oidc' }

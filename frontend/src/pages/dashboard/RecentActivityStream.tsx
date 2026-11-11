@@ -24,7 +24,10 @@ export function RecentActivityStream() {
   const { data: agentData } = useAgents({ pageSize: 200 })
   const { data: connectorData } = useConnectors({ pageSize: 200 })
   const agentIds = useMemo(() => new Set((agentData?.items ?? []).map((a) => a.id)), [agentData])
-  const connectorIds = useMemo(() => new Set((connectorData?.items ?? []).map((c) => c.id)), [connectorData])
+  const connectorIds = useMemo(
+    () => new Set((connectorData?.items ?? []).map((c) => c.id)),
+    [connectorData],
+  )
 
   const errorCount = (data ?? []).filter((e) => e.status === 'error').length
 
@@ -34,7 +37,11 @@ export function RecentActivityStream() {
       right={errorCount > 0 ? <Tag variant="err">{errorCount} error</Tag> : null}
       className="cropped"
     >
-      {isLoading ? <div className="label" style={{ padding: 4 }}>Loading…</div> : null}
+      {isLoading ? (
+        <div className="label" style={{ padding: 4 }}>
+          Loading…
+        </div>
+      ) : null}
       {error ? (
         <div className="label" style={{ padding: 4, color: 'var(--signal)' }}>
           Failed to load activity.

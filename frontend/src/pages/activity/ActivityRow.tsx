@@ -85,13 +85,7 @@ function TriggerLinks({
   )
 }
 
-function AgentLinks({
-  matches,
-  names,
-}: {
-  matches: ActivityMatch[]
-  names: Map<string, string>
-}) {
+function AgentLinks({ matches, names }: { matches: ActivityMatch[]; names: Map<string, string> }) {
   return (
     <>
       {matches.map((m, i) => {
@@ -107,7 +101,10 @@ function AgentLinks({
               {label}
             </Link>
             {m.runState || m.runStatus ? (
-              <> <RunStateTag state={m.runState ?? m.runStatus} stuck={m.stuck} /></>
+              <>
+                {' '}
+                <RunStateTag state={m.runState ?? m.runStatus} stuck={m.stuck} />
+              </>
             ) : null}
           </Fragment>
         )
@@ -243,16 +240,16 @@ export function ActivityRow({
             ) : null}
             {entry.payload != null ? (
               <>
-                <div className="label" style={{ padding: '8px 0 4px' }}>Original Event</div>
+                <div className="label" style={{ padding: '8px 0 4px' }}>
+                  Original Event
+                </div>
                 <pre className="code">
                   <code>{JSON.stringify(entry.payload, null, 2)}</code>
                 </pre>
               </>
             ) : null}
             <div style={{ padding: '8px 0' }}>
-              <Link to={detailPath}>
-                View full event →
-              </Link>
+              <Link to={detailPath}>View full event →</Link>
             </div>
           </td>
         </tr>

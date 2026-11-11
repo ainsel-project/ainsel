@@ -66,9 +66,7 @@ function hasError(errs: FieldErrors, path: string): boolean {
     .split('.')
     .reduce<unknown>(
       (acc, key) =>
-        acc && typeof acc === 'object'
-          ? (acc as Record<string, unknown>)[key]
-          : undefined,
+        acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined,
       errs,
     )
   return node !== undefined
@@ -164,14 +162,10 @@ export function AgentWizard() {
         return
       }
       try {
-        const saved = await create.mutateAsync(
-          buildAgentRequest(values, { isEdit: false }),
-        )
+        const saved = await create.mutateAsync(buildAgentRequest(values, { isEdit: false }))
         navigate(`/agents/${encodeURIComponent(saved.id)}`, { replace: true })
       } catch (err) {
-        setSubmitError(
-          err instanceof ApiError ? err.message : 'Create failed. Please try again.',
-        )
+        setSubmitError(err instanceof ApiError ? err.message : 'Create failed. Please try again.')
       }
     },
     (errs) => {
@@ -341,9 +335,8 @@ export function AgentWizard() {
                       {(image.data.env ?? []).length} env vars
                     </span>
                     <span className="label" style={{ color: 'var(--ink-3)' }}>
-                      Tools, skills, MCP servers and environment can be
-                      overridden per agent after creation, on the agent's own
-                      tabs.
+                      Tools, skills, MCP servers and environment can be overridden per agent after
+                      creation, on the agent's own tabs.
                     </span>
                   </div>
                 ) : null}
@@ -415,10 +408,7 @@ export function AgentWizard() {
                           />
                         </Field>
                       ) : null}
-                      <Field
-                        label={API_KEY_LABELS[provider] ?? 'API Key'}
-                        htmlFor="providerApiKey"
-                      >
+                      <Field label={API_KEY_LABELS[provider] ?? 'API Key'} htmlFor="providerApiKey">
                         <Input
                           id="providerApiKey"
                           type="password"
@@ -525,7 +515,11 @@ export function AgentWizard() {
           </section>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
-            {current > 0 ? <Button type="button" onClick={() => goTo(current - 1)}>Back</Button> : null}
+            {current > 0 ? (
+              <Button type="button" onClick={() => goTo(current - 1)}>
+                Back
+              </Button>
+            ) : null}
             {isLast ? (
               <Button type="submit" variant="primary" disabled={isSubmitting}>
                 {isSubmitting ? 'Creating…' : 'Create agent'}

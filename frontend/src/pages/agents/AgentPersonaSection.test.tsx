@@ -95,12 +95,8 @@ describe('AgentPersonaSection', () => {
     stubFetch({ owned: false, ref: template.id, persona: template })
     renderSection()
 
-    expect(
-      await screen.findByText(/shared template.*private copy/i),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /save as own persona/i }),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/shared template.*private copy/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /save as own persona/i })).toBeInTheDocument()
     expect(screen.getByText(/first save forks a private copy/i)).toBeInTheDocument()
   })
 
@@ -111,9 +107,7 @@ describe('AgentPersonaSection', () => {
     const text = await screen.findByLabelText('Persona Text')
     expect((text as HTMLTextAreaElement).value).toContain('You are a docs writer.')
     expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('docs-writer')
-    expect((screen.getByLabelText('Description') as HTMLInputElement).value).toBe(
-      'docs persona',
-    )
+    expect((screen.getByLabelText('Description') as HTMLInputElement).value).toBe('docs persona')
   })
 
   it('saves inline edits to the agent-scoped endpoint, not the template', async () => {
@@ -146,9 +140,7 @@ describe('AgentPersonaSection', () => {
     })
     renderSection()
 
-    expect(
-      await screen.findByText(/belongs to this agent.*private to it/i),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/belongs to this agent.*private to it/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^save persona$/i })).toBeInTheDocument()
     expect(screen.queryByText(/first save forks a private copy/i)).not.toBeInTheDocument()
   })
@@ -163,7 +155,9 @@ describe('AgentPersonaSection', () => {
 
     const select = (await screen.findByLabelText('Linked persona')) as HTMLSelectElement
     await waitFor(() => expect(select.options.length).toBeGreaterThan(1))
-    const labels = within(select).getAllByRole('option').map((o) => o.textContent)
+    const labels = within(select)
+      .getAllByRole('option')
+      .map((o) => o.textContent)
     expect(labels).toContain("docs-writer — this agent's own")
     expect(labels).toContain('docs-writer')
     expect(select.value).toBe('p-own')
@@ -196,9 +190,7 @@ describe('AgentPersonaSection', () => {
     stubFetch({ owned: false, ref: 'p-gone' })
     renderSection()
 
-    expect(
-      await screen.findByText(/no longer exists.*creates a new one/i),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/no longer exists.*creates a new one/i)).toBeInTheDocument()
   })
 
   it('surfaces a save failure', async () => {

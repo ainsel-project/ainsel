@@ -38,7 +38,8 @@ export function PluginExport({
         if (!cancelled) setState({ key, component: exported as ComponentType<any> })
       })
       .catch((err: unknown) => {
-        if (!cancelled) setState({ key, error: err instanceof Error ? err : new Error(String(err)) })
+        if (!cancelled)
+          setState({ key, error: err instanceof Error ? err : new Error(String(err)) })
       })
     return () => {
       cancelled = true

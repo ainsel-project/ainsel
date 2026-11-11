@@ -9,7 +9,13 @@ function defaultFetch(url: string, init?: RequestInit): Response {
   if ((init?.method ?? 'GET') === 'GET' && url.includes('/groups')) {
     return new Response(
       JSON.stringify([
-        { id: 'g1', name: 'Team A', description: '', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+        {
+          id: 'g1',
+          name: 'Team A',
+          description: '',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
       ]),
       { status: 200 },
     )
@@ -45,9 +51,7 @@ describe('ConnectorForm', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string, init?: RequestInit) =>
-        Promise.resolve(defaultFetch(url, init)),
-      ),
+      vi.fn((url: string, init?: RequestInit) => Promise.resolve(defaultFetch(url, init))),
     )
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -156,9 +160,7 @@ describe('ConnectorForm', () => {
       { route: '/connectors/c1/edit' },
     )
     await waitFor(() =>
-      expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe(
-        'insel-monorepo',
-      ),
+      expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('insel-monorepo'),
     )
   })
 })

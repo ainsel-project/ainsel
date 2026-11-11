@@ -3,9 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 
 export type StringFilters = Record<string, string | undefined>
 
-export function useUrlFilters<T extends StringFilters>(
-  keys: readonly (keyof T & string)[],
-) {
+export function useUrlFilters<T extends StringFilters>(keys: readonly (keyof T & string)[]) {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const filters = useMemo(() => {

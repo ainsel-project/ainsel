@@ -25,10 +25,7 @@ export function EntityLink({
 }) {
   if (!id || !known?.has(id)) return <>{label}</>
   return (
-    <Link
-      to={path(id)}
-      onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
-    >
+    <Link to={path(id)} onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}>
       {label}
     </Link>
   )

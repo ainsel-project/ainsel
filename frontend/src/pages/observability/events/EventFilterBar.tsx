@@ -2,7 +2,11 @@ import { useCallback, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Input } from '../../../primitives/Input'
 import { Select } from '../../../primitives/Select'
-import { encodeEventFilters, parseEventFilters, type EventFilter } from '../../../utils/eventFilters'
+import {
+  encodeEventFilters,
+  parseEventFilters,
+  type EventFilter,
+} from '../../../utils/eventFilters'
 
 const OP_OPTIONS = [
   { value: 'eq', label: 'eq' },
@@ -103,8 +107,8 @@ export function EventFilterBar() {
       </button>
       {rows.length > 0 && (
         <p className="label" style={{ marginTop: 6, color: 'var(--ink-3)' }}>
-          Tip: use <code>type</code> to filter by event type,{' '}
-          <code>action</code> for the action field.
+          Tip: use <code>type</code> to filter by event type, <code>action</code> for the action
+          field.
         </p>
       )}
     </div>

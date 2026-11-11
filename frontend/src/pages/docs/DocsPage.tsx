@@ -99,31 +99,34 @@ function parseHeadings(md: string): TocEntry[] {
 // The leading `!` is what separates the two — it can only appear immediately
 // before the `[`, so link text ending in "!" is not mistaken for an image.
 function rewriteDocLinks(md: string): string {
-  return md.replace(/(!)?\[([^\]]*)\]\(([^)]+)\)/g, (match, bang: string | undefined, text: string, href: string) => {
-    // Leave external, mailto, anchor-only and data URIs untouched.
-    if (/^(https?:|mailto:|#|data:)/.test(href)) return match
-    // Leave references pointing outside the docs/ directory (../…) untouched —
-    // they reference repo files that have no in-app route or served asset.
-    if (/^\.\.\//.test(href)) return match
+  return md.replace(
+    /(!)?\[([^\]]*)\]\(([^)]+)\)/g,
+    (match, bang: string | undefined, text: string, href: string) => {
+      // Leave external, mailto, anchor-only and data URIs untouched.
+      if (/^(https?:|mailto:|#|data:)/.test(href)) return match
+      // Leave references pointing outside the docs/ directory (../…) untouched —
+      // they reference repo files that have no in-app route or served asset.
+      if (/^\.\.\//.test(href)) return match
 
-    if (bang) {
-      const stripped = href
+      if (bang) {
+        const stripped = href
+          .replace(/^\.\//, '')
+          .replace(/^docs\//, '')
+          .replace(/^\//, '')
+        return `![${text}](${DOCS_BASE}${stripped})`
+      }
+
+      // Split off any in-page anchor (#fragment) so it survives the rewrite.
+      const [path, anchor] = href.split('#')
+      const stripped = path
         .replace(/^\.\//, '')
         .replace(/^docs\//, '')
         .replace(/^\//, '')
-      return `![${text}](${DOCS_BASE}${stripped})`
-    }
-
-    // Split off any in-page anchor (#fragment) so it survives the rewrite.
-    const [path, anchor] = href.split('#')
-    const stripped = path
-      .replace(/^\.\//, '')
-      .replace(/^docs\//, '')
-      .replace(/^\//, '')
-      .replace(/\.md$/, '')
-    const route = `/docs/${stripped}`
-    return `[${text}](${route}${anchor ? `#${anchor}` : ''})`
-  })
+        .replace(/\.md$/, '')
+      const route = `/docs/${stripped}`
+      return `[${text}](${route}${anchor ? `#${anchor}` : ''})`
+    },
+  )
 }
 
 export function DocsPage() {
@@ -217,10 +220,7 @@ export function DocsPage() {
       if (cancelled) return
       const results = allItems.filter((item) => {
         const text = cache.get(item.slug) ?? ''
-        return (
-          item.title.toLowerCase().includes(q) ||
-          text.toLowerCase().includes(q)
-        )
+        return item.title.toLowerCase().includes(q) || text.toLowerCase().includes(q)
       })
       setSearchResults(results)
     })
@@ -254,9 +254,8 @@ export function DocsPage() {
   // Prev/next navigation follows the sidebar order.
   const currentIndex = items.findIndex((n) => n.slug === slug)
   const prevItem = currentIndex > 0 ? items[currentIndex - 1] : undefined
-  const nextItem = currentIndex >= 0 && currentIndex < items.length - 1
-    ? items[currentIndex + 1]
-    : undefined
+  const nextItem =
+    currentIndex >= 0 && currentIndex < items.length - 1 ? items[currentIndex + 1] : undefined
 
   // Intercept clicks on internal doc links rendered inside the markdown body
   // so they navigate via React Router instead of triggering a full page load.
@@ -339,7 +338,9 @@ export function DocsPage() {
                       className={[
                         item.slug === slug ? 'active' : '',
                         item.slug.includes('/') ? 'docs-nav-sub' : '',
-                      ].filter(Boolean).join(' ')}
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                     >
                       {item.title}
                     </Link>
@@ -362,13 +363,17 @@ export function DocsPage() {
                       <span className="docs-prev-next-label">← Previous</span>
                       <span className="docs-prev-next-title">{prevItem.title}</span>
                     </Link>
-                  ) : <span />}
+                  ) : (
+                    <span />
+                  )}
                   {nextItem ? (
                     <Link to={`/docs/${nextItem.slug}`} className="docs-prev-next-link docs-next">
                       <span className="docs-prev-next-label">Next →</span>
                       <span className="docs-prev-next-title">{nextItem.title}</span>
                     </Link>
-                  ) : <span />}
+                  ) : (
+                    <span />
+                  )}
                 </nav>
               )}
             </div>

@@ -64,7 +64,11 @@ describe('EventFilterBar', () => {
     wrap(
       <>
         <EventFilterBar />
-        <LocationSpy onSearch={(s) => { search = s }} />
+        <LocationSpy
+          onSearch={(s) => {
+            search = s
+          }}
+        />
       </>,
       '/?q=action%3Aeq%3Aopened',
     )

@@ -20,10 +20,7 @@ export function PluginPage(): JSX.Element {
   const { data: callerContext, isPending: callerPending } = usePluginCallerContext()
 
   const available = useMemo(() => activePlugins(pluginItems ?? []), [pluginItems])
-  const plugin = useMemo(
-    () => available.find((p) => p.id === pluginId),
-    [available, pluginId],
-  )
+  const plugin = useMemo(() => available.find((p) => p.id === pluginId), [available, pluginId])
   const page = useMemo(() => {
     if (!plugin) return undefined
     return findPage(plugin, splat ?? '')
@@ -52,9 +49,7 @@ export function PluginPage(): JSX.Element {
     return <Navigate to="/dashboard" replace />
   }
 
-  return (
-    <PluginPageContent plugin={plugin} page={page} isAdmin={callerContext?.isAdmin ?? false} />
-  )
+  return <PluginPageContent plugin={plugin} page={page} isAdmin={callerContext?.isAdmin ?? false} />
 }
 
 interface PluginPageContentProps {

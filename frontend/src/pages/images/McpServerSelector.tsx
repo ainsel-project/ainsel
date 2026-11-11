@@ -16,7 +16,12 @@ type McpServerSelectorProps = {
   }
 }
 
-export function McpServerSelector({ mcpServers, envNames, onChange, refresh }: McpServerSelectorProps) {
+export function McpServerSelector({
+  mcpServers,
+  envNames,
+  onChange,
+  refresh,
+}: McpServerSelectorProps) {
   const { data: available, isLoading } = useMCPServers()
   const envNameSet = useMemo(() => new Set(envNames), [envNames])
   const servers = available ?? []

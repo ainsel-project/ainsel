@@ -52,10 +52,7 @@ function defaultFetch(url: string): Response {
   }
   // match /events exactly (not timeseries query string containing "events")
   if (/\/events(\?|$)/.test(url)) {
-    return new Response(
-      JSON.stringify({ events: EVENTS, total: EVENTS.length }),
-      { status: 200 },
-    )
+    return new Response(JSON.stringify({ events: EVENTS, total: EVENTS.length }), { status: 200 })
   }
   if (url.includes('/connectors')) {
     return new Response(
@@ -68,10 +65,21 @@ function defaultFetch(url: string): Response {
 
 function withSpy(children: ReactNode, route: string) {
   let search = ''
-  function Spy() { search = useLocation().search; return null }
+  function Spy() {
+    search = useLocation().search
+    return null
+  }
   const result = renderWithProviders(
     <Routes>
-      <Route path="*" element={<>{children}<Spy /></>} />
+      <Route
+        path="*"
+        element={
+          <>
+            {children}
+            <Spy />
+          </>
+        }
+      />
     </Routes>,
     { route },
   )
@@ -80,9 +88,14 @@ function withSpy(children: ReactNode, route: string) {
 
 describe('EventsDetail', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(defaultFetch(url))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
+    )
   })
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('renders the page heading', () => {
     renderWithProviders(<EventsDetail />, { route: '/observability/events' })
@@ -121,9 +134,7 @@ describe('EventsDetail', () => {
 
   it('panel title shows just count when unfiltered', async () => {
     renderWithProviders(<EventsDetail />, { route: '/observability/events' })
-    await waitFor(() =>
-      expect(screen.getByText(`Events · ${EVENTS.length}`)).toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.getByText(`Events · ${EVENTS.length}`)).toBeInTheDocument())
   })
 
   it('filters events by agent param', async () => {
@@ -141,7 +152,7 @@ describe('EventsDetail', () => {
   it('panel title shows filtered-of-total when status filter active', async () => {
     renderWithProviders(<EventsDetail />, { route: '/observability/events?status=matched' })
     await waitFor(() =>
-      expect(screen.getByText(`Events · 1 of ${EVENTS.length}`)).toBeInTheDocument()
+      expect(screen.getByText(`Events · 1 of ${EVENTS.length}`)).toBeInTheDocument(),
     )
   })
 

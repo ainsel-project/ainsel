@@ -1,7 +1,15 @@
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useInvocations, invocationStatusVariant, effectiveRunState } from '../../../api/invocations'
-import { useObservabilityTimeseries, unavailableDetail, type Range } from '../../../api/observability'
+import {
+  useInvocations,
+  invocationStatusVariant,
+  effectiveRunState,
+} from '../../../api/invocations'
+import {
+  useObservabilityTimeseries,
+  unavailableDetail,
+  type Range,
+} from '../../../api/observability'
 import { ServiceUnavailableError } from '../../../api/client'
 import { Titleblock } from '../../../layout/Titleblock'
 import { Panel } from '../../../primitives/Panel'
@@ -38,7 +46,14 @@ export function RoutingDetail() {
   const range: Range = isRange(params.get('range')) ? (params.get('range') as Range) : '24h'
 
   const setRange = (next: Range) =>
-    setParams((prev) => { const p = new URLSearchParams(prev); p.set('range', next); return p }, { replace: true })
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('range', next)
+        return p
+      },
+      { replace: true },
+    )
 
   const matched = useObservabilityTimeseries({ range, metric: 'triggers_matched' })
   const routed = useObservabilityTimeseries({ range, metric: 'events_routed' })
@@ -46,16 +61,16 @@ export function RoutingDetail() {
   // Side list decides which invocation rows are linkable: an agent that was
   // deleted (or is not readable by this caller) renders plain text, not a 404.
   const { data: agentData } = useAgents({ pageSize: 200 })
-  const agentIds = useMemo(
-    () => new Set((agentData?.items ?? []).map((a) => a.id)),
-    [agentData],
-  )
+  const agentIds = useMemo(() => new Set((agentData?.items ?? []).map((a) => a.id)), [agentData])
 
   const chartState =
-    matched.isLoading || routed.isLoading ? 'loading'
-    : [matched.error, routed.error].some((e) => e instanceof ServiceUnavailableError) ? 'unavailable'
-    : [matched.error, routed.error].some(Boolean) ? 'error'
-    : 'ready'
+    matched.isLoading || routed.isLoading
+      ? 'loading'
+      : [matched.error, routed.error].some((e) => e instanceof ServiceUnavailableError)
+        ? 'unavailable'
+        : [matched.error, routed.error].some(Boolean)
+          ? 'error'
+          : 'ready'
 
   const chartSeries = useMemo(
     () => [
@@ -114,9 +129,7 @@ export function RoutingDetail() {
         return (
           <>
             <Dot state={statusDot(state)} />{' '}
-            <Tag variant={invocationStatusVariant(state)}>
-              {state}
-            </Tag>
+            <Tag variant={invocationStatusVariant(state)}>{state}</Tag>
           </>
         )
       },
@@ -147,7 +160,11 @@ export function RoutingDetail() {
             Operations / <Link to="/observability">Observability</Link> / <b>Routing</b>
           </>
         }
-        title={<>Routing <em>Detail</em></>}
+        title={
+          <>
+            Routing <em>Detail</em>
+          </>
+        }
         actions={<RangeSelector value={range} onChange={setRange} />}
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
@@ -163,7 +180,10 @@ export function RoutingDetail() {
               state={chartState}
               title={chartState === 'unavailable' ? 'No metrics source configured' : undefined}
               detail={unavailableDetail(matched.error ?? routed.error)}
-              onRetry={() => { matched.refetch(); routed.refetch() }}
+              onRetry={() => {
+                matched.refetch()
+                routed.refetch()
+              }}
             />
           )}
         </Panel>

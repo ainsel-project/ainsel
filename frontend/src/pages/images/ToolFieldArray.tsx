@@ -32,11 +32,7 @@ export function ToolFieldArray({
   isRefreshing,
   canRefresh,
 }: ToolFieldArrayProps) {
-  const {
-    fields,
-    append,
-    remove: removeTool,
-  } = useFieldArray({ control, name: 'tools' })
+  const { fields, append, remove: removeTool } = useFieldArray({ control, name: 'tools' })
 
   const tools = watch('tools')
 

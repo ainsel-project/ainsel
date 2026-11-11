@@ -45,10 +45,7 @@ describe('PluginPagesNav', () => {
 
   it('highlights the root page on its own path', () => {
     renderNav('/p/memory', true)
-    expect(screen.getByRole('link', { name: /Memories/i })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
+    expect(screen.getByRole('link', { name: /Memories/i })).toHaveAttribute('aria-current', 'page')
   })
 
   it('hides admin pages from non-admins', () => {

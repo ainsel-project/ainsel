@@ -208,11 +208,7 @@ export function DualListPicker<T>(props: DualListPickerProps<T>) {
         )}
       </ul>
       <div className="dual-list-pane-footer">
-        <Button
-          size="sm"
-          onClick={footer.onClick}
-          disabled={footer.disabled || isLoading}
-        >
+        <Button size="sm" onClick={footer.onClick} disabled={footer.disabled || isLoading}>
           {footer.label}
         </Button>
       </div>
@@ -225,15 +221,21 @@ export function DualListPicker<T>(props: DualListPickerProps<T>) {
   return (
     <div className="dual-list">
       {renderPane(
-        availableTitle, available, visibleAvailable, availableEmpty,
-        availableSel, setAvailableSel,
-        availableQuery, setAvailableQuery,
+        availableTitle,
+        available,
+        visibleAvailable,
+        availableEmpty,
+        availableSel,
+        setAvailableSel,
+        availableQuery,
+        setAvailableQuery,
         {
           label: `Add all visible (${visibleAvailable.length})`,
           onClick: addAllVisibleAvailable,
           disabled: visibleAvailable.length === 0,
         },
-        availableAnchor, setAvailableAnchor,
+        availableAnchor,
+        setAvailableAnchor,
       )}
       <div className="dual-list-arrows">
         <Button
@@ -254,15 +256,21 @@ export function DualListPicker<T>(props: DualListPickerProps<T>) {
         </Button>
       </div>
       {renderPane(
-        enabledTitle, enabled, visibleEnabled, enabledEmpty,
-        enabledSel, setEnabledSel,
-        enabledQuery, setEnabledQuery,
+        enabledTitle,
+        enabled,
+        visibleEnabled,
+        enabledEmpty,
+        enabledSel,
+        setEnabledSel,
+        enabledQuery,
+        setEnabledQuery,
         {
           label: `Remove all visible (${visibleEnabled.length})`,
           onClick: removeAllVisibleEnabled,
           disabled: visibleEnabled.length === 0,
         },
-        enabledAnchor, setEnabledAnchor,
+        enabledAnchor,
+        setEnabledAnchor,
       )}
     </div>
   )

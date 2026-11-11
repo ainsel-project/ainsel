@@ -13,10 +13,9 @@ describe('api/triggers', () => {
 
   it('listTriggers GETs /triggers with pagination params', async () => {
     mockFetch().mockResolvedValue(
-      new Response(
-        JSON.stringify({ items: [], total: 23, page: 1, pageSize: 1, totalPages: 23 }),
-        { status: 200 },
-      ),
+      new Response(JSON.stringify({ items: [], total: 23, page: 1, pageSize: 1, totalPages: 23 }), {
+        status: 200,
+      }),
     )
     const out = await listTriggers({ pageSize: 1 })
     const [url] = mockFetch().mock.calls[0]

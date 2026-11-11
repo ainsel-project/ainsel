@@ -39,29 +39,115 @@ export function buildRequestBody(values: ImageFormValues): AgentImageRequest {
     description: values.description || undefined,
     imageURL: values.imageURL,
     tools: values.tools.map(toApiTool),
-    env: values.env.map(
-      (e): EnvVar => ({ name: e.name, value: e.value, secret: e.secret }),
-    ),
+    env: values.env.map((e): EnvVar => ({ name: e.name, value: e.value, secret: e.secret })),
     mcpServers: values.mcpServers,
     enabledSkills: values.enabledSkills,
   }
 }
 
 export const DEFAULT_SHELL_TOOLS: ToolFormValue[] = [
-  { name: 'bash', kind: 'shell', description: 'Execute bash shell commands', enabled: true, isNew: false, examples: [] },
-  { name: 'ls', kind: 'shell', description: 'List directory contents', enabled: true, isNew: false, examples: [] },
-  { name: 'cat', kind: 'shell', description: 'Display file contents', enabled: true, isNew: false, examples: [] },
-  { name: 'pwd', kind: 'shell', description: 'Print current working directory', enabled: true, isNew: false, examples: [] },
-  { name: 'grep', kind: 'shell', description: 'Search for patterns in files', enabled: true, isNew: false, examples: [] },
-  { name: 'find', kind: 'shell', description: 'Find files and directories', enabled: true, isNew: false, examples: [] },
-  { name: 'mkdir', kind: 'shell', description: 'Create directories', enabled: true, isNew: false, examples: [] },
-  { name: 'mv', kind: 'shell', description: 'Move or rename files', enabled: true, isNew: false, examples: [] },
-  { name: 'cp', kind: 'shell', description: 'Copy files and directories', enabled: true, isNew: false, examples: [] },
-  { name: 'rm', kind: 'shell', description: 'Remove files and directories', enabled: true, isNew: false, examples: [] },
-  { name: 'echo', kind: 'shell', description: 'Print text to stdout', enabled: true, isNew: false, examples: [] },
-  { name: 'curl', kind: 'shell', description: 'Transfer data with HTTP/HTTPS', enabled: true, isNew: false, examples: [] },
+  {
+    name: 'bash',
+    kind: 'shell',
+    description: 'Execute bash shell commands',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'ls',
+    kind: 'shell',
+    description: 'List directory contents',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'cat',
+    kind: 'shell',
+    description: 'Display file contents',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'pwd',
+    kind: 'shell',
+    description: 'Print current working directory',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'grep',
+    kind: 'shell',
+    description: 'Search for patterns in files',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'find',
+    kind: 'shell',
+    description: 'Find files and directories',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'mkdir',
+    kind: 'shell',
+    description: 'Create directories',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'mv',
+    kind: 'shell',
+    description: 'Move or rename files',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'cp',
+    kind: 'shell',
+    description: 'Copy files and directories',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'rm',
+    kind: 'shell',
+    description: 'Remove files and directories',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'echo',
+    kind: 'shell',
+    description: 'Print text to stdout',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
+  {
+    name: 'curl',
+    kind: 'shell',
+    description: 'Transfer data with HTTP/HTTPS',
+    enabled: true,
+    isNew: false,
+    examples: [],
+  },
 ]
 
-export function envVarToFormValue(e: { name: string; value: string; secret?: boolean }): EnvVarFormValue {
+export function envVarToFormValue(e: {
+  name: string
+  value: string
+  secret?: boolean
+}): EnvVarFormValue {
   return { name: e.name, value: e.secret ? '' : e.value, secret: e.secret ?? false }
 }

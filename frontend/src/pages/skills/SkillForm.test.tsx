@@ -10,7 +10,13 @@ function defaultFetch(url: string, init?: RequestInit): Response {
   if (url.match(/\/api\/v1\/groups(\?|$)/) && method === 'GET') {
     return new Response(
       JSON.stringify([
-        { id: 'g1', name: 'Team A', description: '', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+        {
+          id: 'g1',
+          name: 'Team A',
+          description: '',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
       ]),
       { status: 200 },
     )

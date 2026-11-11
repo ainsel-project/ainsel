@@ -7,9 +7,5 @@ type DotProps = {
 
 export function Dot({ state, 'aria-label': label }: DotProps) {
   const cls = `dot ${state}`
-  return label ? (
-    <span className={cls} role="img" aria-label={label} />
-  ) : (
-    <span className={cls} />
-  )
+  return label ? <span className={cls} role="img" aria-label={label} /> : <span className={cls} />
 }

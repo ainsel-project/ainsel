@@ -19,9 +19,7 @@ describe('Pager', () => {
   })
 
   it('shows zeros when total is zero', () => {
-    render(
-      <Pager {...defaults} total={0} onPageChange={() => {}} onPageSizeChange={() => {}} />,
-    )
+    render(<Pager {...defaults} total={0} onPageChange={() => {}} onPageSizeChange={() => {}} />)
     const info = screen.getByText(/of/).parentElement as HTMLElement
     expect(info.textContent).toMatch(/of\s+0/)
   })

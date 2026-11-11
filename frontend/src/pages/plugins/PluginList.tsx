@@ -74,8 +74,7 @@ export function PluginList() {
       header: 'Status',
       cell: (p) => {
         const statusText = getStatusText(p)
-        const variant =
-          statusText === 'Ready' ? 'ok' : statusText === 'Disabled' ? 'err' : 'warn'
+        const variant = statusText === 'Ready' ? 'ok' : statusText === 'Disabled' ? 'err' : 'warn'
         return <Tag variant={variant}>{statusText}</Tag>
       },
     },

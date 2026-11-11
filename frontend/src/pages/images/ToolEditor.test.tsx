@@ -4,9 +4,22 @@ import { useForm } from 'react-hook-form'
 import { ToolEditor } from './ToolEditor'
 import type { ImageFormValues } from './ImageDetail.types'
 
-function Wrapper({ toolIndex, tools }: { toolIndex: number | null; tools: ImageFormValues['tools'] }) {
+function Wrapper({
+  toolIndex,
+  tools,
+}: {
+  toolIndex: number | null
+  tools: ImageFormValues['tools']
+}) {
   const { control, register, setValue, watch } = useForm<ImageFormValues>({
-    defaultValues: { tools, displayName: '', description: '', imageURL: '', env: [], mcpServers: [] },
+    defaultValues: {
+      tools,
+      displayName: '',
+      description: '',
+      imageURL: '',
+      env: [],
+      mcpServers: [],
+    },
   })
   return (
     <ToolEditor
@@ -26,16 +39,18 @@ describe('ToolEditor', () => {
     render(
       <Wrapper
         toolIndex={0}
-        tools={[{
-          name: 'mcp__example-mcp__list',
-          kind: 'mcp',
-          mcpSource: 'example-mcp',
-          enabled: true,
-          isNew: false,
-          description: 'Lists memories',
-          examples: [],
-        }]}
-      />
+        tools={[
+          {
+            name: 'mcp__example-mcp__list',
+            kind: 'mcp',
+            mcpSource: 'example-mcp',
+            enabled: true,
+            isNew: false,
+            description: 'Lists memories',
+            examples: [],
+          },
+        ]}
+      />,
     )
     expect(screen.getByText('mcp__example-mcp__list')).toBeInTheDocument()
   })
@@ -44,16 +59,18 @@ describe('ToolEditor', () => {
     render(
       <Wrapper
         toolIndex={0}
-        tools={[{
-          name: 'mcp__example-mcp__list',
-          kind: 'mcp',
-          mcpSource: 'example-mcp',
-          enabled: true,
-          isNew: false,
-          description: '',
-          examples: [],
-        }]}
-      />
+        tools={[
+          {
+            name: 'mcp__example-mcp__list',
+            kind: 'mcp',
+            mcpSource: 'example-mcp',
+            enabled: true,
+            isNew: false,
+            description: '',
+            examples: [],
+          },
+        ]}
+      />,
     )
     expect(screen.getByRole('checkbox', { name: /enabled/i })).toBeInTheDocument()
   })
@@ -62,16 +79,18 @@ describe('ToolEditor', () => {
     render(
       <Wrapper
         toolIndex={0}
-        tools={[{
-          name: 'mcp__example-mcp__list',
-          kind: 'mcp',
-          mcpSource: 'example-mcp',
-          enabled: true,
-          isNew: false,
-          description: '',
-          examples: [],
-        }]}
-      />
+        tools={[
+          {
+            name: 'mcp__example-mcp__list',
+            kind: 'mcp',
+            mcpSource: 'example-mcp',
+            enabled: true,
+            isNew: false,
+            description: '',
+            examples: [],
+          },
+        ]}
+      />,
     )
     const checkbox = screen.getByRole('checkbox', { name: /enabled/i })
     expect(checkbox).toBeChecked()
@@ -83,15 +102,17 @@ describe('ToolEditor', () => {
     render(
       <Wrapper
         toolIndex={0}
-        tools={[{
-          name: 'run_shell',
-          kind: 'shell',
-          enabled: true,
-          isNew: false,
-          description: 'Runs a shell command',
-          examples: [],
-        }]}
-      />
+        tools={[
+          {
+            name: 'run_shell',
+            kind: 'shell',
+            enabled: true,
+            isNew: false,
+            description: 'Runs a shell command',
+            examples: [],
+          },
+        ]}
+      />,
     )
     expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
   })

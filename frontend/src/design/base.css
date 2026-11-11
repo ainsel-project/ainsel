@@ -1,5 +1,11 @@
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
 
 body {
   background: var(--paper);
@@ -10,8 +16,16 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
   background-image:
-    radial-gradient(1200px 800px at 80% -10%, color-mix(in srgb, var(--signal) 6%, transparent), transparent 60%),
-    radial-gradient(900px 700px at -10% 110%, color-mix(in srgb, var(--ink-4) 12%, transparent), transparent 70%);
+    radial-gradient(
+      1200px 800px at 80% -10%,
+      color-mix(in srgb, var(--signal) 6%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 700px at -10% 110%,
+      color-mix(in srgb, var(--ink-4) 12%, transparent),
+      transparent 70%
+    );
   background-attachment: fixed;
 }
 

@@ -4,8 +4,7 @@
 // normal business outcome that must reach the calling form.
 
 const BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ??
-  `${import.meta.env.BASE_URL}api/v1`
+  (import.meta.env.VITE_API_URL as string | undefined) ?? `${import.meta.env.BASE_URL}api/v1`
 
 export type LocalUser = {
   sub: string

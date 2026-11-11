@@ -36,6 +36,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Security audit
         run: pnpm audit --audit-level=high
+      - name: Format
+        run: pnpm --filter frontend format:check
       - name: Lint
         run: pnpm --filter frontend lint
       - name: Test

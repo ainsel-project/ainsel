@@ -10,7 +10,13 @@ import { loadPluginModule } from './loader'
 const plugin: ActivePlugin = {
   id: 'mem0',
   displayName: 'Mem0',
-  manifest: { id: 'mem0', displayName: 'Mem0', version: '1.0.0', pluginApi: '1.1', ui: { entry: '/ui/index.js' } },
+  manifest: {
+    id: 'mem0',
+    displayName: 'Mem0',
+    version: '1.0.0',
+    pluginApi: '1.1',
+    ui: { entry: '/ui/index.js' },
+  },
 }
 
 describe('PluginExport', () => {

@@ -264,7 +264,9 @@ describe('UserList', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /new user/i }))
     await waitFor(() =>
-      expect(screen.getByText('At least 12 characters; 1 uppercase letter; 1 digit.')).toBeInTheDocument(),
+      expect(
+        screen.getByText('At least 12 characters; 1 uppercase letter; 1 digit.'),
+      ).toBeInTheDocument(),
     )
   })
 

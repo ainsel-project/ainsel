@@ -24,6 +24,11 @@
   animation: chat-busy-pulse 1.4s ease-in-out infinite;
 }
 @keyframes chat-busy-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }

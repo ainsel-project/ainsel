@@ -21,9 +21,13 @@ describe('api/userTokens', () => {
 
   it('createUserToken POSTs with name and expiresInDays', async () => {
     const created = {
-      id: 'tok1', name: 'test', token: 'ainsel_abc',
-      expiresAt: '2026-08-28T00:00:00Z', createdAt: '2026-05-28T00:00:00Z',
-      lastUsedAt: null, revokedAt: null,
+      id: 'tok1',
+      name: 'test',
+      token: 'ainsel_abc',
+      expiresAt: '2026-08-28T00:00:00Z',
+      createdAt: '2026-05-28T00:00:00Z',
+      lastUsedAt: null,
+      revokedAt: null,
     }
     mockFetch().mockResolvedValue(new Response(JSON.stringify(created), { status: 201 }))
     const result = await createUserToken({ name: 'test', expiresInDays: 30 })

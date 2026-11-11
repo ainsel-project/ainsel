@@ -163,7 +163,11 @@ export function EventJourney({
             <div className="journey-headline">
               <ChannelChip
                 name={
-                  i === 0 && !isDirectSource(s.channel) ? <ConnectorLabel id={s.channel} /> : s.channel
+                  i === 0 && !isDirectSource(s.channel) ? (
+                    <ConnectorLabel id={s.channel} />
+                  ) : (
+                    s.channel
+                  )
                 }
                 mark={i === 0 ? (isDirectSource(s.channel) ? 'direct' : 'produced') : 'fanout'}
                 to={homeHref(s.channel, i)}
@@ -193,9 +197,7 @@ export function EventJourney({
           <div className="journey-body">
             <div className="journey-terminal">
               Unmatched — no subscription picked this event up. It stays in the{' '}
-              <b>
-                {isDirectSource(connector) ? connector : <ConnectorLabel id={connector!} />}
-              </b>{' '}
+              <b>{isDirectSource(connector) ? connector : <ConnectorLabel id={connector!} />}</b>{' '}
               channel and will not be delivered to any agent.
             </div>
           </div>

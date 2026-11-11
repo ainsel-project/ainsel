@@ -111,10 +111,7 @@ function AssistantMeta({ message }: { message: ConversationMessage }) {
   if (message.stopReason) bits.push(message.stopReason)
   if (bits.length === 0) return null
   return (
-    <span
-      className="num"
-      style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em' }}
-    >
+    <span className="num" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
       {bits.join(' · ')}
     </span>
   )
@@ -167,9 +164,7 @@ function Block({ block }: { block: unknown }) {
       )
     case 'toolCall':
       return (
-        <CodeBlock
-          code={`${String(b.name ?? 'tool')}(${JSON.stringify(b.arguments ?? {})})`}
-        />
+        <CodeBlock code={`${String(b.name ?? 'tool')}(${JSON.stringify(b.arguments ?? {})})`} />
       )
     default:
       return <CodeBlock code={`${String(b.type ?? 'unknown')}: ${JSON.stringify(b)}`} />
