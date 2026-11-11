@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -68,6 +69,11 @@ func main() {
 	var agentGracePeriod int64
 	flag.Int64Var(&agentGracePeriod, "agent-grace-period", 1800,
 		"Pod terminationGracePeriodSeconds for agent deployments.")
+
+	var insecureRegistries string
+	flag.StringVar(&insecureRegistries, "insecure-registries", "",
+		"Comma-separated registry hosts (exact host:port) whose image digests are resolved over plain HTTP. "+
+			"Every other registry is HTTPS only. Intended for development registries.")
 
 	opts := zap.Options{
 		Development: true,
@@ -179,10 +185,11 @@ func main() {
 	}
 
 	if err := (&controller.AgentReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		Recorder:         mgr.GetEventRecorderFor("agent-controller"), //nolint:staticcheck // deprecated API still required for record.EventRecorder type compatibility
-		AgentGracePeriod: agentGracePeriod,
+		Client:             mgr.GetClient(),
+		Scheme:             mgr.GetScheme(),
+		Recorder:           mgr.GetEventRecorderFor("agent-controller"), //nolint:staticcheck // deprecated API still required for record.EventRecorder type compatibility
+		AgentGracePeriod:   agentGracePeriod,
+		InsecureRegistries: splitList(insecureRegistries),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Agent")
 		os.Exit(1)
@@ -203,4 +210,16 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// splitList parses a comma-separated flag value, trimming whitespace and
+// dropping empty entries.
+func splitList(s string) []string {
+	var out []string
+	for _, item := range strings.Split(s, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

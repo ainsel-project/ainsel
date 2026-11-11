@@ -26,6 +26,7 @@ The operator binary accepts the following flags (in addition to standard kubebui
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--agent-grace-period` | `1800` | Pod `terminationGracePeriodSeconds` for agent deployments. Allows in-flight tasks to finish on SIGTERM. |
+| `--insecure-registries` | `""` | Comma-separated registry hosts (exact `host:port`, e.g. `zot.platform.svc:5000`) whose image digests are resolved over plain HTTP. Every other registry is HTTPS only. For development registries; see [Image Digest Resolution](#image-digest-resolution-restart-on-rebuild). |
 | `--agent-scale-down-window` | `0` → `2m` | How long an agent with `minReplicas` set must stay free of queued and in-flight work before its last pod is removed. `0` leaves the controller default. |
 | `--queue-signal-ttl` | `0` → `5m` | How long the hub's published queue measurement may be trusted. Older than this, the operator holds the current pod count instead of scaling to zero. `0` leaves the controller default. |
 
@@ -75,6 +76,13 @@ registry manifest digest and stamps it on the pod template as
 `ainsel.dev/image-digest`. When a mutable tag (e.g. `:dev`) is rebuilt, the
 digest changes and Kubernetes rolls the pods so the agent picks up the new
 image. Digest-pinned references (`repo@sha256:…`) are used as-is.
+
+Registries are contacted over HTTPS only. A plain-HTTP registry, typically a
+development one such as an in-cluster zot, must be listed in
+`--insecure-registries` (Helm: `agentOperator.insecureRegistries`); a listed
+host is contacted over HTTP and HTTPS is never tried. There is no automatic
+fallback: an HTTPS failure against an unlisted registry fails resolution instead
+of retrying over HTTP.
 
 Authentication is anonymous, with an anonymous Docker Hub pull token for
 `docker.io`. A registry that demands credentials — GHCR, ECR, Harbor, any

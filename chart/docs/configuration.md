@@ -83,6 +83,7 @@ written `<component>.<key>`:
 | `agentOperator.image.tag` | string | `"0.1.0"` | Image tag |
 | `agentOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `agentOperator.agentGracePeriod` | string | `0` (flag omitted) | Grace period for the terminating signal sent to agent pods, passed as `--agent-grace-period`. Parsed as a Go duration, so it needs a unit: `"30m"`, not `"1800"` |
+| `agentOperator.insecureRegistries` | list | `[]` (flag omitted) | Registry hosts (exact `host:port`) whose image digests are resolved over plain HTTP, passed as `--insecure-registries`. For development registries; every other registry is HTTPS only |
 | `agentOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
 
 ### Connector Operator

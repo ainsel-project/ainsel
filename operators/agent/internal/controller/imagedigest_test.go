@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -126,9 +127,9 @@ func TestSplitDigest(t *testing.T) {
 	}
 }
 
-// withTestClient swaps the shared httpClient for a short-timeout client so
-// the HTTPS-first attempt against a plain-HTTP test server fails fast and the
-// test stays deterministic.
+// withTestClient swaps the shared httpClient for a short-timeout client so a
+// request that is expected to fail does so fast and the test stays
+// deterministic.
 func withTestClient(t *testing.T) {
 	t.Helper()
 	orig := httpClient
@@ -136,10 +137,19 @@ func withTestClient(t *testing.T) {
 	t.Cleanup(func() { httpClient = orig })
 }
 
+// plainHTTPRegistry starts a plain-HTTP fake registry and returns its host,
+// which tests list as an insecure registry.
+func plainHTTPRegistry(t *testing.T, h http.HandlerFunc) string {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return strings.TrimPrefix(srv.URL, "http://")
+}
+
 func TestResolveImageDigest_DigestPinnedSkipsNetwork(t *testing.T) {
 	// No server: a digest-pinned ref must resolve without any network call.
 	const digest = "sha256:cec864ebec545abcdef"
-	got, err := resolveImageDigest(context.Background(), "dpinsel/ainsel-pi@"+digest)
+	got, err := resolveImageDigest(context.Background(), "dpinsel/ainsel-pi@"+digest, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,27 +158,21 @@ func TestResolveImageDigest_DigestPinnedSkipsNetwork(t *testing.T) {
 	}
 }
 
-func TestResolveImageDigest_HTTPFallbackAndHeaders(t *testing.T) {
+func TestResolveImageDigest_InsecureRegistryUsesHTTPAndHeaders(t *testing.T) {
 	withTestClient(t)
 
 	const wantDigest = "sha256:deadbeefcafe"
 	var gotAccept, gotPath, gotMethod string
 
-	// Plain-HTTP server: the HTTPS-first attempt fails and the client must
-	// fall back to HTTP, which reaches this handler.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	registry := plainHTTPRegistry(t, func(w http.ResponseWriter, r *http.Request) {
 		gotAccept = r.Header.Get("Accept")
 		gotPath = r.URL.Path
 		gotMethod = r.Method
 		w.Header().Set("Docker-Content-Digest", wantDigest)
 		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+	})
 
-	registry := strings.TrimPrefix(srv.URL, "http://")
-	imageRef := registry + "/ainsel/pi:dev"
-
-	got, err := resolveImageDigest(context.Background(), imageRef)
+	got, err := resolveImageDigest(context.Background(), registry+"/ainsel/pi:dev", []string{registry})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -189,16 +193,57 @@ func TestResolveImageDigest_HTTPFallbackAndHeaders(t *testing.T) {
 	}
 }
 
-func TestResolveImageDigest_NonOKStatus(t *testing.T) {
+// A registry not on the insecure list is HTTPS only: when the HTTPS attempt
+// fails, resolution fails rather than silently downgrading to plain HTTP.
+func TestResolveImageDigest_NoHTTPFallback(t *testing.T) {
 	withTestClient(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
+	var hits atomic.Int32
+	registry := plainHTTPRegistry(t, func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Docker-Content-Digest", "sha256:deadbeefcafe")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, err := resolveImageDigest(context.Background(), registry+"/ainsel/pi:dev", []string{"other.registry:5000"})
+	if err == nil {
+		t.Fatal("expected error when HTTPS fails for a registry not on the insecure list, got nil")
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("plain-HTTP registry was hit %d time(s); want no HTTP fallback", n)
+	}
+}
+
+func TestResolveImageDigest_SecureRegistryUsesHTTPS(t *testing.T) {
+	const wantDigest = "sha256:deadbeefcafe"
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Docker-Content-Digest", wantDigest)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	registry := strings.TrimPrefix(srv.URL, "http://")
-	_, err := resolveImageDigest(context.Background(), registry+"/ainsel/pi:dev")
+	orig := httpClient
+	httpClient = srv.Client() // trusts the test server's certificate
+	t.Cleanup(func() { httpClient = orig })
+
+	registry := strings.TrimPrefix(srv.URL, "https://")
+	got, err := resolveImageDigest(context.Background(), registry+"/ainsel/pi:dev", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != wantDigest {
+		t.Errorf("digest = %q, want %q", got, wantDigest)
+	}
+}
+
+func TestResolveImageDigest_NonOKStatus(t *testing.T) {
+	withTestClient(t)
+
+	registry := plainHTTPRegistry(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	_, err := resolveImageDigest(context.Background(), registry+"/ainsel/pi:dev", []string{registry})
 	if err == nil {
 		t.Fatal("expected error for non-OK status, got nil")
 	}
@@ -210,14 +255,12 @@ func TestResolveImageDigest_NonOKStatus(t *testing.T) {
 func TestResolveImageDigest_MissingDigestHeader(t *testing.T) {
 	withTestClient(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	registry := plainHTTPRegistry(t, func(w http.ResponseWriter, _ *http.Request) {
 		// 200 OK but no Docker-Content-Digest header.
 		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+	})
 
-	registry := strings.TrimPrefix(srv.URL, "http://")
-	_, err := resolveImageDigest(context.Background(), registry+"/ainsel/pi:dev")
+	_, err := resolveImageDigest(context.Background(), registry+"/ainsel/pi:dev", []string{registry})
 	if err == nil {
 		t.Fatal("expected error for missing digest header, got nil")
 	}

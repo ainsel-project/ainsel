@@ -78,6 +78,9 @@ agentOperator:
   # Terminating signal sent to agent pods. pflag parses this as a Go duration,
   # so it needs a unit: "30m", not "1800".
   agentGracePeriod: 0 # e.g. 30m
+  # Registry hosts (exact host:port) whose image digests are resolved over
+  # plain HTTP, for development registries. Every other registry is HTTPS only.
+  insecureRegistries: [] # e.g. ["zot.platform.svc:5000"]
   resources:
     requests:
       cpu: 50m
