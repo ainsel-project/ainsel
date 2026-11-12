@@ -86,3 +86,20 @@ func TestAllReturnsCopy(t *testing.T) {
 		t.Fatal("All() exposes the registry's backing slice")
 	}
 }
+
+// Storing a new key (through the hub) must not drop a configured baseUrl:
+// for a gateway agent that would send the key to the vendor instead.
+func TestSetCredentialKeepsBaseURL(t *testing.T) {
+	ref := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "new"}, Key: "api-key"}
+	for _, p := range All() {
+		t.Run(p.ID, func(t *testing.T) {
+			var spec v1alpha1.AgentSpec
+			p.SetCredential(&spec, Credential{BaseURL: "https://gw.example"})
+			p.SetCredential(&spec, Credential{APIKeySecretRef: ref})
+			got, _ := p.Credential(&spec)
+			if got.BaseURL != "https://gw.example" || got.APIKeySecretRef == nil || got.APIKeySecretRef.Name != "new" {
+				t.Errorf("after key update: %+v, want baseUrl kept and ref new", got)
+			}
+		})
+	}
+}

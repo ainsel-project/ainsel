@@ -200,3 +200,31 @@ func TestLLMCheckProbeTokenLimitField(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateKeyKeepsBaseURL(t *testing.T) {
+	s := providerTestServer(t)
+	var created SimpleAgentResponse
+	_ = json.Unmarshal(doAgentJSON(t, s, http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
+		Name: "agent", ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM:    AgentLLMInfo{Model: "m", Provider: "openai"},
+		OpenAI: &AgentAPIKeyInfo{APIKey: "sk-original"},
+	}, http.StatusCreated), &created)
+	// A gateway baseUrl set out of band (kubectl/GitOps).
+	ag := storedAgent(t, s, created.ID)
+	ag.Spec.OpenAI.BaseURL = "https://gw.example/v1"
+	if err := s.client.Update(context.Background(), ag); err != nil {
+		t.Fatal(err)
+	}
+
+	doAgentJSON(t, s, http.MethodPut, "/api/v1/agents/"+created.ID, SimpleAgentUpdateRequest{
+		OpenAI: &AgentAPIKeyInfo{APIKey: "sk-rotated"},
+	}, http.StatusOK)
+
+	ag = storedAgent(t, s, created.ID)
+	if ag.Spec.OpenAI == nil || ag.Spec.OpenAI.BaseURL != "https://gw.example/v1" {
+		t.Fatalf("openAI block after key rotation = %+v, want baseUrl kept", ag.Spec.OpenAI)
+	}
+	if got := storedKey(t, s, created.ID+"-openai-key"); got != "sk-rotated" {
+		t.Errorf("stored key = %q, want sk-rotated", got)
+	}
+}

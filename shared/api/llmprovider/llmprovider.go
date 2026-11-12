@@ -82,9 +82,25 @@ type Provider struct {
 	// Credential returns the provider's block from spec; false when the
 	// block is absent.
 	Credential func(spec *v1alpha1.AgentSpec) (Credential, bool)
-	// SetCredential writes c into the provider's block, creating it if
-	// absent.
-	SetCredential func(spec *v1alpha1.AgentSpec, c Credential)
+	// setBlock writes c into the provider's block as given, creating it if
+	// absent. Callers use SetCredential, which keeps unset fields.
+	setBlock func(spec *v1alpha1.AgentSpec, c Credential)
+}
+
+// SetCredential writes c into the provider's block, creating it if absent.
+// Fields c leaves empty keep the block's current value, so storing a new key
+// never drops a configured baseUrl — for a gateway agent that would silently
+// send the agent, and its key, to the vendor endpoint instead.
+func (p Provider) SetCredential(spec *v1alpha1.AgentSpec, c Credential) {
+	if old, ok := p.Credential(spec); ok {
+		if c.APIKeySecretRef == nil {
+			c.APIKeySecretRef = old.APIKeySecretRef
+		}
+		if c.BaseURL == "" {
+			c.BaseURL = old.BaseURL
+		}
+	}
+	p.setBlock(spec, c)
 }
 
 // BaseURL returns the block's baseUrl override when set, else the default.
@@ -113,7 +129,7 @@ var providers = []Provider{
 			}
 			return Credential{APIKeySecretRef: s.OllamaCloud.APIKeySecretRef, BaseURL: s.OllamaCloud.BaseURL}, true
 		},
-		SetCredential: func(s *v1alpha1.AgentSpec, c Credential) {
+		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
 			s.OllamaCloud = &v1alpha1.AgentOllamaCloud{APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
 		},
 	},
@@ -135,7 +151,7 @@ var providers = []Provider{
 			}
 			return Credential{APIKeySecretRef: s.OpenCode.APIKeySecretRef, BaseURL: s.OpenCode.BaseURL}, true
 		},
-		SetCredential: func(s *v1alpha1.AgentSpec, c Credential) {
+		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
 			s.OpenCode = &v1alpha1.AgentOpenCode{APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
 		},
 	},
@@ -159,7 +175,7 @@ var providers = []Provider{
 			}
 			return Credential{APIKeySecretRef: s.AlibabaCloud.APIKeySecretRef, BaseURL: s.AlibabaCloud.BaseURL}, true
 		},
-		SetCredential: func(s *v1alpha1.AgentSpec, c Credential) {
+		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
 			s.AlibabaCloud = &v1alpha1.AgentAlibabaCloud{APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
 		},
 	},
@@ -181,7 +197,7 @@ var providers = []Provider{
 			}
 			return Credential{APIKeySecretRef: s.OpenAI.APIKeySecretRef, BaseURL: s.OpenAI.BaseURL}, true
 		},
-		SetCredential: func(s *v1alpha1.AgentSpec, c Credential) {
+		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
 			s.OpenAI = &v1alpha1.AgentOpenAI{APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
 		},
 	},
@@ -202,7 +218,7 @@ var providers = []Provider{
 			}
 			return Credential{APIKeySecretRef: s.Anthropic.APIKeySecretRef, BaseURL: s.Anthropic.BaseURL}, true
 		},
-		SetCredential: func(s *v1alpha1.AgentSpec, c Credential) {
+		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
 			s.Anthropic = &v1alpha1.AgentAnthropic{APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
 		},
 	},
@@ -223,7 +239,7 @@ var providers = []Provider{
 			}
 			return Credential{APIKeySecretRef: s.Google.APIKeySecretRef, BaseURL: s.Google.BaseURL}, true
 		},
-		SetCredential: func(s *v1alpha1.AgentSpec, c Credential) {
+		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
 			s.Google = &v1alpha1.AgentGoogle{APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
 		},
 	},
@@ -242,7 +258,7 @@ var providers = []Provider{
 			}
 			return Credential{APIKeySecretRef: s.CustomProvider.APIKeySecretRef, BaseURL: s.CustomProvider.URL}, true
 		},
-		SetCredential: func(s *v1alpha1.AgentSpec, c Credential) {
+		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
 			s.CustomProvider = &v1alpha1.AgentCustomProvider{APIKeySecretRef: c.APIKeySecretRef, URL: c.BaseURL}
 		},
 	},
