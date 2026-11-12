@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	sharedpersonas "github.com/ainsel-project/ainsel/shared/api/personas"
 	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 
@@ -405,7 +406,7 @@ func (r *AgentReconciler) reconcilePiModelsConfigMap(ctx context.Context, agent 
 	modelsJSON := fmt.Sprintf(`{
     "providers": {
         %q: {
-            "api": "openai-completions",
+            "api": %q,
             "apiKey": %q,
             "baseUrl": %q%s,
             "models": [
@@ -418,7 +419,7 @@ func (r *AgentReconciler) reconcilePiModelsConfigMap(ctx context.Context, agent 
             ]
         }
     }%s
-}`, pp.Name, apiKeyRef, pp.BaseURL, providerCompatBlock, agent.Spec.LLM.Model, contextWindow, input, pp.Compat, thinkingLevelMapBlock, modelCompatBlock, costBlock, ainselBlock)
+}`, pp.Name, pp.API, apiKeyRef, pp.BaseURL, providerCompatBlock, agent.Spec.LLM.Model, contextWindow, input, pp.Compat, thinkingLevelMapBlock, modelCompatBlock, costBlock, ainselBlock)
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -875,17 +876,10 @@ func (r *AgentReconciler) agentImageToAgents(ctx context.Context, obj client.Obj
 }
 
 func referencesSecret(agent ainselv1alpha1.Agent, secretName string) bool {
-	if agent.Spec.OllamaCloud != nil && agent.Spec.OllamaCloud.APIKeySecretRef != nil && agent.Spec.OllamaCloud.APIKeySecretRef.Name == secretName {
-		return true
-	}
-	if agent.Spec.OpenCode != nil && agent.Spec.OpenCode.APIKeySecretRef != nil && agent.Spec.OpenCode.APIKeySecretRef.Name == secretName {
-		return true
-	}
-	if agent.Spec.AlibabaCloud != nil && agent.Spec.AlibabaCloud.APIKeySecretRef != nil && agent.Spec.AlibabaCloud.APIKeySecretRef.Name == secretName {
-		return true
-	}
-	if agent.Spec.CustomProvider != nil && agent.Spec.CustomProvider.APIKeySecretRef != nil && agent.Spec.CustomProvider.APIKeySecretRef.Name == secretName {
-		return true
+	for _, p := range llmprovider.All() {
+		if cred, ok := p.Credential(&agent.Spec); ok && cred.APIKeySecretRef != nil && cred.APIKeySecretRef.Name == secretName {
+			return true
+		}
 	}
 	// The image-env secret is always operator-managed with a fixed name.
 	if "agent-"+agent.Name+"-image-env" == secretName {

@@ -1050,14 +1050,16 @@ var _ = Describe("resolvePiProvider", func() {
 		Expect(pp.APIKeyEnv).To(Equal("ALIBABA_CLOUD_API_KEY"))
 	})
 
-	It("resolves custom to the openai key with the spec.customProvider.url", func() {
+	It("resolves custom to the ainsel-custom key with the spec.customProvider.url", func() {
 		agent := newAgent(func(a *ainselv1alpha1.Agent) {
 			a.Spec.LLM.Provider = ainselv1alpha1.AgentLLMProviderCustom
 			a.Spec.CustomProvider = &ainselv1alpha1.AgentCustomProvider{URL: "https://llm.internal.example/v1"}
 		})
 		pp, err := resolvePiProvider(agent)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(pp.Name).To(Equal("openai"))
+		// Not "openai": that key is Pi's built-in OpenAI provider.
+		Expect(pp.Name).To(Equal("ainsel-custom"))
+		Expect(pp.API).To(Equal("openai-completions"))
 		Expect(pp.BaseURL).To(Equal("https://llm.internal.example/v1"))
 		Expect(pp.APIKeyEnv).To(Equal("CUSTOM_PROVIDER_API_KEY"))
 	})
@@ -1094,7 +1096,7 @@ var _ = Describe("resolvePiProvider", func() {
 		_, err := resolvePiProvider(agent)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("spec.llm.provider is required"))
-		Expect(err.Error()).To(ContainSubstring("ollama-cloud, opencode, alibaba-cloud, custom"))
+		Expect(err.Error()).To(ContainSubstring("ollama-cloud, opencode, alibaba-cloud, openai, anthropic, google, custom"))
 	})
 
 	It("errors on an unknown provider instead of defaulting to ollama-cloud", func() {
@@ -1104,6 +1106,6 @@ var _ = Describe("resolvePiProvider", func() {
 		_, err := resolvePiProvider(agent)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unknown"))
-		Expect(err.Error()).To(ContainSubstring("ollama-cloud, opencode, alibaba-cloud, custom"))
+		Expect(err.Error()).To(ContainSubstring("ollama-cloud, opencode, alibaba-cloud, openai, anthropic, google, custom"))
 	})
 })

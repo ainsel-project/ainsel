@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -13,6 +14,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	sharedpersonas "github.com/ainsel-project/ainsel/shared/api/personas"
 	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 
@@ -343,54 +345,28 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 	return envs, nil
 }
 
-// llmProviderEnv renders the four provider API-key secret references and the
-// optional max-turns override. All four providers share one shape: the
-// secret defaults to <agent>-<provider>-key (created by the hub when the
-// agent is created with a key) and is overridden by the spec's
+// llmProviderEnv renders the provider API-key secret references and the
+// optional max-turns override. Every provider shares one shape: the secret
+// defaults to <agent><FallbackSecretSuffix> and is overridden by the block's
 // apiKeySecretRef when set. Optional is true only when the provider block is
 // absent entirely, so pods start even without a key.
+//
+// A provider's env is rendered when it predates the llmprovider registry
+// (AlwaysRender, keeping existing pod templates unchanged), when its block is
+// set, or when it is the agent's selected provider.
 func llmProviderEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
-	providers := []struct {
-		envName       string
-		defaultSuffix string
-		// providerBlock reports the spec block's presence and its optional
-		// secret ref. present=false means the block is unset entirely.
-		providerBlock func() (ref *corev1.SecretKeySelector, present bool)
-	}{
-		{"OLLAMA_API_KEY", "-ollama-key", func() (*corev1.SecretKeySelector, bool) {
-			if agent.Spec.OllamaCloud == nil {
-				return nil, false
-			}
-			return agent.Spec.OllamaCloud.APIKeySecretRef, true
-		}},
-		{"OPENCODE_API_KEY", "-opencode-key", func() (*corev1.SecretKeySelector, bool) {
-			if agent.Spec.OpenCode == nil {
-				return nil, false
-			}
-			return agent.Spec.OpenCode.APIKeySecretRef, true
-		}},
-		{"ALIBABA_CLOUD_API_KEY", "-alibaba-key", func() (*corev1.SecretKeySelector, bool) {
-			if agent.Spec.AlibabaCloud == nil {
-				return nil, false
-			}
-			return agent.Spec.AlibabaCloud.APIKeySecretRef, true
-		}},
-		{"CUSTOM_PROVIDER_API_KEY", "-custom-provider-key", func() (*corev1.SecretKeySelector, bool) {
-			if agent.Spec.CustomProvider == nil {
-				return nil, false
-			}
-			return agent.Spec.CustomProvider.APIKeySecretRef, true
-		}},
-	}
-	envs := make([]corev1.EnvVar, 0, len(providers))
-	for _, p := range providers {
-		ref, present := p.providerBlock()
-		secretName := agent.Name + p.defaultSuffix
-		if present && ref != nil {
-			secretName = ref.Name
+	var envs []corev1.EnvVar
+	for _, p := range llmprovider.All() {
+		cred, present := p.Credential(&agent.Spec)
+		if !p.AlwaysRender && !present && p.ID != agent.Spec.LLM.Provider {
+			continue
+		}
+		secretName := agent.Name + p.FallbackSecretSuffix
+		if present && cred.APIKeySecretRef != nil {
+			secretName = cred.APIKeySecretRef.Name
 		}
 		envs = append(envs, corev1.EnvVar{
-			Name: p.envName,
+			Name: p.APIKeyEnv,
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
@@ -601,40 +577,7 @@ func (r *AgentReconciler) stampPodTemplateAnnotations(ctx context.Context, agent
 	// Compute a stable hash of all referenced secrets and annotate the
 	// pod template. When a secret changes, the hash changes, which causes
 	// Kubernetes to perform a rolling restart automatically.
-	var hashRefs []corev1.SecretKeySelector
-	if agent.Spec.OllamaCloud != nil && agent.Spec.OllamaCloud.APIKeySecretRef != nil {
-		hashRefs = append(hashRefs, *agent.Spec.OllamaCloud.APIKeySecretRef)
-	} else {
-		hashRefs = append(hashRefs, corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: agent.Name + "-ollama-key"},
-			Key:                  "api-key",
-		})
-	}
-	if agent.Spec.OpenCode != nil && agent.Spec.OpenCode.APIKeySecretRef != nil {
-		hashRefs = append(hashRefs, *agent.Spec.OpenCode.APIKeySecretRef)
-	} else {
-		hashRefs = append(hashRefs, corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: agent.Name + "-opencode-key"},
-			Key:                  "api-key",
-		})
-	}
-	if agent.Spec.AlibabaCloud != nil && agent.Spec.AlibabaCloud.APIKeySecretRef != nil {
-		hashRefs = append(hashRefs, *agent.Spec.AlibabaCloud.APIKeySecretRef)
-	} else {
-		hashRefs = append(hashRefs, corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: agent.Name + "-alibaba-key"},
-			Key:                  "api-key",
-		})
-	}
-	if agent.Spec.CustomProvider != nil && agent.Spec.CustomProvider.APIKeySecretRef != nil {
-		hashRefs = append(hashRefs, *agent.Spec.CustomProvider.APIKeySecretRef)
-	} else {
-		hashRefs = append(hashRefs, corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: agent.Name + "-custom-provider-key"},
-			Key:                  "api-key",
-			Optional:             ptr.To(true),
-		})
-	}
+	hashRefs := llmSecretHashRefs(agent)
 	hash, err := r.computeSecretHash(ctx, agent.Namespace, hashRefs, agentName+"-image-env")
 	if err != nil {
 		return fmt.Errorf("computing secret hash: %w", err)
@@ -696,4 +639,36 @@ func (r *AgentReconciler) stampPodTemplateAnnotations(ctx context.Context, agent
 		deploy.Spec.Template.Annotations[imageDigestAnnotation] = digest
 	}
 	return nil
+}
+
+// llmSecretHashRefs lists the provider key secrets whose content feeds the
+// pod template's secret hash, so a rotated key rolls the pods. The list and
+// its order are load-bearing: changing either changes every agent's hash and
+// re-restarts every agent pod on upgrade.
+func llmSecretHashRefs(agent *ainselv1alpha1.Agent) []corev1.SecretKeySelector {
+	// Providers that predate the registry come first, in registry order, so
+	// their refs keep the positions they had before newer providers existed.
+	ordered := llmprovider.All()
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].AlwaysRender && !ordered[j].AlwaysRender })
+	var hashRefs []corev1.SecretKeySelector
+	for _, p := range ordered {
+		cred, present := p.Credential(&agent.Spec)
+		switch {
+		case present && cred.APIKeySecretRef != nil:
+			hashRefs = append(hashRefs, *cred.APIKeySecretRef)
+		case p.AlwaysRender || present:
+			// Providers that predate the registry always contribute their
+			// fallback secret; newer ones only once their block is set, so
+			// adding a provider never changes existing agents' hashes.
+			fallback := corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: agent.Name + p.FallbackSecretSuffix},
+				Key:                  "api-key",
+			}
+			if p.ID == ainselv1alpha1.AgentLLMProviderCustom {
+				fallback.Optional = ptr.To(true)
+			}
+			hashRefs = append(hashRefs, fallback)
+		}
+	}
+	return hashRefs
 }
