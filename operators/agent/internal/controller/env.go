@@ -22,6 +22,11 @@ type piProviderConfig struct {
 	Name string
 	// API is the Pi API type written to models.json ("openai-completions", ...).
 	API string
+	// BuiltIn marks one of Pi's own providers: models.json then carries only
+	// the key, BaseURLOverride and per-model overrides (see llmprovider.Provider.PiBuiltIn).
+	BuiltIn bool
+	// BaseURLOverride is the provider block's baseUrl, empty when unset.
+	BaseURLOverride string
 	// BaseURL is the provider's API base URL.
 	BaseURL string
 	// APIKeyEnv is the environment variable name that holds the API key.
@@ -68,9 +73,12 @@ func resolvePiProvider(agent *ainselv1alpha1.Agent) (piProviderConfig, error) {
 		return piProviderConfig{}, fmt.Errorf(
 			"spec.llm.provider %q is unknown: must be one of %s", agent.Spec.LLM.Provider, strings.Join(piLLMProviderAllowedValues, ", "))
 	}
+	cred, _ := p.Credential(&agent.Spec)
 	return piProviderConfig{
 		Name:             p.PiName,
 		API:              p.PiAPI,
+		BuiltIn:          p.PiBuiltIn,
+		BaseURLOverride:  cred.BaseURL,
 		BaseURL:          p.BaseURL(&agent.Spec),
 		APIKeyEnv:        p.APIKeyEnv,
 		Compat:           p.Compat,

@@ -125,13 +125,16 @@ func TestCustomProviderUsesAinselCustomKey(t *testing.T) {
 	}
 }
 
+// OpenAI, Anthropic and Google run on Pi's built-in providers: models.json
+// only supplies the key, an optional baseUrl and per-model overrides, so Pi's
+// own catalog keeps each model's reasoning, compat and thinking settings.
 func TestNewProvidersModelsJSON(t *testing.T) {
 	vision := true
 	window := 400000
-	cases := []struct{ provider, piName, api, baseURL, keyRef string }{
-		{"openai", "ainsel-openai", "openai-responses", "https://api.openai.com/v1", "$OPENAI_API_KEY"},
-		{"anthropic", "ainsel-anthropic", "anthropic-messages", "https://api.anthropic.com", "$ANTHROPIC_API_KEY"},
-		{"google", "ainsel-google", "google-generative-ai", "https://generativelanguage.googleapis.com/v1beta", "$GEMINI_API_KEY"},
+	cases := []struct{ provider, keyRef string }{
+		{"openai", "$OPENAI_API_KEY"},
+		{"anthropic", "$ANTHROPIC_API_KEY"},
+		{"google", "$GEMINI_API_KEY"},
 	}
 	for _, c := range cases {
 		t.Run(c.provider, func(t *testing.T) {
@@ -140,24 +143,56 @@ func TestNewProvidersModelsJSON(t *testing.T) {
 			a.Spec.LLM.ContextWindow = &window
 			a.Spec.LLM.Cost = &ainselv1alpha1.AgentLLMCost{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}
 			providers := modelsProviders(t, renderModelsJSON(t, a))
-			p, ok := providers[c.piName]
+			p, ok := providers[c.provider]
 			if !ok || len(providers) != 1 {
-				t.Fatalf("models.json providers = %v, want exactly %s", providers, c.piName)
+				t.Fatalf("models.json providers = %v, want exactly Pi's built-in %s", providers, c.provider)
 			}
-			if p["api"] != c.api || p["baseUrl"] != c.baseURL || p["apiKey"] != c.keyRef {
-				t.Errorf("provider entry = api %v baseUrl %v apiKey %v, want %s %s %s", p["api"], p["baseUrl"], p["apiKey"], c.api, c.baseURL, c.keyRef)
+			if p["apiKey"] != c.keyRef {
+				t.Errorf("apiKey = %v, want %s", p["apiKey"], c.keyRef)
 			}
-			model := p["models"].([]any)[0].(map[string]any)
-			if model["contextWindow"] != float64(window) {
-				t.Errorf("contextWindow = %v, want %d", model["contextWindow"], window)
+			for _, k := range []string{"api", "models", "baseUrl"} {
+				if _, set := p[k]; set {
+					t.Errorf("%s set (%v): it would replace Pi's built-in provider data", k, p[k])
+				}
 			}
-			if mustJSON(t, model["input"]) != `["text","image"]` {
-				t.Errorf("input = %v, want text+image", model["input"])
+			over := p["modelOverrides"].(map[string]any)["m1"].(map[string]any)
+			if over["contextWindow"] != float64(window) {
+				t.Errorf("contextWindow override = %v, want %d", over["contextWindow"], window)
 			}
-			if mustJSON(t, model["cost"]) != `{"cacheRead":0.3,"cacheWrite":3.75,"input":3,"output":15}` {
-				t.Errorf("cost = %v", model["cost"])
+			if mustJSON(t, over["input"]) != `["text","image"]` {
+				t.Errorf("input override = %v, want text+image", over["input"])
+			}
+			if mustJSON(t, over["cost"]) != `{"cacheRead":0.3,"cacheWrite":3.75,"input":3,"output":15}` {
+				t.Errorf("cost override = %v", over["cost"])
 			}
 		})
+	}
+}
+
+// Without spec overrides Pi's catalog values stand: no default context
+// window is forced onto a built-in model, only the vision choice.
+func TestBuiltInProviderKeepsCatalogDefaults(t *testing.T) {
+	a := providerAgent(ainselv1alpha1.AgentLLMProviderAnthropic)
+	a.Spec.Anthropic = &ainselv1alpha1.AgentAnthropic{BaseURL: "https://gw.example"}
+	temp := 0.2
+	a.Spec.LLM.Temperature = &temp
+	doc := renderModelsJSON(t, a)
+	p := modelsProviders(t, doc)["anthropic"]
+	if p["baseUrl"] != "https://gw.example" {
+		t.Errorf("baseUrl = %v, want the block override", p["baseUrl"])
+	}
+	over := p["modelOverrides"].(map[string]any)["m1"].(map[string]any)
+	if _, set := over["contextWindow"]; set {
+		t.Errorf("contextWindow forced to %v; Pi's catalog value must stand", over["contextWindow"])
+	}
+	if mustJSON(t, over["input"]) != `["text"]` {
+		t.Errorf("input override = %v, want text only", over["input"])
+	}
+	// Temperature is only injected for OpenAI-compatible payloads.
+	var root map[string]any
+	_ = json.Unmarshal([]byte(doc), &root)
+	if _, set := root["ainsel"]; set {
+		t.Errorf("ainsel temperature block emitted for a native-API provider: %v", root["ainsel"])
 	}
 }
 

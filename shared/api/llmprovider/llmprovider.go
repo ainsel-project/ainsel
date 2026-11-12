@@ -36,9 +36,15 @@ type Provider struct {
 	ID    string
 	Label string
 	// PiName is the provider key in Pi's models.json and the --provider flag
-	// value. It never equals a Pi built-in provider key, so the generated
-	// entry cannot merge with Pi's own provider of the same name.
+	// value. For a PiBuiltIn provider it is Pi's own provider id; every other
+	// provider uses a key no Pi built-in provider has, so its generated entry
+	// cannot merge with one.
 	PiName string
+	// PiBuiltIn marks a provider Pi ships itself, with its own model catalog
+	// (per-model reasoning, compat and thinking settings). The operator then
+	// writes only the key, an optional baseUrl and per-model overrides from
+	// the Agent spec, never a full model entry that would mask the catalog.
+	PiBuiltIn bool
 	// PiAPI is the Pi API type ("openai-completions", ...).
 	PiAPI string
 	// DefaultBaseURL is the built-in base URL; empty when the URL must come
@@ -69,6 +75,10 @@ type Provider struct {
 	// probes (<base>/chat/completions with a Bearer key). Empty means the
 	// provider cannot be checked from a bare (provider, model) pair.
 	CheckBaseURL string
+	// CheckTokenLimitField is the request field the LLM check caps the reply
+	// with; empty means "max_tokens". OpenAI's reasoning models reject
+	// max_tokens and need "max_completion_tokens".
+	CheckTokenLimitField string
 	// Credential returns the provider's block from spec; false when the
 	// block is absent.
 	Credential func(spec *v1alpha1.AgentSpec) (Credential, bool)
@@ -156,13 +166,15 @@ var providers = []Provider{
 	{
 		ID:                   v1alpha1.AgentLLMProviderOpenAI,
 		Label:                "OpenAI",
-		PiName:               "ainsel-openai",
+		PiName:               "openai",
+		PiBuiltIn:            true,
 		PiAPI:                PiAPIOpenAIResponses,
 		DefaultBaseURL:       "https://api.openai.com/v1",
 		APIKeyEnv:            "OPENAI_API_KEY", // #nosec G101 -- env var name, not a hardcoded value
 		HubSecretSuffix:      "-openai-key",
 		FallbackSecretSuffix: "-openai-key",
 		CheckBaseURL:         "https://api.openai.com/v1",
+		CheckTokenLimitField: "max_completion_tokens",
 		Credential: func(s *v1alpha1.AgentSpec) (Credential, bool) {
 			if s.OpenAI == nil {
 				return Credential{}, false
@@ -176,7 +188,8 @@ var providers = []Provider{
 	{
 		ID:                   v1alpha1.AgentLLMProviderAnthropic,
 		Label:                "Anthropic",
-		PiName:               "ainsel-anthropic",
+		PiName:               "anthropic",
+		PiBuiltIn:            true,
 		PiAPI:                PiAPIAnthropicMessages,
 		DefaultBaseURL:       "https://api.anthropic.com",
 		APIKeyEnv:            "ANTHROPIC_API_KEY", // #nosec G101 -- env var name, not a hardcoded value
@@ -196,7 +209,8 @@ var providers = []Provider{
 	{
 		ID:                   v1alpha1.AgentLLMProviderGoogle,
 		Label:                "Google Gemini",
-		PiName:               "ainsel-google",
+		PiName:               "google",
+		PiBuiltIn:            true,
 		PiAPI:                PiAPIGoogleGenerativeAI,
 		DefaultBaseURL:       "https://generativelanguage.googleapis.com/v1beta",
 		APIKeyEnv:            "GEMINI_API_KEY", // #nosec G101 -- env var name, not a hardcoded value

@@ -66,15 +66,16 @@ func TestBaseURLOverride(t *testing.T) {
 }
 
 func TestPiNamesUnique(t *testing.T) {
+	builtIn := map[string]bool{"openai": true, "anthropic": true, "google": true}
 	seen := map[string]bool{}
 	for _, p := range All() {
 		if seen[p.PiName] {
 			t.Errorf("duplicate PiName %q", p.PiName)
 		}
 		seen[p.PiName] = true
-		// Pi's built-in providers must stay untouched (ChatGPT sign-in needs "openai").
-		if slices.Contains([]string{"openai", "anthropic", "google"}, p.PiName) {
-			t.Errorf("provider %q uses Pi built-in provider key %q", p.ID, p.PiName)
+		// A generated provider entry must never merge into a Pi built-in one.
+		if builtIn[p.PiName] != p.PiBuiltIn {
+			t.Errorf("provider %q: PiName %q with PiBuiltIn=%v", p.ID, p.PiName, p.PiBuiltIn)
 		}
 	}
 }
