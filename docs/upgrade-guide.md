@@ -140,6 +140,24 @@ helm rollback ainsel <revision> -n <namespace>
 
 ## Version-specific notes
 
+### Unreleased — the agent's LLM provider is required and validated
+
+- **Changed: creating an agent without `llm.provider` returns `400`.** The hub
+  now rejects a create request whose `llm.provider` is missing or not one of
+  `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`,
+  `custom`, and names the valid ids. Before, such an agent was stored and the
+  operator then marked it `Ready=False` / `InvalidLLMProvider`, so it never
+  ran. On update, an empty or absent provider still leaves the stored one
+  unchanged; an unknown one is now a `400`. **Action:** set `llm.provider` in
+  any script, IaC or REST client that creates agents.
+- **New: `TemperatureApplied` condition.** `llm.temperature` only reaches the
+  OpenAI-compatible providers. On `openai`, `anthropic` and `google` the
+  condition reads `False` (reason `TemperatureNotSupported`). A temperature
+  stored while the agent used an OpenAI-compatible provider stays on the spec
+  after a switch to one of these three, and the condition stays `False`; clear
+  it with `kubectl` if the warning should go away. The console hides the
+  field for these providers.
+
 ### Unreleased — tools and skills belong to the agent, not the image
 
 An `AgentImage` is now a **runtime profile**: the container, its environment, and the
