@@ -360,9 +360,12 @@ postgres:
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
-# Bootstrap resources
+# MCP server
 mcp:
-  # Public MCP URL enables RFC 9728 discovery (no synthetic DCR registration).
+  # Public MCP URL — sets MCP_RESOURCE_URL on the MCP server, which surfaces
+  # in the OAuth protected-resource metadata and the WWW-Authenticate header,
+  # enabling RFC 9728 discovery (no synthetic DCR registration). Optional:
+  # when empty, no discovery metadata is advertised.
   externalUrl: ""
   enabled: false
   image:
@@ -371,9 +374,6 @@ mcp:
     pullPolicy: IfNotPresent
   replicas: 1
   port: 8080
-  # Externally-reachable MCP URL — surfaces in the OAuth protected-resource
-  # metadata and the WWW-Authenticate header. Required when mcp.enabled is true.
-  resourceUrl: ""
   ingress:
     # See the note on hub.ingress: non-nginx classes get literal Prefix/Exact
     # paths and no nginx rewrite annotations, so the rewrite onto /mcp has to
