@@ -169,7 +169,7 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
 }
 ```
 
-`imageRef.name` is required and must reference an existing `AgentImage`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+`imageRef.name` is required and must reference an existing `AgentImage`. `llm.provider` is required on create and must be one of `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom` (`400` otherwise, naming the valid ids); on update an empty or absent provider leaves the stored one unchanged, and an unknown one is rejected with `400`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
 
 | Request block | `llm.provider` | Secret |
 |---|---|---|
