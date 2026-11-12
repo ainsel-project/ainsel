@@ -48,8 +48,8 @@ for its container image and tool catalog.
 | `llm.vision` | bool | No | Whether pi sends image input. When true the operator advertises `"input": ["text", "image"]` to pi, so screenshots and image attachments are attached; while false pi sends none, even to a model that can see them. The endpoint is never probed: images sent to a model that cannot see them fail the request. Takes effect when the agent's pod next starts (the init container copies `models.json` in at start). Default false |
 | `llm.modelLicense` | string | No | The licence the named model arrives under, as reviewed by whoever set it (e.g. `Apache-2.0`, `Qwen Community License 1.0`). The operator mirrors the value into the `ModelLicenseRecorded` status condition and reports the absence, but never verifies it — a model licence can restrict a deployment by business type while every agent keeps running, and a controller cannot judge a business model. See [Model Licensing](model-licensing.md) |
 | `persona.id` | string | Yes | ULID of a persona managed by the hub. The operator mounts a ConfigMap named `persona-<id>` (rendered by the hub) at `/etc/agent/persona.md` |
-| `enabledTools[]` | []string | No | List of tool names to enable for this agent (e.g. `forgejo`, `git`, `shell`) |
-| `skills.items[]` | []string | No | Agent-scoped skill selection (skill ids). Present = explicit override (`items: []` = no skills at all); absent = inherit the referenced image's `enabledSkills` |
+| `enabledTools[]` | []string | No | **This agent's tool selection**: names taken from the referenced image's catalog (`AgentImage.spec.tools`). The runtime enforces it — passed to the pod as `AGENT_TOOLS`, and the `ainsel-tools` pi extension withholds every tool it does not name. Absent or empty = unrestricted (everything the image provides). Names the image does not declare are rejected by the hub |
+| `skills[]` | []string | No | **This agent's skill selection**: skill ids from the hub's skill library (`/skills`). Scoped to the agent, not the image — an agent gets its skills whatever image it runs on. Absent or empty = no skills (there is no image-level default to inherit). The hub renders them into the agent's skills ConfigMap; unknown ids are rejected with `400` |
 | `mcp.servers[]` | []AgentMCPServer | No | Agent-scoped MCP servers (`name`, `url`, `tokenFromEnv`), resolved from the hub's MCP registry when the agent is written. Present = explicit override (`servers: []` = connect to none); absent = inherit the image's `mcpServers`. The operator injects `MCP_SERVERS` / `MCP_SERVER_TOKENS` from this list |
 | `env[]` | []AgentEnvVar | No | Per-agent environment variables (`name`, `value`, `secret`) layered on top of the referenced image's `env`: a matching name overrides the image's value and secret flag, a new name is added. The operator writes the effective set to the `<agent>-image-env` Secret and injects each entry into the agent container |
 | `scaling.replicas` | int32 | No | Concurrency cap: the maximum number of per-task Jobs the operator keeps in flight for this agent (default 1). Each queued task gets its own Job up to this cap; `0` pauses the agent (nothing is dispatched) |
@@ -127,8 +127,7 @@ spec:
     - git
     - shell
   skills:
-    items:
-      - git-review
+    - git-review
   mcp:
     servers:
       - name: memory-server
@@ -157,8 +156,11 @@ spec:
 
 ## AgentImage
 
-Defines a container image for an agent along with its tool catalog,
-environment variables, MCP server configuration, and sidecar containers.
+Defines a **runtime profile**: the container image an agent runs on, the
+capabilities that runtime provides (its tool catalog), and the environment, MCP
+servers and sidecars it needs. It deliberately holds no per-agent configuration —
+tool and skill selection live on the `Agent`, so two agents on the same runtime can
+use different subsets without a second image resource.
 Referenced by `Agent.spec.imageRef.name`.
 
 ### Spec
@@ -169,7 +171,7 @@ Referenced by `Agent.spec.imageRef.name`.
 | `description` | string | No | Image description |
 | `managedBy` | string | No | External manager name (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`). Any value other than empty/`user` makes the image read-only for the hub API (`409` on mutation, including MCP refresh) and the console |
 | `imageURL` | string | Yes | Container image URL (e.g. `registry.example.com/ainsel/ainsel-ai-agent:latest`) |
-| `tools[]` | []AgentImageTool | No | Tools exposed by this image |
+| `tools[]` | []AgentImageTool | No | This image's capability catalog: what the runtime provides. A list of options, not a grant — an agent is given a subset of it via `Agent.spec.enabledTools` |
 | `tools[].name` | string | Yes | Tool name |
 | `tools[].kind` | string | Yes | Tool kind: `container`, `shell`, or `mcp` |
 | `tools[].description` | string | No | Tool description |
@@ -193,7 +195,6 @@ Referenced by `Agent.spec.imageRef.name`.
 | `sidecars[].port` | int32 | No | Container listen port (default: 8080) |
 | `sidecars[].mcpPath` | string | No | When non-empty, the operator appends an `MCP_SERVERS` entry pointing to this sidecar (e.g. `/mcp`) |
 | `sidecars[].env[]` | []AgentImageEnvVar | No | Environment variables for the sidecar container |
-| `enabledSkills[]` | []string | No | List of skill names enabled for this image |
 
 ### Status
 
@@ -242,9 +243,6 @@ spec:
       image: registry.example.com/ainsel/sqlite-mcp:latest
       port: 9090
       mcpPath: /mcp
-  enabledSkills:
-    - code-review
-    - pr-summary
 ```
 
 ---

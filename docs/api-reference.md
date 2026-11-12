@@ -108,7 +108,7 @@ Both are populated on the list endpoint only, and are empty when authz is disabl
       "memory": {"enabled": true, "provider": "example"},
       "status": {"ready": true, "desired": 1, "reason": "JobPerTask"},
       "paused": false,
-      "skills": {"items": ["git-review"]},
+      "skills": ["git-review"],
       "mcp": {"servers": [{"name": "github", "url": "https://mcp.github.com/sse", "tokenFromEnv": "GITHUB_TOKEN"}]},
       "env": [{"name": "LOG_LEVEL", "value": "debug"}, {"name": "API_TOKEN", "value": "", "secret": true}],
       "groupId": "g-platform",
@@ -124,7 +124,7 @@ Agents carry an `updatedAt` timestamp (RFC3339) in both list and detail response
 
 Agents also carry `managedBy` when externally managed (omitted or `"user"` otherwise) — see [Managed resources](#managed-resources-managedby).
 
-Agents also carry an agent-scoped skill selection in `skills`: **present = explicit override** (`{"items": []}` means no skills at all), **absent = inherit** the referenced image's `enabledSkills` (legacy behavior). Every id must exist in the skill library (`/skills`); unknown ids are rejected with `400`. Once set, the selection is explicit — the API does not currently offer a reset-to-inherit.
+Agents also carry an agent-scoped skill selection in `skills`: a plain list of skill ids from the skill library (`/skills`). It belongs to the agent, not to its image — the image carries no skill defaults. **Absent or empty = no skills.** Every id must exist in the library; unknown ids are rejected with `400`. On `PUT`, sending `"skills": []` clears the selection.
 
 The same wrapper semantics apply to the agent-scoped MCP selection in `mcp`, with one asymmetry: **requests carry registry names** (`{"servers": ["github"]}`), and the hub resolves each name to its full definition from the MCP registry (`/mcp-servers`, unknown names → `400`) when writing — **responses return the resolved definitions** (`name`, `url`, `tokenFromEnv`). The agent CR holds a snapshot: later registry edits do not rewrite existing agents. Absent `mcp` inherits the referenced image's `mcpServers` (legacy); `{"servers": []}` explicitly connects to none.
 
@@ -169,7 +169,7 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
 }
 ```
 
-`imageRef.name` is required and must reference an existing `AgentImage`. Any names in `enabledTools` not declared by that image are rejected. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+`imageRef.name` is required and must reference an existing `AgentImage`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
 
 | Request block | `llm.provider` | Secret |
 |---|---|---|
@@ -192,6 +192,8 @@ Fetch one Agent by resource name.
 ### PUT /api/v1/agents/{name}
 
 Update an Agent. Body fields are all optional; only fields that are present are applied. When `imageRef` or `enabledTools` changes, the new combination is re-validated against the referenced `AgentImage`.
+
+`skills` **replaces** this agent's skill selection when present: `{"skills": []}` gives it none. Ids are validated against the skill library, unknown ones are rejected with `400`.
 
 `env` **replaces** this agent's override list when present: `{"env": []}` clears the overrides so the agent runs on the image's variables again. A secret entry submitted with an empty `value` keeps its stored value, so a client that never received the secret can round-trip the list safely.
 
@@ -1488,7 +1490,7 @@ everyone but still only rollback-able by its writers.
 
 Skills are reusable prompt fragments stored in the hub's database (table `skills`). A skill has a name, a description, and a body (free-form text, typically markdown instructions). Personas reference skills by name; the runtime injects the body at invocation time.
 
-**Delivery.** The database is the registry; a skill reaches an agent by being mounted into its pod from the shared `skills` ConfigMap, which the hub keeps sized to the skills that at least one `AgentImage` (`spec.enabledSkills`) or `Agent` (`spec.skills.items`) selects. Creating a skill therefore registers it without mounting it anywhere — it is delivered when something enables it, or on the hub's next delivery pass (≤10 minutes) for an enable made by editing a CR directly. Because that ConfigMap is a single Kubernetes object, it carries the apiserver's 1 MiB ceiling: a large enable can be accepted and reported but not yet mounted, and the hub retries — every 30 s while anything is undelivered, every 10 minutes once everything has landed. Catalogue size is bounded by the database, not by that ceiling.
+**Delivery.** The database is the registry; a skill reaches an agent by being mounted into its pod from the shared `skills` ConfigMap, which the hub keeps sized to the skills that at least one `Agent` (`spec.skills`) selects. Selection is per agent — the image carries none, so two agents on the same runtime can run different skill sets. Creating a skill therefore registers it without mounting it anywhere — it is delivered when an agent enables it (via the assignment endpoints or by editing the CR), or on the hub's next delivery pass (≤10 minutes) for an enable made by editing a CR directly. Because that ConfigMap is a single Kubernetes object, it carries the apiserver's 1 MiB ceiling: a large enable can be accepted and reported but not yet mounted, and the hub retries — every 30 s while anything is undelivered, every 10 minutes once everything has landed. Catalogue size is bounded by the database, not by that ceiling.
 
 Validation: `name` is non-empty, unique, and ≤ 200 chars. `description` ≤ 2000 chars. `body` ≤ 100 000 chars.
 
@@ -1550,24 +1552,58 @@ Update a skill. All fields are optional; only provided fields are updated.
 
 Delete a skill.
 
-The hub refuses the delete with `409 Conflict` if any `AgentImage` still lists
-the skill in `spec.enabledSkills`. The response body lists the referrers so the
+The hub refuses the delete with `409 Conflict` if any `Agent` still lists
+the skill in `spec.skills`. The response body lists the referrers so the
 caller can act on them:
 
 ```json
 {
   "error": "skill in use",
-  "referrers": [{"agentImageName": "img-claude-coder", "agentImageId": "img-claude-coder"}]
+  "referrers": [{"agentName": "code-reviewer", "agentId": "code-reviewer"}]
 }
 ```
 
-`agentImageId` is the image's API id (its resource name) — the route key for
-`GET /api/v1/agent-images/{id}`.
+`agentId` is the agent's API id (its resource name) — the route key for
+`GET /api/v1/agents/{name}`.
 
 A skill that is externally managed (`managedBy` — e.g. owned by a plugin or a GitOps
 pipeline) cannot be deleted from the console either: `409 Conflict`.
 
 **Response:** `204 No Content`, `400` if the ID is missing, `404 Not Found`, `409 Conflict` (with `referrers`, or because the skill is externally managed).
+
+### Skill assignments
+
+Assignments are the console's way of editing an agent's `spec.skills` one skill at a
+time, without sending the whole list. They write the **agent** CR — never the image —
+so assigning a skill affects that agent alone.
+
+#### GET /api/v1/skills/{id}/assignments
+
+List the agents that select this skill.
+
+**Response:** `200 OK`
+```json
+{"items": [{"agentName": "code-reviewer", "agentId": "code-reviewer"}]}
+```
+
+`404` if the skill does not exist. Requires read access to the skill.
+
+#### PUT /api/v1/skills/{id}/assignments/{agentName}
+
+Add the skill to that agent's selection. Idempotent — assigning a skill the agent
+already has succeeds without touching the CR. The skill is rendered into the shared
+ConfigMap immediately, so the agent has it on its next pod start rather than at the
+next convergence tick.
+
+**Response:** `204 No Content`, `404` if the skill or the agent does not exist,
+`401`/`403` if the caller cannot write the **agent** (an assignment is a write to the
+agent, so that is the resource the authorisation check targets).
+
+#### DELETE /api/v1/skills/{id}/assignments/{agentName}
+
+Remove the skill from that agent's selection. Idempotent.
+
+**Response:** `204 No Content`, `404` if the skill or the agent does not exist, `401`/`403` as above.
 
 ### Skill catalogue MCP (internal)
 

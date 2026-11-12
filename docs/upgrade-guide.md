@@ -140,6 +140,55 @@ helm rollback ainsel <revision> -n <namespace>
 
 ## Version-specific notes
 
+### Unreleased — tools and skills belong to the agent, not the image
+
+An `AgentImage` is now a **runtime profile**: the container, its environment, and the
+capability catalog it ships (`spec.tools`). What an agent may use is selected on the
+**agent**. Three consequences:
+
+- **Removed: `AgentImage.spec.enabledSkills`.** Images carry no skill selection. The
+  field is pruned on apply; skills that were only enabled at image level stop being
+  delivered until an agent selects them.
+- **Changed: `Agent.spec.skills` is a plain list.** It used to be a wrapper object
+  (`skills: {items: […]}`), where an absent value meant "inherit the image". Inheriting
+  has nothing to inherit from now: **absent or empty = no skills**.
+- **New: `AGENT_TOOLS` is enforced.** The operator has always passed the agent's
+  `spec.enabledTools` to the pod, and nothing read it — every agent effectively had
+  every tool its image provided. The pi runtime's `ainsel-tools` extension now narrows
+  the declared tool set to that selection, blocks any other tool call, and withholds
+  catalog binaries the agent was not given from the shell.
+
+**Upgrade order.** The CRD change makes existing `Agent` objects with the wrapper shape
+unreadable, so apply the new CRDs first and fix the objects immediately after:
+
+```bash
+kubectl apply -f chart/templates/crds/
+helm upgrade ainsel oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> -n <namespace> -f values.yaml
+
+# Which agents still hold the old wrapper shape?
+kubectl get agents -n <namespace> -o json \
+  | jq -r '.items[] | select((.spec.skills // {}) | type == "object") | .metadata.name'
+
+# For each one, write the same ids as a plain list.
+kubectl patch agent <name> -n <namespace> --type=merge -p '{"spec":{"skills":["<skill-id>"]}}'
+```
+
+Until patched, the hub and operator cannot read those agents (they surface as errors rather
+than silently running with the wrong skills), so do it in the same maintenance window.
+
+**Review each agent's tool selection before upgrading.** A non-empty `enabledTools` list
+used to be cosmetic; from now on it is a hard limit. An agent that lists tools but omits
+one it relies on at runtime (often `bash`, which is how catalog binaries get called) will
+lose that capability. Leave `enabledTools` empty for an agent that should keep seeing
+everything its image provides.
+
+**API and console.** `enabledSkills` is gone from every agent-image request and response
+(an old client that still sends it is accepted and the field ignored). Skill assignment
+endpoints address agents: `PUT`/`DELETE /api/v1/skills/{id}/assignments/{agentName}`, and
+the delete-conflict referrers are `{"agentName", "agentId"}` instead of
+`{"agentImageName", "agentImageId"}`. In the console the image's Tools tab is now clearly
+the catalog, and each agent's Tools and Skills sections edit that agent's own selection.
+
 ### Unreleased — legacy metric aliases removed
 
 `GET /api/v1/metrics/{summary,timeseries,agents}` are gone and answer `404`.

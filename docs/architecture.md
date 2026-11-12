@@ -224,7 +224,7 @@ classDiagram
         +AgentRuntime runtime
         +AgentLLM llm
         +AgentPersona persona
-        +[]AgentSkill skills
+        +[]string skills
         +AgentScaling scaling
         +AgentMemory memory
         ---
