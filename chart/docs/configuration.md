@@ -213,7 +213,7 @@ The AInsel MCP server ([`services/mcp`](../../services/mcp/)), opt-in.
 | `mcp.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `mcp.replicas` | int | `1` | MCP server replicas |
 | `mcp.port` | int | `8080` | MCP server port |
-| `mcp.resourceUrl` | string | `""` | Intended externally-reachable MCP URL (surfaces in the OAuth protected-resource metadata and `WWW-Authenticate` header). **Not currently wired up:** no chart template consumes this key. The MCP service reads the `MCP_RESOURCE_URL` environment variable, so pass the URL via `mcp.extraEnv` until the chart wires this key |
+| `mcp.externalUrl` | string | `""` | Public MCP URL; sets `MCP_RESOURCE_URL` on the MCP server — see [MCP discovery](#mcp-discovery) |
 | `mcp.ingress.enabled` | bool | `true` | Enable ingress (also renders the OAuth metadata well-known ingresses) |
 | `mcp.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
 | `mcp.ingress.path` | string | `/ainsel/mcp` | Ingress path |
@@ -235,9 +235,12 @@ either is unset, no sidecar is added.
 ### MCP discovery
 
 `mcp.externalUrl` (empty by default) enables RFC 9728 discovery for the public
-MCP endpoint. Expose `/.well-known/oauth-protected-resource<resource-path>`
-through your ingress. Metadata points at the configured OIDC provider;
-client registration is handled there.
+MCP endpoint. The chart passes it to the MCP server as the `MCP_RESOURCE_URL`
+environment variable; when empty, the variable is unset and no discovery
+metadata is advertised. Expose
+`/.well-known/oauth-protected-resource<resource-path>` through your ingress.
+Metadata points at the configured OIDC provider; client registration is
+handled there.
 
 ### Auth
 
