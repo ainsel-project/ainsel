@@ -365,13 +365,22 @@ func llmProviderEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
 		if present && cred.APIKeySecretRef != nil {
 			secretName = cred.APIKeySecretRef.Name
 		}
+		// Optional while no key is stored, so the pod is not held on a
+		// missing secret. Legacy providers keep their historical rule
+		// (optional only without a block) so their pod templates stay
+		// unchanged; newer providers can have a block that only sets a
+		// gateway baseUrl.
+		optional := !present
+		if !p.AlwaysRender {
+			optional = !present || cred.APIKeySecretRef == nil
+		}
 		envs = append(envs, corev1.EnvVar{
 			Name: p.APIKeyEnv,
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
 					Key:                  "api-key",
-					Optional:             ptr.To(!present),
+					Optional:             ptr.To(optional),
 				},
 			},
 		})

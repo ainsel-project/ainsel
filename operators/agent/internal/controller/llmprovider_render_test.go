@@ -244,3 +244,17 @@ func TestReferencesSecretNewBlocks(t *testing.T) {
 		t.Error("referencesSecret ignores the anthropic block's secret")
 	}
 }
+
+// A new-provider block without a stored key (e.g. only a gateway baseUrl)
+// must not make the pod wait on a secret that does not exist yet.
+func TestNewProviderBlockWithoutKeyIsOptional(t *testing.T) {
+	a := providerAgent(ainselv1alpha1.AgentLLMProviderOpenAI)
+	a.Spec.OpenAI = &ainselv1alpha1.AgentOpenAI{BaseURL: "https://gw.example/v1"}
+	e := envByName(llmProviderEnv(a), "OPENAI_API_KEY")
+	if e == nil || e.ValueFrom.SecretKeyRef.Name != "golden-openai-key" {
+		t.Fatalf("OPENAI_API_KEY = %+v, want fallback secret golden-openai-key", e)
+	}
+	if o := e.ValueFrom.SecretKeyRef.Optional; o == nil || !*o {
+		t.Errorf("OPENAI_API_KEY optional = %v, want true while no key is stored", o)
+	}
+}
