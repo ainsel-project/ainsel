@@ -22,6 +22,8 @@ func invocationStatusFromTask(task eventqueue.Task) string {
 		return invocations.StatusSuccess
 	case "failed":
 		return invocations.StatusFailure
+	case "expired":
+		return invocations.StatusTimeout
 	}
 	if task.Started() {
 		return invocations.StatusRunning
@@ -112,7 +114,7 @@ func (s *Server) enrichWithTasks(r *http.Request, scope telemetryScope, list []i
 			d := inv.EndTime.Sub(inv.StartTime).Milliseconds()
 			inv.DurationMs = &d
 		}
-		if t.Status == "failed" {
+		if t.Status == "failed" || t.Status == "expired" {
 			inv.Error = t.Error
 		}
 		list = append(list, inv)

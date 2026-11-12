@@ -282,6 +282,11 @@ func TestDeriveRunState(t *testing.T) {
 			&invocations.Invocation{Status: invocations.StatusSuccess},
 			invocations.StatusFailure, false,
 		},
+		{
+			"expired task is timeout, never queued (issue #236)",
+			&eventqueue.Task{Status: "expired", CreatedAt: now.Add(-time.Hour)}, nil,
+			invocations.StatusTimeout, false,
+		},
 	}
 	for _, tc := range cases {
 		got, stuck := deriveRunState(tc.task, tc.inv, now, stuckAfter)

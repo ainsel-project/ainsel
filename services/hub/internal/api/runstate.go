@@ -22,7 +22,9 @@ const DefaultTaskStartTimeout = 15 * time.Minute
 //
 // The task row is authoritative when present:
 //
-//   - completed → success, failed → failure
+//   - completed → success, failed → failure, expired → timeout
+//     (a task that was never picked up before its deadline; the deadline is a
+//     timeout in the run vocabulary — the task itself never ran to fail)
 //   - started (claimed, or a conversation row exists) → running
 //   - otherwise → queued, flagged stuck once it has waited past stuckAfter
 //
@@ -47,6 +49,8 @@ func deriveRunState(task *eventqueue.Task, inv *invocations.Invocation, now time
 		return invocations.StatusSuccess, false
 	case "failed":
 		return invocations.StatusFailure, false
+	case "expired":
+		return invocations.StatusTimeout, false
 	}
 	if task.Started() {
 		return invocations.StatusRunning, false

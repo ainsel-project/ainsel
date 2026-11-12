@@ -384,26 +384,7 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update invocation store.
-	if s.invocations != nil && task.InvocationID != "" {
-		s.invocations.Complete(task.InvocationID, "failure", body.Error, time.Time{})
-	}
-
-	// Log error event for observability.
-	slog.Info("error_event",
-		"log_type", "error_event",
-		"severity", "error",
-		"source", "agent",
-		"agent", agentName,
-		"error_message", body.Error,
-		"task_id", taskID,
-		"invocation_id", task.InvocationID,
-	)
-
-	// Broadcast error to WebSocket clients.
-	if s.wsHub != nil {
-		s.broadcastAgentError(agentName, body.Error, task.InvocationID)
-	}
+	s.reportTaskFailure(agentName, taskID, task.InvocationID, body.Error, invocations.StatusFailure)
 
 	slog.Info("task nacked",
 		"task_id", taskID,
@@ -412,6 +393,56 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 		"delay_ms", delay.Milliseconds(),
 	)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// reportTaskFailure is the single path that tells everyone a task ended badly:
+// it closes the task's invocation record with the given terminal status
+// (StatusFailure for a nack, StatusTimeout for the pickup-deadline reaper),
+// logs the structured error_event, and broadcasts the error to WebSocket
+// clients so the requesting channel learns about it. Extracted from
+// handleAgentTaskNack so the expiry reaper reports through the same path a
+// failed task uses (issue #236).
+func (s *Server) reportTaskFailure(agentName string, taskID int64, invocationID, errMsg, invocationStatus string) {
+	// Update invocation store.
+	if s.invocations != nil && invocationID != "" {
+		s.invocations.Complete(invocationID, invocationStatus, errMsg, time.Time{})
+	}
+
+	// Log error event for observability.
+	slog.Info("error_event",
+		"log_type", "error_event",
+		"severity", "error",
+		"source", "agent",
+		"agent", agentName,
+		"error_message", errMsg,
+		"task_id", taskID,
+		"invocation_id", invocationID,
+	)
+
+	// Broadcast error to WebSocket clients.
+	if s.wsHub != nil {
+		s.broadcastAgentError(agentName, errMsg, invocationID)
+	}
+}
+
+// ExpireQueuedTasks runs one pass of the pickup-deadline reaper: pending tasks
+// past their expires_at become 'expired', and each is reported through the same
+// notification path a failed task uses, with its invocation closed as
+// 'timeout'. Called from the hub's reaper loop; returns the number of tasks
+// expired (for logging) and the first store error, if any.
+func (s *Server) ExpireQueuedTasks(ctx context.Context) (int, error) {
+	if s.eventQueue == nil {
+		return 0, nil
+	}
+	expired, err := s.eventQueue.ExpirePendingTasks(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, et := range expired {
+		slog.Warn("task expired", "task_id", et.ID, "agent_name", et.AgentName, "reason", "not picked up in time")
+		s.reportTaskFailure(et.AgentName, et.ID, et.InvocationID, "not picked up in time", invocations.StatusTimeout)
+	}
+	return len(expired), nil
 }
 
 // inRetryBackoff reports whether a task is a pending row still inside its nack
