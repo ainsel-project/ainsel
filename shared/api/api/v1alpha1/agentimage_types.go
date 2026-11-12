@@ -5,15 +5,25 @@ import (
 )
 
 // AgentImageSpec defines the desired state of an AgentImage.
+//
+// An AgentImage is a runtime profile: the container it runs, the environment it
+// needs, and the capabilities it provides. It is not where an individual agent's
+// configuration lives — tool and skill selection are per-agent
+// (Agent.Spec.EnabledTools, Agent.Spec.Skills), so two agents on the same
+// runtime can use different subsets without needing a second image resource.
 type AgentImageSpec struct {
-	DisplayName   string                `json:"displayName"`
-	Description   string                `json:"description,omitempty"`
-	ImageURL      string                `json:"imageURL"`
-	Tools         []AgentImageTool      `json:"tools,omitempty"`
-	Env           []AgentImageEnvVar    `json:"env,omitempty"`
-	MCPServers    []AgentImageMCPServer `json:"mcpServers,omitempty"`
-	Sidecars      []AgentImageSidecar  `json:"sidecars,omitempty"`
-	EnabledSkills []string              `json:"enabledSkills,omitempty"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description,omitempty"`
+	ImageURL    string `json:"imageURL"`
+	// Tools is this image's capability catalog: what the runtime provides,
+	// discovered from its MCP servers or maintained by hand. It is a list of
+	// options, not a grant — an agent uses a subset of it via
+	// Agent.Spec.EnabledTools. An entry's Disabled flag is the catalog's own
+	// default and restricts no agent on its own.
+	Tools      []AgentImageTool      `json:"tools,omitempty"`
+	Env        []AgentImageEnvVar    `json:"env,omitempty"`
+	MCPServers []AgentImageMCPServer `json:"mcpServers,omitempty"`
+	Sidecars   []AgentImageSidecar   `json:"sidecars,omitempty"`
 	// ManagedBy names the external system that authors this resource, e.g.
 	// "helm", "gitops", or "plugin". Any non-empty value other than "user"
 	// marks the resource externally managed: the hub REST API refuses every
@@ -42,15 +52,25 @@ type AgentImageEnvVar struct {
 	Secret bool   `json:"secret,omitempty"`
 }
 
-// AgentImageTool describes a single capability exposed by the image.
+// AgentImageTool describes a single capability the image's runtime provides.
+// It is catalog metadata: what an agent on this image may be given, not what
+// any agent has. See AgentSpec.EnabledTools for the grant.
 type AgentImageTool struct {
-	Name        string                  `json:"name"`
-	Kind        AgentImageToolKind      `json:"kind"`
-	Description string                  `json:"description,omitempty"`
-	McpSource   string                  `json:"mcpSource,omitempty"`
-	Disabled    bool                    `json:"disabled,omitempty"` // false = enabled (zero-value backward compat)
-	IsNew       bool                    `json:"isNew,omitempty"`    // true = added by last refresh, cleared on next PUT
-	Examples    []AgentImageToolExample `json:"examples,omitempty"`
+	Name string             `json:"name"`
+	Kind AgentImageToolKind `json:"kind"`
+	// Description is what the capability does, shown in the catalog.
+	Description string `json:"description,omitempty"`
+	// McpSource names the MCP server a kind=mcp tool was discovered from.
+	McpSource string `json:"mcpSource,omitempty"`
+	// Disabled is the catalog's own default for a tool added by the last
+	// refresh: a freshly discovered MCP tool starts disabled so an upgrade of
+	// an upstream server cannot hand every agent a new capability until
+	// someone looks at it. It restricts no agent on its own — an agent that
+	// names this tool in spec.enabledTools gets it regardless.
+	Disabled bool `json:"disabled,omitempty"` // false = enabled (zero-value backward compat)
+	// IsNew marks a tool added by the last refresh, cleared on the next PUT.
+	IsNew    bool                    `json:"isNew,omitempty"`
+	Examples []AgentImageToolExample `json:"examples,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=container;shell;mcp
@@ -146,4 +166,3 @@ type AgentImageList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []AgentImage `json:"items"`
 }
-

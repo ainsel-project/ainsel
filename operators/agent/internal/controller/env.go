@@ -248,14 +248,11 @@ func (r *AgentReconciler) computeConfigMapHash(ctx context.Context, namespace, c
 	return fmt.Sprintf("sha256:%x", h.Sum(nil)), nil
 }
 
-// effectiveSkills returns the skill ids an agent mounts: the agent's own
-// spec.skills when set (an explicit override, possibly empty), otherwise
-// the referenced image's EnabledSkills (the profile's defaults).
-func effectiveSkills(agent *ainselv1alpha1.Agent, img *ainselv1alpha1.AgentImage) []string {
-	if agent.Spec.Skills != nil {
-		return agent.Spec.Skills.Items
-	}
-	return img.Spec.EnabledSkills
+// effectiveSkills returns the skill ids an agent mounts. Skills are selected on
+// the agent alone: the referenced image carries none, so an agent with no
+// selection runs with no skills.
+func effectiveSkills(agent *ainselv1alpha1.Agent) []string {
+	return agent.Spec.Skills
 }
 
 // effectiveMCPServers returns the MCP server definitions the agent

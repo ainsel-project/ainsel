@@ -186,10 +186,11 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 	if tok := envs[len(envs)-1].Value; tok == "" || tok != "tokened=$(MY_TOKEN)" {
 		t.Errorf("MCP_SERVER_TOKENS = %q, want %q", tok, "tokened=$(MY_TOKEN)")
 	}
-	// AGENT_TOOLS keeps only container-kind tools.
+	// AGENT_TOOLS is the agent's own selection, passed through verbatim —
+	// the image catalog is not consulted, so no name is dropped.
 	for _, e := range envs {
-		if e.Name == "AGENT_TOOLS" && e.Value != "container-tool" {
-			t.Errorf("AGENT_TOOLS = %q, want %q", e.Value, "container-tool")
+		if e.Name == "AGENT_TOOLS" && e.Value != "shell-tool,container-tool" {
+			t.Errorf("AGENT_TOOLS = %q, want %q", e.Value, "shell-tool,container-tool")
 		}
 	}
 	if len(plan.mcpEntries) == 0 {

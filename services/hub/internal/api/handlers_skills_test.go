@@ -23,8 +23,8 @@ type mockSkillService struct {
 }
 
 type assignCallRecord struct {
-	skillID        string
-	agentImageName string
+	skillID   string
+	agentName string
 }
 
 func newMockSkillService() *mockSkillService {
@@ -67,13 +67,13 @@ func (m *mockSkillService) ListAssignments(_ context.Context, skillID string) ([
 	return m.assignments[skillID], nil
 }
 
-func (m *mockSkillService) Assign(_ context.Context, skillID, agentImageName string) error {
-	m.assignCalls = append(m.assignCalls, assignCallRecord{skillID: skillID, agentImageName: agentImageName})
+func (m *mockSkillService) Assign(_ context.Context, skillID, agentName string) error {
+	m.assignCalls = append(m.assignCalls, assignCallRecord{skillID: skillID, agentName: agentName})
 	return m.assignErr
 }
 
-func (m *mockSkillService) Unassign(_ context.Context, skillID, agentImageName string) error {
-	m.assignCalls = append(m.assignCalls, assignCallRecord{skillID: skillID, agentImageName: agentImageName})
+func (m *mockSkillService) Unassign(_ context.Context, skillID, agentName string) error {
+	m.assignCalls = append(m.assignCalls, assignCallRecord{skillID: skillID, agentName: agentName})
 	return m.unassignErr
 }
 
@@ -88,8 +88,8 @@ func TestSkillAssignments_GETReturnsAssignments(t *testing.T) {
 	svc := newMockSkillService()
 	svc.skills["code-review"] = &skills.Skill{ID: "code-review", Name: "Code Review"}
 	svc.assignments["code-review"] = []skills.Referrer{
-		{AgentImageName: "img-1"},
-		{AgentImageName: "img-2"},
+		{AgentName: "agent-1"},
+		{AgentName: "agent-2"},
 	}
 
 	mux := registerSkillRoutesForTest(svc)
@@ -171,7 +171,7 @@ func TestSkillAssignments_PUTReturns204(t *testing.T) {
 	svc.skills["code-review"] = &skills.Skill{ID: "code-review", Name: "Code Review"}
 
 	mux := registerSkillRoutesForTest(svc)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/code-review/assignments/img-abc", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/code-review/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -181,7 +181,7 @@ func TestSkillAssignments_PUTReturns204(t *testing.T) {
 	if len(svc.assignCalls) != 1 {
 		t.Fatalf("expected 1 assign call, got %d", len(svc.assignCalls))
 	}
-	if svc.assignCalls[0].skillID != "code-review" || svc.assignCalls[0].agentImageName != "img-abc" {
+	if svc.assignCalls[0].skillID != "code-review" || svc.assignCalls[0].agentName != "agent-abc" {
 		t.Errorf("unexpected assign call: %+v", svc.assignCalls[0])
 	}
 }
@@ -190,7 +190,7 @@ func TestSkillAssignments_PUTSkillNotFound(t *testing.T) {
 	svc := newMockSkillService()
 
 	mux := registerSkillRoutesForTest(svc)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/nonexistent/assignments/img-abc", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/nonexistent/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -204,7 +204,7 @@ func TestSkillAssignments_DELETEReturns204(t *testing.T) {
 	svc.skills["code-review"] = &skills.Skill{ID: "code-review", Name: "Code Review"}
 
 	mux := registerSkillRoutesForTest(svc)
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/skills/code-review/assignments/img-abc", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/skills/code-review/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -214,7 +214,7 @@ func TestSkillAssignments_DELETEReturns204(t *testing.T) {
 	if len(svc.assignCalls) != 1 {
 		t.Fatalf("expected 1 unassign call, got %d", len(svc.assignCalls))
 	}
-	if svc.assignCalls[0].skillID != "code-review" || svc.assignCalls[0].agentImageName != "img-abc" {
+	if svc.assignCalls[0].skillID != "code-review" || svc.assignCalls[0].agentName != "agent-abc" {
 		t.Errorf("unexpected unassign call: %+v", svc.assignCalls[0])
 	}
 }
@@ -225,7 +225,7 @@ func TestSkillAssignments_DELETEMethodNotAllowed(t *testing.T) {
 
 	mux := registerSkillRoutesForTest(svc)
 	// POST on /assignments/:name should be 405
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/skills/code-review/assignments/img-abc", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/skills/code-review/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -244,7 +244,7 @@ func TestSkillAssignments_PUTEmptyImageNameReturns404(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	// The empty agentImageName path should result in 404
+	// The empty agent name path should result in 404
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -255,7 +255,7 @@ func TestSkillAssignments_TooManyPathSegmentsReturns404(t *testing.T) {
 	svc.skills["code-review"] = &skills.Skill{ID: "code-review", Name: "Code Review"}
 
 	mux := registerSkillRoutesForTest(svc)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/code-review/assignments/img-abc/extra", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/code-review/assignments/agent-abc/extra", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

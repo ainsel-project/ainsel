@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
-	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -189,10 +188,6 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 			img.Spec.MCPServers = append(img.Spec.MCPServers, agentv1alpha1.AgentImageMCPServer{Name: mcpServer.Name, URL: mcpServer.URL, TokenFromEnv: mcpServer.TokenFromEnv})
 		}
 	}
-	if err := s.validateEnabledSkills(ctx, w, req.EnabledSkills); err != nil {
-		return
-	}
-	img.Spec.EnabledSkills = req.EnabledSkills
 	for _, sc := range req.Sidecars {
 		sidecar := agentv1alpha1.AgentImageSidecar{
 			Name:    sc.Name,
@@ -224,23 +219,4 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	writeJSON(w, http.StatusCreated, toSimpleAgentImageResponse(img))
-}
-
-// validateEnabledSkills checks that every skill ID in ids exists in the skills
-// service. Returns a non-nil error (already written to w) when any ID is unknown.
-func (s *Server) validateEnabledSkills(ctx context.Context, w http.ResponseWriter, ids []string) error {
-	if len(ids) == 0 || s.skills == nil {
-		return nil
-	}
-	for _, id := range ids {
-		if _, err := s.skills.Get(ctx, id); err != nil {
-			if errors.Is(err, skills.ErrNotFound) {
-				writeError(w, http.StatusBadRequest, "skill not found: "+id)
-				return err
-			}
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return err
-		}
-	}
-	return nil
 }

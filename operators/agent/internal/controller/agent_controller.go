@@ -792,7 +792,7 @@ func (r *AgentReconciler) findAffectedAgents(ctx context.Context, obj client.Obj
 }
 
 // findAffectedAgentsFromConfigMap maps a ConfigMap event to the Agent(s) whose
-// spec.persona.id references it or whose AgentImage has enabled skills. Only
+// spec.persona.id references it or whose spec.skills selects skills. Only
 // ConfigMaps with the "persona-" prefix or the shared skills ConfigMap are
 // considered; all other ConfigMaps are silently ignored to keep overhead low.
 func (r *AgentReconciler) findAffectedAgentsFromConfigMap(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -820,23 +820,9 @@ func (r *AgentReconciler) findAffectedAgentsFromConfigMap(ctx context.Context, o
 		return requests
 	}
 
-	// Fast path: shared skills ConfigMap.
+	// Fast path: shared skills ConfigMap. Skills are selected on the agent, so
+	// an agent that selects none has nothing to restart for.
 	if cm.Name == sharedskills.ConfigMapName {
-		// Find all AgentImages with enabled skills so we can match them
-		// against agents; agents with an explicit spec.skills are
-		// matched regardless of their image.
-		imgList := &ainselv1alpha1.AgentImageList{}
-		if err := r.List(ctx, imgList, client.InNamespace(cm.Namespace)); err != nil {
-			log.Error(err, "failed to list agent images for skills ConfigMap watcher")
-			return nil
-		}
-		imageNamesWithSkills := make(map[string]struct{}, len(imgList.Items))
-		for _, img := range imgList.Items {
-			if len(img.Spec.EnabledSkills) > 0 {
-				imageNamesWithSkills[img.Name] = struct{}{}
-			}
-		}
-
 		agentList := &ainselv1alpha1.AgentList{}
 		if err := r.List(ctx, agentList, client.InNamespace(cm.Namespace)); err != nil {
 			log.Error(err, "failed to list agents for skills ConfigMap watcher")
@@ -844,8 +830,7 @@ func (r *AgentReconciler) findAffectedAgentsFromConfigMap(ctx context.Context, o
 		}
 		var requests []reconcile.Request
 		for _, agent := range agentList.Items {
-			_, imgHasSkills := imageNamesWithSkills[agent.Spec.ImageRef.Name]
-			if agent.Spec.Skills != nil || imgHasSkills {
+			if len(agent.Spec.Skills) > 0 {
 				requests = append(requests, reconcile.Request{
 					NamespacedName: types.NamespacedName{
 						Namespace: agent.Namespace,

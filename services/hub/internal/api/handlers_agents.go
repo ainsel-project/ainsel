@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	corev1 "k8s.io/api/core/v1"
@@ -30,13 +31,6 @@ type AgentImageRefInfo struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
-}
-
-// AgentSkillsInfo is the API representation of the agent-scoped skill
-// selection: present = explicit override (empty items = no skills),
-// absent = inherit the referenced image's enabledSkills.
-type AgentSkillsInfo struct {
-	Items []string `json:"items"`
 }
 
 // AgentMCPServerInfo is the API representation of one agent-scoped MCP
@@ -149,8 +143,11 @@ type SimpleAgentResponse struct {
 	LLM          AgentLLMInfo      `json:"llm"`
 	Persona      *AgentPersonaInfo `json:"persona,omitempty"`
 	EnabledTools []string          `json:"enabledTools,omitempty"`
-	Skills       *AgentSkillsInfo  `json:"skills,omitempty"`
-	MCP          *AgentMCPInfo     `json:"mcp,omitempty"`
+	// Skills is this agent's own skill selection. The referenced image
+	// carries none: skills are chosen per agent, so an empty list means the
+	// agent runs with no skills.
+	Skills []string      `json:"skills,omitempty"`
+	MCP    *AgentMCPInfo `json:"mcp,omitempty"`
 	// Env lists this agent's environment overrides on top of the referenced
 	// image's env. Values of entries marked Secret are never returned.
 	Env []AgentImageEnvVarInfo `json:"env,omitempty"`
@@ -284,7 +281,7 @@ type SimpleAgentCreateRequest struct {
 	LLM          AgentLLMInfo      `json:"llm"`
 	Persona      *AgentPersonaInfo `json:"persona,omitempty"`
 	EnabledTools []string          `json:"enabledTools,omitempty"`
-	Skills       *AgentSkillsInfo  `json:"skills,omitempty"`
+	Skills       []string          `json:"skills,omitempty"`
 	MCP          *AgentMCPRequest  `json:"mcp,omitempty"`
 	// Env sets this agent's environment overrides. For an entry marked
 	// Secret, an empty Value means "keep the existing value".
@@ -310,8 +307,10 @@ type SimpleAgentUpdateRequest struct {
 	LLM          *AgentLLMInfo      `json:"llm,omitempty"`
 	Persona      *AgentPersonaInfo  `json:"persona,omitempty"`
 	EnabledTools *[]string          `json:"enabledTools,omitempty"`
-	Skills       *AgentSkillsInfo   `json:"skills,omitempty"`
-	MCP          *AgentMCPRequest   `json:"mcp,omitempty"`
+	// Skills replaces this agent's skill selection; present-but-empty clears
+	// it, so the agent runs with no skills.
+	Skills *[]string        `json:"skills,omitempty"`
+	MCP    *AgentMCPRequest `json:"mcp,omitempty"`
 	// Env replaces this agent's environment overrides; present-but-empty
 	// clears them, so the agent runs on the image defaults again. For an
 	// entry marked Secret, an empty Value means "keep the existing value".
@@ -371,10 +370,8 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		resp.Persona = &AgentPersonaInfo{ID: a.Spec.Persona.ID}
 	}
 
-	// Skills: nil = inherit from the image (legacy), present = explicit.
-	if a.Spec.Skills != nil {
-		resp.Skills = &AgentSkillsInfo{Items: a.Spec.Skills.Items}
-	}
+	// Skills is the agent's own selection; empty means no skills.
+	resp.Skills = a.Spec.Skills
 
 	// MCP: nil = inherit from the image (legacy), present = explicit.
 	if a.Spec.MCP != nil {
@@ -759,7 +756,7 @@ type agentValidationInput struct {
 	validateImage bool
 	imageRef      string
 	enabledTools  []string
-	skills        *AgentSkillsInfo
+	skills        []string
 	mcp           *AgentMCPRequest
 	resolveEnv    bool
 	env           []AgentImageEnvVarInfo
@@ -788,6 +785,27 @@ type agentValidationResult struct {
 	agentEnv []agentv1alpha1.AgentEnvVar
 }
 
+// validateAgentSkills checks that every skill ID in ids exists in the skills
+// service. Skills are selected on the agent, so this guards the agent write
+// path only — an AgentImage offers no skills to select. Returns a non-nil
+// error (already written to w) when any ID is unknown.
+func (s *Server) validateAgentSkills(ctx context.Context, w http.ResponseWriter, ids []string) error {
+	if len(ids) == 0 || s.skills == nil {
+		return nil
+	}
+	for _, id := range ids {
+		if _, err := s.skills.Get(ctx, id); err != nil {
+			if errors.Is(err, skills.ErrNotFound) {
+				writeError(w, http.StatusBadRequest, "skill not found: "+id)
+				return err
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return err
+		}
+	}
+	return nil
+}
+
 // validateAgentRequest runs the shared validate-then-resolve sequence both
 // createAgent and updateAgent used to inline: image ref → (optional group
 // check) → enabled skills → MCP selection → env overrides. Each step writes
@@ -806,8 +824,8 @@ func (s *Server) validateAgentRequest(ctx context.Context, w http.ResponseWriter
 	if in.groupCheck != nil && !in.groupCheck() {
 		return nil, false
 	}
-	if in.skills != nil {
-		if err := s.validateEnabledSkills(ctx, w, in.skills.Items); err != nil {
+	if len(in.skills) > 0 {
+		if err := s.validateAgentSkills(ctx, w, in.skills); err != nil {
 			return nil, false
 		}
 	}
@@ -838,7 +856,7 @@ func (r *SimpleAgentCreateRequest) toUpdateFields() *SimpleAgentUpdateRequest {
 		LLM:            &r.LLM,
 		Persona:        r.Persona,
 		EnabledTools:   &r.EnabledTools,
-		Skills:         r.Skills,
+		Skills:         &r.Skills,
 		Env:            &r.Env,
 		Replicas:       r.Replicas,
 		Memory:         r.Memory,
@@ -929,9 +947,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		spec.EnabledTools = *req.EnabledTools
 	}
 	if req.Skills != nil {
-		items := make([]string, len(req.Skills.Items))
-		copy(items, req.Skills.Items)
-		spec.Skills = &agentv1alpha1.AgentSkills{Items: items}
+		spec.Skills = *req.Skills
 	}
 	if res.mcpSelection != nil {
 		spec.MCP = res.mcpSelection
@@ -1139,11 +1155,18 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	if req.EnabledTools != nil {
 		effectiveTools = *req.EnabledTools
 	}
+	// Skills need no image check — the skill library is the only source — and
+	// an absent selection is not a change, so only a requested selection is
+	// validated (a stored one may name a skill deleted since).
+	var requestedSkills []string
+	if req.Skills != nil {
+		requestedSkills = *req.Skills
+	}
 	in := agentValidationInput{
 		validateImage: req.ImageRef != nil || req.EnabledTools != nil,
 		imageRef:      effectiveRef,
 		enabledTools:  effectiveTools,
-		skills:        req.Skills,
+		skills:        requestedSkills,
 		mcp:           req.MCP,
 		// Env overrides are resolved against the current spec so a secret
 		// entry submitted with an empty value keeps its stored value.

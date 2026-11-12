@@ -1465,73 +1465,16 @@ func agentImageTestServerWithSkills(t *testing.T, objects ...runtime.Object) *Se
 	return s
 }
 
-func TestAgentImages_CreateWithInvalidEnabledSkills(t *testing.T) {
+// TestAgentImages_CreateIgnoresEnabledSkills pins the clean cut: skills are
+// selected per agent, so an AgentImage neither stores nor returns them. A
+// request from an older caller that still sends enabledSkills is accepted, and
+// the field simply has nowhere to land.
+func TestAgentImages_CreateIgnoresEnabledSkills(t *testing.T) {
 	s := agentImageTestServerWithSkills(t)
-	body, _ := json.Marshal(SimpleAgentImageCreateRequest{
-		DisplayName:   "Test Image",
-		ImageURL:      "ghcr.io/test/image:latest",
-		EnabledSkills: []string{"nonexistent-skill"},
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "nonexistent-skill") {
-		t.Errorf("expected error body to mention the bad skill id, got: %s", rec.Body.String())
-	}
-}
-
-func TestAgentImages_UpdateWithInvalidEnabledSkills(t *testing.T) {
-	s := agentImageTestServerWithSkills(t)
-	ctx := t.Context()
-	existing := &agentv1alpha1.AgentImage{
-		ObjectMeta: metav1.ObjectMeta{Name: "img-skills01", Namespace: "test-ns"},
-		Spec: agentv1alpha1.AgentImageSpec{
-			DisplayName: "Skill Test Image",
-			ImageURL:    "ghcr.io/test/image:latest",
-		},
-		Status: agentv1alpha1.AgentImageStatus{Phase: agentv1alpha1.AgentImagePhaseReady},
-	}
-	if err := s.client.Create(ctx, existing); err != nil {
-		t.Fatalf("create existing: %v", err)
-	}
-
-	badSkills := []string{"nonexistent-skill"}
-	body, _ := json.Marshal(SimpleAgentImageUpdateRequest{EnabledSkills: &badSkills})
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-skills01", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "nonexistent-skill") {
-		t.Errorf("expected error body to mention the bad skill id, got: %s", rec.Body.String())
-	}
-}
-
-func TestAgentImages_CreateWithValidEnabledSkills(t *testing.T) {
-	s := agentImageTestServerWithSkills(t)
-	ctx := t.Context()
-	_, err := s.skills.Create(ctx, skills.CreateRequest{
-		ID:          "git-review",
-		Name:        "Git Review",
-		Description: "Review PRs",
-		Body:        "Review body",
-	})
-	if err != nil {
-		t.Fatalf("create skill: %v", err)
-	}
-
-	body, _ := json.Marshal(SimpleAgentImageCreateRequest{
-		DisplayName:   "Test Image",
-		ImageURL:      "ghcr.io/test/image:latest",
-		EnabledSkills: []string{"git-review"},
+	body, _ := json.Marshal(map[string]any{
+		"displayName":   "Test Image",
+		"imageURL":      "ghcr.io/test/image:latest",
+		"enabledSkills": []string{"git-review"},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -1541,11 +1484,7 @@ func TestAgentImages_CreateWithValidEnabledSkills(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var resp SimpleAgentImageResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.EnabledSkills) != 1 || resp.EnabledSkills[0] != "git-review" {
-		t.Errorf("unexpected enabled skills: %+v", resp.EnabledSkills)
+	if strings.Contains(rec.Body.String(), "enabledSkills") {
+		t.Errorf("image response must not carry enabledSkills, got: %s", rec.Body.String())
 	}
 }

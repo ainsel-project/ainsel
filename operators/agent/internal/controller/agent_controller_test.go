@@ -108,14 +108,14 @@ var _ = Describe("Agent Controller", func() {
 			By("Verifying the container image is sourced from the AgentImage CR")
 			Expect(deploy.Spec.Template.Spec.Containers[0].Image).To(Equal(testImageURL))
 
-			By("Verifying AGENT_TOOLS is set to the container-kind EnabledTools only")
+			By("Verifying AGENT_TOOLS carries the agent's own tool selection")
 			envs := deploy.Spec.Template.Spec.Containers[0].Env
 			agentToolsEnv := findEnvVar(envs, "AGENT_TOOLS")
 			Expect(agentToolsEnv).NotTo(BeNil())
-			// Only container-kind tools are surfaced; shell kinds (e.g. "bash")
-			// are dropped — they ran inside the runtime via Bash patterns in the
-			// claude-cli days, which is no longer relevant now the agent is pi-only.
-			Expect(agentToolsEnv.Value).To(Equal("git"))
+			// The selection is passed through verbatim: the runtime matches these
+			// names against its own tools, so the image catalog's kinds are not
+			// consulted here (an MCP tool is named mcp__<server>__<tool> at runtime).
+			Expect(agentToolsEnv.Value).To(Equal("git,bash"))
 			By("Verifying CLAUDE_CLI_ALLOWED_TOOLS is no longer emitted")
 			Expect(findEnvVar(envs, "CLAUDE_CLI_ALLOWED_TOOLS")).To(BeNil())
 			By("Verifying AGENT_PROVIDER is no longer emitted")
@@ -579,21 +579,20 @@ var _ = Describe("Agent Controller", func() {
 		})
 
 		It("should find affected agents for a skills ConfigMap change", func() {
-			By("Creating an AgentImage with enabled skills")
+			By("Creating an AgentImage and an agent that selects a skill from its runtime")
 			skilledImg := &ainselv1alpha1.AgentImage{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "skilled-image",
 					Namespace: "default",
 				},
 				Spec: ainselv1alpha1.AgentImageSpec{
-					ImageURL:      "skilled:latest",
-					EnabledSkills: []string{"git-review"},
+					ImageURL: "skilled:latest",
 				},
 			}
 			Expect(k8sClient.Create(ctx, skilledImg)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, skilledImg) })
 
-			By("Creating an AgentImage without enabled skills")
+			By("Creating an AgentImage without any skills selected against it")
 			plainImg := &ainselv1alpha1.AgentImage{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "plain-image",
@@ -606,7 +605,7 @@ var _ = Describe("Agent Controller", func() {
 			Expect(k8sClient.Create(ctx, plainImg)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, plainImg) })
 
-			By("Creating agents referencing both images")
+			By("Creating agents referencing both images — only one selects skills")
 			agent1 := &ainselv1alpha1.Agent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "agent-skilled",
@@ -616,6 +615,7 @@ var _ = Describe("Agent Controller", func() {
 					ImageRef: ainselv1alpha1.AgentImageRef{Name: "skilled-image"},
 					Persona:  ainselv1alpha1.AgentPersona{ID: "01hxtestpersona00000000000"},
 					LLM:      ainselv1alpha1.AgentLLM{Model: "glm-5.1:cloud", Provider: ainselv1alpha1.AgentLLMProviderOllamaCloud},
+					Skills:   []string{"git-review"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, agent1)).To(Succeed())
@@ -640,7 +640,7 @@ var _ = Describe("Agent Controller", func() {
 				Scheme: k8sClient.Scheme(),
 			}
 
-			By("Mapping the skills ConfigMap to agents with enabled skills")
+			By("Mapping the skills ConfigMap to the agent that selects skills")
 			skillsCM := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "skills",

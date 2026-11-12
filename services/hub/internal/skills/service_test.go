@@ -17,12 +17,11 @@ import (
 	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 )
 
-// stubImageLister returns configured referrers from ListReferrers calls.
-type stubImageLister struct {
+// stubAgentLister returns configured referrers from ListReferrers calls.
+type stubAgentLister struct {
 	refs    []skills.Referrer
 	err     error
 	counts  map[string]int
-	enabled map[string]int
 
 	// Track Assign/Unassign calls for delegation tests.
 	assignCalls   []assignCall
@@ -33,43 +32,31 @@ type stubImageLister struct {
 
 type assignCall struct {
 	skillID        string
-	agentImageName string
+	agentName string
 }
 
-func (s *stubImageLister) ListReferrers(ctx context.Context, skillID string) ([]skills.Referrer, error) {
+func (s *stubAgentLister) ListReferrers(ctx context.Context, skillID string) ([]skills.Referrer, error) {
 	return s.refs, s.err
 }
 
-func (s *stubImageLister) UsageCounts(ctx context.Context) (map[string]int, error) {
+func (s *stubAgentLister) UsageCounts(ctx context.Context) (map[string]int, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	return s.counts, nil
 }
 
-// enabled can differ from counts to model an Agent-level spec.skills.items
-// selection that no AgentImage lists.
-func (s *stubImageLister) EnabledSkillIDs(ctx context.Context) (map[string]int, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	if s.enabled != nil {
-		return s.enabled, nil
-	}
-	return s.counts, nil
-}
-
-func (s *stubImageLister) Assign(_ context.Context, skillID, agentImageName string) error {
-	s.assignCalls = append(s.assignCalls, assignCall{skillID: skillID, agentImageName: agentImageName})
+func (s *stubAgentLister) Assign(_ context.Context, skillID, agentName string) error {
+	s.assignCalls = append(s.assignCalls, assignCall{skillID: skillID, agentName: agentName})
 	return s.assignErr
 }
 
-func (s *stubImageLister) Unassign(_ context.Context, skillID, agentImageName string) error {
-	s.unassignCalls = append(s.unassignCalls, assignCall{skillID: skillID, agentImageName: agentImageName})
+func (s *stubAgentLister) Unassign(_ context.Context, skillID, agentName string) error {
+	s.unassignCalls = append(s.unassignCalls, assignCall{skillID: skillID, agentName: agentName})
 	return s.unassignErr
 }
 
-func newTestService(t *testing.T, lister skills.AgentImageLister) (*skills.Service, func()) {
+func newTestService(t *testing.T, lister skills.AgentLister) (*skills.Service, func()) {
 	t.Helper()
 	store, cleanup := newTestStore(t)
 
@@ -81,7 +68,7 @@ func newTestService(t *testing.T, lister skills.AgentImageLister) (*skills.Servi
 	rec := skills.NewReconciler(kc, testNamespace)
 
 	if lister == nil {
-		lister = &stubImageLister{}
+		lister = &stubAgentLister{}
 	}
 	svc := skills.NewService(store, rec, lister)
 	return svc, cleanup
@@ -125,7 +112,7 @@ func TestServiceCreateDoesNotTouchSharedConfigMap(t *testing.T) {
 // for a convergence tick to get the skill it just asked for.
 func TestServiceAssignDeliversTheSkill(t *testing.T) {
 	ctx := context.Background()
-	lister := &stubImageLister{}
+	lister := &stubAgentLister{}
 	svc, cleanup := newServiceWithFakeClient(t, lister, skillsClient(nil))
 	defer cleanup()
 
@@ -204,9 +191,9 @@ func TestServiceValidation(t *testing.T) {
 
 func TestServiceUpdateRerendersConfigMap(t *testing.T) {
 	ctx := context.Background()
-	// The skill is enabled by one image, so its content is live in the
+	// The skill is selected by one agent, so its content is live in the
 	// shared object and an edit must re-render it.
-	lister := &stubImageLister{counts: map[string]int{"u": 1}}
+	lister := &stubAgentLister{counts: map[string]int{"u": 1}}
 	svc, cleanup := newServiceWithFakeClient(t, lister, skillsClient(nil))
 	defer cleanup()
 
@@ -236,7 +223,7 @@ func TestServiceUpdateRerendersConfigMap(t *testing.T) {
 // editing a skill no agent enables must not grow the shared object.
 func TestServiceUpdateLeavesCatalogueSkillsUndelivered(t *testing.T) {
 	ctx := context.Background()
-	svc, cleanup := newServiceWithFakeClient(t, &stubImageLister{counts: map[string]int{}}, skillsClient(nil))
+	svc, cleanup := newServiceWithFakeClient(t, &stubAgentLister{counts: map[string]int{}}, skillsClient(nil))
 	defer cleanup()
 
 	sk, err := svc.Create(ctx, skills.CreateRequest{ID: "lib", Name: "lib", Description: "d", Body: "v1"})
@@ -255,8 +242,8 @@ func TestServiceUpdateLeavesCatalogueSkillsUndelivered(t *testing.T) {
 
 func TestServiceDeleteRefusedWhenReferenced(t *testing.T) {
 	ctx := context.Background()
-	svc, cleanup := newTestService(t, &stubImageLister{
-		refs: []skills.Referrer{{AgentImageName: "img-1"}},
+	svc, cleanup := newTestService(t, &stubAgentLister{
+		refs: []skills.Referrer{{AgentName: "agent-1"}},
 	})
 	defer cleanup()
 
@@ -269,7 +256,7 @@ func TestServiceDeleteRefusedWhenReferenced(t *testing.T) {
 	if !errors.As(err, &conflictErr) {
 		t.Fatalf("expected ErrInUse, got %v", err)
 	}
-	if len(conflictErr.Referrers) != 1 || conflictErr.Referrers[0].AgentImageName != "img-1" {
+	if len(conflictErr.Referrers) != 1 || conflictErr.Referrers[0].AgentName != "agent-1" {
 		t.Errorf("expected referrer list, got %+v", conflictErr.Referrers)
 	}
 }
@@ -304,7 +291,7 @@ func TestServiceConfigMapName(t *testing.T) {
 
 func TestServiceListEnrichesUsedBy(t *testing.T) {
 	ctx := context.Background()
-	svc, cleanup := newTestService(t, &stubImageLister{
+	svc, cleanup := newTestService(t, &stubAgentLister{
 		counts: map[string]int{"code-review": 3, "docs-helper": 1},
 	})
 	defer cleanup()
@@ -361,40 +348,40 @@ func TestServiceListNilListerLeavesUsedByZero(t *testing.T) {
 
 func TestServiceAssignDelegatesToLister(t *testing.T) {
 	ctx := context.Background()
-	lister := &stubImageLister{}
+	lister := &stubAgentLister{}
 	svc, cleanup := newTestService(t, lister)
 	defer cleanup()
 
 	if _, err := svc.Create(ctx, skills.CreateRequest{ID: "my-skill", Name: "My Skill"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := svc.Assign(ctx, "my-skill", "img-abc"); err != nil {
+	if err := svc.Assign(ctx, "my-skill", "agent-abc"); err != nil {
 		t.Fatalf("Assign: %v", err)
 	}
 	if len(lister.assignCalls) != 1 {
 		t.Fatalf("expected 1 assign call, got %d", len(lister.assignCalls))
 	}
-	if lister.assignCalls[0].skillID != "my-skill" || lister.assignCalls[0].agentImageName != "img-abc" {
+	if lister.assignCalls[0].skillID != "my-skill" || lister.assignCalls[0].agentName != "agent-abc" {
 		t.Errorf("unexpected assign call: %+v", lister.assignCalls[0])
 	}
 }
 
 func TestServiceUnassignDelegatesToLister(t *testing.T) {
 	ctx := context.Background()
-	lister := &stubImageLister{}
+	lister := &stubAgentLister{}
 	svc, cleanup := newTestService(t, lister)
 	defer cleanup()
 
 	if _, err := svc.Create(ctx, skills.CreateRequest{ID: "my-skill", Name: "My Skill"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := svc.Unassign(ctx, "my-skill", "img-abc"); err != nil {
+	if err := svc.Unassign(ctx, "my-skill", "agent-abc"); err != nil {
 		t.Fatalf("Unassign: %v", err)
 	}
 	if len(lister.unassignCalls) != 1 {
 		t.Fatalf("expected 1 unassign call, got %d", len(lister.unassignCalls))
 	}
-	if lister.unassignCalls[0].skillID != "my-skill" || lister.unassignCalls[0].agentImageName != "img-abc" {
+	if lister.unassignCalls[0].skillID != "my-skill" || lister.unassignCalls[0].agentName != "agent-abc" {
 		t.Errorf("unexpected unassign call: %+v", lister.unassignCalls[0])
 	}
 }
@@ -404,7 +391,7 @@ func TestServiceAssignSkillNotFound(t *testing.T) {
 	svc, cleanup := newTestService(t, nil)
 	defer cleanup()
 
-	err := svc.Assign(ctx, "nonexistent", "img-abc")
+	err := svc.Assign(ctx, "nonexistent", "agent-abc")
 	if !errors.Is(err, skills.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
@@ -415,7 +402,7 @@ func TestServiceUnassignSkillNotFound(t *testing.T) {
 	svc, cleanup := newTestService(t, nil)
 	defer cleanup()
 
-	err := svc.Unassign(ctx, "nonexistent", "img-abc")
+	err := svc.Unassign(ctx, "nonexistent", "agent-abc")
 	if !errors.Is(err, skills.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
@@ -437,7 +424,7 @@ func TestServiceAssignNilListerReturnsError(t *testing.T) {
 	if _, err := svc.Create(ctx, skills.CreateRequest{ID: "my-skill", Name: "x"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	err := svc.Assign(ctx, "my-skill", "img-abc")
+	err := svc.Assign(ctx, "my-skill", "agent-abc")
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Errorf("expected 'not configured' error, got %v", err)
 	}
@@ -459,7 +446,7 @@ func TestServiceUnassignNilListerReturnsError(t *testing.T) {
 	if _, err := svc.Create(ctx, skills.CreateRequest{ID: "my-skill", Name: "x"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	err := svc.Unassign(ctx, "my-skill", "img-abc")
+	err := svc.Unassign(ctx, "my-skill", "agent-abc")
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Errorf("expected 'not configured' error, got %v", err)
 	}
@@ -467,8 +454,8 @@ func TestServiceUnassignNilListerReturnsError(t *testing.T) {
 
 func TestServiceListAssignmentsDelegatesToLister(t *testing.T) {
 	ctx := context.Background()
-	lister := &stubImageLister{
-		refs: []skills.Referrer{{AgentImageName: "img-1"}, {AgentImageName: "img-2"}},
+	lister := &stubAgentLister{
+		refs: []skills.Referrer{{AgentName: "agent-1"}, {AgentName: "agent-2"}},
 	}
 	svc, cleanup := newTestService(t, lister)
 	defer cleanup()
@@ -480,7 +467,7 @@ func TestServiceListAssignmentsDelegatesToLister(t *testing.T) {
 	if len(refs) != 2 {
 		t.Fatalf("expected 2 refs, got %d", len(refs))
 	}
-	if refs[0].AgentImageName != "img-1" || refs[1].AgentImageName != "img-2" {
+	if refs[0].AgentName != "agent-1" || refs[1].AgentName != "agent-2" {
 		t.Errorf("unexpected refs: %+v", refs)
 	}
 }
@@ -510,11 +497,11 @@ func TestServiceListAssignmentsNilListerReturnsNil(t *testing.T) {
 // newServiceWithFakeClient is newTestService but lets the caller supply the
 // controller-runtime client, so a test can make ConfigMap writes fail the
 // way the apiserver does once the shared object hits its 1 MiB ceiling.
-func newServiceWithFakeClient(t *testing.T, lister skills.AgentImageLister, kc client.WithWatch) (*skills.Service, func()) {
+func newServiceWithFakeClient(t *testing.T, lister skills.AgentLister, kc client.WithWatch) (*skills.Service, func()) {
 	t.Helper()
 	store, cleanup := newTestStore(t)
 	if lister == nil {
-		lister = &stubImageLister{}
+		lister = &stubAgentLister{}
 	}
 	return skills.NewService(store, skills.NewReconciler(kc, testNamespace), lister), cleanup
 }
@@ -587,7 +574,7 @@ func TestServiceUpdateSurvivesFullConfigMap(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := newTestStore(t)
 	defer cleanup()
-	lister := &stubImageLister{counts: map[string]int{"s": 2}}
+	lister := &stubAgentLister{counts: map[string]int{"s": 2}}
 
 	// Deliver it while there is room.
 	svc := skills.NewService(store, skills.NewReconciler(skillsClient(nil), testNamespace), lister)
@@ -613,7 +600,7 @@ func TestServiceUpdateSurvivesFullConfigMap(t *testing.T) {
 
 func TestServiceConvergeDeliversOnlyEnabledSkills(t *testing.T) {
 	ctx := context.Background()
-	lister := &stubImageLister{counts: map[string]int{"enabled-1": 1, "enabled-2": 3}}
+	lister := &stubAgentLister{counts: map[string]int{"enabled-1": 1, "enabled-2": 3}}
 	svc, cleanup := newServiceWithFakeClient(t, lister, skillsClient(nil))
 	defer cleanup()
 
@@ -661,20 +648,20 @@ func TestServiceConvergeRequiresWiring(t *testing.T) {
 
 	store, cleanup2 := newTestStore(t)
 	defer cleanup2()
-	noRec := skills.NewService(store, nil, &stubImageLister{})
+	noRec := skills.NewService(store, nil, &stubAgentLister{})
 	if _, err := noRec.Converge(ctx); err == nil {
 		t.Error("Converge without a reconciler should report that it cannot run")
 	}
 }
 
 // TestServiceConvergeKeepsAgentLevelSkills is the service-side view of the
-// same trap: an Agent can select skills its AgentImage does not list. The
-// convergence pass must deliver those, or it would delete the content a
-// running agent mounts.
+// delivery rule: a skill selected only on an Agent CR — nothing else claims it —
+// must still be delivered, or Converge would delete the content a running agent
+// mounts.
 func TestServiceConvergeKeepsAgentLevelSkills(t *testing.T) {
 	ctx := context.Background()
-	// No image enables anything, but one agent picked a skill directly.
-	lister := &stubImageLister{counts: map[string]int{}, enabled: map[string]int{"agent-picked": 1}}
+	// One agent picked a skill; the catalogue holds another that nobody selects.
+	lister := &stubAgentLister{counts: map[string]int{"agent-picked": 1}}
 	svc, cleanup := newServiceWithFakeClient(t, lister, skillsClient(nil))
 	defer cleanup()
 
