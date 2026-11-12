@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { agentSchema, LLM_PROVIDERS, llmProviderLabel } from './agentFormModel'
+import {
+  agentDefaults,
+  agentSchema,
+  buildAgentRequest,
+  LLM_PROVIDERS,
+  llmProviderLabel,
+} from './agentFormModel'
 
 describe('llmProviderLabel', () => {
   it('maps every form option id to its label', () => {
@@ -29,5 +35,35 @@ describe('agentSchema', () => {
     })
     expect(result.success).toBe(false)
     expect(JSON.stringify(result.error?.issues)).toContain('customProviderUrl')
+  })
+})
+
+describe('provider rules', () => {
+  const base = {
+    ...agentDefaults,
+    name: 'Agent',
+    imageRef: { name: 'image' },
+    persona: { id: 'persona' },
+  }
+
+  it('requires a provider', () => {
+    const result = agentSchema.safeParse({
+      ...base,
+      llm: { ...base.llm, model: 'm', provider: '' },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it("omits the temperature for Pi's built-in providers and keeps it otherwise", () => {
+    const build = (provider: string) =>
+      buildAgentRequest(
+        agentSchema.parse({
+          ...base,
+          llm: { ...base.llm, model: 'm', provider, temperature: 0.4 },
+        }),
+        { isEdit: false },
+      )
+    expect(build('openai').llm).not.toHaveProperty('temperature')
+    expect(build('ollama-cloud').llm?.temperature).toBe(0.4)
   })
 })

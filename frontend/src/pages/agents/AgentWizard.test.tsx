@@ -342,17 +342,33 @@ describe('AgentWizard', () => {
     expect(postBody(fetchMock)).toBeUndefined()
   })
 
-  it('defaults the provider to Ollama Cloud and allows None', async () => {
-    const user = userEvent.setup()
+  it('defaults the provider to Ollama Cloud and offers no "None"', async () => {
     renderWizard('/agents/new?step=model')
 
     const provider = await screen.findByLabelText(/^provider$/i)
     expect(screen.getAllByLabelText(/^provider$/i)).toHaveLength(1)
     expect(provider).toHaveValue('ollama-cloud')
+    const labels = Array.from((provider as HTMLSelectElement).options).map((o) => o.text)
+    expect(labels).not.toContain('None')
+  })
 
-    await user.selectOptions(provider, 'None')
-    expect(provider).toHaveValue('')
-    expect(screen.queryByLabelText(/^api key$/i)).not.toBeInTheDocument()
+  it('creates a Google agent with its key and without a temperature', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await fillThroughPersona(user)
+    await goToStep(user, 'Model')
+    await user.selectOptions(await screen.findByLabelText(/^provider$/i), 'google')
+    expect(screen.queryByLabelText('Temperature')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Gemini API Key'), 'g-key')
+    await goToStep(user, 'Review')
+    await user.click(await screen.findByRole('button', { name: /create agent/i }))
+
+    await waitFor(() => expect(postBody(fetchMock)).toBeDefined())
+    expect(postBody(fetchMock)?.google).toEqual({ apiKey: 'g-key' })
+    const llm = postBody(fetchMock)?.llm as Record<string, unknown>
+    expect(llm.provider).toBe('google')
+    expect(llm).not.toHaveProperty('temperature')
   })
 
   it('surfaces a rejected create without leaving the review step', async () => {

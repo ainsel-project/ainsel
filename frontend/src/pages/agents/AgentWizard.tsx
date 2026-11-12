@@ -15,14 +15,13 @@ import { Textarea } from '../../primitives/Textarea'
 import { Titleblock } from '../../layout/Titleblock'
 import { GroupField } from '../../components/GroupField'
 import {
-  API_KEY_LABELS,
-  LLM_PROVIDERS,
   agentDefaults,
   agentSchema,
   buildAgentRequest,
   type AgentFormInput,
   type AgentFormValues,
 } from './agentFormModel'
+import { ContextWindowField, ProviderFields, TemperatureField } from './ProviderFields'
 
 /**
  * The creation steps. Each step validates only its own fields, so a user can
@@ -358,30 +357,15 @@ export function AgentWizard() {
                   <Field label="Max Turns" htmlFor="llm.maxTurns">
                     <Input id="llm.maxTurns" type="number" min={1} {...register('llm.maxTurns')} />
                   </Field>
-                  <Field label="Temperature" htmlFor="llm.temperature">
-                    <Input
-                      id="llm.temperature"
-                      type="number"
-                      step={0.1}
-                      min={0}
-                      max={2}
-                      {...register('llm.temperature')}
-                    />
-                  </Field>
-                  <Field
-                    label="Context Window"
-                    htmlFor="llm.contextWindow"
+                  <TemperatureField
+                    provider={provider}
+                    registration={register('llm.temperature')}
+                  />
+                  <ContextWindowField
+                    provider={provider}
+                    registration={register('llm.contextWindow')}
                     error={errors.llm?.contextWindow?.message}
-                    hint="Tokens declared in pi's models.json. Defaults to 131072 (128k) — must match what the LLM endpoint actually enforces, or context compaction fires too late; raise it only if the endpoint accepts more."
-                  >
-                    <Input
-                      id="llm.contextWindow"
-                      type="number"
-                      min={1024}
-                      placeholder="131072 (128k default)"
-                      {...register('llm.contextWindow')}
-                    />
-                  </Field>
+                  />
                   <Field
                     label="Model License"
                     htmlFor="llm.modelLicense"
@@ -395,40 +379,18 @@ export function AgentWizard() {
                   </Field>
                 </div>
                 <div className="form-grid" style={{ marginTop: 16 }}>
-                  <Field label="Provider" htmlFor="llm.provider">
-                    <Select
-                      id="llm.provider"
-                      value={provider ?? ''}
-                      onChange={(v) => setValue('llm.provider', v, { shouldDirty: true })}
-                      options={LLM_PROVIDERS}
-                    />
-                    <input type="hidden" {...register('llm.provider')} />
-                  </Field>
-                  {provider ? (
-                    <>
-                      {provider === 'custom' ? (
-                        <Field
-                          label="Provider Base URL"
-                          htmlFor="customProviderUrl"
-                          error={errors.customProviderUrl?.message}
-                        >
-                          <Input
-                            id="customProviderUrl"
-                            {...register('customProviderUrl')}
-                            placeholder="https://api.example.com/v1"
-                          />
-                        </Field>
-                      ) : null}
-                      <Field label={API_KEY_LABELS[provider] ?? 'API Key'} htmlFor="providerApiKey">
-                        <Input
-                          id="providerApiKey"
-                          type="password"
-                          autoComplete="off"
-                          {...register('providerApiKey')}
-                        />
-                      </Field>
-                    </>
-                  ) : null}
+                  <ProviderFields
+                    provider={provider}
+                    onProviderChange={(v) =>
+                      setValue('llm.provider', v, { shouldDirty: true, shouldValidate: true })
+                    }
+                    urlRegistration={register('customProviderUrl')}
+                    keyRegistration={register('providerApiKey')}
+                    providerError={errors.llm?.provider?.message}
+                    urlError={errors.customProviderUrl?.message}
+                    mode="create"
+                  />
+                  <input type="hidden" {...register('llm.provider')} />
                 </div>
                 <div className="form-grid" style={{ marginTop: 16 }}>
                   <Field

@@ -1,4 +1,4 @@
-import type { AgentRequest } from '../../api/agents'
+import type { AgentRequest, AgentResponse } from '../../api/agents'
 
 /** The agent write-body field that carries a provider's credential block. */
 export type ProviderRequestField = keyof Pick<
@@ -14,6 +14,9 @@ export type LlmProvider = {
   requestField: ProviderRequestField
   /** The provider has no fixed endpoint; the form asks for its base URL. */
   needsUrl: boolean
+  /** Runs on one of Pi's built-in providers: the temperature is not applied
+   *  and the context window comes from Pi's model catalog. */
+  piBuiltIn: boolean
 }
 
 /**
@@ -28,6 +31,7 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     apiKeyLabel: 'Ollama Cloud API Key',
     requestField: 'ollamaCloud',
     needsUrl: false,
+    piBuiltIn: false,
   },
   {
     id: 'opencode',
@@ -35,6 +39,7 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     apiKeyLabel: 'OpenCode API Key',
     requestField: 'openCode',
     needsUrl: false,
+    piBuiltIn: false,
   },
   {
     id: 'alibaba-cloud',
@@ -42,6 +47,7 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     apiKeyLabel: 'Alibaba Token Plan API Key',
     requestField: 'alibabaCloud',
     needsUrl: false,
+    piBuiltIn: false,
   },
   {
     id: 'openai',
@@ -49,6 +55,7 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     apiKeyLabel: 'OpenAI API Key',
     requestField: 'openAI',
     needsUrl: false,
+    piBuiltIn: true,
   },
   {
     id: 'anthropic',
@@ -56,6 +63,7 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     apiKeyLabel: 'Anthropic API Key',
     requestField: 'anthropic',
     needsUrl: false,
+    piBuiltIn: true,
   },
   {
     id: 'google',
@@ -63,6 +71,7 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     apiKeyLabel: 'Gemini API Key',
     requestField: 'google',
     needsUrl: false,
+    piBuiltIn: true,
   },
   {
     id: 'custom',
@@ -70,9 +79,19 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     apiKeyLabel: 'API Key',
     requestField: 'customProvider',
     needsUrl: true,
+    piBuiltIn: false,
   },
 ]
 
 export function findLlmProvider(id: string | undefined): LlmProvider | undefined {
   return LLM_PROVIDER_REGISTRY.find((p) => p.id === id)
+}
+
+/**
+ * Whether the stored agent holds a credential block for the provider. The hub
+ * never returns the key itself, only that the block exists.
+ */
+export function hasStoredKey(agent: AgentResponse, providerId: string): boolean {
+  const p = findLlmProvider(providerId)
+  return p !== undefined && agent[p.requestField] != null
 }
