@@ -450,6 +450,13 @@ managed (`managedBy`) — refreshing rewrites `spec.tools`.
 **Response:** `200 OK` with `{"image": …, "warnings": […]}` (per-server errors are
 reported as warnings), `400`, `404`, `409`, or `500`.
 
+Each server is queried with the credential its registry row names: when
+`tokenFromEnv` is set, the hub sends the value the image holds under that name as
+`Authorization: Bearer …` — the same credential the operator injects into the agent
+pod. A server that requires a token would otherwise answer `401` and contribute no
+tools, which reads as "this server offers nothing" rather than "we were not allowed
+to ask". Servers naming no env var are queried anonymously.
+
 ---
 
 ## Connectors
