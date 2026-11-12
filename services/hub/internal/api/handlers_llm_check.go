@@ -217,9 +217,10 @@ func (s *Server) llmCheckCandidates(r *http.Request, provider, model string) ([]
 // block's baseUrl override wins, so the probe hits the endpoint the agent
 // actually uses; for native-API providers (OpenAI Responses, Anthropic,
 // Gemini) the override points at the native API and cannot be probed this
-// way, so the registry's compatible endpoint is used. ok is false when the
-// provider cannot be checked or the agent has no provider block or no key
-// selector — a pair the hub cannot tie to a stored key cannot be checked.
+// way: without an override the vendor's compatible endpoint is used, with
+// one the agent is not checkable. ok is false when the provider cannot be
+// checked or the agent has no provider block or no key selector — a pair the
+// hub cannot tie to a stored key cannot be checked.
 func llmCheckAgentTarget(a *agentv1alpha1.Agent) (string, *corev1.SecretKeySelector, bool) {
 	p, known := llmprovider.Lookup(a.Spec.LLM.Provider)
 	if !known || p.CheckBaseURL == "" {
@@ -229,11 +230,16 @@ func llmCheckAgentTarget(a *agentv1alpha1.Agent) (string, *corev1.SecretKeySelec
 	if !present || cred.APIKeySecretRef == nil {
 		return "", nil, false
 	}
-	baseURL := p.CheckBaseURL
-	if p.PiAPI == llmprovider.PiAPIOpenAICompletions && cred.BaseURL != "" {
-		baseURL = cred.BaseURL
+	if cred.BaseURL == "" {
+		return p.CheckBaseURL, cred.APIKeySecretRef, true
 	}
-	return baseURL, cred.APIKeySecretRef, true
+	if p.PiAPI == llmprovider.PiAPIOpenAICompletions {
+		return cred.BaseURL, cred.APIKeySecretRef, true
+	}
+	// A native-API provider behind its own endpoint (gateway, proxy): the
+	// vendor's compatible endpoint would answer for a different service, and
+	// the key must not travel to an endpoint the admin did not configure.
+	return "", nil, false
 }
 
 // errLLMCheckKeyMissing marks "the selector resolved but there is no usable
@@ -274,10 +280,14 @@ func (s *Server) probeLLMCheck(ctx context.Context, baseURL, provider, model, ke
 		return llmCheckSanitize(fmt.Sprintf("provider %q has an invalid base URL %q", provider, baseURL)), err
 	}
 
+	limitField := "max_tokens"
+	if p, ok := llmprovider.Lookup(provider); ok && p.CheckTokenLimitField != "" {
+		limitField = p.CheckTokenLimitField
+	}
 	payload, err := json.Marshal(map[string]any{
-		"model":      model,
-		"messages":   []map[string]string{{"role": "user", "content": "ping"}},
-		"max_tokens": 1,
+		"model":    model,
+		"messages": []map[string]string{{"role": "user", "content": "ping"}},
+		limitField: 1,
 	})
 	if err != nil {
 		return "check failed", err

@@ -144,11 +144,15 @@ func TestLLMCheckNewProviders(t *testing.T) {
 		provider, override, wantBase string
 		wantOK                       bool
 	}{
-		// Native-API providers probe their OpenAI-compatible endpoint; a block
-		// baseUrl override points at the native API, so it is not used.
-		{"openai", "https://proxy.example/v1", "https://api.openai.com/v1", true},
-		{"anthropic", "https://proxy.example", "https://api.anthropic.com/v1", true},
+		// Native-API providers probe their vendor's OpenAI-compatible endpoint.
+		{"openai", "", "https://api.openai.com/v1", true},
+		{"anthropic", "", "https://api.anthropic.com/v1", true},
 		{"google", "", "https://generativelanguage.googleapis.com/v1beta/openai", true},
+		// A baseUrl override on a native-API provider (gateway, proxy) cannot
+		// be probed through the vendor's compatible endpoint, and its key must
+		// not be sent to an endpoint the admin did not configure.
+		{"openai", "https://proxy.example/v1", "", false},
+		{"anthropic", "https://proxy.example", "", false},
 		// OpenAI-compatible providers keep honouring the override.
 		{"ollama-cloud", "https://ollama.internal/v1", "https://ollama.internal/v1", true},
 		{"ollama-cloud", "", "https://ollama.com/v1", true},
@@ -167,6 +171,31 @@ func TestLLMCheckNewProviders(t *testing.T) {
 			}
 			if base != c.wantBase || ref == nil || ref.Name != "a-key" {
 				t.Errorf("target = %q ref %+v, want %q ref a-key", base, ref, c.wantBase)
+			}
+		})
+	}
+}
+
+// OpenAI's reasoning models reject max_tokens; the probe must use
+// max_completion_tokens there, and keep max_tokens elsewhere.
+func TestLLMCheckProbeTokenLimitField(t *testing.T) {
+	for provider, want := range map[string]string{"openai": "max_completion_tokens", "ollama-cloud": "max_tokens"} {
+		t.Run(provider, func(t *testing.T) {
+			var body map[string]any
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer up.Close()
+			s := testServer(t, testAgentImage("img-1"))
+			if reason, err := s.probeLLMCheck(context.Background(), up.URL, provider, "m", "k"); err != nil {
+				t.Fatalf("probe: %s %v", reason, err)
+			}
+			for _, field := range []string{"max_tokens", "max_completion_tokens"} {
+				_, set := body[field]
+				if set != (field == want) {
+					t.Errorf("%s present = %v, want only %s; body %v", field, set, want, body)
+				}
 			}
 		})
 	}
