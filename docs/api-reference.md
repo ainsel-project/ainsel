@@ -338,7 +338,7 @@ the vendor endpoint would answer for a different service, and the key never
 travels to an endpoint the admin did not configure. The key is read through
 the agent's `apiKeySecretRef`. OpenAI probes cap the reply with
 `max_completion_tokens` (its reasoning models reject `max_tokens`). It then sends the cheapest possible completion
-(`POST {baseUrl}/chat/completions`, `max_tokens: 1`) with an 8 s cap; any 2xx
+(`POST {baseUrl}/chat/completions` with a one-token cap — `max_tokens: 1`, or `max_completion_tokens: 1` for OpenAI) with an 8 s cap; any 2xx
 from the provider is `ok`.
 
 | Status | Meaning |
