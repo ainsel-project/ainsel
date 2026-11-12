@@ -963,12 +963,18 @@ func builtInModelsJSON(agent *ainselv1alpha1.Agent, pp piProviderConfig, apiKeyR
 }
 
 // temperatureCondition returns the TemperatureApplied condition for the
-// agent, or nil when no temperature is set.
+// agent, or nil when no temperature is set or the provider is unknown.
 func temperatureCondition(agent *ainselv1alpha1.Agent) *metav1.Condition {
 	if agent.Spec.LLM.Temperature == nil {
 		return nil
 	}
-	if p, ok := llmprovider.Lookup(agent.Spec.LLM.Provider); ok && p.PiAPI != llmprovider.PiAPIOpenAICompletions {
+	p, ok := llmprovider.Lookup(agent.Spec.LLM.Provider)
+	if !ok {
+		// Unset or unknown provider: the reconcile fails with
+		// InvalidLLMProvider and nothing is sent, so make no claim.
+		return nil
+	}
+	if p.PiAPI != llmprovider.PiAPIOpenAICompletions {
 		return &metav1.Condition{
 			Type:   ainselv1alpha1.AgentConditionTemperatureApplied,
 			Status: metav1.ConditionFalse,
