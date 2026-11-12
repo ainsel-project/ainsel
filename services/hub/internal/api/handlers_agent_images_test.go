@@ -322,6 +322,50 @@ func TestUpdateAgentImage_AddDescription(t *testing.T) {
 	}
 }
 
+// TestUpdateAgentImage_StaleEnabledSkillsFieldIgnored pins the upgrade claim
+// in docs/upgrade-guide.md: an old client that still sends the removed
+// `enabledSkills` key on an agent-image PUT is accepted and the field is
+// ignored. The hub decodes with plain json.Decoder (no DisallowUnknownFields),
+// so this must keep holding — if request decoding ever becomes strict, this
+// test fails and the upgrade guide needs the opposite story.
+func TestUpdateAgentImage_StaleEnabledSkillsFieldIgnored(t *testing.T) {
+	existing := &agentv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "img-stale001",
+			Namespace: "test-ns",
+		},
+		Spec: agentv1alpha1.AgentImageSpec{
+			DisplayName: "Stale Field Image",
+			ImageURL:    "registry.example.com/stale-field:v1",
+		},
+		Status: agentv1alpha1.AgentImageStatus{
+			Phase: agentv1alpha1.AgentImagePhaseReady,
+		},
+	}
+
+	s := testServer(t, existing)
+	registerAgentImageRoutes(s)
+
+	// Raw body: the request struct no longer has an enabledSkills field, so
+	// marshal by hand to reproduce what a pre-upgrade client sends.
+	body := `{"description":"set while stale","enabledSkills":["old-skill"]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-stale001", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (stale enabledSkills ignored), got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp SimpleAgentImageResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Description != "set while stale" {
+		t.Errorf("expected description to be applied, got %q", resp.Description)
+	}
+}
+
 // TestUpdateAgentImage_RemoveToolReferencedByAgent verifies that PUT with an
 // empty tools list returns 409 when an Agent references the removed tool.
 func TestUpdateAgentImage_RemoveToolReferencedByAgent(t *testing.T) {
