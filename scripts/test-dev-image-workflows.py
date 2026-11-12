@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Fail if a dev-image workflow can publish a tag it should not.
 
-The publish decision in `.github/workflows/dev-image-*.yml` is the only thing
-standing between a build and a permanent registry tag, and it has already leaked
+The publish decision is the only thing standing between a build and a permanent
+registry tag. It lives in two places: the reusable `.github/workflows/dev-image.yml`
+that every component's `dev-image-<component>.yml` calls, and the self-contained
+`dev-image-pi.yml`. It has already leaked
 twice: `:dev` was written by main builds (PR #182), and any `workflow_dispatch` -
 including one from an unreviewed feature branch - published because the steps only
 asked "is this a pull request?".
@@ -10,7 +12,9 @@ asked "is this a pull request?".
 Those are shell conditions inside a YAML `run:` block, so nothing checks them
 until a build runs. This does, on every change to a workflow: it executes the real
 step body the way the runner would (expressions substituted, `$GITHUB_OUTPUT`
-parsed) across every event/branch combination, and asserts the decision.
+parsed) across every event/branch combination, and asserts the decision. The
+callers carry no decision of their own, so for them it checks the wiring that
+would bypass it: what they delegate to, and what they forward.
 
 Run from the repository root: python3 scripts/test-dev-image-workflows.py
 """
@@ -28,6 +32,8 @@ import yaml
 
 SHA = "0ae751bc1234567890"
 WORKFLOWS = Path(".github/workflows")
+REUSABLE = "dev-image.yml"
+TEST_IMAGE = "dpinsel/ainsel-test"
 
 # event name, GITHUB_REF, the `publish` dispatch input, expected decision
 CASES = [
@@ -72,22 +78,51 @@ def parse_github_output(text: str) -> dict[str, str]:
     return out
 
 
-def run_meta_step(step: dict, event: str, ref: str, publish_input: str) -> dict[str, str]:
+def expand(text: str, values: dict[str, str]) -> str:
+    """Substitute the `${{ ... }}` expressions this script knows how to evaluate.
+
+    Anything left over is an expression the cases do not cover, so the step's
+    behaviour under it would be untested - refuse instead of guessing.
+    """
+    for expr, value in values.items():
+        text = text.replace("${{ " + expr + " }}", value)
+    if "${{" in text:
+        raise ValueError(f"unevaluated expression in metadata step: {text!r}")
+    return text
+
+
+def pr_number(event: str, ref: str) -> str:
+    """What github.event.pull_request.number holds: set on PR events only."""
+    if event == "pull_request" and ref.startswith("refs/pull/"):
+        return ref.split("/")[2]
+    return ""
+
+
+def run_meta_step(
+    step: dict, event: str, ref: str, publish_input: str, inputs: dict[str, str]
+) -> dict[str, str]:
     """Execute a `Compute image metadata` body as the runner would."""
-    script = step["run"].replace("${{ inputs.publish }}", publish_input)
+    values = {f"inputs.{k}": v for k, v in inputs.items()}
+    values["inputs.publish"] = publish_input
+    values["github.event.pull_request.number"] = pr_number(event, ref)
+    script = expand(step["run"], values)
+    step_env = {k: expand(str(v), values) for k, v in (step.get("env") or {}).items()}
+    ref_name = ref.removeprefix("refs/heads/").removeprefix("refs/pull/")
     with tempfile.NamedTemporaryFile("w+", suffix=".out") as handle:
         env = dict(
             os.environ,
+            **step_env,
             GITHUB_EVENT_NAME=event,
             GITHUB_SHA=SHA,
             GITHUB_REF=ref,
+            GITHUB_REF_NAME=ref_name,
             GITHUB_OUTPUT=handle.name,
         )
         subprocess.run(["bash", "-ef", "-c", script], env=env, check=True)
         return parse_github_output(handle.read())
 
 
-def check_workflow(path: Path) -> list[str]:
+def check_workflow(path: Path, inputs: dict[str, str] | None = None) -> list[str]:
     doc = yaml.safe_load(path.read_text())
     steps = doc["jobs"]["build"]["steps"]
     problems: list[str] = []
@@ -116,7 +151,7 @@ def check_workflow(path: Path) -> list[str]:
             problems.append(f"{step.get('name')}: push={push!r} ignores the publish decision")
 
     for event, ref, publish_input, want in CASES:
-        got = run_meta_step(meta, event, ref, publish_input)
+        got = run_meta_step(meta, event, ref, publish_input, inputs or {})
         if got.get("publish") != want:
             problems.append(
                 f"{event} on {ref} (publish input {publish_input or '(unset)'}) "
@@ -129,6 +164,110 @@ def check_workflow(path: Path) -> list[str]:
         if path.name == "dev-image-pi.yml":
             problems += check_pi_variants(got, ref, problems)
             problems += check_pi_base(got, event, ref)
+        if path.name == REUSABLE:
+            problems += check_reusable_outputs(got, event, ref, inputs or {})
+    return problems
+
+
+def check_reusable_outputs(
+    got: dict[str, str], event: str, ref: str, inputs: dict[str, str]
+) -> list[str]:
+    """The shared workflow names exactly the caller's image, and stamps the build."""
+    problems: list[str] = []
+    short = SHA[:7]
+    want_tags = {f"{TEST_IMAGE}:{short}"}
+    if ref == "refs/heads/main":
+        want_tags.add(f"{TEST_IMAGE}:dev")
+    got_tags = set(got.get("tags", "").splitlines())
+    if got_tags != want_tags:
+        problems.append(f"{event} on {ref}: tags {sorted(got_tags)}, want {sorted(want_tags)}")
+
+    if inputs.get("stamp_version") == "true":
+        if event == "pull_request":
+            version = f"pr-{pr_number(event, ref)}-{short}"
+        else:
+            version = f"{ref.removeprefix('refs/heads/')}-{short}"
+        want_args = [f"VERSION={version}", f"VCS_REF={SHA}"]
+    else:
+        want_args = []
+    got_args = got.get("build_args", "").splitlines()
+    if got_args != want_args:
+        problems.append(
+            f"{event} on {ref} (stamp_version={inputs.get('stamp_version')}): "
+            f"build_args {got_args}, want {want_args}"
+        )
+    return problems
+
+
+def check_reusable_workflow() -> list[str]:
+    """Run the shared decision over every case, with and without the version stamp."""
+    path = WORKFLOWS / REUSABLE
+    if not path.exists():
+        return [f"{REUSABLE} is gone - every dev-image caller delegates to it"]
+    problems: list[str] = []
+    for stamp in ("true", "false"):
+        problems += check_workflow(path, {"image_name": TEST_IMAGE, "stamp_version": stamp})
+
+    doc = yaml.safe_load(path.read_text())
+    if set(doc[True]) != {"workflow_call"}:
+        problems.append(f"triggers {sorted(doc[True])}: must be workflow_call only")
+    publish = doc[True]["workflow_call"]["inputs"].get("publish", {})
+    if publish.get("default") is not False:
+        problems.append(f"`publish` input defaults to {publish.get('default')!r}, want false")
+    build = next(s for s in doc["jobs"]["build"]["steps"] if "build-push-action" in str(s.get("uses")))
+    with_ = build.get("with") or {}
+    if with_.get("tags") != "${{ steps.meta.outputs.tags }}":
+        problems.append(f"build tags={with_.get('tags')!r}, not the tags the gate computed")
+    if with_.get("build-args") != "${{ steps.meta.outputs.build_args }}":
+        problems.append(f"build-args={with_.get('build-args')!r}, not the metadata step's")
+    return problems
+
+
+def check_caller(path: Path) -> list[str]:
+    """A component workflow decides nothing itself, so check what would bypass the gate.
+
+    It must delegate to the shared workflow, forward the dispatch `publish` answer
+    as-is (never a literal true), keep its own concurrency group, and re-run
+    when either its own file or the shared logic changes.
+    """
+    doc = yaml.safe_load(path.read_text())
+    problems: list[str] = []
+    jobs = doc.get("jobs") or {}
+    job = jobs.get("build") or {}
+    if list(jobs) != ["build"] or job.get("uses") != f"./.github/workflows/{REUSABLE}":
+        return [f"jobs {list(jobs)} do not delegate to {REUSABLE} as the single `build` job"]
+    if job.get("secrets") != "inherit":
+        problems.append("does not pass `secrets: inherit` - a publishing run could not log in")
+
+    with_ = job.get("with") or {}
+    reusable = yaml.safe_load((WORKFLOWS / REUSABLE).read_text())[True]["workflow_call"]["inputs"]
+    unknown = set(with_) - set(reusable)
+    if unknown:
+        problems.append(f"passes inputs {sorted(unknown)} that {REUSABLE} does not declare")
+    if with_.get("publish") != "${{ inputs.publish == true }}":
+        problems.append(
+            f"publish={with_.get('publish')!r} - forward the dispatch input, "
+            "`${{ inputs.publish == true }}`, nothing else"
+        )
+    image = str(with_.get("image_name", ""))
+    if not image.startswith("dpinsel/ainsel-"):
+        problems.append(f"image_name={image!r} is outside the dpinsel/ainsel-* namespace")
+    dockerfile = str(with_.get("dockerfile", ""))
+    if not Path(dockerfile).is_file():
+        problems.append(f"dockerfile={dockerfile!r} does not exist")
+
+    on = doc[True]
+    dispatch = ((on.get("workflow_dispatch") or {}).get("inputs") or {}).get("publish") or {}
+    if dispatch.get("type") != "boolean" or dispatch.get("default") is not False:
+        problems.append(f"workflow_dispatch `publish` input is {dispatch!r}, want a boolean defaulting to false")
+    group = (doc.get("concurrency") or {}).get("group")
+    if group != "${{ github.workflow }}-${{ github.ref }}":
+        problems.append(f"concurrency group {group!r} - must be per-workflow, per-ref")
+    for event in ("push", "pull_request"):
+        paths = (on.get(event) or {}).get("paths") or []
+        for own in (f".github/workflows/{path.name}", f".github/workflows/{REUSABLE}"):
+            if own not in paths:
+                problems.append(f"{event} paths miss {own}")
     return problems
 
 
@@ -203,18 +342,24 @@ def main() -> int:
     if not WORKFLOWS.is_dir():
         print("Run from the repository root.", file=sys.stderr)
         return 2
-    failed = False
+    results: list[tuple[str, list[str], str]] = [
+        (REUSABLE, check_reusable_workflow(), f"publish gate holds for {len(CASES)} event/branch cases"),
+    ]
     for path in sorted(WORKFLOWS.glob("dev-image-*.yml")):
-        problems = check_workflow(path) + (
-            check_pi_workflow() if path.name == "dev-image-pi.yml" else []
-        )
+        if path.name == "dev-image-pi.yml":
+            problems = check_workflow(path) + check_pi_workflow()
+            results.append((path.name, problems, f"publish gate holds for {len(CASES)} event/branch cases"))
+        else:
+            results.append((path.name, check_caller(path), f"delegates to {REUSABLE}"))
+    failed = False
+    for name, problems, ok in results:
         if problems:
             failed = True
-            print(f"FAIL {path.name}")
+            print(f"FAIL {name}")
             for problem in problems:
                 print(f"      {problem}")
         else:
-            print(f"ok   {path.name}: publish gate holds for {len(CASES)} event/branch cases")
+            print(f"ok   {name}: {ok}")
     if failed:
         print(
             "\nA dev-image workflow can write a permanent registry tag; see "

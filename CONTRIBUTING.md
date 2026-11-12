@@ -165,14 +165,14 @@ rolling them out is left to whatever pipeline owns the environment.
 
 | workflow | trigger | does |
 | --- | --- | --- |
-| `ci-<component>.yml` (11) | PR based on `main`, path-filtered | build, test, lint that component |
+| `ci-<component>.yml` (11) | PR based on `main`, path-filtered | build, test, lint that component; the Go services, operators and `shared/api` call the shared `ci-component.yml` |
 | `pr-title.yml` | PR opened, edited or updated | reject a PR title release-please could not parse |
 | `pr-signed-off.yml` | PR opened, updated or reopened | reject a PR whose commits lack a `Signed-off-by:` trailer (see [conventions](docs/conventions.md#sign-off)) |
 | `dependabot-auto-merge.yml` | PR by `dependabot[bot]`, or dispatch with a PR number | wait for every other check on the PR, then squash-merge it; refuse on any red check |
 | `ci-chart.yml` | same, for `chart/**` and `operators/*/config/crd/**` | helm lint, template with default/example/medium/large values, CRD sync check |
-| `ci-workflows.yml` | same, for `dev-image-*.yml` and their test | assert the publish decision for every event/branch combination |
+| `ci-workflows.yml` | same, for `dev-image*.yml` and their test | assert the publish decision for every event/branch combination |
 | `ci-licenses.yml` | same, for lockfiles, `THIRD_PARTY_LICENSES.md`, `LICENSES/` and the license scripts | fail on a dependency license that may not ship; fail when the committed manifest drifts from the lockfiles |
-| `dev-image-<component>.yml` (8) | push to `main`, path-filtered | build and push images (see tags below) |
+| `dev-image-<component>.yml` (8) | push to `main`, path-filtered | build and push images (see tags below); all but pi call the shared `dev-image.yml` |
 | `dev-image-<component>.yml` (8) | PR, or a dispatch without `publish`, path-filtered | **build only** - no login, no push, image discarded |
 | `maintenance-untag.yml` | weekly schedule, or dispatch | report (and, on an explicit dispatch, delete) stale Docker Hub tags - see [`docs/maintenance.md`](docs/maintenance.md) |
 | `betterleaks.yml` | push and PR on `main` | secret scanning |
@@ -184,8 +184,8 @@ Toolchains come from `actions/setup-go@v7` and `actions/setup-node@v7` after
 runner's own Docker daemon is available to `docker/build-push-action`; the
 chart jobs install Helm with the official `get-helm-3` script.
 
-`dev-image-*` tags are deliberately asymmetric, and the guard lives in each
-workflow:
+`dev-image-*` tags are deliberately asymmetric, and the guard lives in the shared
+`dev-image.yml` (plus `dev-image-pi.yml`, which keeps its own copy):
 
 - push to `main` → `:dev` (mutable, what the dev cluster runs) and `:<short-sha>`
 - any other branch → nothing: the triggers match `main` only, and the publish
@@ -196,9 +196,10 @@ not the integration line used to overwrite it on every push, which took the
 dev cluster down by replacing its images with code that lacked migrations
 `main` had already applied - see PR #182.
 
-Publishing is a single decision computed in each workflow's `Compute image
-metadata` step, never re-derived from `github.event_name` in the build steps. Two
-leaks closed by that:
+Publishing is a single decision computed in the `Compute image metadata` step of
+`dev-image.yml` (and of `dev-image-pi.yml`), never re-derived from
+`github.event_name` in the build steps. The component workflows only forward their
+`publish` dispatch input to it. Two leaks closed by that:
 
 - a PR run is a compile check on the Dockerfile and nothing more - the image is
   loaded into the runner and discarded, so a branch never produces a registry
@@ -207,8 +208,9 @@ leaks closed by that:
   feature branch used to publish a `:<short-sha>` tag no review had looked at. It
   now publishes only when the `publish` input is set.
 
-`scripts/test-dev-image-workflows.py` executes each workflow's real step body over
-every event/branch combination and fails if either stops being true; it is wired
+`scripts/test-dev-image-workflows.py` executes that real step body over every
+event/branch combination, checks that every component workflow delegates to it
+without overriding the decision, and fails if either stops being true; it is wired
 into `ci-workflows.yml` because a YAML `run:` block is otherwise unchecked until a
 build talks to the live registry.
 

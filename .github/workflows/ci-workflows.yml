@@ -2,9 +2,12 @@ name: CI - workflows
 
 # The dev-image workflows decide, in shell, whether a build becomes a permanent
 # registry tag. Nothing else checks that decision until a build runs against the
-# real registry, so this does: scripts/test-dev-image-workflows.py executes each
-# workflow's metadata step the way the runner would and asserts the outcome for
-# every event/branch combination. The tag policy itself is in CONTRIBUTING.md.
+# real registry, so this does: scripts/test-dev-image-workflows.py executes the
+# metadata step of the shared dev-image.yml (and of the self-contained
+# dev-image-pi.yml) the way the runner would and asserts the outcome for every
+# event/branch combination, then checks that each dev-image-<component>.yml
+# delegates to dev-image.yml without overriding the decision. The tag policy
+# itself is in CONTRIBUTING.md.
 #
 # permissions: contents: read — checkout needs a token to fetch the repo;
 # an empty permissions block relies on anonymous access, which fails 404 here.
@@ -14,6 +17,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/dev-image-*.yml'
+      - '.github/workflows/dev-image.yml'
       - '.github/workflows/ci-workflows.yml'
       - 'scripts/test-dev-image-workflows.py'
   pull_request:
@@ -21,6 +25,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - '.github/workflows/dev-image-*.yml'
+      - '.github/workflows/dev-image.yml'
       - '.github/workflows/ci-workflows.yml'
       - 'scripts/test-dev-image-workflows.py'
   workflow_dispatch:

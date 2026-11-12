@@ -1,0 +1,98 @@
+name: Dev Image
+
+# Build one component image and, when the publish decision says so, push it.
+# Called by the dev-image-<component>.yml workflows, which keep the triggers,
+# path filters, concurrency group and the `publish` dispatch input. A
+# workflow_call workflow runs in its caller's event context, so
+# github.event_name / github.ref below are the caller's - the decision is
+# the same one each workflow used to compute for itself, now in one place.
+# scripts/test-dev-image-workflows.py executes the metadata step for every
+# event/branch combination; the tag policy is in CONTRIBUTING.md.
+#
+# dev-image-pi.yml keeps its own copy: its base/variant builds publish
+# different tags on different conditions and do not fit this shape.
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: "Repository to tag, e.g. dpinsel/ainsel-hub-backend"
+        type: string
+        required: true
+      dockerfile:
+        description: "Dockerfile path, relative to the repository root (the build context)"
+        type: string
+        required: true
+      stamp_version:
+        description: "Pass VERSION and VCS_REF build args (the Go images read them; the frontend does not)"
+        type: boolean
+        default: true
+      publish:
+        description: "The caller's workflow_dispatch `publish` input; ignored for push and pull_request"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compute image metadata
+        id: meta
+        env:
+          IMAGE: ${{ inputs.image_name }}
+          STAMP_VERSION: ${{ inputs.stamp_version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          short_sha=$(echo ${GITHUB_SHA} | head -c 7)
+          # Publishing is decided once, here, instead of being re-derived from
+          # github.event_name at every step. A PR never publishes; a manual
+          # dispatch publishes only if it was told to. Before this, a dispatch
+          # from any feature branch pushed a :<short-sha> tag that no review
+          # had ever looked at.
+          publish=true
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) publish=false ;;
+            workflow_dispatch) publish='${{ inputs.publish }}' ;;
+          esac
+          if [ "$publish" != "true" ]; then publish=false; fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          {
+            echo "short_sha=${short_sha}"
+            echo "tags<<EOF"
+            echo "${IMAGE}:${short_sha}"
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+              echo "${IMAGE}:dev"
+            fi
+            echo "EOF"
+            echo "build_args<<EOF"
+            if [ "$STAMP_VERSION" = "true" ]; then
+              if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+                echo "VERSION=pr-${PR_NUMBER}-${short_sha}"
+              else
+                echo "VERSION=${GITHUB_REF_NAME}-${short_sha}"
+              fi
+              echo "VCS_REF=${GITHUB_SHA}"
+            fi
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+      - name: Login to Docker Hub
+        if: steps.meta.outputs.publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          push: ${{ steps.meta.outputs.publish == 'true' }}
+          load: ${{ steps.meta.outputs.publish != 'true' }}
+          provenance: false
+          sbom: false
+          build-args: ${{ steps.meta.outputs.build_args }}
+          tags: ${{ steps.meta.outputs.tags }}
