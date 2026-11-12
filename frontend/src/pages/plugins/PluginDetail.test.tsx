@@ -542,4 +542,38 @@ describe('PluginDetail', () => {
       expect(urls.some((url) => url.includes('/plugins/plugin1/enable'))).toBe(true)
     })
   })
+
+  it('leads with the tab strip instead of a Pages panel', async () => {
+    renderWithPlugin({
+      ...defaultPlugin,
+      manifest: {
+        id: 'plugin1',
+        displayName: 'Test Plugin',
+        pluginApi: '1.1',
+        ui: {
+          entry: '/static/ui/index.js',
+          pages: [{ path: '/', label: 'Memories', section: 'Memory' }],
+        },
+      },
+    })
+    await waitFor(() => expect(screen.getByText('Test Plugin')).toBeInTheDocument())
+
+    // The old mid-page "Pages" panel is gone.
+    expect(screen.queryByRole('heading', { name: 'Pages' })).not.toBeInTheDocument()
+
+    // The tab strip renders at the top of the content, above the KPI row,
+    // led by the Plugin home tab — selected on the detail route itself.
+    const tablist = screen.getByRole('tablist', { name: 'Plugin sections' })
+    expect(within(tablist).getByRole('tab', { name: 'Plugin' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(within(tablist).getByRole('tab', { name: 'Memories' })).toHaveAttribute(
+      'href',
+      '/p/plugin1',
+    )
+    const kpiRow = document.querySelector('.kpi-row')
+    expect(kpiRow).not.toBeNull()
+    expect(tablist.compareDocumentPosition(kpiRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })

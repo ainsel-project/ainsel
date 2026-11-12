@@ -22,7 +22,6 @@ import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Dot } from '../../primitives/Dot'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
-import { pluginPages } from '../../plugins/registry'
 import { PluginPagesNav } from './PluginPagesNav'
 import { permissionInfo } from './permissionCatalog'
 
@@ -172,13 +171,6 @@ export function PluginDetail() {
     [permissionRows],
   )
 
-  // The plugin's own pages, as links back into the plugin area. Admin view
-  // only (the whole detail is admin-gated), so every page is visible here.
-  const pageEntries = useMemo(
-    () => (plugin?.manifest ? pluginPages({ id: plugin.id, manifest: plugin.manifest }, true) : []),
-    [plugin],
-  )
-
   // Read mode renders server state (plugin.groupAccess), never the edit draft.
   const knownGroupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups])
   const groupAccessRows = useMemo<GroupAccessRow[]>(() => {
@@ -299,6 +291,9 @@ export function PluginDetail() {
         }
       />
       <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
+        {plugin.manifest && (
+          <PluginPagesNav plugin={{ id: plugin.id, manifest: plugin.manifest }} isAdmin />
+        )}
         <div className="kpi-row">
           <StatCard
             label="Status"
@@ -413,14 +408,6 @@ export function PluginDetail() {
             )}
           </div>
         </Panel>
-
-        {pageEntries.length > 0 && (
-          <Panel title="Pages">
-            <div style={{ padding: 16 }}>
-              <PluginPagesNav plugin={{ id: plugin.id, manifest: plugin.manifest! }} isAdmin />
-            </div>
-          </Panel>
-        )}
 
         <Panel title="Danger Zone">
           <div style={{ padding: 16 }}>

@@ -15,7 +15,7 @@ type PluginSidebarProps = {
  * One entry per active plugin — ready and enabled, sorted by id, the same
  * filter the old spine entries used. The roster is never admin-gated: every
  * user may open a plugin's area; only admin-visibility *pages* are filtered
- * (in the pages strip and at render time).
+ * (in the pages tab strip and at render time).
  */
 export function PluginSidebar({ selectedId }: PluginSidebarProps) {
   const { data } = usePlugins()

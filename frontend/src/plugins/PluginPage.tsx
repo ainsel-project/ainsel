@@ -60,8 +60,9 @@ interface PluginPageContentProps {
 
 // The console frames every plugin page the way it frames its own: a title
 // block (crumbs: the page's section, then its label) above a padded body.
-// Between them sits the plugin's pages strip — the sections of the plugin's
-// own area — so a user can move between pages without losing the roster.
+// Between them sits the plugin's tab strip — the plugin's own pages plus the
+// admin-only Plugin home tab — so a user can move between pages, or back to
+// the plugin's detail, without ever losing the roster.
 // A plugin renders only the body, so every plugin looks the same.
 function PluginPageContent({ plugin, page, isAdmin }: PluginPageContentProps): JSX.Element {
   return (
@@ -74,7 +75,9 @@ function PluginPageContent({ plugin, page, isAdmin }: PluginPageContentProps): J
         }
         title={page.label}
       />
-      <PluginPagesNav plugin={plugin} isAdmin={isAdmin} />
+      <div style={{ padding: '12px 32px 0' }}>
+        <PluginPagesNav plugin={plugin} isAdmin={isAdmin} />
+      </div>
       <div style={{ padding: '28px 32px' }}>
         <PluginContextProvider plugin={plugin}>
           <PluginBoundary plugin={plugin}>

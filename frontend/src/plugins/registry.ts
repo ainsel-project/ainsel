@@ -57,7 +57,7 @@ export function navEntries(
 
 /**
  * The navigable pages of one plugin — the same entries navEntries() produces,
- * restricted to a single plugin. Feeds the plugin workspace's pages strip
+ * restricted to a single plugin. Feeds the plugin workspace's pages tab strip
  * (the plugin's own sections, mirroring the agent workspace's section nav).
  */
 export function pluginPages(
@@ -65,6 +65,24 @@ export function pluginPages(
   isAdmin: boolean,
 ): { section: string; label: string; to: string }[] {
   return navEntries([plugin], isAdmin)
+}
+
+/**
+ * The tab strip of one plugin's area: a built-in `Plugin` home tab pointing
+ * at the plugin's detail page (`/plugins/<id>`), followed by the plugin's
+ * declared pages in `pluginPages()` order. The home tab is admin-only —
+ * `/plugins/:id` is the admin management view and a non-admin would only
+ * reach the "managed by administrators" dead end. Feeds `PluginPagesNav`,
+ * which renders both plugin surfaces (`/plugins/:id`, `/p/<id>/*`) with one
+ * navigation metaphor and always offers a way back to the plugin's home.
+ */
+export function pluginTabs(
+  plugin: { id: string; manifest: PluginManifest },
+  isAdmin: boolean,
+): { section: string; label: string; to: string }[] {
+  const pages = pluginPages(plugin, isAdmin)
+  if (!isAdmin) return pages
+  return [{ section: '', label: 'Plugin', to: `/plugins/${plugin.id}` }, ...pages]
 }
 
 /**
