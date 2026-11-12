@@ -714,9 +714,15 @@ table.reg tr.reg-detail > td {
 /* ===== Tabs ===== */
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0;
   border-bottom: 1px solid var(--rule-soft);
   margin-bottom: 0;
+}
+/* Link-backed tabs (Tabs entries with `to`) must render like the buttons —
+   anchors keep the UA underline otherwise. */
+.tabs a.tab {
+  text-decoration: none;
 }
 .tabs .tab {
   font-family: var(--mono);
