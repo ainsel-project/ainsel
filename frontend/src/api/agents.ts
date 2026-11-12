@@ -47,6 +47,8 @@ export type AgentEnvVar = { name: string; value: string; secret?: boolean }
 export type AgentOllamaCloud = { apiKey?: string }
 export type AgentOpenCode = { apiKey?: string }
 export type AgentAlibabaCloud = { apiKey?: string }
+/** An API-key provider block (OpenAI, Anthropic, Google). The key is write-only. */
+export type AgentAPIKey = { apiKey?: string }
 export type AgentCustomProvider = { url?: string; apiKey?: string }
 
 export type AgentSummary = {
@@ -105,6 +107,9 @@ export type AgentResponse = AgentSummary & {
   ollamaCloud?: AgentOllamaCloud
   openCode?: AgentOpenCode
   alibabaCloud?: AgentAlibabaCloud
+  openAI?: AgentAPIKey
+  anthropic?: AgentAPIKey
+  google?: AgentAPIKey
   customProvider?: AgentCustomProvider
 }
 
