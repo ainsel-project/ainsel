@@ -33,3 +33,27 @@ jobs:
           set -e
           sh -n entrypoint.sh
           sh -n agent
+
+  extension-tests:
+    name: pi extension tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # Every pi-extensions/* package that declares a test script must pass.
+      # ainsel-tools enforces the agent's tool selection at runtime — this is
+      # the only gate that keeps that enforcement code from silently breaking.
+      - name: npm ci && npm test
+        working-directory: pi/pi-extensions
+        run: |
+          set -e
+          for dir in */; do
+            pkg="${dir}package.json"
+            [ -f "$pkg" ] || continue
+            grep -q '"test":' "$pkg" || continue
+            echo "::group::$dir"
+            (cd "$dir" && npm ci --no-audit --no-fund && npm test)
+            echo "::endgroup::"
+          done
