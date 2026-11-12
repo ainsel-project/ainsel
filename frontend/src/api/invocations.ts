@@ -31,7 +31,7 @@ export function invocationStatusVariant(s: string): InvocationStatusVariant {
  * hub could resolve one.
  */
 export type InvocationTaskState = {
-  status: 'pending' | 'claimed' | 'completed' | 'failed'
+  status: 'pending' | 'claimed' | 'completed' | 'failed' | 'expired'
   attempts: number
   error?: string
   /** First evidence of work (claim or first conversation row); absent while
@@ -53,6 +53,8 @@ export function taskRunState(t: InvocationTaskState): RunState {
   if (t.runState) return t.runState
   if (t.status === 'completed') return 'success'
   if (t.status === 'failed') return 'failure'
+  // Never picked up before the hub's pickup deadline: a timeout, not a failure.
+  if (t.status === 'expired') return 'timeout'
   if (t.status === 'claimed' || t.startedAt) return 'running'
   return 'queued'
 }
