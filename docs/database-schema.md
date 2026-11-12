@@ -393,23 +393,28 @@ One row per (event, agent) delivery — the fan-out and the agent inbox.
 | `invocation_id` | `TEXT NOT NULL DEFAULT ''` | Soft reference to `invocations.id` |
 | `headers` | `JSONB NOT NULL DEFAULT '{}'` | |
 | `payload` | `JSONB NOT NULL` | |
-| `status` | `TEXT NOT NULL DEFAULT 'pending'` | `pending` \| `claimed` \| `completed` \| `failed` — CHECK since 0032 |
+| `status` | `TEXT NOT NULL DEFAULT 'pending'` | `pending` \| `claimed` \| `completed` \| `failed` \| `expired` — CHECK since 0032, widened by 0034 |
 | `attempts` | `INT NOT NULL DEFAULT 0` | |
 | `max_attempts` | `INT NOT NULL DEFAULT 10` | A nack past this flips to `failed` |
 | `retry_after` | `TIMESTAMPTZ` | Backoff window; `retry_after IS NULL OR retry_after <= now()` is applied at query time (now() is not indexable in a predicate) |
 | `claimed_at` | `TIMESTAMPTZ` | Also used as "started" evidence |
 | `completed_at` | `TIMESTAMPTZ` | |
+| `expires_at` | `TIMESTAMPTZ` | Pickup deadline, stamped at enqueue time (`TASK_EXPIRY_SECONDS`, default 1 day; `NULL` = expiry disabled). Past it, a still-`pending` row becomes `expired` (0034) |
 | `error` | `TEXT NOT NULL DEFAULT ''` | Last failure message |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | |
 | | | `UNIQUE (event_id, agent_name)` — the dedup guard |
 
 Indexes: `idx_agent_tasks_pending (agent_name, created_at) WHERE status =
 'pending'` (the claim query), `idx_agent_tasks_status (status)`,
-`idx_agent_tasks_created_at (created_at)` (0021).
+`idx_agent_tasks_created_at (created_at)` (0021),
+`idx_agent_tasks_expires_at (expires_at) WHERE status = 'pending' AND
+expires_at IS NOT NULL` (0034, the pickup-deadline reaper).
 
 Lifecycle: claim (`status='claimed'`, `attempts+1`) → ack (`completed`) / nack
 (back to `pending` with `retry_after`, or `failed` at `max_attempts`). A reaper
-returns stale `claimed` rows to the pool. Claim/ack/nack fire
+returns stale `claimed` rows to the pool. A second reaper expires `pending` rows
+past `expires_at` to `expired` — never-claimed only, with the sender notified
+like a failed task (issue #236). Claim/ack/nack and both reapers fire
 `SetQueueObserver` → queue-depth signal for the operator, and `pg_notify
 'agent_tasks'` wakes long-polling agents (LISTEN/NOTIFY is advisory only — no
 queue table, no trigger).
@@ -611,7 +616,13 @@ Everything else is unbounded. The notable cases:
 
 Separate from retention, a 5-minute reaper returns stale `claimed` tasks to the
 pool (`ReapStaleClaims`, timeout `TASK_CLAIM_TIMEOUT_SECONDS`, default 1800s); a
-reaped task past `max_attempts` goes to `failed` instead.
+reaped task past `max_attempts` goes to `failed` instead. A second 5-minute
+reaper enforces the pickup deadline (`ExpirePendingTasks`): a task still
+`pending` past its `expires_at` (stamped at enqueue from
+`TASK_EXPIRY_SECONDS`, default 86400s; `0` disables) becomes `expired` —
+terminal, distinct from `failed`, because the task itself never ran — and the
+sender is notified through the same path that reports a failed task, the
+invocation closing as `timeout`.
 
 ## 8. Schema evolution
 
@@ -636,6 +647,7 @@ Useful when reading an old deployment's schema or reviewing a new migration.
 | 0031 | Index on `invocations (connector, start_time DESC)` for the connector filter |
 | 0032 | CHECK constraints on the enum-like columns: `agent_tasks.status`, `invocations.status`, `task_logs.level`, `chat_messages.role`, `auth_events.event_type`/`outcome` (validated `ADD CONSTRAINT`; bad pre-existing rows fail the migration until cleaned) |
 | 0033 | `personas.managed_by` — external-manager marker, mirroring `skills.managed_by` / `mcp_servers.managed_by` (issue #146) |
+| 0034 | `agent_tasks.expires_at` — the pickup deadline stamped at enqueue (`TASK_EXPIRY_SECONDS`), plus `expired` added to the `agent_tasks.status` CHECK; a queued task never picked up in time becomes terminal `expired` (issue #236) |
 
 ---
 
