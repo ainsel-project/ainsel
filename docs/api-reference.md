@@ -332,8 +332,12 @@ on; for `openai`, `anthropic` and `google` it is the provider's
 OpenAI-compatible endpoint (`https://api.openai.com/v1`,
 `https://api.anthropic.com/v1`,
 `https://generativelanguage.googleapis.com/v1beta/openai`), since the agent
-itself uses the native API. The key is read through the agent's
-`apiKeySecretRef`. It then sends the cheapest possible completion
+itself uses the native API. An agent whose `openAI`, `anthropic` or `google`
+block sets its own `baseUrl` (a gateway or proxy) is not used for the check:
+the vendor endpoint would answer for a different service, and the key never
+travels to an endpoint the admin did not configure. The key is read through
+the agent's `apiKeySecretRef`. OpenAI probes cap the reply with
+`max_completion_tokens` (its reasoning models reject `max_tokens`). It then sends the cheapest possible completion
 (`POST {baseUrl}/chat/completions`, `max_tokens: 1`) with an 8 s cap; any 2xx
 from the provider is `ok`.
 

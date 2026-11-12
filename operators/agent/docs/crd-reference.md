@@ -18,7 +18,7 @@
 | `runtime.imagePullPolicy` | string | No | Image pull policy (default: IfNotPresent) |
 | `runtime.resources` | ResourceRequirements | No | CPU/memory requests and limits |
 | `llm.model` | string | Yes | LLM model name. No default: the runtime refuses to start without a model (issue #96) |
-| `llm.provider` | string | Yes (no schema default) | LLM provider backend. Enum: `ollama-cloud`, `opencode`, `alibaba-cloud`, `custom`. Unknown values are rejected by the API server; an unset provider fails the reconcile with `Ready=False` / `InvalidLLMProvider` — the operator never falls back to a built-in provider (issue #96) |
+| `llm.provider` | string | Yes (no schema default) | LLM provider backend. Enum: `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom`. Unknown values are rejected by the API server; an unset provider fails the reconcile with `Ready=False` / `InvalidLLMProvider` — the operator never falls back to a built-in provider (issue #96) |
 | `llm.maxTurns` | int | No | Maximum tool-use loop turns |
 | `llm.temperature` | float64 | No | LLM temperature |
 | `llm.vision` | bool | No | Whether pi sends image input (pi attaches screenshots/images only when true; the endpoint is never probed). Default false |
