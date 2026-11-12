@@ -28,7 +28,7 @@ func createAgentWithEnv(t *testing.T, s *Server, env []AgentImageEnvVarInfo) Sim
 	body, err := json.Marshal(SimpleAgentCreateRequest{
 		Name:         "env agent",
 		ImageRef:     AgentImageRefInfo{Name: "img-1"},
-		LLM:          AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:          AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		EnabledTools: []string{"git"},
 		Env:          env,
 	})
@@ -233,7 +233,7 @@ func TestAgentEnv_RejectsInvalidEntries(t *testing.T) {
 			body, _ := json.Marshal(SimpleAgentCreateRequest{
 				Name:         "env agent",
 				ImageRef:     AgentImageRefInfo{Name: "img-1"},
-				LLM:          AgentLLMInfo{Model: "glm-5.1:cloud"},
+				LLM:          AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 				EnabledTools: []string{"git"},
 				Env:          tc.env,
 			})

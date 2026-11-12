@@ -871,6 +871,24 @@ func (r *SimpleAgentCreateRequest) toUpdateFields() *SimpleAgentUpdateRequest {
 	}
 }
 
+// providerProblem validates a requested spec.llm.provider against the
+// llmprovider registry, so a REST caller gets a 400 instead of an agent the
+// operator marks InvalidLLMProvider. A new agent must name a provider; on an
+// update an empty provider means "leave unchanged".
+func providerProblem(provider string, newAgent bool) string {
+	valid := strings.Join(llmprovider.IDs(), ", ")
+	if provider == "" {
+		if newAgent {
+			return "llm.provider is required: one of " + valid
+		}
+		return ""
+	}
+	if _, ok := llmprovider.Lookup(provider); !ok {
+		return fmt.Sprintf("llm.provider %q is unknown: must be one of %s", provider, valid)
+	}
+	return ""
+}
+
 // apiKeyProviderFields ties each API-key provider in the llmprovider registry
 // to its field on the write request and on the response. The custom provider
 // is not listed: it carries a URL and keeps its own handling.
@@ -960,6 +978,14 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		// referenced image's env alone. agentEnvFromRequest returns nil for an
 		// empty input list, so create never writes an empty non-nil spec.Env.
 		spec.Env = res.agentEnv
+	}
+	provider := ""
+	if req.LLM != nil {
+		provider = req.LLM.Provider
+	}
+	if msg := providerProblem(provider, newAgent); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return false
 	}
 	if req.LLM != nil {
 		if req.LLM.Model != "" {

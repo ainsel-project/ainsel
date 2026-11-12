@@ -89,7 +89,7 @@ func TestCreateAgent_ConcurrencyCapRoundTrip(t *testing.T) {
 	created := createAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Busy Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Replicas: i32(5),
 	})
 	if created.Replicas == nil || *created.Replicas != 5 {
@@ -113,7 +113,7 @@ func TestCreateAgent_RejectsNegativeCap(t *testing.T) {
 	code, body := postAgentReq(t, s, SimpleAgentCreateRequest{
 		Name:     "Bad Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Replicas: i32(-1),
 	})
 	if code != http.StatusBadRequest {
@@ -130,7 +130,7 @@ func TestUpdateAgent_ConcurrencyCapUpdate(t *testing.T) {
 	created := createAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Quiet Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 	})
 	if created.Replicas != nil {
 		t.Fatalf("an agent created without a cap should have none, got %v", created.Replicas)
@@ -170,7 +170,7 @@ func TestAgentResponse_ExposesOperatorJobAccount(t *testing.T) {
 	created := createAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Working Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Replicas: i32(3),
 	})
 

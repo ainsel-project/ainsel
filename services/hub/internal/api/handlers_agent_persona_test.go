@@ -81,7 +81,7 @@ func newAgentPersonaServer(t *testing.T, svc PersonaService, displayName string)
 	body, _ := json.Marshal(SimpleAgentCreateRequest{
 		Name:     displayName,
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
