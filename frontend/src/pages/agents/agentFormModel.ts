@@ -2,15 +2,14 @@ import { z } from 'zod'
 import type { AgentRequest } from '../../api/agents'
 import { findLlmProvider, LLM_PROVIDER_REGISTRY, type ProviderRequestField } from './llmProviders'
 
-export const LLM_PROVIDERS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: '', label: 'None' },
-  ...LLM_PROVIDER_REGISTRY.map((p) => ({ value: p.id, label: p.label })),
-]
+export const LLM_PROVIDERS: ReadonlyArray<{ value: string; label: string }> =
+  LLM_PROVIDER_REGISTRY.map((p) => ({ value: p.id, label: p.label }))
 
 /**
  * Human-readable label for a stored LLM provider id. Derived from the same
  * LLM_PROVIDERS options the forms offer, so display can never drift from the
- * form vocabulary — including the empty id, which the forms call 'None'.
+ * form vocabulary. An agent stored without a provider (the forms no longer
+ * offer one) reads 'None'.
  * Unknown ids fall through to the raw value so a provider added later still
  * renders honestly until this list learns it.
  */
@@ -26,7 +25,9 @@ export const API_KEY_LABELS: Record<string, string> = Object.fromEntries(
 /** The LLM block: model, sampling, context and vision, shared by every agent write form. */
 const llmSchema = z.object({
   model: z.string().min(1, 'Model is required'),
-  provider: z.string().optional(),
+  // Required: the operator refuses an agent without a provider (issue #96),
+  // and the hub reads an empty one on update as "leave unchanged".
+  provider: z.string().min(1, 'Provider is required'),
   maxTurns: z.coerce.number().int().min(1).optional(),
   temperature: z.coerce.number().min(0).max(2).optional(),
   // Empty input means "use the operator default (131072)": the hub treats an
@@ -167,6 +168,18 @@ function buildProviderRequest(
 }
 
 /**
+ * The LLM block as sent for the chosen provider. Pi's built-in providers
+ * (OpenAI, Anthropic, Google) do not apply a temperature, so none is sent;
+ * the operator reports one set by other means as TemperatureApplied=False.
+ */
+function llmForProvider<T extends { provider?: string; temperature?: number }>(llm: T): T {
+  if (!findLlmProvider(llm.provider)?.piBuiltIn) return llm
+  const rest = { ...llm }
+  delete rest.temperature
+  return rest
+}
+
+/**
  * Builds the write-side agent body from validated form values.
  *
  * The group is only sent on create: an agent's group is fixed for its lifetime.
@@ -182,7 +195,7 @@ export function buildAgentRequest(
     name: values.name,
     description: values.description || undefined,
     imageRef: values.imageRef,
-    llm: values.llm,
+    llm: llmForProvider(values.llm),
     ...buildProviderRequest(
       values.llm.provider ?? '',
       values.providerApiKey ?? '',
@@ -208,7 +221,7 @@ export type RuntimeFormValues = z.infer<typeof runtimeSchema>
 export function buildRuntimeRequest(name: string, values: RuntimeFormValues): AgentRequest {
   return {
     name,
-    llm: values.llm,
+    llm: llmForProvider(values.llm),
     ...buildProviderRequest(
       values.llm.provider ?? '',
       values.providerApiKey ?? '',

@@ -95,9 +95,10 @@ describe('RuntimeSettings', () => {
     expect(screen.getByLabelText('Context Window')).toHaveValue(200000)
     expect(screen.getByLabelText(/^provider$/i)).toHaveValue('ollama-cloud')
     expect(screen.getByLabelText('Model License')).toHaveValue('Anthropic Commercial Terms')
+    // The fixture has no ollamaCloud block: no key is stored yet.
     expect(screen.getByLabelText(/ollama cloud api key/i)).toHaveAttribute(
       'placeholder',
-      'Leave blank to keep existing key',
+      'No key stored yet',
     )
     expect(screen.getByLabelText('Max concurrent tasks')).toHaveValue(2)
     expect(screen.getByRole('checkbox', { name: /image input/i })).toHaveAttribute(
@@ -269,6 +270,82 @@ describe('RuntimeSettings', () => {
       llm: { ...agent.llm, model: 'claude-opus-4-8' },
     } as AgentResponse)
     expect(screen.getByLabelText('Model')).toHaveValue('claude-opus-4-8')
+  })
+
+  it('shows that a key is stored for the selected provider', () => {
+    renderSettings({
+      llm: { ...agent.llm, provider: 'openai' },
+      openAI: {},
+    } as Partial<AgentResponse>)
+    expect(screen.getByLabelText('OpenAI API Key')).toHaveAttribute(
+      'placeholder',
+      'A key is stored — leave blank to keep it',
+    )
+  })
+
+  it('switches provider: shows the new key state and sends only that provider', async () => {
+    const user = userEvent.setup()
+    renderSettings({
+      llm: { ...agent.llm, provider: 'openai' },
+      openAI: {},
+    } as Partial<AgentResponse>)
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), 'anthropic')
+    const key = screen.getByLabelText('Anthropic API Key')
+    expect(key).toHaveAttribute('placeholder', 'No key stored yet')
+    expect(screen.queryByLabelText('Temperature')).not.toBeInTheDocument()
+    await user.type(key, 'sk-ant')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    const body = putBody(fetchMock)!
+    expect(body.anthropic).toEqual({ apiKey: 'sk-ant' })
+    expect(body).not.toHaveProperty('openAI')
+    expect((body.llm as Record<string, unknown>).provider).toBe('anthropic')
+    expect(body.llm as Record<string, unknown>).not.toHaveProperty('temperature')
+  })
+
+  it('drops a key typed for one provider when switching to another', async () => {
+    const user = userEvent.setup()
+    renderSettings({
+      llm: { ...agent.llm!, provider: 'openai' },
+      openAI: {},
+    } as Partial<AgentResponse>)
+    await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-openai')
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), 'anthropic')
+    expect(screen.getByLabelText('Anthropic API Key')).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)).not.toHaveProperty('anthropic')
+    expect(putBody(fetchMock)).not.toHaveProperty('openAI')
+  })
+
+  it('shows the stored key after save and refetch', async () => {
+    const user = userEvent.setup()
+    const view = renderMutable(agent)
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), 'anthropic')
+    await user.type(screen.getByLabelText('Anthropic API Key'), 'sk-ant')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    view.rerenderWith({
+      ...agent,
+      llm: { ...agent.llm, provider: 'anthropic' },
+      anthropic: {},
+    } as AgentResponse)
+    await waitFor(() =>
+      expect(screen.getByLabelText('Anthropic API Key')).toHaveAttribute(
+        'placeholder',
+        'A key is stored — leave blank to keep it',
+      ),
+    )
+    expect(screen.getByLabelText('Anthropic API Key')).toHaveValue('')
+  })
+
+  it('refuses to save an agent stored without a provider until one is chosen', async () => {
+    const user = userEvent.setup()
+    renderSettings({ llm: { ...agent.llm!, provider: '' } })
+    expect(screen.getByLabelText(/^provider$/i)).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/provider is required/i)).toBeInTheDocument()
+    expect(putBody(fetchMock)).toBeUndefined()
   })
 
   it('offers no editing or save for externally managed agents', () => {

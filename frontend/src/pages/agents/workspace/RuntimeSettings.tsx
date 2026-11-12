@@ -8,16 +8,15 @@ import { Check } from '../../../primitives/Check'
 import { Field } from '../../../primitives/Field'
 import { Input } from '../../../primitives/Input'
 import { Panel } from '../../../primitives/Panel'
-import { Select } from '../../../primitives/Select'
 import { isManaged } from '../../../utils/managed'
 import {
-  API_KEY_LABELS,
-  LLM_PROVIDERS,
   buildRuntimeRequest,
   runtimeSchema,
   type RuntimeFormInput,
   type RuntimeFormValues,
 } from '../agentFormModel'
+import { ContextWindowField, ProviderFields, TemperatureField } from '../ProviderFields'
+import { hasStoredKey } from '../llmProviders'
 
 type RuntimeSettingsProps = {
   agent: AgentResponse
@@ -110,30 +109,12 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
             <Field label="Max Turns" htmlFor="llm.maxTurns">
               <Input id="llm.maxTurns" type="number" min={1} {...register('llm.maxTurns')} />
             </Field>
-            <Field label="Temperature" htmlFor="llm.temperature">
-              <Input
-                id="llm.temperature"
-                type="number"
-                step={0.1}
-                min={0}
-                max={2}
-                {...register('llm.temperature')}
-              />
-            </Field>
-            <Field
-              label="Context Window"
-              htmlFor="llm.contextWindow"
+            <TemperatureField provider={provider} registration={register('llm.temperature')} />
+            <ContextWindowField
+              provider={provider}
+              registration={register('llm.contextWindow')}
               error={errors.llm?.contextWindow?.message}
-              hint="Tokens declared in pi's models.json. Defaults to 131072 (128k) — must match what the LLM endpoint actually enforces, or context compaction fires too late; raise it only if the endpoint accepts more."
-            >
-              <Input
-                id="llm.contextWindow"
-                type="number"
-                min={1024}
-                placeholder="131072 (128k default)"
-                {...register('llm.contextWindow')}
-              />
-            </Field>
+            />
             <Field
               label="Model License"
               htmlFor="llm.modelLicense"
@@ -144,15 +125,6 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
                 placeholder="Apache-2.0"
                 {...register('llm.modelLicense')}
               />
-            </Field>
-            <Field label="Provider" htmlFor="llm.provider">
-              <Select
-                id="llm.provider"
-                value={provider ?? ''}
-                onChange={(v) => setValue('llm.provider', v, { shouldDirty: true })}
-                options={LLM_PROVIDERS}
-              />
-              <input type="hidden" {...register('llm.provider')} />
             </Field>
             <Field
               label="Image Input"
@@ -180,32 +152,24 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
             </Field>
           </div>
 
-          {provider ? (
-            <div className="form-grid cols-2">
-              {provider === 'custom' ? (
-                <Field
-                  label="Provider Base URL"
-                  htmlFor="customProviderUrl"
-                  error={errors.customProviderUrl?.message}
-                >
-                  <Input
-                    id="customProviderUrl"
-                    {...register('customProviderUrl')}
-                    placeholder="https://api.example.com/v1"
-                  />
-                </Field>
-              ) : null}
-              <Field label={API_KEY_LABELS[provider] ?? 'API Key'} htmlFor="providerApiKey">
-                <Input
-                  id="providerApiKey"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="Leave blank to keep existing key"
-                  {...register('providerApiKey')}
-                />
-              </Field>
-            </div>
-          ) : null}
+          <div className="form-grid cols-2">
+            <ProviderFields
+              provider={provider}
+              onProviderChange={(v) => {
+                // A key belongs to the provider it was typed for; never send
+                // it as another provider's key.
+                setValue('providerApiKey', '')
+                setValue('llm.provider', v, { shouldDirty: true, shouldValidate: true })
+              }}
+              urlRegistration={register('customProviderUrl')}
+              keyRegistration={register('providerApiKey')}
+              providerError={errors.llm?.provider?.message}
+              urlError={errors.customProviderUrl?.message}
+              mode="edit"
+              storedKey={provider ? hasStoredKey(agent, provider) : false}
+            />
+            <input type="hidden" {...register('llm.provider')} />
+          </div>
 
           <div className="form-grid cols-2">
             <Field

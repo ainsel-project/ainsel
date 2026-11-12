@@ -228,3 +228,55 @@ func TestUpdateKeyKeepsBaseURL(t *testing.T) {
 		t.Errorf("stored key = %q, want sk-rotated", got)
 	}
 }
+
+func TestCreateAgentRejectsMissingProvider(t *testing.T) {
+	s := providerTestServer(t)
+	body := doAgentJSON(t, s, http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
+		Name: "agent", ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM: AgentLLMInfo{Model: "m"},
+	}, http.StatusBadRequest)
+	if !bytes.Contains(body, []byte("llm.provider is required")) {
+		t.Errorf("error = %s, want it to name the missing provider", body)
+	}
+}
+
+func TestCreateAgentRejectsUnknownProvider(t *testing.T) {
+	s := providerTestServer(t)
+	body := doAgentJSON(t, s, http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
+		Name: "agent", ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM: AgentLLMInfo{Model: "m", Provider: "ollama"},
+	}, http.StatusBadRequest)
+	if !bytes.Contains(body, []byte("ollama-cloud, opencode, alibaba-cloud, openai, anthropic, google, custom")) {
+		t.Errorf("error = %s, want it to list the valid providers", body)
+	}
+}
+
+func TestUpdateAgentRejectsUnknownProvider(t *testing.T) {
+	s := providerTestServer(t)
+	var created SimpleAgentResponse
+	_ = json.Unmarshal(doAgentJSON(t, s, http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
+		Name: "agent", ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM: AgentLLMInfo{Model: "m", Provider: "opencode"},
+	}, http.StatusCreated), &created)
+	doAgentJSON(t, s, http.MethodPut, "/api/v1/agents/"+created.ID, SimpleAgentUpdateRequest{
+		LLM: &AgentLLMInfo{Model: "m", Provider: "nope"},
+	}, http.StatusBadRequest)
+	if got := storedAgent(t, s, created.ID).Spec.LLM.Provider; got != "opencode" {
+		t.Errorf("provider after rejected update = %q, want opencode", got)
+	}
+}
+
+func TestUpdateAgentEmptyProviderKeepsStored(t *testing.T) {
+	s := providerTestServer(t)
+	var created SimpleAgentResponse
+	_ = json.Unmarshal(doAgentJSON(t, s, http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
+		Name: "agent", ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM: AgentLLMInfo{Model: "m", Provider: "opencode"},
+	}, http.StatusCreated), &created)
+	doAgentJSON(t, s, http.MethodPut, "/api/v1/agents/"+created.ID, SimpleAgentUpdateRequest{
+		LLM: &AgentLLMInfo{Model: "m2"},
+	}, http.StatusOK)
+	if got := storedAgent(t, s, created.ID).Spec.LLM.Provider; got != "opencode" {
+		t.Errorf("provider = %q, want opencode kept", got)
+	}
+}

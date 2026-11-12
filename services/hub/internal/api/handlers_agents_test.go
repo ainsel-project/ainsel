@@ -52,7 +52,8 @@ func TestAgents_CreateAndList(t *testing.T) {
 		Description: "A test agent",
 		ImageRef:    AgentImageRefInfo{Name: "img-1"},
 		LLM: AgentLLMInfo{
-			Model: "glm-5.1:cloud",
+			Model:    "glm-5.1:cloud",
+			Provider: "ollama-cloud",
 		},
 		EnabledTools: []string{"git"},
 	}
@@ -139,7 +140,7 @@ func TestAgents_UpdateRename(t *testing.T) {
 	createReq := SimpleAgentCreateRequest{
 		Name:     "Original Name",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 	}
 	body, _ := json.Marshal(createReq)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
@@ -268,7 +269,7 @@ func TestCreateAgent_OKWithValidImageRef(t *testing.T) {
 	body := SimpleAgentCreateRequest{
 		Name:         "agent1",
 		ImageRef:     AgentImageRefInfo{Name: "img-1"},
-		LLM:          AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:          AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		EnabledTools: []string{"git"},
 	}
 	b, _ := json.Marshal(body)
@@ -302,7 +303,7 @@ func TestUpdateAgent_Replicas(t *testing.T) {
 	createReq := SimpleAgentCreateRequest{
 		Name:     "Replica Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Replicas: &three,
 	}
 	body, _ := json.Marshal(createReq)
@@ -349,7 +350,7 @@ func TestAgents_UpdatedAtStampedAndExposed(t *testing.T) {
 	createReq := SimpleAgentCreateRequest{
 		Name:     "Stale Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 	}
 	body, _ := json.Marshal(createReq)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
@@ -422,7 +423,7 @@ func TestUpdateAgent_PartialLLMUpdate(t *testing.T) {
 	createReq := SimpleAgentCreateRequest{
 		Name:     "LLM Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1", MaxTurns: ten},
+		LLM:      AgentLLMInfo{Model: "glm-5.1", MaxTurns: ten, Provider: "ollama-cloud"},
 	}
 	body, _ := json.Marshal(createReq)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
@@ -478,7 +479,7 @@ func TestUpdateAgent_PartialLLMUpdate_Temperature(t *testing.T) {
 	createReq := SimpleAgentCreateRequest{
 		Name:     "Temp Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1", Provider: "ollama-cloud"},
 	}
 	body, _ := json.Marshal(createReq)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
@@ -530,7 +531,7 @@ func TestUpdateAgent_PartialLLMUpdate_Vision(t *testing.T) {
 	createReq := SimpleAgentCreateRequest{
 		Name:     "Vision Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1", Vision: ptr(true)},
+		LLM:      AgentLLMInfo{Model: "glm-5.1", Vision: ptr(true), Provider: "ollama-cloud"},
 	}
 	body, _ := json.Marshal(createReq)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
@@ -596,7 +597,7 @@ func TestUpdateAgent_PartialLLMUpdate_ContextWindow(t *testing.T) {
 	createReq := SimpleAgentCreateRequest{
 		Name:     "Ctx Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1", Provider: "ollama-cloud"},
 	}
 	body, _ := json.Marshal(createReq)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
@@ -962,7 +963,7 @@ func TestAgents_DisplayName_OnCreateGetList(t *testing.T) {
 	created := createTestAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Display Name Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-abc"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 	})
 
 	// Create response should carry the display name.
@@ -1004,7 +1005,7 @@ func TestAgents_DisplayName_FallbackWhenImageDeleted(t *testing.T) {
 	created := createTestAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Orphan Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-del"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 	})
 	if created.ImageRef.DisplayName != "Will Be Deleted" {
 		t.Fatalf("expected displayName before delete, got %q", created.ImageRef.DisplayName)
@@ -1044,7 +1045,7 @@ func TestAgents_DisplayName_UpdateWithImageRef_ReusesValidatedName(t *testing.T)
 	created := createTestAgent(t, s, SimpleAgentCreateRequest{
 		Name:         "Update Agent",
 		ImageRef:     AgentImageRefInfo{Name: "img-old"},
-		LLM:          AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:          AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		EnabledTools: []string{"git"},
 	})
 	if created.ImageRef.DisplayName != "Old Image" {
@@ -1087,7 +1088,7 @@ func TestAgents_DisplayName_UpdateWithoutImageRef_ResolvesSeparately(t *testing.
 	created := createTestAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Resolve Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-resolve"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 	})
 
 	// Update only the name — no imageRef in the request.
@@ -1140,7 +1141,7 @@ func TestAgents_SkillsScoped(t *testing.T) {
 	rec := do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
 		Name:     "Skilled Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Skills:   []string{"skill-1", "skill-2"},
 	})
 	if rec.Code != http.StatusCreated {
@@ -1199,7 +1200,7 @@ func TestAgents_SkillsScoped(t *testing.T) {
 	rec = do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
 		Name:     "Bad Skills",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Skills:   []string{"nope"},
 	})
 	if rec.Code != http.StatusBadRequest {
@@ -1211,7 +1212,7 @@ func TestAgents_SkillsScoped(t *testing.T) {
 	rec = do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
 		Name:     "Sharpshooter",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Skills:   []string{"skill-1"},
 	})
 	if rec.Code != http.StatusCreated {
@@ -1225,7 +1226,7 @@ func TestAgents_SkillsScoped(t *testing.T) {
 	rec = do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
 		Name:     "Other Hand",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Skills:   []string{"skill-2"},
 	})
 	if rec.Code != http.StatusCreated {
@@ -1269,7 +1270,7 @@ func TestAgents_MCPScoped(t *testing.T) {
 	rec := do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
 		Name:     "MCP Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-mcp"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		MCP:      &AgentMCPRequest{Servers: []string{"github"}},
 	})
 	if rec.Code != http.StatusCreated {
@@ -1343,7 +1344,7 @@ func TestAgents_MCPScoped(t *testing.T) {
 	rec = do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
 		Name:     "Bad MCP",
 		ImageRef: AgentImageRefInfo{Name: "img-mcp"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		MCP:      &AgentMCPRequest{Servers: []string{"nope"}},
 	})
 	if rec.Code != http.StatusBadRequest {
@@ -1369,7 +1370,7 @@ func TestAgents_Create_EmptyPersonaObjectIsNoOp(t *testing.T) {
 	created := createTestAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Empty Persona",
 		ImageRef: AgentImageRefInfo{Name: "img-persona"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Persona:  &AgentPersonaCreateInfo{},
 	})
 	var a agentv1alpha1.Agent
@@ -1393,7 +1394,7 @@ func TestAgents_Update_EmptyPersonaObjectKeepsExisting(t *testing.T) {
 	created := createTestAgent(t, s, SimpleAgentCreateRequest{
 		Name:     "Persona Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-persona2"},
-		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
 		Persona:  &AgentPersonaCreateInfo{ID: "persona-keep"},
 	})
 

@@ -258,3 +258,33 @@ func TestNewProviderBlockWithoutKeyIsOptional(t *testing.T) {
 		t.Errorf("OPENAI_API_KEY optional = %v, want true while no key is stored", o)
 	}
 }
+
+func TestTemperatureCondition(t *testing.T) {
+	temp := 0.3
+	cases := []struct {
+		provider   string
+		temp       *float64
+		wantNil    bool
+		wantStatus metav1.ConditionStatus
+		wantReason string
+	}{
+		{provider: "ollama-cloud", wantNil: true},
+		{provider: "ollama-cloud", temp: &temp, wantStatus: metav1.ConditionTrue, wantReason: "Applied"},
+		{provider: "anthropic", temp: &temp, wantStatus: metav1.ConditionFalse, wantReason: "TemperatureNotSupported"},
+		{provider: "openai", temp: &temp, wantStatus: metav1.ConditionFalse, wantReason: "TemperatureNotSupported"},
+	}
+	for _, c := range cases {
+		a := providerAgent(c.provider)
+		a.Spec.LLM.Temperature = c.temp
+		got := temperatureCondition(a)
+		if c.wantNil {
+			if got != nil {
+				t.Errorf("%s without temperature: condition %+v, want none", c.provider, got)
+			}
+			continue
+		}
+		if got == nil || got.Type != ainselv1alpha1.AgentConditionTemperatureApplied || got.Status != c.wantStatus || got.Reason != c.wantReason {
+			t.Errorf("%s: condition %+v, want %s/%s", c.provider, got, c.wantStatus, c.wantReason)
+		}
+	}
+}
