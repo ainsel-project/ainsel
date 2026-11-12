@@ -61,13 +61,6 @@ export function ImageList() {
       align: 'right',
       cell: (i) => <span className="num">{i.toolCount ?? 0}</span>,
     },
-    {
-      key: 'skills',
-      header: 'Skills',
-      width: 80,
-      align: 'right',
-      cell: (i) => <span className="num">{i.enabledSkills?.length ?? 0}</span>,
-    },
   ]
 
   return (

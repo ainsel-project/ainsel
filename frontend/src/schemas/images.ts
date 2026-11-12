@@ -29,5 +29,4 @@ export const imageSchema = z.object({
   tools: z.array(toolSchema),
   env: z.array(envVarSchema),
   mcpServers: z.array(z.string()),
-  enabledSkills: z.array(z.string()),
 })

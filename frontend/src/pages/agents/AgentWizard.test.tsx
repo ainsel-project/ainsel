@@ -34,7 +34,6 @@ function defaultFetch(url: string, init?: RequestInit): Response {
         tools: [{ name: 'read_file' }, { name: 'run_shell' }],
         env: [{ name: 'LOG_LEVEL', value: 'info' }],
         mcpServers: [{ name: 'github', url: 'https://mcp.github.com/sse' }],
-        enabledSkills: ['git-review'],
       }),
       { status: 200 },
     )
@@ -200,8 +199,8 @@ describe('AgentWizard', () => {
 
     await selectImage(user)
     expect(await screen.findByText(/this image brings/i)).toBeInTheDocument()
-    expect(screen.getByText(/2 tools · 1 skills · 1 MCP servers · 1 env vars/)).toBeInTheDocument()
-    expect(screen.getByText(/overridden per agent after creation/i)).toBeInTheDocument()
+    expect(screen.getByText(/2 tools · 1 MCP servers · 1 env vars/)).toBeInTheDocument()
+    expect(screen.getByText(/picked per agent after creation/i)).toBeInTheDocument()
   })
 
   it('validates the model step before letting the user move on', async () => {

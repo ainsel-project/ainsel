@@ -178,6 +178,13 @@ spec:
               displayName:
                 type: string
               enabledTools:
+                description: |-
+                  EnabledTools is this agent's tool selection: names taken from the
+                  referenced image's capability catalog (AgentImage.Spec.Tools). The
+                  runtime enforces it — the operator passes it to the pod as AGENT_TOOLS
+                  and the runtime withholds every tool it does not name. Absent or empty
+                  means unrestricted: the agent may use everything its image provides.
+                  Names the image's catalog does not declare are rejected by the hub.
                 items:
                   type: string
                 type: array
@@ -672,18 +679,14 @@ spec:
                 type: object
               skills:
                 description: |-
-                  Skills explicitly selects the skill library entries this agent mounts.
-                  When nil, the agent runs on the referenced image's EnabledSkills — the
-                  shared runtime profile's defaults; once set, the agent's list replaces
-                  the image's, and an empty Items means no skills.
-                properties:
-                  items:
-                    description: Items lists skill library ids (hub /skills API) to
-                      mount for this agent.
-                    items:
-                      type: string
-                    type: array
-                type: object
+                  Skills is this agent's skill selection: ids from the hub's skill library
+                  (/skills) whose SKILL.md the agent's pod mounts. Skills are chosen per
+                  agent — the image carries none — so absent or empty means the agent runs
+                  with no skills. Names the library does not contain are rejected by the
+                  hub.
+                items:
+                  type: string
+                type: array
             required:
             - displayName
             - imageRef

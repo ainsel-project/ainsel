@@ -1141,7 +1141,7 @@ func TestAgents_SkillsScoped(t *testing.T) {
 		Name:     "Skilled Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
 		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
-		Skills:   &AgentSkillsInfo{Items: []string{"skill-1", "skill-2"}},
+		Skills:   []string{"skill-1", "skill-2"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -1150,7 +1150,7 @@ func TestAgents_SkillsScoped(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if created.Skills == nil || len(created.Skills.Items) != 2 {
+	if len(created.Skills) != 2 {
 		t.Fatalf("expected explicit skills on create response, got %+v", created.Skills)
 	}
 
@@ -1158,14 +1158,14 @@ func TestAgents_SkillsScoped(t *testing.T) {
 	if err := s.client.Get(context.Background(), types.NamespacedName{Name: created.ID, Namespace: "test-ns"}, &stored); err != nil {
 		t.Fatalf("get stored: %v", err)
 	}
-	if stored.Spec.Skills == nil || len(stored.Spec.Skills.Items) != 2 {
+	if len(stored.Spec.Skills) != 2 {
 		t.Fatalf("expected spec.skills on stored CR, got %+v", stored.Spec.Skills)
 	}
 
-	// Update to an explicit empty selection — distinct from "unset"
-	// (nil = inherit the image's enabledSkills).
+	// Update to an empty selection: the agent then runs with no skills. The
+	// image is not a fallback — it selects nothing.
 	rec = do(http.MethodPut, "/api/v1/agents/"+created.ID, SimpleAgentUpdateRequest{
-		Skills: &AgentSkillsInfo{Items: []string{}},
+		Skills: &[]string{},
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1174,19 +1174,23 @@ func TestAgents_SkillsScoped(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&updated); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if updated.Skills == nil || len(updated.Skills.Items) != 0 {
-		t.Fatalf("expected explicit empty skills, got %+v", updated.Skills)
+	if len(updated.Skills) != 0 {
+		t.Fatalf("expected empty skills, got %+v", updated.Skills)
 	}
-	if err := s.client.Get(context.Background(), types.NamespacedName{Name: created.ID, Namespace: "test-ns"}, &stored); err != nil {
+	// Fresh object for the read-back: this package's fake client fills the
+	// target by JSON round-trip, so reusing one that still holds the old
+	// selection would leave the absent key at its previous value.
+	var cleared agentv1alpha1.Agent
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: created.ID, Namespace: "test-ns"}, &cleared); err != nil {
 		t.Fatalf("get stored: %v", err)
 	}
-	if stored.Spec.Skills == nil || len(stored.Spec.Skills.Items) != 0 {
-		t.Fatalf("expected explicit empty spec.skills, got %+v", stored.Spec.Skills)
+	if len(cleared.Spec.Skills) != 0 {
+		t.Fatalf("expected empty spec.skills, got %+v", cleared.Spec.Skills)
 	}
 
 	// Unknown skill ids are rejected.
 	rec = do(http.MethodPut, "/api/v1/agents/"+created.ID, SimpleAgentUpdateRequest{
-		Skills: &AgentSkillsInfo{Items: []string{"skill-1", "nope"}},
+		Skills: &[]string{"skill-1", "nope"},
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for unknown skill, got %d: %s", rec.Code, rec.Body.String())
@@ -1196,10 +1200,45 @@ func TestAgents_SkillsScoped(t *testing.T) {
 		Name:     "Bad Skills",
 		ImageRef: AgentImageRefInfo{Name: "img-1"},
 		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
-		Skills:   &AgentSkillsInfo{Items: []string{"nope"}},
+		Skills:   []string{"nope"},
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for unknown skill on create, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Two agents on the same image keep independent selections: selecting a
+	// skill on one does not hand it to the other.
+	rec = do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
+		Name:     "Sharpshooter",
+		ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		Skills:   []string{"skill-1"},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var first SimpleAgentResponse
+	if err := json.NewDecoder(rec.Body).Decode(&first); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	rec = do(http.MethodPost, "/api/v1/agents", SimpleAgentCreateRequest{
+		Name:     "Other Hand",
+		ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
+		Skills:   []string{"skill-2"},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	firstAgent := &agentv1alpha1.Agent{}
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: first.ID, Namespace: "test-ns"}, firstAgent); err != nil {
+		t.Fatalf("get stored first agent: %v", err)
+	}
+	if len(firstAgent.Spec.Skills) != 1 || firstAgent.Spec.Skills[0] != "skill-1" {
+		t.Errorf("agent %s selection = %v, want [skill-1] — the other agent's create must not rewrite it",
+			first.ID, firstAgent.Spec.Skills)
 	}
 }
 

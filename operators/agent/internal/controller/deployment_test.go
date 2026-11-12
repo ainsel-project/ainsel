@@ -349,12 +349,12 @@ var _ = Describe("Agent Controller", func() {
 			Expect(modelsCM.Data["models.json"]).To(ContainSubstring(`"input": ["text", "image"]`))
 		})
 
-		It("should mount the skills ConfigMap with projected items when the AgentImage has enabledSkills", func() {
-			By("Updating the AgentImage to include enabled skills")
-			img := &ainselv1alpha1.AgentImage{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testImageName, Namespace: "default"}, img)).To(Succeed())
-			img.Spec.EnabledSkills = []string{"git-review", "bash-advanced"}
-			Expect(k8sClient.Update(ctx, img)).To(Succeed())
+		It("should mount the skills ConfigMap with projected items when the agent selects skills", func() {
+			By("Selecting skills on the agent itself")
+			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, []string{"git-review", "bash-advanced"})).To(Succeed())
+			DeferCleanup(func() {
+				_ = updateSkillsWithRetry(ctx, typeNamespacedName, nil)
+			})
 
 			controllerReconciler := &AgentReconciler{
 				Client: k8sClient,
@@ -377,7 +377,7 @@ var _ = Describe("Agent Controller", func() {
 					break
 				}
 			}
-			Expect(skillsVol).NotTo(BeNil(), "skills volume must be present when EnabledSkills is set")
+			Expect(skillsVol).NotTo(BeNil(), "skills volume must be present when the agent selects skills")
 			Expect(skillsVol.ConfigMap).NotTo(BeNil())
 			Expect(skillsVol.ConfigMap.Name).To(Equal("skills"))
 			Expect(skillsVol.ConfigMap.Items).To(HaveLen(2))
@@ -400,14 +400,13 @@ var _ = Describe("Agent Controller", func() {
 			Expect(setupCmd).To(ContainSubstring("cp -r /var/agent-skills/. /home/agent/.pi/agent/skills/"))
 		})
 
-		It("should mount the agent's own skill selection when spec.skills is set", func() {
-			By("Enabling a skill on the image, then overriding the selection on the agent")
-			img := &ainselv1alpha1.AgentImage{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testImageName, Namespace: "default"}, img)).To(Succeed())
-			img.Spec.EnabledSkills = []string{"git-review"}
-			Expect(k8sClient.Update(ctx, img)).To(Succeed())
-
-			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, &ainselv1alpha1.AgentSkills{Items: []string{"bash-advanced"}})).To(Succeed())
+		It("should mount exactly the agent's own skill selection, replacing a previous one", func() {
+			By("Selecting one skill, then replacing it with another")
+			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, []string{"git-review"})).To(Succeed())
+			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, []string{"bash-advanced"})).To(Succeed())
+			DeferCleanup(func() {
+				_ = updateSkillsWithRetry(ctx, typeNamespacedName, nil)
+			})
 			controllerReconciler := &AgentReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
@@ -435,14 +434,9 @@ var _ = Describe("Agent Controller", func() {
 			))
 		})
 
-		It("should mount no skills when spec.skills is explicitly empty", func() {
-			By("Overriding an image skill with an explicit empty agent selection")
-			img := &ainselv1alpha1.AgentImage{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testImageName, Namespace: "default"}, img)).To(Succeed())
-			img.Spec.EnabledSkills = []string{"git-review"}
-			Expect(k8sClient.Update(ctx, img)).To(Succeed())
-
-			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, &ainselv1alpha1.AgentSkills{Items: []string{}})).To(Succeed())
+		It("should mount no skills when the agent selects none", func() {
+			By("Clearing the agent's skill selection")
+			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, []string{})).To(Succeed())
 			controllerReconciler := &AgentReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
@@ -458,7 +452,7 @@ var _ = Describe("Agent Controller", func() {
 
 			for i := range deploy.Spec.Template.Spec.Volumes {
 				Expect(deploy.Spec.Template.Spec.Volumes[i].Name).NotTo(
-					Equal("agent-skills"), "explicit empty selection must not mount the skills volume",
+					Equal("agent-skills"), "an agent without a selection must not mount the skills volume",
 				)
 			}
 		})
@@ -477,11 +471,11 @@ var _ = Describe("Agent Controller", func() {
 			Expect(k8sClient.Create(ctx, skillsCM)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, skillsCM) })
 
-			By("Updating the AgentImage to include enabled skills")
-			img := &ainselv1alpha1.AgentImage{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testImageName, Namespace: "default"}, img)).To(Succeed())
-			img.Spec.EnabledSkills = []string{"git-review"}
-			Expect(k8sClient.Update(ctx, img)).To(Succeed())
+			By("Selecting the skill on the agent")
+			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, []string{"git-review"})).To(Succeed())
+			DeferCleanup(func() {
+				_ = updateSkillsWithRetry(ctx, typeNamespacedName, nil)
+			})
 
 			controllerReconciler := &AgentReconciler{
 				Client: k8sClient,
@@ -516,11 +510,11 @@ var _ = Describe("Agent Controller", func() {
 			Expect(k8sClient.Create(ctx, skillsCM)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, skillsCM) })
 
-			By("Updating the AgentImage to include enabled skills")
-			img := &ainselv1alpha1.AgentImage{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testImageName, Namespace: "default"}, img)).To(Succeed())
-			img.Spec.EnabledSkills = []string{"git-review"}
-			Expect(k8sClient.Update(ctx, img)).To(Succeed())
+			By("Selecting the skill on the agent")
+			Expect(updateSkillsWithRetry(ctx, typeNamespacedName, []string{"git-review"})).To(Succeed())
+			DeferCleanup(func() {
+				_ = updateSkillsWithRetry(ctx, typeNamespacedName, nil)
+			})
 
 			controllerReconciler := &AgentReconciler{
 				Client: k8sClient,

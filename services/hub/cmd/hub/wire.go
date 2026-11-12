@@ -192,7 +192,7 @@ func wirePersonas(pool *pgxpool.Pool, apiClient client.Client, namespace string)
 func wireSkills(pool *pgxpool.Pool, apiClient client.Client, namespace string) *skills.Service {
 	store := skills.NewStore(pool)
 	rec := skills.NewReconciler(apiClient, namespace)
-	lister := skills.NewAgentImageLister(apiClient, namespace)
+	lister := skills.NewAgentLister(apiClient, namespace)
 	return skills.NewService(store, rec, lister)
 }
 

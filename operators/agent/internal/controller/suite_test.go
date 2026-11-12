@@ -259,6 +259,6 @@ func updateAgentWithRetry(ctx context.Context, nn types.NamespacedName, mutate f
 }
 
 // updateSkillsWithRetry sets the fixture Agent's skill selection.
-func updateSkillsWithRetry(ctx context.Context, nn types.NamespacedName, skills *ainselv1alpha1.AgentSkills) error {
+func updateSkillsWithRetry(ctx context.Context, nn types.NamespacedName, skills []string) error {
 	return updateAgentWithRetry(ctx, nn, func(a *ainselv1alpha1.Agent) { a.Spec.Skills = skills })
 }

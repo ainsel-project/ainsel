@@ -331,13 +331,12 @@ export function AgentWizard() {
                     </span>
                     <span style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
                       {(image.data.tools ?? []).length} tools ·{' '}
-                      {(image.data.enabledSkills ?? []).length} skills ·{' '}
                       {(image.data.mcpServers ?? []).length} MCP servers ·{' '}
                       {(image.data.env ?? []).length} env vars
                     </span>
                     <span className="label" style={{ color: 'var(--ink-3)' }}>
-                      Tools, skills, MCP servers and environment can be overridden per agent after
-                      creation, on the agent's own tabs.
+                      Tools and MCP servers are picked per agent after creation, on the agent's own
+                      tabs. Skills are chosen there too — they belong to the agent, not the image.
                     </span>
                   </div>
                 ) : null}

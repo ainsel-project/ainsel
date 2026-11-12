@@ -22,8 +22,8 @@ type SkillService interface {
 	Update(ctx context.Context, id string, req skills.UpdateRequest) (*skills.Skill, error)
 	Delete(ctx context.Context, id string) error
 	ListAssignments(ctx context.Context, skillID string) ([]skills.Referrer, error)
-	Assign(ctx context.Context, skillID, agentImageName string) error
-	Unassign(ctx context.Context, skillID, agentImageName string) error
+	Assign(ctx context.Context, skillID, agentName string) error
+	Unassign(ctx context.Context, skillID, agentName string) error
 }
 
 // skillSortAllowed is the whitelist of columns that can be used with orderBy
@@ -304,7 +304,7 @@ func (h *skillHandlers) handleItem(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parts[0]
 
-	// Sub-path dispatch: /api/v1/skills/:id/assignments[/:agentImageName]
+	// Sub-path dispatch: /api/v1/skills/:id/assignments[/:agentName]
 	if len(parts) >= 2 && parts[1] == "assignments" {
 		h.handleAssignments(w, r, id, parts[2:])
 		return
@@ -357,9 +357,9 @@ func (h *skillHandlers) handleItem(w http.ResponseWriter, r *http.Request) {
 
 // handleAssignments dispatches assignment sub-routes:
 //
-//	GET    /api/v1/skills/:id/assignments           → list agent images with this skill
-//	PUT    /api/v1/skills/:id/assignments/:imageName → add skill to image
-//	DELETE /api/v1/skills/:id/assignments/:imageName → remove skill from image
+//	GET    /api/v1/skills/:id/assignments        → list agents with this skill
+//	PUT    /api/v1/skills/:id/assignments/:agent → add skill to agent
+//	DELETE /api/v1/skills/:id/assignments/:agent → remove skill from agent
 func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request, skillID string, rest []string) {
 	// GET /assignments — list referrers
 	if len(rest) == 0 {
@@ -388,10 +388,10 @@ func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// PUT/DELETE /assignments/:agentImageName
+	// PUT/DELETE /assignments/:agentName
 	if len(rest) == 1 {
-		agentImageName := rest[0]
-		if agentImageName == "" {
+		agentName := rest[0]
+		if agentName == "" {
 			http.NotFound(w, r)
 			return
 		}
@@ -400,8 +400,9 @@ func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		// Authz: require write on the agent-image resource.
-		if !h.requireImageWrite(w, r, agentImageName) {
+		// Authz: require write on the agent resource — an assignment writes
+		// the agent CR, which is where a skill is selected.
+		if !h.requireAgentWrite(w, r, agentName) {
 			return
 		}
 		// Verify skill exists.
@@ -411,13 +412,13 @@ func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request
 		}
 		switch r.Method {
 		case http.MethodPut:
-			if err := h.svc.Assign(r.Context(), skillID, agentImageName); err != nil {
+			if err := h.svc.Assign(r.Context(), skillID, agentName); err != nil {
 				h.writeSkillError(w, err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
 		case http.MethodDelete:
-			if err := h.svc.Unassign(r.Context(), skillID, agentImageName); err != nil {
+			if err := h.svc.Unassign(r.Context(), skillID, agentName); err != nil {
 				h.writeSkillError(w, err)
 				return
 			}
@@ -429,8 +430,8 @@ func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request
 	http.NotFound(w, r)
 }
 
-// requireImageWrite checks the caller can modify the named agent image.
-func (h *skillHandlers) requireImageWrite(w http.ResponseWriter, r *http.Request, imageName string) bool {
+// requireAgentWrite checks the caller can modify the named agent.
+func (h *skillHandlers) requireAgentWrite(w http.ResponseWriter, r *http.Request, agentName string) bool {
 	c := h.getChecker()
 	if c == nil {
 		return true
@@ -440,7 +441,7 @@ func (h *skillHandlers) requireImageWrite(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWrite(r.Context(), u.Sub, "agent-image", imageName)
+	ok, err := c.CanWrite(r.Context(), u.Sub, "agent", agentName)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return false

@@ -6,16 +6,15 @@ import (
 
 // SimpleAgentImageResponse is the simplified API representation of an AgentImage.
 type SimpleAgentImageResponse struct {
-	ID            string                    `json:"id"`
-	DisplayName   string                    `json:"displayName"`
-	Description   string                    `json:"description,omitempty"`
-	ImageURL      string                    `json:"imageURL"`
-	ToolCount     int                       `json:"toolCount"`
-	Tools         []AgentImageToolInfo      `json:"tools"`
-	Env           []AgentImageEnvVarInfo    `json:"env,omitempty"`
-	MCPServers    []AgentImageMCPServerInfo `json:"mcpServers,omitempty"`
-	Sidecars      []AgentImageSidecarInfo   `json:"sidecars,omitempty"`
-	EnabledSkills []string                  `json:"enabledSkills,omitempty"`
+	ID          string                    `json:"id"`
+	DisplayName string                    `json:"displayName"`
+	Description string                    `json:"description,omitempty"`
+	ImageURL    string                    `json:"imageURL"`
+	ToolCount   int                       `json:"toolCount"`
+	Tools       []AgentImageToolInfo      `json:"tools"`
+	Env         []AgentImageEnvVarInfo    `json:"env,omitempty"`
+	MCPServers  []AgentImageMCPServerInfo `json:"mcpServers,omitempty"`
+	Sidecars    []AgentImageSidecarInfo   `json:"sidecars,omitempty"`
 	// ManagedBy names the external system that authors this image
 	// (spec.managedBy). Any non-empty value other than "user" means the
 	// console renders the image read-only and the hub refuses every mutation
@@ -76,28 +75,27 @@ type AgentImageStatusInfo struct {
 
 // SimpleAgentImageCreateRequest is the POST body for creating an AgentImage.
 type SimpleAgentImageCreateRequest struct {
-	DisplayName   string                  `json:"displayName"`
-	GroupID       string                  `json:"groupId"`
-	Description   string                  `json:"description,omitempty"`
-	ImageURL      string                  `json:"imageURL"`
-	Env           []AgentImageEnvVarInfo  `json:"env,omitempty"`
-	MCPServers    []string                `json:"mcpServers,omitempty"`
-	Sidecars      []AgentImageSidecarInfo `json:"sidecars,omitempty"`
-	EnabledSkills []string                `json:"enabledSkills,omitempty"`
+	DisplayName string                  `json:"displayName"`
+	GroupID     string                  `json:"groupId"`
+	Description string                  `json:"description,omitempty"`
+	ImageURL    string                  `json:"imageURL"`
+	Env         []AgentImageEnvVarInfo  `json:"env,omitempty"`
+	MCPServers  []string                `json:"mcpServers,omitempty"`
+	Sidecars    []AgentImageSidecarInfo `json:"sidecars,omitempty"`
 }
 
 // SimpleAgentImageUpdateRequest is the PUT body for updating an AgentImage.
 // All fields are optional. A nil field means "do not modify"; a non-nil empty
-// slice means "clear".
+// slice means "clear". Skills are not part of an image: they are selected per
+// agent (see the agent endpoints).
 type SimpleAgentImageUpdateRequest struct {
-	DisplayName   *string                    `json:"displayName,omitempty"`
-	Description   *string                    `json:"description,omitempty"`
-	ImageURL      *string                    `json:"imageURL,omitempty"`
-	Tools         *[]AgentImageToolInfo      `json:"tools,omitempty"`
-	Env           *[]AgentImageEnvVarUpdate  `json:"env,omitempty"`
-	MCPServers    *[]string                  `json:"mcpServers,omitempty"`
-	Sidecars      *[]AgentImageSidecarUpdate `json:"sidecars,omitempty"`
-	EnabledSkills *[]string                  `json:"enabledSkills,omitempty"`
+	DisplayName *string                    `json:"displayName,omitempty"`
+	Description *string                    `json:"description,omitempty"`
+	ImageURL    *string                    `json:"imageURL,omitempty"`
+	Tools       *[]AgentImageToolInfo      `json:"tools,omitempty"`
+	Env         *[]AgentImageEnvVarUpdate  `json:"env,omitempty"`
+	MCPServers  *[]string                  `json:"mcpServers,omitempty"`
+	Sidecars    *[]AgentImageSidecarUpdate `json:"sidecars,omitempty"`
 }
 
 // AgentImageEnvVarUpdate is an env var in an update request. Secret is a
@@ -168,10 +166,7 @@ func toSimpleAgentImageResponse(img agentv1alpha1.AgentImage) SimpleAgentImageRe
 		})
 	}
 
-	enabledSkills := img.Spec.EnabledSkills
-	if enabledSkills == nil {
-		enabledSkills = []string{}
-	}
+	// Skills are not part of the image: an agent selects them on its own CR.
 
 	sidecars := make([]AgentImageSidecarInfo, 0, len(img.Spec.Sidecars))
 	for _, sc := range img.Spec.Sidecars {
@@ -194,17 +189,16 @@ func toSimpleAgentImageResponse(img agentv1alpha1.AgentImage) SimpleAgentImageRe
 	}
 
 	return SimpleAgentImageResponse{
-		ID:            img.Name,
-		DisplayName:   img.Spec.DisplayName,
-		Description:   img.Spec.Description,
-		ImageURL:      img.Spec.ImageURL,
-		ManagedBy:     img.Spec.ManagedBy,
-		ToolCount:     len(img.Spec.Tools),
-		Tools:         tools,
-		Env:           env,
-		MCPServers:    mcpServers,
-		Sidecars:      sidecars,
-		EnabledSkills: enabledSkills,
-		Status:        status,
+		ID:          img.Name,
+		DisplayName: img.Spec.DisplayName,
+		Description: img.Spec.Description,
+		ImageURL:    img.Spec.ImageURL,
+		ManagedBy:   img.Spec.ManagedBy,
+		ToolCount:   len(img.Spec.Tools),
+		Tools:       tools,
+		Env:         env,
+		MCPServers:  mcpServers,
+		Sidecars:    sidecars,
+		Status:      status,
 	}
 }

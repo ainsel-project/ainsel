@@ -134,13 +134,6 @@ func newPodPlan(agent *ainselv1alpha1.Agent, agentName string, img *ainselv1alph
 		Name:      "pi-home",
 		MountPath: "/home/agent/.pi/agent",
 	})
-	// Skills are sourced from the single shared hub-managed ConfigMap
-	// (sharedskills.ConfigMapName). The operator projects only the items
-	// the AgentImage enabled via spec.enabledSkills so that pods that
-	// don't reference a skill don't get it. Each enabled skill key is
-	// projected as <id>/SKILL.md so Pi discovers it natively under
-	// /home/agent/.pi/agent/skills/<id>/SKILL.md (handled by the init
-	// container copy below).
 	// Determine whether security hardening is enabled. Defaults to true
 	// when spec.runtime.securityHardened is nil.
 	securityHardened := agent.Spec.Runtime.SecurityHardened == nil || *agent.Spec.Runtime.SecurityHardened
@@ -157,7 +150,13 @@ func newPodPlan(agent *ainselv1alpha1.Agent, agentName string, img *ainselv1alph
 		{Name: "pi-home", MountPath: "/home/agent/.pi/agent"},
 		{Name: "pi-models", MountPath: "/var/pi-models", ReadOnly: true},
 	}
-	skills := effectiveSkills(agent, img)
+	// Skills are sourced from the single shared hub-managed ConfigMap
+	// (sharedskills.ConfigMapName). The operator projects only the items this
+	// agent selected via spec.skills, so an agent without a selection mounts
+	// nothing. Each selected skill key is projected as <id>/SKILL.md so Pi
+	// discovers it natively under /home/agent/.pi/agent/skills/<id>/SKILL.md
+	// (handled by the init container copy below).
+	skills := effectiveSkills(agent)
 	if len(skills) > 0 {
 		skillItems := make([]corev1.KeyToPath, 0, len(skills))
 		for _, id := range skills {
@@ -328,7 +327,7 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 		{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: resolveHubInternalToken()},
 	}
 	envs = append(envs, llmProviderEnv(agent)...)
-	envs = append(envs, enabledToolsEnv(agent, img)...)
+	envs = append(envs, enabledToolsEnv(agent)...)
 
 	// Inject the effective runtime-profile env vars —
 	// the image defaults with this agent's overrides
@@ -394,22 +393,15 @@ func llmProviderEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
 	return envs
 }
 
-// enabledToolsEnv translates spec.enabledTools into AGENT_TOOLS. Tools whose
-// kind in the AgentImage catalog is not "container" are silently dropped —
-// the runtime no longer supports them.
-func enabledToolsEnv(agent *ainselv1alpha1.Agent, img *ainselv1alpha1.AgentImage) []corev1.EnvVar {
-	kindByName := make(map[string]ainselv1alpha1.AgentImageToolKind, len(img.Spec.Tools))
-	for _, t := range img.Spec.Tools {
-		kindByName[t.Name] = t.Kind
-	}
-	var containerTools []string
-	for _, name := range agent.Spec.EnabledTools {
-		if kindByName[name] == ainselv1alpha1.AgentImageToolKindContainer {
-			containerTools = append(containerTools, name)
-		}
-		// shell and claude-cli kinds are silently dropped
-	}
-	return []corev1.EnvVar{{Name: "AGENT_TOOLS", Value: strings.Join(containerTools, ",")}}
+// enabledToolsEnv translates the agent's own tool selection into AGENT_TOOLS,
+// which the runtime enforces: pi's ainsel-tools extension withholds every tool
+// the list does not name. Names are passed through exactly as the agent declares
+// them, because the allowlist is matched against runtime tool names — the
+// catalog kind is display metadata, and an MCP tool is named
+// mcp__<server>__<tool> at runtime. An empty list means no restriction: the
+// agent may use everything its image provides.
+func enabledToolsEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
+	return []corev1.EnvVar{{Name: "AGENT_TOOLS", Value: strings.Join(agent.Spec.EnabledTools, ",")}}
 }
 
 // imageProfileEnv renders the effective runtime-profile env vars as explicit
@@ -621,7 +613,7 @@ func (r *AgentReconciler) stampPodTemplateAnnotations(ctx context.Context, agent
 	// annotate the pod template. When the hub updates a skill, the hash
 	// changes, which causes Kubernetes to perform a rolling restart
 	// automatically so the agent picks up the new skill content.
-	if len(effectiveSkills(agent, img)) > 0 {
+	if len(effectiveSkills(agent)) > 0 {
 		skillHash, err := r.computeSkillsHash(ctx, agent.Namespace)
 		if err != nil {
 			return fmt.Errorf("computing skill hash: %w", err)

@@ -13,23 +13,27 @@ import (
 	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 )
 
-// AgentImageLister returns the AgentImage CRs that reference a skill by ID.
-type AgentImageLister interface {
+// AgentLister reads and writes the Agent CRs that select a skill by ID.
+//
+// Selection lives on the agent alone: an AgentImage is a runtime profile and
+// carries no skill list, so two agents on the same runtime can mount different
+// libraries.
+type AgentLister interface {
 	ListReferrers(ctx context.Context, skillID string) ([]Referrer, error)
-	// UsageCounts lists AgentImage CRs once and tallies how many CRs
-	// reference each skill ID via spec.enabledSkills. A CR that lists
-	// the same skill ID more than once counts once for that skill.
+	// UsageCounts lists Agent CRs once and tallies how many agents select
+	// each skill ID. A CR that lists the same skill ID more than once counts
+	// once for that skill. It doubles as the enabled set: a skill with a
+	// count of zero is selected by nobody and need not be delivered.
 	UsageCounts(ctx context.Context) (map[string]int, error)
-	// EnabledSkillIDs tallies every skill ID any pod projects: the
-	// image-level spec.enabledSkills plus the agent-level
-	// spec.skills.items that replaces it. Used to decide what the shared
-	// ConfigMap must carry.
-	EnabledSkillIDs(ctx context.Context) (map[string]int, error)
-	// Assign adds a skill ID to an AgentImage's spec.enabledSkills.
-	Assign(ctx context.Context, skillID, agentImageName string) error
-	// Unassign removes a skill ID from an AgentImage's spec.enabledSkills.
-	Unassign(ctx context.Context, skillID, agentImageName string) error
+	// Assign adds a skill ID to an agent's spec.skills.
+	Assign(ctx context.Context, skillID, agentName string) error
+	// Unassign removes a skill ID from an agent's spec.skills.
+	Unassign(ctx context.Context, skillID, agentName string) error
 }
+
+// ReferrerKindAgent is the Referrer.Kind value for an agent that selects a
+// skill. Skills are per-agent, so this is the only kind a skill referrer has.
+const ReferrerKindAgent = "agent"
 
 // ManagedBy values. "user" rows are console-owned; "plugin" rows are written
 // by the plugin skill syncer for skills a plugin manifest declares.
@@ -103,11 +107,11 @@ func pluginIDFromTags(tags []string) string {
 	return ""
 }
 
-// Service orchestrates Store + Reconciler + AgentImageLister.
+// Service orchestrates Store + Reconciler + AgentLister.
 type Service struct {
 	store            *Store
 	rec              *Reconciler
-	agentImageLister AgentImageLister
+	agents AgentLister
 
 	mu sync.Mutex
 	// undelivered remembers why each skill was last reported as not
@@ -117,8 +121,8 @@ type Service struct {
 }
 
 // NewService wires a Service against its dependencies.
-func NewService(s *Store, r *Reconciler, a AgentImageLister) *Service {
-	return &Service{store: s, rec: r, agentImageLister: a}
+func NewService(s *Store, r *Reconciler, a AgentLister) *Service {
+	return &Service{store: s, rec: r, agents: a}
 }
 
 // Reconciler exposes the underlying reconciler; primarily for tests.
@@ -152,7 +156,7 @@ type ErrInUse struct {
 }
 
 func (e *ErrInUse) Error() string {
-	return fmt.Sprintf("skill is in use by %d agent image(s)", len(e.Referrers))
+	return fmt.Sprintf("skill is in use by %d agent(s)", len(e.Referrers))
 }
 
 var slugRegex = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -257,8 +261,8 @@ func (s *Service) renderBestEffort(ctx context.Context, op string, sk *Skill) {
 	}
 }
 
-// deliverIfEnabled renders a skill only when some AgentImage or Agent
-// enables it (the same union Converge keeps, via EnabledSkillIDs).
+// deliverIfEnabled renders a skill only when some agent selects it (the same
+// set Converge keeps, via UsageCounts).
 //
 // The shared ConfigMap is sized to what agents mount, so writing a skill
 // nobody has opted into spends ceiling and re-hashes the object, which
@@ -266,10 +270,10 @@ func (s *Service) renderBestEffort(ctx context.Context, op string, sk *Skill) {
 // skill-bearing agent. Catalogue writes must therefore stay out of it
 // until an enable actually asks for the content.
 func (s *Service) deliverIfEnabled(ctx context.Context, op string, sk *Skill) {
-	if s.rec == nil || s.agentImageLister == nil {
+	if s.rec == nil || s.agents == nil {
 		return
 	}
-	counts, err := s.agentImageLister.EnabledSkillIDs(ctx)
+	counts, err := s.agents.UsageCounts(ctx)
 	if err != nil {
 		// Not knowing the enabled set is not a reason to skip delivery:
 		// an agent waiting on this content would stall on a transient
@@ -327,19 +331,18 @@ func (s *Service) Get(ctx context.Context, id string) (*Skill, error) {
 }
 
 // List returns skills (metadata only), optionally filtered. Each
-// summary is enriched with UsedBy, the number of AgentImage CRs that
-// reference the skill. Usage is best-effort: if no lister is
-// configured or the usage lookup fails, UsedBy is left 0 and the
-// skills are still returned.
+// summary is enriched with UsedBy, the number of agents that select the
+// skill. Usage is best-effort: if no lister is configured or the usage
+// lookup fails, UsedBy is left 0 and the skills are still returned.
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]SkillSummary, error) {
 	summaries, err := s.store.List(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	if s.agentImageLister == nil {
+	if s.agents == nil {
 		return summaries, nil
 	}
-	counts, err := s.agentImageLister.UsageCounts(ctx)
+	counts, err := s.agents.UsageCounts(ctx)
 	if err != nil {
 		slog.Error("skills: usage counts unavailable", "err", err)
 		return summaries, nil
@@ -353,11 +356,11 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]SkillSummary, 
 // SearchForDiscovery returns skill metadata for the skill MCP, without
 // the UsedBy enrichment List performs.
 //
-// The enrichment is a Kubernetes LIST of every AgentImage in the
+// The enrichment is a Kubernetes LIST of every Agent in the
 // namespace. That is fine for an admin page loaded occasionally, but this
 // method backs an agent-facing tool that a model may call repeatedly
 // inside one task, and the answer it computes is one an agent has no use
-// for: whether some image happens to mount the skill says nothing about
+// for: whether some other agent happens to mount the skill says nothing about
 // whether the skill helps with the task at hand. Skipping it keeps the
 // read to a single Postgres query.
 //
@@ -376,7 +379,7 @@ func (s *Service) SearchForDiscovery(ctx context.Context, query string, tags []s
 }
 
 // Update applies a partial update. It re-renders the ConfigMap only when
-// some AgentImage or Agent selects the skill: an edit to a catalogue
+// some agent selects the skill: an edit to a catalogue
 // entry must not touch the shared, size-capped delivery object.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Skill, error) {
 	// The stored row's owner decides: an externally managed row is refused,
@@ -439,7 +442,7 @@ func (s *Service) UpsertManaged(ctx context.Context, sk *Skill) error {
 
 // DeleteManaged removes a plugin-owned row with no ownership check — the
 // syncer's path, for rows that stopped being declared. The referrer check the
-// user-facing Delete applies is deliberately skipped: an image referencing a
+// user-facing Delete applies is deliberately skipped: an agent selecting a
 // skill its plugin withdrew is the plugin's decision, and Converge prunes the
 // mounted entry from there.
 func (s *Service) DeleteManaged(ctx context.Context, id string) error {
@@ -471,8 +474,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if IsManaged(row.ManagedBy) {
 		return managedRefusal(row)
 	}
-	if s.agentImageLister != nil {
-		refs, err := s.agentImageLister.ListReferrers(ctx, id)
+	if s.agents != nil {
+		refs, err := s.agents.ListReferrers(ctx, id)
 		if err != nil {
 			return fmt.Errorf("check referrers: %w", err)
 		}
@@ -494,25 +497,25 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListAssignments returns the AgentImage CRs that reference the given skill.
+// ListAssignments returns the agents that select the given skill.
 func (s *Service) ListAssignments(ctx context.Context, skillID string) ([]Referrer, error) {
-	if s.agentImageLister == nil {
+	if s.agents == nil {
 		return nil, nil
 	}
-	return s.agentImageLister.ListReferrers(ctx, skillID)
+	return s.agents.ListReferrers(ctx, skillID)
 }
 
-// Assign adds the skill to an AgentImage's enabledSkills.
-func (s *Service) Assign(ctx context.Context, skillID, agentImageName string) error {
+// Assign adds the skill to an agent's spec.skills.
+func (s *Service) Assign(ctx context.Context, skillID, agentName string) error {
 	// Verify the skill exists.
 	sk, err := s.store.Get(ctx, skillID)
 	if err != nil {
 		return err
 	}
-	if s.agentImageLister == nil {
-		return fmt.Errorf("agent image lister not configured")
+	if s.agents == nil {
+		return fmt.Errorf("agent lister not configured")
 	}
-	if err := s.agentImageLister.Assign(ctx, skillID, agentImageName); err != nil {
+	if err := s.agents.Assign(ctx, skillID, agentName); err != nil {
 		return err
 	}
 	// This is the moment the content becomes load-bearing: an agent that
@@ -523,16 +526,16 @@ func (s *Service) Assign(ctx context.Context, skillID, agentImageName string) er
 	return nil
 }
 
-// Unassign removes the skill from an AgentImage's enabledSkills.
-func (s *Service) Unassign(ctx context.Context, skillID, agentImageName string) error {
+// Unassign removes the skill from an agent's spec.skills.
+func (s *Service) Unassign(ctx context.Context, skillID, agentName string) error {
 	// Verify the skill exists.
 	if _, err := s.store.Get(ctx, skillID); err != nil {
 		return err
 	}
-	if s.agentImageLister == nil {
-		return fmt.Errorf("agent image lister not configured")
+	if s.agents == nil {
+		return fmt.Errorf("agent lister not configured")
 	}
-	return s.agentImageLister.Unassign(ctx, skillID, agentImageName)
+	return s.agents.Unassign(ctx, skillID, agentName)
 }
 
 // ConfigMapName returns the shared ConfigMap name for skills.
@@ -550,8 +553,7 @@ type DeliveryReport struct {
 }
 
 // Converge reconciles the shared skills ConfigMap to exactly the skills
-// that at least one AgentImage (spec.enabledSkills) or Agent
-// (spec.skills.items) enables.
+// that at least one agent enables via spec.skills.
 //
 // The ConfigMap is a single Kubernetes object and so carries the
 // apiserver's 1 MiB ceiling. Treating it as a mirror of the whole
@@ -565,10 +567,10 @@ type DeliveryReport struct {
 // they live in Postgres and are read through the API (and, in the shape
 // of issue #300, the skill MCP) rather than mounted everywhere.
 func (s *Service) Converge(ctx context.Context) (*DeliveryReport, error) {
-	if s.rec == nil || s.agentImageLister == nil {
-		return nil, fmt.Errorf("skills: converge requires a reconciler and an agent image lister")
+	if s.rec == nil || s.agents == nil {
+		return nil, fmt.Errorf("skills: converge requires a reconciler and an agent lister")
 	}
-	counts, err := s.agentImageLister.EnabledSkillIDs(ctx)
+	counts, err := s.agents.UsageCounts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("skills: converge enabled skill ids: %w", err)
 	}
@@ -584,7 +586,7 @@ func (s *Service) Converge(ctx context.Context) (*DeliveryReport, error) {
 		}
 		sk, err := s.store.Get(ctx, sum.ID)
 		if err != nil {
-			// A usage count with no row means the image references a
+			// A usage count with no row means an agent selects a
 			// deleted skill; the operator projects a key that will never
 			// exist. Skip it rather than abort the whole pass.
 			slog.Warn("skills: enabled skill has no registry row", "skill_id", sum.ID, "err", err)

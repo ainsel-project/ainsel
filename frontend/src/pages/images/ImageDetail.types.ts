@@ -29,5 +29,4 @@ export type ImageFormValues = {
   tools: ToolFormValue[]
   env: EnvVarFormValue[]
   mcpServers: string[]
-  enabledSkills: string[]
 }

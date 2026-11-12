@@ -9,19 +9,27 @@ import (
 
 // AgentSpec defines the desired state of an Agent.
 type AgentSpec struct {
-	DisplayName  string        `json:"displayName"`
-	Description  string        `json:"description,omitempty"`
-	ImageRef     AgentImageRef `json:"imageRef"`
-	Runtime      AgentRuntime  `json:"runtime"`
-	LLM          AgentLLM      `json:"llm"`
-	Persona      AgentPersona  `json:"persona"`
-	EnabledTools []string      `json:"enabledTools,omitempty"`
-	// Skills explicitly selects the skill library entries this agent mounts.
-	// When nil, the agent runs on the referenced image's EnabledSkills — the
-	// shared runtime profile's defaults; once set, the agent's list replaces
-	// the image's, and an empty Items means no skills.
+	DisplayName string        `json:"displayName"`
+	Description string        `json:"description,omitempty"`
+	ImageRef    AgentImageRef `json:"imageRef"`
+	Runtime     AgentRuntime  `json:"runtime"`
+	LLM         AgentLLM      `json:"llm"`
+	Persona     AgentPersona  `json:"persona"`
+	// EnabledTools is this agent's tool selection: names taken from the
+	// referenced image's capability catalog (AgentImage.Spec.Tools). The
+	// runtime enforces it — the operator passes it to the pod as AGENT_TOOLS
+	// and the runtime withholds every tool it does not name. Absent or empty
+	// means unrestricted: the agent may use everything its image provides.
+	// Names the image's catalog does not declare are rejected by the hub.
 	// +optional
-	Skills *AgentSkills `json:"skills,omitempty"`
+	EnabledTools []string `json:"enabledTools,omitempty"`
+	// Skills is this agent's skill selection: ids from the hub's skill library
+	// (/skills) whose SKILL.md the agent's pod mounts. Skills are chosen per
+	// agent — the image carries none — so absent or empty means the agent runs
+	// with no skills. Names the library does not contain are rejected by the
+	// hub.
+	// +optional
+	Skills []string `json:"skills,omitempty"`
 	// MCP explicitly defines the MCP servers this agent connects to at
 	// runtime, as resolved definitions (URL + token env reference), not just
 	// names. When nil, the agent runs on the referenced image's MCPServers —
@@ -70,16 +78,6 @@ type AgentSpec struct {
 // AgentImageRef references an AgentImage by metadata name in the same namespace.
 type AgentImageRef struct {
 	Name string `json:"name"`
-}
-
-// AgentSkills is the agent-scoped skill selection. The wrapper makes the
-// distinction between "not configured" (nil = inherit the referenced
-// image's EnabledSkills) and "explicitly empty" (Items: [] = no skills)
-// representable in the CR — a bare []string could not.
-type AgentSkills struct {
-	// Items lists skill library ids (hub /skills API) to mount for this agent.
-	// +optional
-	Items []string `json:"items"`
 }
 
 // AgentMCPServer is one MCP server definition this agent connects to at

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
-import { useAgentImages } from '../../api/agentImages'
+import { useAgents } from '../../api/agents'
 import {
   useAssignSkill,
   useDeleteSkill,
@@ -18,7 +18,7 @@ import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
 import { EntityLink } from '../../components/EntityLink'
 import { ManagedBadge } from '../../components/ManagedBadge'
-import { agentImagePath } from '../../components/entityPaths'
+import { agentPath } from '../../components/entityPaths'
 import { isManaged } from '../../utils/managed'
 import { formatISO } from '../../utils/time'
 
@@ -26,15 +26,13 @@ export function SkillDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [referrers, setReferrers] = useState<{ agentImageName: string; agentImageId?: string }[]>(
-    [],
-  )
+  const [referrers, setReferrers] = useState<{ agentName: string; agentId?: string }[]>([])
   const { data, isLoading, error } = useSkill(id)
   const del = useDeleteSkill()
-  // Side list decides which delete-409 referrers are linkable: an image that
+  // Side list decides which delete-409 referrers are linkable: an agent that
   // was deleted since the 409 renders plain text, not a 404.
-  const { data: imagesData } = useAgentImages({ pageSize: 200 })
-  const imageIds = useMemo(() => new Set((imagesData?.items ?? []).map((i) => i.id)), [imagesData])
+  const { data: agentsData } = useAgents({ pageSize: 200 })
+  const agentIds = useMemo(() => new Set((agentsData?.items ?? []).map((a) => a.id)), [agentsData])
 
   const onDelete = async () => {
     if (!id) return
@@ -45,7 +43,7 @@ export function SkillDetail() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         const body = err.body as
-          { referrers?: { agentImageName: string; agentImageId?: string }[] } | undefined
+          { referrers?: { agentName: string; agentId?: string }[] } | undefined
         setReferrers(body?.referrers ?? [])
       } else if (err instanceof ApiError) {
         setReferrers([])
@@ -139,7 +137,7 @@ export function SkillDetail() {
               )}
             </Panel>
 
-            <AgentImagesPanel skillId={data.id} />
+            <AgentAssignmentsPanel skillId={data.id} />
           </div>
         ) : null}
       </div>
@@ -155,18 +153,18 @@ export function SkillDetail() {
           referrers.length > 0 ? (
             <div>
               <p>
-                This skill is enabled on {referrers.length} agent image
+                This skill is enabled on {referrers.length} agent
                 {referrers.length === 1 ? '' : 's'}. Remove it from
                 {referrers.length === 1 ? ' it' : ' them'} before deleting:
               </p>
               <ul>
                 {referrers.map((r) => (
-                  <li key={r.agentImageId ?? r.agentImageName}>
+                  <li key={r.agentId ?? r.agentName}>
                     <EntityLink
-                      id={r.agentImageId}
-                      known={imageIds}
-                      label={r.agentImageName}
-                      path={agentImagePath}
+                      id={r.agentId}
+                      known={agentIds}
+                      label={r.agentName}
+                      path={agentPath}
                     />
                   </li>
                 ))}
@@ -188,16 +186,21 @@ export function SkillDetail() {
   )
 }
 
-function AgentImagesPanel({ skillId }: { skillId: string }) {
+/**
+ * Which agents select this skill. Assigning writes `spec.skills` on the agent,
+ * so one skill can be given to an agent and withheld from another that runs on
+ * the same image.
+ */
+function AgentAssignmentsPanel({ skillId }: { skillId: string }) {
   const { data: assignmentsData, isLoading: assignmentsLoading } = useSkillAssignments(skillId)
-  const { data: imagesData, isLoading: imagesLoading } = useAgentImages({ pageSize: 200 })
+  const { data: agentsData, isLoading: agentsLoading } = useAgents({ pageSize: 200 })
 
   const assign = useAssignSkill()
   const unassign = useUnassignSkill()
 
-  const images = imagesData?.items ?? []
+  const agents = agentsData?.items ?? []
   const assignedNames = useMemo(
-    () => assignmentsData?.items?.map((a) => a.agentImageName) ?? [],
+    () => assignmentsData?.items?.map((a) => a.agentName) ?? [],
     [assignmentsData],
   )
 
@@ -206,19 +209,19 @@ function AgentImagesPanel({ skillId }: { skillId: string }) {
       const prevSet = new Set(assignedNames)
       const nextSet = new Set(nextSelected)
 
-      // Images to assign (in next but not in prev)
+      // Agents to select (in next but not in prev)
       const toAdd = nextSelected.filter((n) => !prevSet.has(n))
-      // Images to unassign (in prev but not in next)
+      // Agents to deselect (in prev but not in next)
       const toRemove = assignedNames.filter((n) => !nextSet.has(n))
 
       // Run mutations sequentially so we stop on first failure and
       // can surface the error to the user.
       try {
         for (const name of toAdd) {
-          await assign.mutateAsync({ skillId, agentImageName: name })
+          await assign.mutateAsync({ skillId, agentName: name })
         }
         for (const name of toRemove) {
-          await unassign.mutateAsync({ skillId, agentImageName: name })
+          await unassign.mutateAsync({ skillId, agentName: name })
         }
       } catch {
         // Revert the picker to the server state on failure.
@@ -230,18 +233,18 @@ function AgentImagesPanel({ skillId }: { skillId: string }) {
   )
 
   return (
-    <Panel title="Agent images">
+    <Panel title="Agents">
       <DualListPicker
-        items={images}
+        items={agents}
         selectedIds={assignedNames}
         onChange={handleChange}
-        getId={(img) => img.id}
-        getLabel={(img) => img.displayName || img.id}
-        getDescription={(img) => img.description}
-        isLoading={assignmentsLoading || imagesLoading}
-        emptyLabel="No agent images available. Create agent images first to assign this skill."
-        availableTitle="Available images"
-        enabledTitle="Enabled on image"
+        getId={(agent) => agent.id}
+        getLabel={(agent) => agent.name || agent.id}
+        getDescription={(agent) => agent.description}
+        isLoading={assignmentsLoading || agentsLoading}
+        emptyLabel="No agents available. Create an agent first to assign this skill."
+        availableTitle="Available agents"
+        enabledTitle="Selected on agent"
       />
     </Panel>
   )

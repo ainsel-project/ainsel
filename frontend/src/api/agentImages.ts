@@ -43,7 +43,6 @@ export type AgentImageSummary = {
   description?: string
   imageURL: string
   toolCount?: number
-  enabledSkills?: string[]
   /** External author (e.g. 'helm'); anything but empty/'user' makes the image
    *  read-only in the console (issue #146). */
   managedBy?: string
@@ -65,7 +64,6 @@ export type AgentImageRequest = {
   env?: EnvVar[]
   mcpServers?: string[]
   sidecars?: Sidecar[]
-  enabledSkills?: string[]
 }
 
 export type ListAgentImagesParams = {

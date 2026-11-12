@@ -312,7 +312,7 @@ section has the deeper diagnostics.
 
 ### Agent doesn't use memory
 
-- Check that the skill ID in `enabledSkills` matches the skill's `id`.
+- Check that the skill ID in the agent's `spec.skills` matches the skill's `id`.
 - Check that the skill was created:
   `curl -s ${HUB_URL}/api/v1/skills/memory-management`
 - Check the pod has the file:

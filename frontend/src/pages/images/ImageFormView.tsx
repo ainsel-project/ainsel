@@ -19,7 +19,6 @@ import { Titleblock } from '../../layout/Titleblock'
 import { EnvVarFieldArray } from './EnvVarFieldArray'
 import { ToolFieldArray } from './ToolFieldArray'
 import { McpServerSelector } from './McpServerSelector'
-import { SkillsSelector } from './SkillsSelector'
 import { GroupField } from '../../components/GroupField'
 import { ManagedBadge } from '../../components/ManagedBadge'
 
@@ -31,9 +30,9 @@ export type ImageFormViewProps = {
   /** Which form sections to render. Default 'all'; the agent detail tabs use
    *  the narrower modes. The MCP server picker is part of 'all' only — the
    *  agent detail page has its own agent-scoped MCP section, so the shared
-   *  image picker never appears there.
-   *  'image', 'tools', and 'skills' to split the editor across tabs. */
-  sections?: 'all' | 'image' | 'tools' | 'skills'
+   *  image picker never appears there. Skills are not part of an image: they
+   *  are selected per agent. */
+  sections?: 'all' | 'image' | 'tools'
   image: { displayName?: string; imageURL?: string; managedBy?: string } | undefined
   register: UseFormRegister<ImageFormValues>
   control: Control<ImageFormValues>
@@ -248,13 +247,6 @@ export function ImageFormView({
                   }
                 : undefined
             }
-          />
-        ) : null}
-
-        {sections === 'all' || sections === 'skills' ? (
-          <SkillsSelector
-            enabledSkills={watch('enabledSkills') ?? []}
-            onChange={(ids) => setValue('enabledSkills', ids, { shouldDirty: true })}
           />
         ) : null}
 

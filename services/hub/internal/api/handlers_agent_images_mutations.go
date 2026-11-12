@@ -185,13 +185,6 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		existing.Spec.Sidecars = newSidecars
 	}
 
-	if req.EnabledSkills != nil {
-		if err := s.validateEnabledSkills(ctx, w, *req.EnabledSkills); err != nil {
-			return
-		}
-		existing.Spec.EnabledSkills = *req.EnabledSkills
-	}
-
 	if err := s.client.Update(ctx, &existing); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

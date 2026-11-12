@@ -7,7 +7,7 @@ import { DualListPicker } from '../../primitives/DualListPicker'
 import { Panel } from '../../primitives/Panel'
 import { Select } from '../../primitives/Select'
 import { ImageFormContainer } from '../images/ImageFormContainer'
-import { SkillsSelector } from '../images/SkillsSelector'
+import { SkillsSelector } from './SkillsSelector'
 import { AgentEnvSection } from './AgentEnvSection'
 
 type AgentImageSectionProps = {
@@ -106,21 +106,104 @@ export function AgentImageSection({ agent }: AgentImageSectionProps) {
 }
 
 /**
- * The Tools & MCP section of the agent detail page: the tool catalog comes from the
- * referenced image (discovery requires a container context, so tools stay
- * image-scoped for now — see the M4 plan); the MCP section below is the
- * agent's own. The embedded header shows which image is being edited;
- * switching images happens in the Runtime & env section.
+ * The Tools section of the agent detail page: this agent's own tool allowlist.
+ * The referenced image carries the catalog — the capabilities it ships — and the
+ * agent picks from it, so two agents on the same image can hold different
+ * tools. Saving writes `spec.enabledTools` on this agent alone.
+ *
+ * An empty selection is not "nothing": the agent then runs with every tool the
+ * image ships. Names are matched by the runtime, MCP tools included
+ * (`mcp__<server>__<tool>`).
  */
 export function AgentToolsSection({ agent }: AgentImageSectionProps) {
   const imageName = agent.imageRef?.name
-  return imageName ? (
-    <ImageFormContainer key={imageName} id={imageName} embedded sections="tools" />
-  ) : (
-    <NoImagePanel
-      what="Tools"
-      hint="No image linked yet — pick one in Runtime & env to configure its tools."
-    />
+  const image = useAgentImage(imageName)
+  const updateAgent = useUpdateAgent()
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const catalog = image.data?.tools ?? []
+  const selected = agent.enabledTools ?? []
+
+  const onChange = (names: string[]) => {
+    setSaveError(null)
+    updateAgent.mutate(
+      { id: agent.id, body: { name: agent.name, enabledTools: names } },
+      {
+        onError: (err) =>
+          setSaveError(err instanceof ApiError ? err.message : 'Failed to update tools.'),
+      },
+    )
+  }
+
+  if (!imageName) {
+    return (
+      <NoImagePanel
+        what="Tools"
+        hint="No image linked yet — pick one in Runtime & env to choose from the tools it ships."
+      />
+    )
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      <Panel title="Tools">
+        <DualListPicker
+          items={catalog}
+          selectedIds={selected}
+          onChange={onChange}
+          getId={(tool) => tool.name}
+          getLabel={(tool) => tool.name}
+          getDescription={(tool) => tool.description}
+          isLoading={image.isLoading}
+          emptyLabel="This image ships no tools."
+          enabledTitle="Enabled on this agent"
+        />
+      </Panel>
+      {selected.length === 0 ? (
+        <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
+          Nothing selected yet — this agent runs with every tool the image ships. Pick a subset to
+          narrow it down.
+        </p>
+      ) : null}
+      {saveError ? (
+        <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
+          {saveError}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The Skills section of the agent detail page: this agent's own skill
+ * selection, taken from the hub's skill library. Skills belong to the agent, not
+ * to its runtime image, so an agent needs no image to be given one and two
+ * agents on the same image can carry different skills.
+ */
+export function AgentSkillsSection({ agent }: AgentImageSectionProps) {
+  const updateAgent = useUpdateAgent()
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const onChange = (ids: string[]) => {
+    setSaveError(null)
+    updateAgent.mutate(
+      { id: agent.id, body: { name: agent.name, skills: ids } },
+      {
+        onError: (err) =>
+          setSaveError(err instanceof ApiError ? err.message : 'Failed to update skills.'),
+      },
+    )
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      <SkillsSelector selectedIds={agent.skills ?? []} onChange={onChange} previewable />
+      {saveError ? (
+        <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
+          {saveError}
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -193,66 +276,6 @@ export function AgentMCPSection({ agent }: AgentImageSectionProps) {
       {agent.mcp ? null : (
         <p className="label" style={{ margin: '0 0 4px', color: 'var(--ink-3)' }}>
           Currently inherited from the runtime image — the first change pins the MCP selection to
-          this agent.
-        </p>
-      )}
-      {saveError ? (
-        <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
-          {saveError}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-/**
- * The Skills section of the agent detail page: the agent's own skill selection.
- * Until the agent has an explicit list (spec.skills), the effective set is
- * inherited from the runtime image's enabledSkills; the first change pins
- * the selection to this agent.
- */
-export function AgentSkillsSection({ agent }: AgentImageSectionProps) {
-  const imageName = agent.imageRef?.name
-  const image = useAgentImage(imageName)
-  const updateAgent = useUpdateAgent()
-  const [saveError, setSaveError] = useState<string | null>(null)
-
-  const effective = agent.skills ? agent.skills.items : (image.data?.enabledSkills ?? [])
-
-  const onChange = (items: string[]) => {
-    setSaveError(null)
-    updateAgent.mutate(
-      { id: agent.id, body: { name: agent.name, skills: { items } } },
-      {
-        onError: (err) =>
-          setSaveError(err instanceof ApiError ? err.message : 'Failed to update skills.'),
-      },
-    )
-  }
-
-  if (!imageName) {
-    return (
-      <NoImagePanel
-        what="Skills"
-        hint="No image linked yet — pick one in Runtime & env to configure its skills."
-      />
-    )
-  }
-
-  return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      <SkillsSelector
-        enabledSkills={effective}
-        onChange={onChange}
-        previewable
-        labels={{
-          enabledTitle: 'Enabled on this agent',
-          emptyLabel: 'No skills available. Create skills first to enable them on this agent.',
-        }}
-      />
-      {agent.skills ? null : (
-        <p className="label" style={{ margin: '0 0 4px', color: 'var(--ink-3)' }}>
-          Currently inherited from the runtime image — the first change pins the skill selection to
           this agent.
         </p>
       )}

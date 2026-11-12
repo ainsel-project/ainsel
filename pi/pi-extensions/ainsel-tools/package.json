@@ -1,0 +1,18 @@
+{
+  "name": "pi-ainsel-tools",
+  "version": "0.1.0",
+  "description": "Pi extension: enforces the agent's own tool selection (AGENT_TOOLS) — declares only the selected tools to the model, blocks every other call, and withholds image catalog tools the agent was not given.",
+  "main": "index.ts",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --experimental-strip-types --test index.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3"
+  }
+}

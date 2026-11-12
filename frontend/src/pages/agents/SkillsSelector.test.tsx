@@ -67,14 +67,7 @@ function renderSelector(props: Partial<React.ComponentProps<typeof SkillsSelecto
     <Routes>
       <Route
         path="/"
-        element={
-          <SkillsSelector
-            enabledSkills={['k8s-deploy']}
-            onChange={() => {}}
-            labels={{ enabledTitle: 'Enabled on this agent' }}
-            {...props}
-          />
-        }
+        element={<SkillsSelector selectedIds={['k8s-deploy']} onChange={() => {}} {...props} />}
       />
       <Route path="/skills/:id" element={<div>skill detail</div>} />
     </Routes>,
@@ -169,7 +162,7 @@ describe('SkillsSelector — read-only preview (issue #216)', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'git-ops' })).toBeInTheDocument()
   })
 
-  it('stays off by default so the image form is unchanged', async () => {
+  it('stays off when previewable is not set', async () => {
     const user = userEvent.setup()
     renderSelector()
     await waitFor(() => expect(screen.getByText('git-ops')).toBeInTheDocument())

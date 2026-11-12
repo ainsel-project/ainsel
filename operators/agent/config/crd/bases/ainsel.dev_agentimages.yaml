@@ -47,16 +47,19 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentImageSpec defines the desired state of an AgentImage.
+            description: |-
+              AgentImageSpec defines the desired state of an AgentImage.
+
+              An AgentImage is a runtime profile: the container it runs, the environment it
+              needs, and the capabilities it provides. It is not where an individual agent's
+              configuration lives — tool and skill selection are per-agent
+              (Agent.Spec.EnabledTools, Agent.Spec.Skills), so two agents on the same
+              runtime can use different subsets without needing a second image resource.
             properties:
               description:
                 type: string
               displayName:
                 type: string
-              enabledSkills:
-                items:
-                  type: string
-                type: array
               env:
                 items:
                   description: |-
@@ -181,13 +184,29 @@ spec:
                   type: object
                 type: array
               tools:
+                description: |-
+                  Tools is this image's capability catalog: what the runtime provides,
+                  discovered from its MCP servers or maintained by hand. It is a list of
+                  options, not a grant — an agent uses a subset of it via
+                  Agent.Spec.EnabledTools. An entry's Disabled flag is the catalog's own
+                  default and restricts no agent on its own.
                 items:
-                  description: AgentImageTool describes a single capability exposed
-                    by the image.
+                  description: |-
+                    AgentImageTool describes a single capability the image's runtime provides.
+                    It is catalog metadata: what an agent on this image may be given, not what
+                    any agent has. See AgentSpec.EnabledTools for the grant.
                   properties:
                     description:
+                      description: Description is what the capability does, shown
+                        in the catalog.
                       type: string
                     disabled:
+                      description: |-
+                        Disabled is the catalog's own default for a tool added by the last
+                        refresh: a freshly discovered MCP tool starts disabled so an upgrade of
+                        an upstream server cannot hand every agent a new capability until
+                        someone looks at it. It restricts no agent on its own — an agent that
+                        names this tool in spec.enabledTools gets it regardless.
                       type: boolean
                     examples:
                       items:
@@ -205,6 +224,8 @@ spec:
                         type: object
                       type: array
                     isNew:
+                      description: IsNew marks a tool added by the last refresh, cleared
+                        on the next PUT.
                       type: boolean
                     kind:
                       enum:
@@ -213,6 +234,8 @@ spec:
                       - mcp
                       type: string
                     mcpSource:
+                      description: McpSource names the MCP server a kind=mcp tool
+                        was discovered from.
                       type: string
                     name:
                       type: string

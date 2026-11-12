@@ -43,7 +43,6 @@ function imageFixture() {
     displayName: 'claude-tooling-base',
     description: 'Base image with shell tools',
     imageURL: 'ghcr.io/insel/claude-tooling-base:1.4',
-    enabledSkills: ['git-ops'],
     tools: [
       {
         name: 'read_file',
@@ -729,41 +728,6 @@ describe('ImageDetailPage', () => {
     expect((screen.getByLabelText('Display Name') as HTMLInputElement).value).toBe(
       'user-edited-name',
     )
-  })
-
-  it('toggling a skill via the dual-list picker updates the request body on save', async () => {
-    const user = userEvent.setup()
-    let capturedBody: AgentImageRequest | null = null
-
-    const fixtureWithSkills = {
-      ...imageFixture(),
-      enabledSkills: ['git-ops', 'k8s-deploy'],
-    }
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string, init?: RequestInit) => {
-        if (init?.method === 'PUT' && url.includes('/agent-images')) {
-          capturedBody = JSON.parse(init.body as string) as AgentImageRequest
-          return Promise.resolve(new Response(JSON.stringify(fixtureWithSkills), { status: 200 }))
-        }
-        return Promise.resolve(defaultFetch(url, init))
-      }),
-    )
-
-    renderWithProviders(
-      <Routes>
-        <Route path="/agent-images/:id" element={<ImageDetailPage />} />
-      </Routes>,
-      { route: '/agent-images/claude-tooling-base:1.4' },
-    )
-
-    // Move 'k8s-deploy' from Available to Enabled.
-    await user.click(await screen.findByRole('option', { name: /k8s-deploy/ }))
-    await user.click(screen.getByRole('button', { name: /add selected to enabled/i }))
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
-    await waitFor(() => expect(capturedBody).not.toBeNull())
-    expect(capturedBody!.enabledSkills).toEqual(['git-ops', 'k8s-deploy'])
   })
 
   it('resets the form when navigating from one image to another', async () => {
