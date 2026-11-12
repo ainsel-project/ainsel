@@ -92,6 +92,11 @@ type Store struct {
 	// onQueueChange, when set, is called with the agent name whenever that
 	// agent's queue state may have changed. See SetQueueObserver.
 	onQueueChange func(agentName string)
+
+	// taskExpiry is the pickup deadline stamped onto new tasks by EnqueueTask.
+	// Zero (the default) disables expiry: such tasks get expires_at NULL and
+	// the reaper never touches them. See SetTaskExpiry.
+	taskExpiry time.Duration
 }
 
 // NewStore creates a Store using the given connection pool.
@@ -112,6 +117,18 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // cron, channel transfers) having to remember to publish a scaling signal.
 func (s *Store) SetQueueObserver(fn func(agentName string)) {
 	s.onQueueChange = fn
+}
+
+// SetTaskExpiry sets the pickup deadline stamped onto newly enqueued tasks.
+// A task older than this while still pending is moved to the terminal status
+// 'expired' by ExpirePendingTasks. Zero disables expiry — existing rows keep
+// whatever deadline they were stamped with. Only EnqueueTask reads it, so
+// changing it never retroactively expires or rescues existing tasks.
+func (s *Store) SetTaskExpiry(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	s.taskExpiry = d
 }
 
 // observe reports a possible queue change. Nil-safe and non-blocking.
@@ -281,13 +298,20 @@ func (s *Store) MarkRouted(ctx context.Context, eventID string) error {
 }
 
 // EnqueueTask inserts a task for an agent and notifies any long-poll waiters.
-// Duplicate (event_id, agent_name) pairs are silently ignored.
+// Duplicate (event_id, agent_name) pairs are silently ignored. When a pickup
+// deadline is configured (SetTaskExpiry) the row is stamped with it, so the
+// deadline a task gets is the one that was configured when it was enqueued.
 func (s *Store) EnqueueTask(ctx context.Context, task Task) error {
+	var expiresAt *time.Time
+	if s.taskExpiry > 0 {
+		t := time.Now().Add(s.taskExpiry)
+		expiresAt = &t
+	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO agent_tasks (event_id, agent_name, trigger_name, invocation_id, headers, payload)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO agent_tasks (event_id, agent_name, trigger_name, invocation_id, headers, payload, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 ON CONFLICT (event_id, agent_name) DO NOTHING`,
-		task.EventID, task.AgentName, task.TriggerName, task.InvocationID, task.Headers, task.Payload,
+		task.EventID, task.AgentName, task.TriggerName, task.InvocationID, task.Headers, task.Payload, expiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("eventqueue: enqueue task for %q: %w", task.AgentName, err)
@@ -542,6 +566,52 @@ func (s *Store) ReapStaleClaims(ctx context.Context, timeout time.Duration) ([]R
 	return reaped, rows.Err()
 }
 
+// ExpiredTask describes a task moved to 'expired' by ExpirePendingTasks. The
+// caller uses InvocationID to close the invocation record and notify the
+// sender through the same path that reports a failed task.
+type ExpiredTask struct {
+	ID           int64
+	AgentName    string
+	InvocationID string
+}
+
+// ExpirePendingTasks moves pending tasks whose pickup deadline (expires_at,
+// stamped by EnqueueTask) has passed to the terminal status 'expired'. It is
+// guarded on two fronts: rows stamped with no deadline (expiry disabled when
+// they were enqueued) never match, and only never-claimed rows are considered
+// — a task a worker is working on is the claim reaper's problem, not this
+// one's. Returns the expired tasks so the caller can notify senders; fires the
+// queue observer for each affected agent.
+func (s *Store) ExpirePendingTasks(ctx context.Context) ([]ExpiredTask, error) {
+	rows, err := s.pool.Query(ctx,
+		`UPDATE agent_tasks
+		 SET status = 'expired', completed_at = now(), error = 'not picked up in time'
+		 WHERE status = 'pending'
+		   AND expires_at IS NOT NULL
+		   AND expires_at <= now()
+		 RETURNING id, agent_name, invocation_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("eventqueue: expire pending tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var expired []ExpiredTask
+	seen := map[string]bool{}
+	for rows.Next() {
+		var et ExpiredTask
+		if err := rows.Scan(&et.ID, &et.AgentName, &et.InvocationID); err != nil {
+			return nil, fmt.Errorf("eventqueue: scan expired task: %w", err)
+		}
+		expired = append(expired, et)
+		if !seen[et.AgentName] {
+			seen[et.AgentName] = true
+			s.observe(et.AgentName)
+		}
+	}
+	return expired, rows.Err()
+}
+
 // StreamInfo returns summary statistics for the event queue, used by
 // observability endpoints.
 type StreamInfo struct {
@@ -551,6 +621,10 @@ type StreamInfo struct {
 	TasksClaimed   int64 `json:"tasks_claimed"`
 	TasksCompleted int64 `json:"tasks_completed"`
 	TasksFailed    int64 `json:"tasks_failed"`
+	// TasksExpired counts tasks that reached the terminal 'expired' status: they
+	// were never picked up before the pickup deadline (issue #236). Kept apart
+	// from TasksFailed because the task itself never ran.
+	TasksExpired int64 `json:"tasks_expired"`
 }
 
 // GetStreamInfo returns queue statistics.
@@ -563,8 +637,9 @@ func (s *Store) GetStreamInfo(ctx context.Context) (*StreamInfo, error) {
 			(SELECT count(*) FROM agent_tasks WHERE status = 'pending') AS tasks_pending,
 			(SELECT count(*) FROM agent_tasks WHERE status = 'claimed') AS tasks_claimed,
 			(SELECT count(*) FROM agent_tasks WHERE status = 'completed') AS tasks_completed,
-			(SELECT count(*) FROM agent_tasks WHERE status = 'failed') AS tasks_failed
-	`).Scan(&info.EventsTotal, &info.EventsUnrouted, &info.TasksPending, &info.TasksClaimed, &info.TasksCompleted, &info.TasksFailed)
+			(SELECT count(*) FROM agent_tasks WHERE status = 'failed') AS tasks_failed,
+			(SELECT count(*) FROM agent_tasks WHERE status = 'expired') AS tasks_expired
+	`).Scan(&info.EventsTotal, &info.EventsUnrouted, &info.TasksPending, &info.TasksClaimed, &info.TasksCompleted, &info.TasksFailed, &info.TasksExpired)
 	if err != nil {
 		return nil, fmt.Errorf("eventqueue: stream info: %w", err)
 	}
@@ -748,7 +823,7 @@ func (f EventFilter) conditions() (conds []string, args []any) {
 		case "queued":
 			conds = append(conds,
 				`EXISTS (SELECT 1 FROM agent_tasks t WHERE t.event_id = e.id
-					AND t.status NOT IN ('completed', 'failed')
+					AND t.status NOT IN ('completed', 'failed', 'expired')
 					AND t.status <> 'claimed'
 					AND t.claimed_at IS NULL
 					AND NOT EXISTS (SELECT 1 FROM task_conversations tc
@@ -756,7 +831,7 @@ func (f EventFilter) conditions() (conds []string, args []any) {
 		case "running":
 			conds = append(conds,
 				`EXISTS (SELECT 1 FROM agent_tasks t WHERE t.event_id = e.id
-					AND t.status NOT IN ('completed', 'failed')
+					AND t.status NOT IN ('completed', 'failed', 'expired')
 					AND (t.status = 'claimed' OR t.claimed_at IS NOT NULL
 						OR EXISTS (SELECT 1 FROM task_conversations tc
 							WHERE tc.invocation_id = t.invocation_id AND t.invocation_id <> '')))`)
