@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
 import { AgentWorkspace } from './AgentWorkspace'
@@ -397,7 +397,7 @@ describe('AgentWorkspace', () => {
       </Routes>,
       { route: '/agents/a1' },
     )
-    await screen.findByText('claude-opus-4-7')
+    await within(await screen.findByTestId('overview-meta')).findByText('claude-opus-4-7')
     expect(screen.getByRole('link', { name: /^channel$/i })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('link', { name: /^channel$/i }))
     expect(await screen.findByText('agent inbox')).toBeInTheDocument()
@@ -431,8 +431,12 @@ describe('AgentWorkspace', () => {
       </Routes>,
       { route: '/agents/a1?tab=bogus' },
     )
-    // Overview-only content (the model) is shown; triggers are not loaded.
-    await waitFor(() => expect(screen.getByText('claude-opus-4-7')).toBeInTheDocument())
+    // Overview-only content (the model in the header meta row) is shown; triggers are not loaded.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('overview-meta')).getByText('claude-opus-4-7'),
+      ).toBeInTheDocument(),
+    )
     expect(screen.queryByText('on-doc-issue')).not.toBeInTheDocument()
   })
   it('remounts the section when the agent changes, so typed edits do not carry over', async () => {

@@ -7,11 +7,17 @@ type TagProps = {
   variant?: Variant
   solid?: boolean
   className?: string
+  /** Optional tooltip, e.g. to explain what the tag means. */
+  title?: string
 }
 
-export function Tag({ children, variant = 'default', solid, className }: TagProps) {
+export function Tag({ children, variant = 'default', solid, className, title }: TagProps) {
   const cls = ['tag', variant !== 'default' && variant, solid && 'solid', className]
     .filter(Boolean)
     .join(' ')
-  return <span className={cls}>{children}</span>
+  return (
+    <span className={cls} title={title}>
+      {children}
+    </span>
+  )
 }
