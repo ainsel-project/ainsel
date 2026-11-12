@@ -48,6 +48,7 @@ func main() {
 		authEventMaxRows:       envIntOrDefault("HUB_AUTH_EVENT_MAX_ROWS", 100000),
 		connectorCfg:           api.LoadConnectorConfig(),
 		hubAllowInsecureNoAuth: os.Getenv("HUB_ALLOW_INSECURE_NO_AUTH") == "true",
+		defaultAgentImage:      os.Getenv("HUB_DEFAULT_AGENT_IMAGE"),
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -121,6 +122,15 @@ func main() {
 	g.Go(func() error {
 		if err := runBackfill(ctx, c); err != nil {
 			slog.Error("backfill", "error", err)
+		}
+		return nil
+	})
+
+	// Built-in agent image (one-shot after cache sync; non-fatal): a failed
+	// seed only means the image picker starts empty, as before issue #88.
+	g.Go(func() error {
+		if err := runDefaultImageSeed(ctx, c, cfg.defaultAgentImage); err != nil {
+			slog.Error("default agent image", "error", err)
 		}
 		return nil
 	})

@@ -1370,7 +1370,7 @@ func TestAgents_Create_EmptyPersonaObjectIsNoOp(t *testing.T) {
 		Name:     "Empty Persona",
 		ImageRef: AgentImageRefInfo{Name: "img-persona"},
 		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
-		Persona:  &AgentPersonaInfo{},
+		Persona:  &AgentPersonaCreateInfo{},
 	})
 	var a agentv1alpha1.Agent
 	if err := s.client.Get(context.Background(), types.NamespacedName{Name: created.ID, Namespace: s.ns}, &a); err != nil {
@@ -1394,7 +1394,7 @@ func TestAgents_Update_EmptyPersonaObjectKeepsExisting(t *testing.T) {
 		Name:     "Persona Agent",
 		ImageRef: AgentImageRefInfo{Name: "img-persona2"},
 		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud"},
-		Persona:  &AgentPersonaInfo{ID: "persona-keep"},
+		Persona:  &AgentPersonaCreateInfo{ID: "persona-keep"},
 	})
 
 	// An update carrying persona:{} (present but empty ID) must not clear

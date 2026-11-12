@@ -69,7 +69,16 @@ export type AgentImageRequest = {
 export type ListAgentImagesParams = {
   page?: number
   pageSize?: number
+  /** Also list public images outside the caller's groups, such as the
+   *  built-in default image. */
+  includePublic?: boolean
 }
+
+/**
+ * Resource name of the built-in "AInsel Standard (Pi)" image the hub seeds
+ * from the installation (services/hub/internal/defaultimage).
+ */
+export const DEFAULT_AGENT_IMAGE_ID = 'ainsel-standard-pi'
 
 export function listAgentImages(params: ListAgentImagesParams = {}) {
   return request<Paginated<AgentImageSummary>>('/agent-images', { query: params })

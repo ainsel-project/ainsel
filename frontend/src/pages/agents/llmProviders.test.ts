@@ -7,7 +7,7 @@ function requestFor(provider: string, providerApiKey: string) {
     ...agentDefaults,
     name: 'Agent',
     imageRef: { name: 'image' },
-    persona: { id: 'persona' },
+    persona: { mode: 'template', id: 'persona' },
     llm: { ...agentDefaults.llm, model: 'm', provider },
     providerApiKey,
   })

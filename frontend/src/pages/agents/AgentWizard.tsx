@@ -1,15 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm, type FieldErrors } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useCreateAgent } from '../../api/agents'
-import { useAgentImage, useAgentImages } from '../../api/agentImages'
+import { DEFAULT_AGENT_IMAGE_ID, useAgentImage, useAgentImages } from '../../api/agentImages'
 import { usePersonas } from '../../api/personas'
 import { ApiError } from '../../api/client'
 import { Button } from '../../primitives/Button'
 import { Check } from '../../primitives/Check'
 import { Field } from '../../primitives/Field'
 import { Input } from '../../primitives/Input'
+import { Notice } from '../../primitives/Notice'
 import { Select } from '../../primitives/Select'
 import { Textarea } from '../../primitives/Textarea'
 import { Titleblock } from '../../layout/Titleblock'
@@ -48,7 +49,12 @@ const STEPS = [
       'providerApiKey',
     ],
   },
-  { id: 'persona', idx: '§04', title: 'Persona', fields: ['persona.id'] },
+  {
+    id: 'persona',
+    idx: '§04',
+    title: 'Persona',
+    fields: ['persona.mode', 'persona.id', 'persona.text'],
+  },
   { id: 'review', idx: '§05', title: 'Review', fields: ['replicas'] },
 ] as const
 
@@ -95,7 +101,9 @@ export function AgentWizard() {
   const step = STEPS[current]
   const isLast = current === STEPS.length - 1
 
-  const images = useAgentImages({ pageSize: 200 })
+  // Public images too: the built-in default image is public, and a user
+  // outside its group must still be able to pick it.
+  const images = useAgentImages({ pageSize: 200, includePublic: true })
   const personas = usePersonas({ pageSize: 200 })
   const create = useCreateAgent()
 
@@ -107,6 +115,7 @@ export function AgentWizard() {
     trigger,
     setError,
     clearErrors,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<AgentFormInput, unknown, AgentFormValues>({
     resolver: zodResolver(agentSchema),
@@ -117,6 +126,30 @@ export function AgentWizard() {
   const selectedImage = watch('imageRef.name')
   const image = useAgentImage(selectedImage || undefined)
   const provider = watch('llm.provider')
+  const personaMode = watch('persona.mode')
+  const providerApiKey = watch('providerApiKey')
+
+  // Preselect the built-in image once the list arrives, unless the user (or a
+  // step they came back from) already chose one. Without it the picker starts
+  // empty and the first agent becomes an image-registration task.
+  const defaultImageListed = (images.data?.items ?? []).some((i) => i.id === DEFAULT_AGENT_IMAGE_ID)
+  useEffect(() => {
+    if (defaultImageListed && !getValues('imageRef.name')) {
+      setValue('imageRef.name', DEFAULT_AGENT_IMAGE_ID)
+    }
+  }, [defaultImageListed, getValues, setValue])
+
+  // What the agent still lacks after creation. The wizard never invents a
+  // credential or grants tools on the user's behalf; it says what is missing.
+  const stillNeeded: string[] = []
+  if (provider && !providerApiKey) {
+    stillNeeded.push(
+      `No ${API_KEY_LABELS[provider] ?? 'API key'} entered. The agent cannot reach the model until one is set, here on the Model step or later on the agent's Runtime tab.`,
+    )
+  }
+  stillNeeded.push(
+    "No tools are enabled. The agent can answer but not act until you select tools, skills or MCP servers on the agent's own tabs.",
+  )
 
   const goTo = (index: number) => {
     const id = STEP_IDS[index]
@@ -341,11 +374,17 @@ export function AgentWizard() {
                   </div>
                 ) : null}
 
-                {(images.data?.items ?? []).length === 0 ? (
+                {selectedImage === DEFAULT_AGENT_IMAGE_ID ? (
                   <p className="label" style={{ marginTop: 12, color: 'var(--ink-3)' }}>
-                    No images yet? <Link to="/agent-images/new">Create one</Link>.
+                    The standard runtime ships with this AInsel release and is upgraded with it.
                   </p>
                 ) : null}
+                <p className="label" style={{ marginTop: 12, color: 'var(--ink-3)' }}>
+                  {(images.data?.items ?? []).length === 0
+                    ? 'No images yet? '
+                    : 'Need a different runtime? '}
+                  <Link to="/agent-images/new">Create a custom image</Link>.
+                </p>
               </>
             ) : null}
 
@@ -454,26 +493,66 @@ export function AgentWizard() {
             ) : null}
 
             {step.id === 'persona' ? (
-              <Field label="Persona" htmlFor="persona.id" error={errors.persona?.id?.message}>
-                <Select
-                  id="persona.id"
-                  value={watch('persona.id') ?? ''}
-                  onChange={(v) =>
-                    setValue('persona.id', v, { shouldValidate: true, shouldDirty: true })
-                  }
-                  options={(personas.data?.items ?? []).map((p) => ({
-                    value: p.id,
-                    label: p.name,
-                  }))}
-                  emptyLabel="Select a persona…"
-                />
-                <input type="hidden" {...register('persona.id')} />
-                <p className="label" style={{ marginTop: 8, color: 'var(--ink-3)' }}>
-                  The persona shapes how the agent behaves. You can fork an agent-owned copy later
-                  in the agent's Persona section. No persona yet?{' '}
-                  <Link to="/personas/new">Create one</Link>.
-                </p>
-              </Field>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <div
+                  role="radiogroup"
+                  aria-label="Persona source"
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}
+                >
+                  {(
+                    [
+                      { value: 'inline', label: 'Write instructions' },
+                      { value: 'template', label: 'Use a persona template' },
+                    ] as const
+                  ).map((o) => (
+                    <label key={o.value} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="radio"
+                        name="persona-mode"
+                        value={o.value}
+                        checked={personaMode === o.value}
+                        onChange={() => {
+                          setValue('persona.mode', o.value, { shouldDirty: true })
+                          clearErrors('persona')
+                        }}
+                      />
+                      {o.label}
+                    </label>
+                  ))}
+                </div>
+
+                {personaMode === 'inline' ? (
+                  <Field
+                    label="Instructions"
+                    htmlFor="persona.text"
+                    error={errors.persona?.text?.message}
+                    hint="What this agent is for and how it should work. Stored as this agent's own persona; edit it later in the agent's Persona section."
+                  >
+                    <Textarea id="persona.text" rows={10} {...register('persona.text')} />
+                  </Field>
+                ) : (
+                  <Field label="Persona" htmlFor="persona.id" error={errors.persona?.id?.message}>
+                    <Select
+                      id="persona.id"
+                      value={watch('persona.id') ?? ''}
+                      onChange={(v) =>
+                        setValue('persona.id', v, { shouldValidate: true, shouldDirty: true })
+                      }
+                      options={(personas.data?.items ?? []).map((p) => ({
+                        value: p.id,
+                        label: p.name,
+                      }))}
+                      emptyLabel="Select a persona…"
+                    />
+                    <input type="hidden" {...register('persona.id')} />
+                    <p className="label" style={{ marginTop: 8, color: 'var(--ink-3)' }}>
+                      A shared template from the persona library. You can fork an agent-owned copy
+                      later in the agent's Persona section. No persona yet?{' '}
+                      <Link to="/personas/new">Create one</Link>.
+                    </p>
+                  </Field>
+                )}
+              </div>
             ) : null}
 
             {step.id === 'review' ? (
@@ -507,11 +586,20 @@ export function AgentWizard() {
                   </dd>
                   <dt style={{ color: 'var(--ink-3)' }}>Persona</dt>
                   <dd style={{ margin: 0 }}>
-                    {personas.data?.items.find((p) => p.id === watch('persona.id'))?.name ??
-                      watch('persona.id') ??
-                      '—'}
+                    {personaMode === 'inline'
+                      ? 'Own instructions'
+                      : (personas.data?.items.find((p) => p.id === watch('persona.id'))?.name ??
+                        (watch('persona.id') || '—'))}
                   </dd>
                 </dl>
+                <Notice variant="warn">
+                  <b>Still needed after creation</b>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {stillNeeded.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </Notice>
                 <div className="form-grid" style={{ maxWidth: 240 }}>
                   <Field
                     label="Max concurrent tasks"

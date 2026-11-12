@@ -24,7 +24,7 @@ describe('agentSchema', () => {
       name: 'a',
       imageRef: { name: 'img' },
       llm: { model: 'm', provider: 'custom' },
-      persona: { id: 'p' },
+      persona: { mode: 'template', id: 'p' },
       replicas: 1,
     })
     expect(result.success).toBe(false)

@@ -116,9 +116,12 @@ export type AgentResponse = AgentSummary & {
 
 export type AgentRequest = Omit<
   AgentResponse,
-  'id' | 'status' | 'mcp' | 'env' | 'paused' | 'pausedUntil'
+  'id' | 'status' | 'mcp' | 'env' | 'paused' | 'pausedUntil' | 'persona'
 > & {
   groupId?: string
+  /** A persona template by id, or — on create only — the agent's own
+   *  instructions, which the hub stores as a persona owned by the agent. */
+  persona?: AgentPersona | { text: string }
   /** Write-side MCP selection: registry names, resolved by the hub to
    *  full definitions when writing the agent. */
   mcp?: { servers: string[] }

@@ -12,6 +12,7 @@
 | `HUB_METRICS_SOURCE` | `postgres` | Which backend answers `/metrics/summary` and `/metrics/timeseries`: `postgres` reads the hub's own records, `prometheus` reads the scraped `hub_*_total` counters. Anything else falls back to `postgres` with a warning at startup. See [observability.md](../../../docs/observability.md). |
 | `HUB_AUTH_EVENT_RETENTION_DAYS` | `90` | Auth events (table `auth_events`) older than this many days are deleted by an hourly sweep. `0` disables the age-based deletion. |
 | `HUB_AUTH_EVENT_MAX_ROWS` | `100000` | After the age-based sweep, `auth_events` is trimmed to this many rows (newest kept). `0` disables the row cap. |
+| `HUB_DEFAULT_AGENT_IMAGE` | _(unset)_ | Container image of the built-in `AgentImage` `ainsel-standard-pi` ("AInsel Standard (Pi)"). Once the cache is in sync at startup the hub creates that image, or moves its `imageURL` to this value if the hub created it earlier (`spec.managedBy: ainsel`). An image of that name the hub does not manage is never touched. A newly created image is filed under group `legacy` and marked public. Unset disables the seeding; an existing image stays. The chart sets it from `hub.defaultAgentImage`. |
 
 ### Webhook connectors
 
