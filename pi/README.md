@@ -120,7 +120,7 @@ Variables consumed by the `ainsel-runner` extension (see
 
 | Var                | Required | Purpose |
 | ------------------ | -------- | ------- |
-| `HUB_URL`          | yes      | Hub API the runner long-polls for tasks and reports results to |
+| `HUB_URL`          | yes      | Hub API the runner fetches its task from and reports results to |
 | `HUB_INTERNAL_VALIDATE_SECRET` | yes | `X-Internal-Token` for the hub's internal task endpoints |
 | `AGENT_NAME`       | yes      | Logical agent name, used in the task URLs and propagated into event context for every tool call |
 | `AINSEL_LLM_MODEL` | yes    | Model the runner asks for; the operator writes it from `spec.llm.model`. The legacy name `OLLAMA_CLOUD_MODEL` is accepted as a fallback for one release (issue #96); there is no default model |

@@ -139,19 +139,19 @@ func newAgentTaskAuthServer() *Server {
 	return s
 }
 
-// TestInternalAgentNextTaskBypassesOIDC verifies that the agent poll
+// TestInternalAgentTaskFetchBypassesOIDC verifies that the task fetch
 // endpoint under /api/internal/ is reachable with X-Internal-Token alone,
 // without an OIDC bearer token.
-func TestInternalAgentNextTaskBypassesOIDC(t *testing.T) {
+func TestInternalAgentTaskFetchBypassesOIDC(t *testing.T) {
 	s := newAgentTaskAuthServer()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/next-task?timeout=1s", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/tasks/1", nil)
 	req.Header.Set("X-Internal-Token", "test-secret")
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
 
 	if rec.Code == http.StatusUnauthorized {
-		t.Fatalf("next-task with valid X-Internal-Token was rejected (401); internal paths must bypass OIDC")
+		t.Fatalf("task fetch with valid X-Internal-Token was rejected (401); internal paths must bypass OIDC")
 	}
 }
 
@@ -170,33 +170,54 @@ func TestInternalAgentAckBypassesOIDC(t *testing.T) {
 	}
 }
 
-// TestInternalAgentNextTaskRejectsBadToken verifies that bypassing OIDC
+// TestInternalAgentTaskFetchRejectsBadToken verifies that bypassing OIDC
 // does not skip the handler-level token validation: a wrong
 // X-Internal-Token must still return 401.
-func TestInternalAgentNextTaskRejectsBadToken(t *testing.T) {
+func TestInternalAgentTaskFetchRejectsBadToken(t *testing.T) {
 	s := newAgentTaskAuthServer()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/next-task", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/tasks/1", nil)
 	req.Header.Set("X-Internal-Token", "wrong-secret")
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("next-task with wrong token: expected 401, got %d", rec.Code)
+		t.Fatalf("task fetch with wrong token: expected 401, got %d", rec.Code)
 	}
 }
 
-// TestInternalAgentNextTaskRejectsNoToken verifies that a next-task
+// TestInternalAgentTaskFetchRejectsNoToken verifies that a task fetch
 // request without X-Internal-Token is rejected by the handler.
-func TestInternalAgentNextTaskRejectsNoToken(t *testing.T) {
+func TestInternalAgentTaskFetchRejectsNoToken(t *testing.T) {
 	s := newAgentTaskAuthServer()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/next-task", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/tasks/1", nil)
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("next-task without token: expected 401, got %d", rec.Code)
+		t.Fatalf("task fetch without token: expected 401, got %d", rec.Code)
+	}
+}
+
+// TestInternalAgentNextTaskReturns404 locks the removal of the legacy
+// next-task long-poll (issue #47): per-task Job workers fetch their task by
+// id, so the claim-next endpoint is gone and must 404 even with a valid
+// X-Internal-Token.
+func TestInternalAgentNextTaskReturns404(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			s := newAgentTaskAuthServer()
+
+			req := httptest.NewRequest(method, "/api/internal/agents/a-refiner/next-task?timeout=1s", nil)
+			req.Header.Set("X-Internal-Token", "test-secret")
+			rec := httptest.NewRecorder()
+			s.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("next-task: status = %d (%s), want 404", rec.Code, strings.TrimSpace(rec.Body.String()))
+			}
+		})
 	}
 }
 
@@ -236,8 +257,8 @@ func TestInternalAgentTaskRoutesRequireToken(t *testing.T) {
 		method string
 		paths  []string
 	}{
-		{"next-task", http.MethodGet, []string{
-			"/api/internal/agents/victim-agent/next-task",
+		{"fetch", http.MethodGet, []string{
+			"/api/internal/agents/victim-agent/tasks/1",
 		}},
 		{"ack", http.MethodPost, []string{
 			"/api/internal/agents/victim-agent/tasks/1/ack",
@@ -291,14 +312,14 @@ func TestInternalAgentTaskRoutesRequireToken(t *testing.T) {
 
 // TestInternalAgentTaskRoutesAcceptValidToken is the counterweight: the gate
 // must not over-tighten and lock out the agent runner, which presents
-// X-Internal-Token on next-task, ack and nack.
+// X-Internal-Token on task fetch, ack and nack.
 func TestInternalAgentTaskRoutesAcceptValidToken(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		method string
 		path   string
 	}{
-		{"next-task", http.MethodGet, "/api/internal/agents/a-refiner/next-task"},
+		{"fetch", http.MethodGet, "/api/internal/agents/a-refiner/tasks/1"},
 		{"ack", http.MethodPost, "/api/internal/agents/a-refiner/tasks/1/ack"},
 		{"nack", http.MethodPost, "/api/internal/agents/a-refiner/tasks/1/nack"},
 	} {
@@ -332,7 +353,7 @@ func TestInternalAgentRoutesFailClosedWithoutSecret(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/internal/agents/a-refiner/next-task"},
+		{http.MethodGet, "/api/internal/agents/a-refiner/tasks/1"},
 		{http.MethodPost, "/api/internal/agents/a-refiner/tasks/1/ack"},
 		{http.MethodPost, "/api/internal/agents/a-refiner/tasks/1/nack"},
 	} {

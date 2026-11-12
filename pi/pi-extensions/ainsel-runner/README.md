@@ -9,13 +9,14 @@ drives it.
 
 On `session_start`:
 
-1. Reads `AGENT_NAME`, `HUB_URL`, and `HUB_INTERNAL_VALIDATE_SECRET` from the environment.
+1. Reads `AGENT_NAME`, `HUB_URL`, `HUB_INTERNAL_VALIDATE_SECRET`, and
+   `AINSEL_TASK_ID` from the environment.
 2. Starts a Prometheus metrics server on `:9090/metrics`.
-3. Starts a background HTTP long-poll loop against the hub.
 
-Per task (sequential — pi has one in-flight turn at a time):
+For the one task its Job was created for (no poll loop, no claim — the row
+stays `pending` until the run acks it):
 
-1. Fetches the next task via `GET /api/v1/agents/{name}/next-task?timeout=30s`.
+1. Fetches the task via `GET /api/internal/agents/{name}/tasks/{AINSEL_TASK_ID}`.
 2. Extracts an `EventContext` from the task headers and payload (see
    [Event Type Derivation](#event-type-derivation) below).
 3. Sets `AINSEL_EVENT_*` env vars on the process so the `ainsel-tools`
@@ -25,7 +26,7 @@ Per task (sequential — pi has one in-flight turn at a time):
    block + a "Handle the … on …" nudge.
 5. Awaits `turn_end` so the turn completes.
 6. ACKs (`POST .../tasks/{id}/ack`) or NACKs (`POST .../tasks/{id}/nack`)
-   the task via the hub REST API.
+   the task via the hub REST API and exits; the Job owns retries.
 
 ## Task Headers
 

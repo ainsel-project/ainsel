@@ -213,12 +213,13 @@ Delete an Agent, and reclaim the persona it owned if any (best-effort).
 
 ### POST /api/v1/agents/{name}/pause
 
-Pause the agent: the hub's task-claim endpoint (`next-task`) withholds work until the
-pause ends. Pending tasks stay queued and drain in id order on resume; events keep
-routing to the agent meanwhile. Already-claimed tasks are not interrupted, and
-interactive chat (`/api/v1/chat`) keeps working — a human talking to the agent
-directly is deliberate intent, not channel noise. Pause state lives on the Agent CRD
-(`spec.pause`), so `kubectl patch` works too, and expiry is evaluated at read time.
+> **Not enforced.** The pause was withheld at the legacy `next-task` claim endpoint,
+> which is gone: per-task Jobs are dispatched without reading `spec.pause`, so a paused
+> agent keeps working. Use `replicas: 0` to stop dispatch. This endpoint is slated for
+> removal ([#249](https://github.com/ainsel-project/ainsel/issues/249)).
+
+Record a pause on the agent. Pause state lives on the Agent CRD (`spec.pause`), so
+`kubectl patch` works too, and expiry is evaluated at read time.
 
 **Request body** (all fields optional; an absent body means an indefinite pause):
 ```json

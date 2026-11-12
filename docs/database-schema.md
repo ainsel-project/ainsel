@@ -410,14 +410,15 @@ Indexes: `idx_agent_tasks_pending (agent_name, created_at) WHERE status =
 `idx_agent_tasks_expires_at (expires_at) WHERE status = 'pending' AND
 expires_at IS NOT NULL` (0034, the pickup-deadline reaper).
 
-Lifecycle: claim (`status='claimed'`, `attempts+1`) → ack (`completed`) / nack
-(back to `pending` with `retry_after`, or `failed` at `max_attempts`). A reaper
-returns stale `claimed` rows to the pool. A second reaper expires `pending` rows
-past `expires_at` to `expired` — never-claimed only, with the sender notified
-like a failed task (issue #236). Claim/ack/nack and both reapers fire
-`SetQueueObserver` → queue-depth signal for the operator, and `pg_notify
-'agent_tasks'` wakes long-polling agents (LISTEN/NOTIFY is advisory only — no
-queue table, no trigger).
+Lifecycle: a per-task Job fetches its row by id without claiming it, so the row
+stays `pending` while it runs → ack (`completed`) / nack (`attempts+1`, back to
+`pending` with `retry_after`, or `failed` at `max_attempts`). A reaper expires
+`pending` rows past `expires_at` to `expired`, with the sender notified like a
+failed task (issue #236). Enqueue/ack/nack and the reaper fire
+`SetQueueObserver` → queue-depth signal for the operator. `claimed` and
+`claimed_at` remain in the schema for history: the legacy `next-task` claim
+path that wrote them is gone (issue #47; 0035 returned leftover claims to the
+queue).
 
 ### `invocations`
 
@@ -614,10 +615,7 @@ Everything else is unbounded. The notable cases:
 - `group_members` and `user_tokens` survive a disabled user (0026) so
   re-enabling restores access; revoked tokens are never deleted, only stamped.
 
-Separate from retention, a 5-minute reaper returns stale `claimed` tasks to the
-pool (`ReapStaleClaims`, timeout `TASK_CLAIM_TIMEOUT_SECONDS`, default 1800s); a
-reaped task past `max_attempts` goes to `failed` instead. A second 5-minute
-reaper enforces the pickup deadline (`ExpirePendingTasks`): a task still
+Separate from retention, a 5-minute reaper enforces the pickup deadline (`ExpirePendingTasks`): a task still
 `pending` past its `expires_at` (stamped at enqueue from
 `TASK_EXPIRY_SECONDS`, default 86400s; `0` disables) becomes `expired` —
 terminal, distinct from `failed`, because the task itself never ran — and the
