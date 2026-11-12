@@ -27,7 +27,14 @@ With a selection in effect:
 |-----------------|---------|
 | `read_file` | the registered tool `read_file`, and the catalog tool `read_file` |
 | `mcp__github__list_issues` | that MCP tool |
-| `github` or `mcp__github` | every `mcp__github__*` tool |
+
+Entries are exact tool names — the same names as `AgentImage.spec.tools[].name`,
+which is what the hub validates `spec.enabledTools` against. For an MCP tool that
+means the full `mcp__<server>__<tool>` name; a bare server name is not a catalog
+entry and the hub rejects it (`400 enabledTools not in image`). The matcher does
+also grant a bare server name over that server's tools — a defensive rule for a
+hand-set `AGENT_TOOLS`, not a supported configuration: never author selections
+that way, since the CR path cannot express them.
 
 ## The shell guard is capability hygiene, not a sandbox
 
