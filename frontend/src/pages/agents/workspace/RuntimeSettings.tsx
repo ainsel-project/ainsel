@@ -158,7 +158,7 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
               onProviderChange={(v) => {
                 // A key belongs to the provider it was typed for; never send
                 // it as another provider's key.
-                setValue('providerApiKey', '')
+                setValue('providerApiKey', '', { shouldDirty: true })
                 setValue('llm.provider', v, { shouldDirty: true, shouldValidate: true })
               }}
               urlRegistration={register('customProviderUrl')}

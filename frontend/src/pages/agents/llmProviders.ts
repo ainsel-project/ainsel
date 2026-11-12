@@ -89,7 +89,8 @@ export function findLlmProvider(id: string | undefined): LlmProvider | undefined
 
 /**
  * Whether the stored agent holds a credential block for the provider. The hub
- * never returns the key itself, only that the block exists.
+ * never returns the key itself, only that the block exists. Not meaningful for
+ * custom: its block carries the URL and exists without a key.
  */
 export function hasStoredKey(agent: AgentResponse, providerId: string): boolean {
   const p = findLlmProvider(providerId)
