@@ -141,6 +141,10 @@ section for worked examples.
 | `hub.connectorImages.webhook.repository` | string | `dpinsel/ainsel-webhook-receiver` | Webhook-receiver image repository. Rendered into the hub's `CONNECTOR_IMAGE_WEBHOOK` (`repository:tag[@digest]`); the hub copies repository/tag/digest into a new connector's `spec.image.*`, the event-gateway operator composes the container image from them. Parsing rules in [services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#webhook-connectors) |
 | `hub.connectorImages.webhook.tag` | string | `0.1.0` | The tag the receiver follows: rebuild the image and this tag moves, and the next rollout of the connector picks it up |
 | `hub.connectorImages.webhook.digest` | string | `""` | Set to pin the receiver to one build — then the tag records where that build came from and nothing moves it |
+| `hub.defaultAgentImage.enabled` | bool | `true` | Have the hub write the built-in "AInsel Standard (Pi)" `AgentImage` (`ainsel-standard-pi`) on every start, so the first agent needs no image registration. `false` stops the writes; an image already created stays until you delete it |
+| `hub.defaultAgentImage.repository` | string | `dpinsel/ainsel-pi` | Pi runtime image repository. Rendered into the hub's `HUB_DEFAULT_AGENT_IMAGE` (`repository:tag[@digest]`) |
+| `hub.defaultAgentImage.tag` | string | `""` | Empty follows the chart's `appVersion`, the Pi image the release pipeline publishes with this chart, so a `helm upgrade` upgrades the default image. Set only to pin a build |
+| `hub.defaultAgentImage.digest` | string | `""` | Optional digest pin |
 | `hub.resources` | object | 50m/128Mi → 200m/256Mi | CPU/memory |
 
 > **Security note:** the hub ingress intentionally publishes only

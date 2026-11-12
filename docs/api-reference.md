@@ -160,7 +160,7 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
   "imageRef": {"name": "img-claude-coder"},
   "runtime": {"provider": "ollama-cloud"},
   "llm": {"model": "unsloth/gpt-oss-120b-GGUF:F16", "maxTurns": 25, "temperature": 0.2, "vision": true},
-  "persona": {"inline": "..."},
+  "persona": {"text": "You review pull requests. ..."},
   "enabledTools": ["read", "edit"],
   "scaling": {"replicas": 3},
   "memory": {"enabled": true, "provider": "example"},
@@ -169,7 +169,9 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
 }
 ```
 
-`imageRef.name` is required and must reference an existing `AgentImage`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+`imageRef.name` is required and must reference an existing `AgentImage` — on a chart install, the built-in `ainsel-standard-pi` ("AInsel Standard (Pi)") is always there. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+
+`persona` takes **either** `id` — a shared persona template from `/api/v1/personas` — **or** `text`, the agent's own instructions. With `text` the hub stores the instructions as a persona owned by the new agent, the same agent-owned persona that [`PUT /api/v1/agents/{name}/persona`](#put-apiv1agentsnamepersona) edits later, so no library entry is needed first. Setting both is a `400`; `text` without persona storage configured is a `503`. If the Agent CR is then refused, the owned persona is deleted again.
 
 | Request block | `llm.provider` | Secret |
 |---|---|---|

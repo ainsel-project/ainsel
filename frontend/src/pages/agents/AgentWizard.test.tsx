@@ -79,6 +79,37 @@ function defaultFetch(url: string, init?: RequestInit): Response {
   return new Response('{}', { status: 200 })
 }
 
+/** The image list a fresh install serves: just the built-in default image. */
+function withDefaultImage(url: string, init?: RequestInit): Response {
+  if (url.includes('/agent-images/ainsel-standard-pi')) {
+    return new Response(
+      JSON.stringify({
+        id: 'ainsel-standard-pi',
+        displayName: 'AInsel Standard (Pi)',
+        imageURL: 'dpinsel/ainsel-pi:0.2.0',
+        managedBy: 'ainsel',
+      }),
+      { status: 200 },
+    )
+  }
+  if (url.includes('/agent-images')) {
+    return new Response(
+      JSON.stringify({
+        items: [
+          { id: IMAGE_ID, displayName: 'Claude Tooling Base' },
+          { id: 'ainsel-standard-pi', displayName: 'AInsel Standard (Pi)' },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 200,
+        totalPages: 1,
+      }),
+      { status: 200 },
+    )
+  }
+  return defaultFetch(url, init)
+}
+
 function renderWizard(route = '/agents/new') {
   return renderWithProviders(
     <Routes>
@@ -113,6 +144,7 @@ async function selectImage(user: ReturnType<typeof userEvent.setup>) {
 }
 
 async function selectPersona(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('radio', { name: /use a persona template/i }))
   await waitFor(() =>
     expect(screen.getByRole('option', { name: /test-persona/i })).toBeInTheDocument(),
   )
@@ -391,5 +423,85 @@ describe('AgentWizard', () => {
     // always sends it as a concrete value (0 pauses the agent).
     expect(postBody(fetchMock)?.replicas).toBe(1)
     expect(postBody(fetchMock)).not.toHaveProperty('minReplicas')
+  })
+
+  it('lists public images so the built-in image is offered to every user', async () => {
+    renderWizard('/agents/new?step=runtime')
+    await screen.findByRole('option', { name: /Claude Tooling Base/i })
+    const listCall = fetchMock.mock.calls.find(
+      ([u]) => typeof u === 'string' && /\/agent-images\?/.test(u),
+    )
+    expect(listCall?.[0]).toContain('includePublic=true')
+  })
+
+  it('preselects the built-in standard image when the install provides one', async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      Promise.resolve(withDefaultImage(url, init)),
+    )
+    renderWizard('/agents/new?step=runtime')
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/runtime image/i)).toHaveValue('ainsel-standard-pi'),
+    )
+    expect(await screen.findByText(/ships with this AInsel release/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /create a custom image/i })).toBeInTheDocument()
+  })
+
+  it('keeps an image the user picked instead of the default', async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      Promise.resolve(withDefaultImage(url, init)),
+    )
+    const user = userEvent.setup()
+    renderWizard('/agents/new?step=runtime')
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/runtime image/i)).toHaveValue('ainsel-standard-pi'),
+    )
+    await user.selectOptions(screen.getByLabelText(/runtime image/i), IMAGE_ID)
+    await goToStep(user, 'Runtime')
+    expect(screen.getByLabelText(/runtime image/i)).toHaveValue(IMAGE_ID)
+  })
+
+  it('creates the first agent from inline instructions without a persona template', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await user.type(await screen.findByLabelText('Name'), 'my-agent')
+    await selectGroup(user)
+    await user.click(next())
+    await selectImage(user)
+    await user.click(next())
+    await user.type(await screen.findByLabelText('Model'), 'gpt-4')
+    await user.click(next())
+
+    // Inline instructions are the default persona source.
+    expect(await screen.findByRole('radio', { name: /write instructions/i })).toBeChecked()
+    await user.click(next())
+    expect(await screen.findByText(/instructions are required/i)).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Instructions'), 'Review pull requests.')
+    await user.click(next())
+    expect(await screen.findByText('Own instructions')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /create agent/i }))
+    await waitFor(() => expect(postBody(fetchMock)).toBeDefined())
+    expect(postBody(fetchMock)?.persona).toEqual({ text: 'Review pull requests.' })
+  })
+
+  it('names the credential and tools the agent still lacks on the review step', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    await fillThroughPersona(user)
+
+    const notice = await screen.findByText(/still needed after creation/i)
+    const box = notice.closest('[role="alert"]') as HTMLElement
+    expect(within(box).getByText(/no ollama cloud api key entered/i)).toBeInTheDocument()
+    expect(within(box).getByText(/no tools are enabled/i)).toBeInTheDocument()
+
+    await goToStep(user, 'Model')
+    await user.type(screen.getByLabelText(/ollama cloud api key/i), 'sk-test')
+    await goToStep(user, 'Review')
+    expect(screen.queryByText(/no ollama cloud api key entered/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/no tools are enabled/i)).toBeInTheDocument()
   })
 })

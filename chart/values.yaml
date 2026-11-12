@@ -237,6 +237,21 @@ hub:
       # composes the container image from them.
       tag: 0.1.0
       digest: ""
+  # The built-in "AInsel Standard (Pi)" AgentImage (CR name
+  # ainsel-standard-pi). The hub writes it on every start, so a fresh install
+  # can create its first agent without registering an image, and upgrading the
+  # release moves the image to the new release's Pi runtime. It is managed by
+  # the installation (read-only in the console) and grants no tools or MCP
+  # servers by itself; create a custom AgentImage for a different runtime.
+  defaultAgentImage:
+    # false stops the hub from writing the image. An image it already created
+    # stays in place; delete it with kubectl if it is no longer wanted.
+    enabled: true
+    repository: dpinsel/ainsel-pi
+    # Empty follows the chart's appVersion, the Pi image the release pipeline
+    # publishes alongside this chart. Set a tag or digest only to pin a build.
+    tag: ""
+    digest: ""
   resources:
     requests:
       cpu: 50m

@@ -102,6 +102,10 @@ type containerConfig struct {
 	// authEventMaxRows rows (newest kept).
 	authEventRetentionDays int
 	authEventMaxRows       int
+	// defaultAgentImage is HUB_DEFAULT_AGENT_IMAGE: the container image the
+	// built-in "AInsel Standard (Pi)" AgentImage points at. The chart sets it
+	// to the release's own Pi runtime; empty disables seeding (issue #88).
+	defaultAgentImage string
 }
 
 // newContainer constructs all hub resources in dependency order.
