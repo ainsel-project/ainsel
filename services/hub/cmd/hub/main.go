@@ -43,6 +43,7 @@ func main() {
 		metricsSource:          envOrDefault("HUB_METRICS_SOURCE", ""),
 		claimTimeoutSecs:       envIntOrDefault("TASK_CLAIM_TIMEOUT_SECONDS", 1800),
 		taskStartTimeoutSecs:   envIntOrDefault("TASK_START_TIMEOUT_SECONDS", 900),
+		taskExpirySecs:         envIntOrDefault("TASK_EXPIRY_SECONDS", 86400),
 		authEventRetentionDays: envIntOrDefault("HUB_AUTH_EVENT_RETENTION_DAYS", 90),
 		authEventMaxRows:       envIntOrDefault("HUB_AUTH_EVENT_MAX_ROWS", 100000),
 		connectorCfg:           api.LoadConnectorConfig(),
@@ -224,6 +225,35 @@ func main() {
 							slog.Error("notify agent after reap failed", "agent_name", rt.AgentName, "error", err)
 						}
 					}
+				}
+			}
+		}
+	}))
+
+	// Pickup-deadline reaper (every 5m, non-fatal): tasks still pending past
+	// their expires_at become 'expired' and the sender is notified through the
+	// same path a failed task uses, so a queue behind a paused or scaled-to-zero
+	// agent stops growing silently (issue #236).
+	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
+		if cfg.taskExpirySecs <= 0 {
+			slog.Info("task expiry reaper disabled", "TASK_EXPIRY_SECONDS", cfg.taskExpirySecs)
+			return nil
+		}
+		slog.Info("task expiry reaper started", "timeout", time.Duration(cfg.taskExpirySecs)*time.Second, "interval", 5*time.Minute)
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				n, err := c.apiServer.ExpireQueuedTasks(ctx)
+				if err != nil {
+					slog.Error("task expiry reap failed", "error", err)
+					continue
+				}
+				if n > 0 {
+					slog.Warn("expired queued tasks", "count", n)
 				}
 			}
 		}

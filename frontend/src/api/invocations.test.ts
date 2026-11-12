@@ -22,6 +22,8 @@ describe('taskRunState', () => {
   it('maps terminal task statuses', () => {
     expect(taskRunState({ status: 'completed', attempts: 1 })).toBe('success')
     expect(taskRunState({ status: 'failed', attempts: 2 })).toBe('failure')
+    // Never picked up before the hub's pickup deadline: a timeout, not a failure.
+    expect(taskRunState({ status: 'expired', attempts: 0 })).toBe('timeout')
   })
 })
 

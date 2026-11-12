@@ -83,7 +83,9 @@ on it (in per-task Job mode the queue row stays `pending` while the pod works,
 which is why the raw task status alone is not enough); **unknown** means nothing
 backs the row — a pruned record or a task that was never enqueued — and is never
 rendered as queued or running. A task still queued past the hub's start deadline
-(`TASK_START_TIMEOUT_SECONDS`) is flagged *stuck*. The Activity page's Outcome
+(`TASK_START_TIMEOUT_SECONDS`) is flagged *stuck*; one that then waits past its
+pickup deadline (`TASK_EXPIRY_SECONDS`) is reaped to `expired` and renders as
+*timeout* — never picked up, and the sender notified like a failed task. The Activity page's Outcome
 filter accepts all five states (`queued`, `running`, `success`, `failure`,
 `timeout`) and filters over the whole history, not just the loaded page. The
 agent overview's stat cells count with this same derived state — a non-terminal

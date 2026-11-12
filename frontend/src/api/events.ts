@@ -19,7 +19,7 @@ export type ActivityMatch = {
   durationMs?: number
   error?: string
   /** Raw agent_tasks status when a task row exists. */
-  taskStatus?: 'pending' | 'claimed' | 'completed' | 'failed'
+  taskStatus?: 'pending' | 'claimed' | 'completed' | 'failed' | 'expired'
   /** Derived display state from the hub — the value to render. */
   runState?: RunState
   /** First evidence of work (claim or first conversation row). */

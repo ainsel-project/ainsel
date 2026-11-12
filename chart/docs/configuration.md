@@ -162,6 +162,7 @@ binary's full env-var reference — including the chart-managed variables
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `TASK_CLAIM_TIMEOUT_SECONDS` | int | `1800` | Duration (in seconds) after which a `claimed` task is considered stale. A background reaper runs every 5m and resets stale claims to `pending` (or `failed` if max attempts reached) with a 30s retry delay. |
+| `TASK_EXPIRY_SECONDS` | int | `86400` | Pickup deadline for queued tasks, in seconds. A task still `pending` (never claimed) past its deadline becomes terminal `expired` — distinct from `failed` — and the sender is notified through the same path that reports a failed task (the invocation closes as `timeout`). The deadline is stamped at enqueue time, so changing this never retroactively expires existing tasks. `0` disables the reaper. |
 | `HUB_WS_ALLOWED_ORIGINS` | string | _empty_ | Comma-separated list of extra Origins allowed to open `/api/v1/ws`. Same-origin requests are always allowed, so this is only needed when the UI is served from a different host or port than the hub API (local development). Entries may be full origins (`https://app.example.com`) or bare hosts (`localhost:5173`). |
 | `OIDC_JWKS_URL` / `OIDC_USERINFO_URL` | string | _empty_ | Optional escape hatches pinning the JWKS / userinfo endpoints instead of the issuer's discovery document. The chart has no dedicated values for these; see [docs/deployment.md](../../docs/deployment.md). |
 
