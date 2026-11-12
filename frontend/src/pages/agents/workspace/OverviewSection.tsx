@@ -326,7 +326,7 @@ export function OverviewSection() {
           </div>
 
           <Panel title="Key facts" className="cropped">
-            <dl className="info-grid" style={{ margin: 0, gridTemplateColumns: 'repeat(5, 1fr)' }}>
+            <dl className="info-grid" style={{ margin: 0, gridTemplateColumns: 'repeat(7, 1fr)' }}>
               <div>
                 <dt className="k">Persona</dt>
                 <dd className="v" style={{ margin: 0 }}>
@@ -374,6 +374,26 @@ export function OverviewSection() {
                   ) : (
                     '—'
                   )}
+                </dd>
+              </div>
+              <div>
+                <dt className="k">Model</dt>
+                <dd className="v" style={{ margin: 0 }}>
+                  {agent.llm?.model ? (
+                    <Link to={sectionPath(id, 'runtime')}>
+                      <span className="num">{agent.llm.model}</span>
+                    </Link>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="k">Image Input</dt>
+                <dd className="v" style={{ margin: 0 }}>
+                  <Link to={sectionPath(id, 'runtime')}>
+                    {agent.llm?.vision === true ? 'Images are sent' : 'Text only'}
+                  </Link>
                 </dd>
               </div>
             </dl>

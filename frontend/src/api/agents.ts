@@ -56,7 +56,13 @@ export type AgentSummary = {
   id: string
   name: string
   description?: string
-  llm?: { model: string; provider?: string }
+  llm?: {
+    model: string
+    provider?: string
+    /** Whether pi sends image input; advertised in pi's models.json `input`
+     *  array. Absent means unset, which the hub treats as false. */
+    vision?: boolean
+  }
   imageRef?: AgentImageRef
   persona?: AgentPersona
   replicas?: number

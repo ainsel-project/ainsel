@@ -286,6 +286,31 @@ describe('OverviewSection', () => {
     await waitFor(() => expect(valueOf('Persona')).toHaveTextContent('docs-writer'))
   })
 
+  it('shows the model as a fact linking to the runtime section', async () => {
+    renderOverview()
+    await waitFor(() => expect(valueOf('Model')).toHaveTextContent('claude-opus-4-7'))
+    expect(valueOf('Model').querySelector('a')).toHaveAttribute('href', '/agents/a1/runtime')
+  })
+
+  it('reads Image Input as Images are sent when vision is true', async () => {
+    stubAgent({ ...baseAgent, llm: { model: 'claude-opus-4-7', vision: true } })
+    renderOverview()
+    await waitFor(() => expect(valueOf('Image Input')).toHaveTextContent('Images are sent'))
+    expect(valueOf('Image Input').querySelector('a')).toHaveAttribute('href', '/agents/a1/runtime')
+  })
+
+  it('reads Image Input as Text only when vision is false', async () => {
+    stubAgent({ ...baseAgent, llm: { model: 'claude-opus-4-7', vision: false } })
+    renderOverview()
+    await waitFor(() => expect(valueOf('Image Input')).toHaveTextContent('Text only'))
+  })
+
+  it('reads an absent vision as Text only', async () => {
+    // baseAgent's llm has no vision field at all — unset means default false.
+    renderOverview()
+    await waitFor(() => expect(valueOf('Image Input')).toHaveTextContent('Text only'))
+  })
+
   it('shows the paused tag with the resume time', async () => {
     const until = new Date(Date.now() + 3600_000).toISOString()
     stubAgent({ ...baseAgent, paused: true, pausedUntil: until })
