@@ -8,6 +8,7 @@ on:
       - 'go.work'
       - '.golangci.yml'
       - '.github/workflows/ci-shared-api.yml'
+      - '.github/workflows/ci-component.yml'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -16,27 +17,11 @@ on:
       - 'go.work'
       - '.golangci.yml'
       - '.github/workflows/ci-shared-api.yml'
+      - '.github/workflows/ci-component.yml'
 
 jobs:
   ci:
-    name: Lint, Test, Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.26.5'
-          cache: false
-      - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-      - name: Lint
-        working-directory: shared/api
-        run: golangci-lint run -c ../../.golangci.yml ./...
-      - name: Test
-        working-directory: shared/api
-        run: |
-          go test -v -coverprofile=coverage.out ./...
-          go tool cover -func=coverage.out
-      - name: Build
-        working-directory: shared/api
-        run: go build ./...
+    uses: ./.github/workflows/ci-component.yml
+    with:
+      component_path: shared/api
+      build_command: go build ./...

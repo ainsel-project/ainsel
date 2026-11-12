@@ -1,0 +1,61 @@
+name: CI - Go component
+
+# Lint, test and build one Go module. Called by the ci-<component>.yml
+# workflows, which keep the triggers and path filters: a workflow_call
+# workflow cannot carry `paths:`, and it runs in its caller's event context,
+# so nothing here can be dispatched on its own.
+
+on:
+  workflow_call:
+    inputs:
+      component_path:
+        description: "Module directory, relative to the repository root"
+        type: string
+        required: true
+      build_command:
+        description: "Build step, run inside component_path"
+        type: string
+        default: make build
+      go_version:
+        type: string
+        default: '1.26.5'
+      envtest:
+        description: "Install the envtest binaries the controller tests need (operators)"
+        type: boolean
+        default: false
+      vet_e2e:
+        description: "Compile the `//go:build e2e` suites, which `go test ./...` never sees (operators)"
+        type: boolean
+        default: false
+
+jobs:
+  ci:
+    name: Lint, Test, Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.component_path }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: false
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      - name: Lint
+        run: golangci-lint run -c ${{ github.workspace }}/.golangci.yml ./...
+      - name: Set up envtest binaries
+        if: inputs.envtest
+        run: make setup-envtest
+      - name: Test
+        run: |
+          go test -v -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+      - name: Build
+        run: ${{ inputs.build_command }}
+      # The e2e suites are behind `//go:build e2e` and invisible to `go test ./...`;
+      # this is the only compile check for operators/*/test/e2e (see shared/testutil).
+      - name: Compile e2e-tagged code
+        if: inputs.vet_e2e
+        run: go vet -tags e2e ./...
