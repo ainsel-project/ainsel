@@ -41,13 +41,13 @@ func main() {
 		metricsPort:            envOrDefault("HUB_METRICS_PORT", "9090"),
 		promURL:                envOrDefault("HUB_PROMETHEUS_URL", ""),
 		metricsSource:          envOrDefault("HUB_METRICS_SOURCE", ""),
-		claimTimeoutSecs:       envIntOrDefault("TASK_CLAIM_TIMEOUT_SECONDS", 1800),
 		taskStartTimeoutSecs:   envIntOrDefault("TASK_START_TIMEOUT_SECONDS", 900),
 		taskExpirySecs:         envIntOrDefault("TASK_EXPIRY_SECONDS", 86400),
 		authEventRetentionDays: envIntOrDefault("HUB_AUTH_EVENT_RETENTION_DAYS", 90),
 		authEventMaxRows:       envIntOrDefault("HUB_AUTH_EVENT_MAX_ROWS", 100000),
 		connectorCfg:           api.LoadConnectorConfig(),
 		hubAllowInsecureNoAuth: os.Getenv("HUB_ALLOW_INSECURE_NO_AUTH") == "true",
+		defaultAgentImage:      os.Getenv("HUB_DEFAULT_AGENT_IMAGE"),
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -125,6 +125,15 @@ func main() {
 		return nil
 	})
 
+	// Built-in agent image (one-shot after cache sync; non-fatal): a failed
+	// seed only means the image picker starts empty, as before issue #88.
+	g.Go(func() error {
+		if err := runDefaultImageSeed(ctx, c, cfg.defaultAgentImage); err != nil {
+			slog.Error("default agent image", "error", err)
+		}
+		return nil
+	})
+
 	// Skill delivery: the shared skills ConfigMap mirrors the skills
 	// agents have enabled, not the whole registry. This pass runs once at
 	// startup to prune catalogue entries (which is what frees the object
@@ -197,37 +206,6 @@ func main() {
 	// to scale on (see internal/queuesignal).
 	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
 		return c.queueSignals.Run(ctx)
-	}))
-
-	// Stale claim reaper (every 5m, non-fatal).
-	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
-		claimTimeout := time.Duration(cfg.claimTimeoutSecs) * time.Second
-		slog.Info("stale claim reaper started", "timeout", claimTimeout, "interval", 5*time.Minute)
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ticker.C:
-				reaped, err := c.eventQueue.ReapStaleClaims(ctx, claimTimeout)
-				if err != nil {
-					slog.Error("stale claim reap failed", "error", err)
-					continue
-				}
-				// Deduplicate agent names so we send at most one NOTIFY per agent.
-				notified := make(map[string]bool)
-				for _, rt := range reaped {
-					slog.Warn("reaped stale claim", "task_id", rt.ID, "agent_name", rt.AgentName, "timeout", claimTimeout)
-					if !notified[rt.AgentName] {
-						notified[rt.AgentName] = true
-						if err := c.eventQueue.NotifyAgent(ctx, rt.AgentName); err != nil {
-							slog.Error("notify agent after reap failed", "agent_name", rt.AgentName, "error", err)
-						}
-					}
-				}
-			}
-		}
 	}))
 
 	// Pickup-deadline reaper (every 5m, non-fatal): tasks still pending past

@@ -127,7 +127,7 @@ kubectl logs -n <namespace> job/<task-job> -c chat --tail=20
   with a newer runtime image (or the reverse) breaks that handoff, so check that
   the control plane and the agent images are from the same release.
 - **Deleting the stuck Job is a safe immediate fix** — the operator sees the task
-  still claimed and dispatches it again as a fresh Job.
+  still pending and dispatches it again as a fresh Job.
 
 ---
 
@@ -378,7 +378,9 @@ To read the same history in bulk rather than one task at a time, query the hub's
   processed the event — even when nothing matched — so a null means the event has not been
   processed yet, not that nothing matched.
 - `agent_tasks` holds one row per matched agent with its delivery status, error and timings.
-  A row stuck at `pending` was matched but never claimed.
+  A row stuck at `pending` was matched but never resolved: either no Job has
+  picked it up yet, or its Job is still running (a Job never claims, so a
+  running task stays `pending` until it acks).
 
 An event that matched no trigger gets no `agent_tasks` row at all — its `events` row stays,
 `routed_at` stamped, with no downstream delivery. The router logs it to the hub's stdout as an

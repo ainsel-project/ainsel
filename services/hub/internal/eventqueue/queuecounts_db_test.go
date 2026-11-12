@@ -85,19 +85,8 @@ func TestQueueCountsMeasuresRealRows(t *testing.T) {
 		t.Errorf("QueueCounts = %+v, want 4 pending 0 active", counts)
 	}
 
-	// Claiming moves work from "waiting" to "in flight": both are queue depth,
-	// but only active blocks a scale-down.
-	task, err := s.ClaimTask(ctx, agent)
-	if err != nil || task == nil {
-		t.Fatalf("ClaimTask: %v (task %v)", err, task)
-	}
-	counts, _ = s.QueueCounts(ctx, agent)
-	if counts.Pending != 3 || counts.Active != 1 {
-		t.Errorf("after claim QueueCounts = %+v, want 3 pending 1 active", counts)
-	}
-
 	// Terminal states must not hold an agent awake.
-	if err := s.AckTask(ctx, task.ID); err != nil {
+	if err := s.AckTask(ctx, ids[0]); err != nil {
 		t.Fatalf("AckTask: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE agent_tasks SET status = 'failed' WHERE id = $1`, ids[3]); err != nil {
@@ -138,13 +127,13 @@ func TestQueueCountsIncludesTasksInRetryBackoff(t *testing.T) {
 		t.Errorf("QueueCounts = %+v, want the deferred task counted as pending", counts)
 	}
 
-	// ClaimTask must still refuse to hand it out early.
-	task, err := s.ClaimTask(ctx, agent)
+	// ...but it is not due: no Job may be dispatched for it before retry_after.
+	due, err := s.DueTaskIDs(ctx, agent, 10)
 	if err != nil {
-		t.Fatalf("ClaimTask: %v", err)
+		t.Fatalf("DueTaskIDs: %v", err)
 	}
-	if task != nil {
-		t.Errorf("ClaimTask returned task %d while retry_after is in the future", task.ID)
+	if len(due) != 0 {
+		t.Errorf("DueTaskIDs = %v while retry_after is in the future, want none", due)
 	}
 }
 
@@ -159,10 +148,6 @@ func TestAllQueueCountsCoversAgentsWithWork(t *testing.T) {
 	insertTestTask(t, pool, "test-reap-evt-all-a", agentA)
 	tb := insertTestTask(t, pool, "test-reap-evt-all-b", agentB)
 
-	if _, err := s.ClaimTask(ctx, agentB); err != nil {
-		t.Fatalf("ClaimTask: %v", err)
-	}
-
 	all, err := s.AllQueueCounts(ctx)
 	if err != nil {
 		t.Fatalf("AllQueueCounts: %v", err)
@@ -170,8 +155,8 @@ func TestAllQueueCountsCoversAgentsWithWork(t *testing.T) {
 	if got := all[agentA]; got.Pending != 1 || got.Active != 0 {
 		t.Errorf("AllQueueCounts[%s] = %+v, want 1 pending", agentA, got)
 	}
-	if got := all[agentB]; got.Pending != 0 || got.Active != 1 {
-		t.Errorf("AllQueueCounts[%s] = %+v, want 1 active", agentB, got)
+	if got := all[agentB]; got.Pending != 1 || got.Active != 0 {
+		t.Errorf("AllQueueCounts[%s] = %+v, want 1 pending", agentB, got)
 	}
 
 	// Drained agents are absent, not zero: the publisher uses absence to forget
@@ -208,15 +193,21 @@ func TestTransitionsObserveTheirAgent(t *testing.T) {
 		t.Errorf("after enqueue observer saw %v, want %s", names, agent)
 	}
 
-	task, err := s.ClaimTask(ctx, agent)
-	if err != nil || task == nil {
-		t.Fatalf("ClaimTask: %v (%v)", err, task)
-	}
-	if names := drained(t, seen); len(names) == 0 || names[0] != agent {
-		t.Errorf("after claim observer saw %v, want %s", names, agent)
+	var taskID int64
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM agent_tasks WHERE event_id = 'test-reap-evt-observe' AND agent_name = $1`, agent,
+	).Scan(&taskID); err != nil {
+		t.Fatalf("find enqueued task: %v", err)
 	}
 
-	if err := s.AckTask(ctx, task.ID); err != nil {
+	if err := s.NakTask(ctx, taskID, time.Second, "transient"); err != nil {
+		t.Fatalf("NakTask: %v", err)
+	}
+	if names := drained(t, seen); len(names) == 0 || names[0] != agent {
+		t.Errorf("after nack observer saw %v, want %s", names, agent)
+	}
+
+	if err := s.AckTask(ctx, taskID); err != nil {
 		t.Fatalf("AckTask: %v", err)
 	}
 	if names := drained(t, seen); len(names) == 0 || names[0] != agent {
@@ -230,52 +221,5 @@ func TestTransitionsObserveTheirAgent(t *testing.T) {
 	}
 	if names := drained(t, seen); len(names) != 0 {
 		t.Errorf("unknown ack woke %v, want nobody", names)
-	}
-}
-
-// The reaper is the only thing that turns an abandoned claim back into work, so
-// it has to report the agents it touched or their pods stay scaled down.
-func TestReapStaleClaimsObservesReapedAgents(t *testing.T) {
-	pool := migratePool(t)
-	ctx := context.Background()
-	s := NewStore(pool)
-	seen := watchObserver(t, s)
-
-	const agent = "test-reap-stale"
-	insertTestEvent(t, pool, "test-reap-evt-stale")
-	insertTestTask(t, pool, "test-reap-evt-stale", agent)
-
-	if _, err := s.ClaimTask(ctx, agent); err != nil {
-		t.Fatalf("ClaimTask: %v", err)
-	}
-	// Age the claim past the timeout without waiting for it.
-	if _, err := pool.Exec(ctx,
-		`UPDATE agent_tasks SET claimed_at = now() - interval '1 hour' WHERE agent_name = $1`, agent); err != nil {
-		t.Fatalf("age the claim: %v", err)
-	}
-	drained(t, seen)
-
-	reaped, err := s.ReapStaleClaims(ctx, 30*time.Minute)
-	if err != nil {
-		t.Fatalf("ReapStaleClaims: %v", err)
-	}
-	if len(reaped) == 0 {
-		t.Fatal("ReapStaleClaims reaped nothing")
-	}
-	found := false
-	for _, r := range reaped {
-		if r.AgentName == agent {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("reaped %+v, want a task for %s", reaped, agent)
-	}
-
-	if names := drained(t, seen); len(names) == 0 || names[0] != agent {
-		t.Errorf("after reaping observer saw %v, want %s", names, agent)
-	}
-	if counts, _ := s.QueueCounts(ctx, agent); counts.Pending != 1 || counts.Active != 0 {
-		t.Errorf("after reaping QueueCounts = %+v, want the task pending again", counts)
 	}
 }

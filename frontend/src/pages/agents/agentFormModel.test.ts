@@ -30,7 +30,7 @@ describe('agentSchema', () => {
       name: 'a',
       imageRef: { name: 'img' },
       llm: { model: 'm', provider: 'custom' },
-      persona: { id: 'p' },
+      persona: { mode: 'template', id: 'p' },
       replicas: 1,
     })
     expect(result.success).toBe(false)
@@ -43,7 +43,7 @@ describe('provider rules', () => {
     ...agentDefaults,
     name: 'Agent',
     imageRef: { name: 'image' },
-    persona: { id: 'persona' },
+    persona: { mode: 'template', id: 'persona' },
   }
 
   it('requires a provider', () => {

@@ -89,7 +89,6 @@ type containerConfig struct {
 	// metric panels. Empty means the default, the hub's own records. See
 	// wireMetricsSource.
 	metricsSource        string
-	claimTimeoutSecs     int
 	taskStartTimeoutSecs int
 	// taskExpirySecs is the pickup deadline for queued tasks (TASK_EXPIRY_SECONDS,
 	// default 1 day, 0 disables). A task still pending past it becomes 'expired'
@@ -102,6 +101,10 @@ type containerConfig struct {
 	// authEventMaxRows rows (newest kept).
 	authEventRetentionDays int
 	authEventMaxRows       int
+	// defaultAgentImage is HUB_DEFAULT_AGENT_IMAGE: the container image the
+	// built-in "AInsel Standard (Pi)" AgentImage points at. The chart sets it
+	// to the release's own Pi runtime; empty disables seeding (issue #88).
+	defaultAgentImage string
 }
 
 // newContainer constructs all hub resources in dependency order.

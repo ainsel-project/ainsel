@@ -15,11 +15,11 @@ import (
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
-// Pausing an agent withholds task delivery: the hub's claim endpoint hands a
-// paused agent nothing, so routed tasks pile up as a backlog (visible via the
-// queue-depth fields) and drain in id order on resume. Ingestion and routing
-// keep running — nothing is lost while paused. In-flight tasks already
-// claimed are never interrupted; they complete normally.
+// Pausing an agent records spec.pause on the Agent CRD. Delivery was withheld
+// by the legacy next-task claim endpoint, which is gone: the per-task Job path
+// (queuesignal -> operator -> fetch by id) never reads spec.pause, so a pause
+// is currently recorded but not enforced. The feature is slated for removal in
+// favour of replicas: 0 (issue #249).
 //
 // Pause state lives on the Agent CRD (spec.pause), so it is declarative,
 // kubectl-editable and GitOps-friendly. Expiry is evaluated at read time
@@ -127,14 +127,6 @@ func (s *Server) resumeAgent(w http.ResponseWriter, r *http.Request, name string
 		writeError(w, http.StatusInternalServerError, "failed to resume agent: "+err.Error())
 		return
 	}
-	// Nudge the queue so a waiting runtime picks the backlog up immediately
-	// instead of after its long-poll timeout. Best effort: a failed notify
-	// only delays the first claim, it cannot lose a queued task.
-	if s.eventQueue != nil {
-		if err := s.eventQueue.NotifyAgent(r.Context(), name); err != nil {
-			slog.Warn("resume notify failed", "agent", name, "error", err)
-		}
-	}
 	slog.Info("agent resumed", "agent", name)
 	s.writeAgentResponse(w, r, agent)
 }
@@ -161,32 +153,4 @@ func (s *Server) getAgentForPauseWrite(ctx context.Context, name string) (*agent
 func (s *Server) writeAgentResponse(w http.ResponseWriter, r *http.Request, agent *agentv1alpha1.Agent) {
 	displayName := s.resolveImageDisplayName(r.Context(), agent.Spec.ImageRef.Name)
 	writeJSON(w, http.StatusOK, toSimpleAgentResponse(*agent, displayName))
-}
-
-// agentPauseState reports whether the named agent is currently paused and,
-// when the pause expires on its own, when it ends (zero time for an
-// indefinite pause).
-//
-// A missing agent or a failed lookup reads as not paused: the queue is the
-// authority on what may be claimed, and a transient API-server hiccup must
-// not stop a running agent from working.
-func (s *Server) agentPauseState(ctx context.Context, name string) (paused bool, resumesAt time.Time) {
-	if s.client == nil {
-		return false, time.Time{}
-	}
-	var agent agentv1alpha1.Agent
-	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &agent); err != nil {
-		if !apierrors.IsNotFound(err) {
-			slog.Warn("pause check: agent lookup failed", "agent", name, "error", err)
-		}
-		return false, time.Time{}
-	}
-	now := time.Now()
-	if !agent.IsPaused(now) {
-		return false, time.Time{}
-	}
-	if agent.Spec.Pause.PausedUntil != nil {
-		return true, agent.Spec.Pause.PausedUntil.Time
-	}
-	return true, time.Time{}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // newAgentPersonaServer wires a Server with the agent routes and a persona
@@ -484,4 +486,132 @@ func TestDefaultOwnedPersonaName(t *testing.T) {
 			t.Errorf("got %q", got)
 		}
 	})
+}
+
+// createAgentWithPersonaText posts a create request whose persona carries
+// inline instructions instead of a template id.
+func createAgentWithPersonaText(t *testing.T, s *Server, persona *AgentPersonaCreateInfo) *httptest.ResponseRecorder {
+	t.Helper()
+	body, _ := json.Marshal(SimpleAgentCreateRequest{
+		Name:     "Doc Writer",
+		ImageRef: AgentImageRefInfo{Name: "img-1"},
+		LLM:      AgentLLMInfo{Model: "glm-5.1:cloud", Provider: "ollama-cloud"},
+		Persona:  persona,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func newAgentCreateServer(t *testing.T, svc PersonaService) *Server {
+	t.Helper()
+	s := testServer(t, testAgentImage("img-1", "git"))
+	s.personas = svc
+	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
+	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
+	return s
+}
+
+func TestCreateAgent_InlinePersonaTextCreatesOwnedPersona(t *testing.T) {
+	var gotAgent, gotDefaultName, gotText string
+	s := newAgentCreateServer(t, &personaStub{
+		ensureOwnedFn: func(ctx context.Context, agentName, defaultName string, req personas.UpdateRequest) (*personas.Persona, error) {
+			gotAgent, gotDefaultName, gotText = agentName, defaultName, *req.Text
+			return &personas.Persona{ID: "p-own", OwnerAgent: agentName}, nil
+		},
+	})
+
+	rec := createAgentWithPersonaText(t, s, &AgentPersonaCreateInfo{Text: "Review pull requests."})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var created SimpleAgentResponse
+	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if gotAgent != created.ID {
+		t.Errorf("persona owner = %q, want the new agent %q", gotAgent, created.ID)
+	}
+	if gotDefaultName != "Doc Writer (own)" {
+		t.Errorf("default name = %q", gotDefaultName)
+	}
+	if gotText != "Review pull requests." {
+		t.Errorf("text = %q", gotText)
+	}
+
+	agent := &agentv1alpha1.Agent{}
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: created.ID, Namespace: s.ns}, agent); err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if agent.Spec.Persona.ID != "p-own" {
+		t.Errorf("spec.persona.id = %q, want p-own", agent.Spec.Persona.ID)
+	}
+}
+
+func TestCreateAgent_PersonaIDAndTextIs400(t *testing.T) {
+	s := newAgentCreateServer(t, &personaStub{})
+	rec := createAgentWithPersonaText(t, s, &AgentPersonaCreateInfo{ID: "p-1", Text: "x"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateAgent_InlinePersonaWithoutServiceIs503(t *testing.T) {
+	s := newAgentCreateServer(t, nil)
+	rec := createAgentWithPersonaText(t, s, &AgentPersonaCreateInfo{Text: "x"})
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateAgent_InlinePersonaValidationErrorIs400(t *testing.T) {
+	s := newAgentCreateServer(t, &personaStub{
+		ensureOwnedFn: func(ctx context.Context, agentName, defaultName string, req personas.UpdateRequest) (*personas.Persona, error) {
+			return nil, &personas.ValidationError{Field: "text", Message: "is required"}
+		},
+	})
+	rec := createAgentWithPersonaText(t, s, &AgentPersonaCreateInfo{Text: "x"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var list agentv1alpha1.AgentList
+	if err := s.client.List(context.Background(), &list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("a rejected persona must not leave an agent behind, got %d", len(list.Items))
+	}
+}
+
+// failingCreateClient refuses every Create, standing in for an API server
+// that rejects the Agent CR after the hub already wrote the owned persona.
+type failingCreateClient struct{ client.Client }
+
+func (failingCreateClient) Create(context.Context, client.Object, ...client.CreateOption) error {
+	return errors.New("admission denied")
+}
+
+func TestCreateAgent_FailedCRCreateReclaimsOwnedPersona(t *testing.T) {
+	var deletedID, deletedAgent, ownerAgent string
+	s := newAgentCreateServer(t, &personaStub{
+		ensureOwnedFn: func(ctx context.Context, agentName, defaultName string, req personas.UpdateRequest) (*personas.Persona, error) {
+			ownerAgent = agentName
+			return &personas.Persona{ID: "p-own", OwnerAgent: agentName}, nil
+		},
+		deleteOwnedFn: func(ctx context.Context, personaID, agentName string) error {
+			deletedID, deletedAgent = personaID, agentName
+			return nil
+		},
+	})
+	s.client = failingCreateClient{s.client}
+
+	rec := createAgentWithPersonaText(t, s, &AgentPersonaCreateInfo{Text: "x"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if deletedID != "p-own" || deletedAgent != ownerAgent {
+		t.Errorf("DeleteOwned(%q, %q), want (p-own, %q)", deletedID, deletedAgent, ownerAgent)
+	}
 }

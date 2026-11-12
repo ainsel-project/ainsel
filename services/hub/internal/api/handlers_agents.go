@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
+	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
@@ -215,6 +216,16 @@ type AgentPersonaInfo struct {
 	ID string `json:"id"`
 }
 
+// AgentPersonaCreateInfo is the persona block of a create request: either the
+// id of a shared persona template, or inline instructions (Text) the hub
+// stores as a persona owned by the new agent — the same agent-owned persona
+// an inline edit forks later (see handlers_agent_persona.go). Exactly one of
+// the two may be set.
+type AgentPersonaCreateInfo struct {
+	ID   string `json:"id,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
 // AgentMemoryInfo is the REST representation of an Agent's memory backend.
 type AgentMemoryInfo struct {
 	Enabled  bool   `json:"enabled"`
@@ -275,15 +286,15 @@ func scalingProblem(scaling *agentv1alpha1.AgentScaling) string {
 
 // SimpleAgentCreateRequest is used to create a new Agent.
 type SimpleAgentCreateRequest struct {
-	Name         string            `json:"name"`
-	GroupID      string            `json:"groupId"`
-	Description  string            `json:"description,omitempty"`
-	ImageRef     AgentImageRefInfo `json:"imageRef"`
-	LLM          AgentLLMInfo      `json:"llm"`
-	Persona      *AgentPersonaInfo `json:"persona,omitempty"`
-	EnabledTools []string          `json:"enabledTools,omitempty"`
-	Skills       []string          `json:"skills,omitempty"`
-	MCP          *AgentMCPRequest  `json:"mcp,omitempty"`
+	Name         string                  `json:"name"`
+	GroupID      string                  `json:"groupId"`
+	Description  string                  `json:"description,omitempty"`
+	ImageRef     AgentImageRefInfo       `json:"imageRef"`
+	LLM          AgentLLMInfo            `json:"llm"`
+	Persona      *AgentPersonaCreateInfo `json:"persona,omitempty"`
+	EnabledTools []string                `json:"enabledTools,omitempty"`
+	Skills       []string                `json:"skills,omitempty"`
+	MCP          *AgentMCPRequest        `json:"mcp,omitempty"`
 	// Env sets this agent's environment overrides. For an entry marked
 	// Secret, an empty Value means "keep the existing value".
 	Env []AgentImageEnvVarInfo `json:"env,omitempty"`
@@ -522,7 +533,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The agent task endpoints (next-task, tasks/{id}[/ack|/nack]) live solely
+	// The agent task endpoints (tasks/{id}[/ack|/nack]) live solely
 	// on /api/internal/agents/ (handleInternalAgent). The old /api/v1 aliases
 	// are gone: they dispatched into the task handlers ahead of the CRUD
 	// requireRead/requireWrite checks below, letting any authenticated user
@@ -580,7 +591,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 // handleInternalAgent serves agent task endpoints under /api/internal/agents/.
 // These paths bypass the OIDC middleware (they don't match /api/v1/) and are
 // protected by X-Internal-Token at the handler level. Only task operations
-// (next-task, task fetch, ack, nack) are exposed; CRUD operations remain on
+// (task fetch, ack, nack) are exposed; CRUD operations remain on
 // /api/v1/.
 //
 // This is the sole entry point for the task handlers, and the token check runs
@@ -596,10 +607,6 @@ func (s *Server) handleInternalAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.HasSuffix(name, "/next-task") {
-		s.handleAgentNextTask(w, r)
-		return
-	}
 	if strings.Contains(name, "/tasks/") {
 		if strings.HasSuffix(name, "/ack") {
 			s.handleAgentTaskAck(w, r)
@@ -845,6 +852,16 @@ func (s *Server) validateAgentRequest(ctx context.Context, w http.ResponseWriter
 	return res, true
 }
 
+// personaRef is the template reference of a create request. Inline
+// instructions carry no id yet: createAgent fills it in once the owned
+// persona exists.
+func (r *SimpleAgentCreateRequest) personaRef() *AgentPersonaInfo {
+	if r.Persona == nil {
+		return nil
+	}
+	return &AgentPersonaInfo{ID: r.Persona.ID}
+}
+
 // toUpdateFields converts a create request into the pointer-shaped field set
 // applyAgentRequest consumes, with every field "present" so the assembler
 // writes all of them — reproducing create's unconditional assignment against
@@ -855,7 +872,7 @@ func (r *SimpleAgentCreateRequest) toUpdateFields() *SimpleAgentUpdateRequest {
 		Description:    &r.Description,
 		ImageRef:       &r.ImageRef,
 		LLM:            &r.LLM,
-		Persona:        r.Persona,
+		Persona:        r.personaRef(),
 		EnabledTools:   &r.EnabledTools,
 		Skills:         &r.Skills,
 		Env:            &r.Env,
@@ -1113,6 +1130,15 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 			return s.requireGroupWrite(w, r, req.GroupID)
 		}
 	}
+	inlinePersona := req.Persona != nil && req.Persona.Text != ""
+	if inlinePersona && req.Persona.ID != "" {
+		writeError(w, http.StatusBadRequest, "persona: set either id or text, not both")
+		return
+	}
+	if inlinePersona && s.personas == nil {
+		writeError(w, http.StatusServiceUnavailable, "persona service not configured")
+		return
+	}
 	res, ok := s.validateAgentRequest(ctx, w, in)
 	if !ok {
 		return
@@ -1136,7 +1162,27 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
+	// Inline instructions become a persona owned by the new agent. It is
+	// written before the CR because spec.persona.id is required, and
+	// reclaimed if the CR is refused so no invisible orphan is left behind.
+	var ownedPersona *personas.Persona
+	if inlinePersona {
+		text := req.Persona.Text
+		p, err := s.personas.EnsureOwned(ctx, id, defaultOwnedPersonaName(&agent), personas.UpdateRequest{Text: &text})
+		if err != nil {
+			writePersonaServiceError(w, err)
+			return
+		}
+		ownedPersona = p
+		agent.Spec.Persona = agentv1alpha1.AgentPersona{ID: p.ID}
+	}
+
 	if err := s.client.Create(ctx, &agent); err != nil {
+		if ownedPersona != nil {
+			if derr := s.personas.DeleteOwned(ctx, ownedPersona.ID, id); derr != nil {
+				slog.Error("reclaim persona of refused agent", "error", derr, "agent", id, "persona", ownedPersona.ID)
+			}
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

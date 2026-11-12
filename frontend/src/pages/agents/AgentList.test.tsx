@@ -17,14 +17,14 @@ describe('AgentList', () => {
                   {
                     id: 'a1',
                     name: 'doc-writer',
-                    llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
+                    llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud', vision: true },
                     imageRef: { name: 'claude-tooling-base:1.4' },
                     status: { ready: true, replicas: 3 },
                   },
                   {
                     id: 'a2',
                     name: 'triage-bot',
-                    llm: { model: 'claude-sonnet-4-6', provider: 'alibaba-cloud' },
+                    llm: { model: 'claude-sonnet-4-6', provider: 'alibaba-cloud', vision: false },
                     imageRef: { name: 'claude-tooling-base:1.4' },
                     status: { ready: false, replicas: 0 },
                   },
@@ -57,6 +57,13 @@ describe('AgentList', () => {
     renderWithProviders(<AgentList />, { route: '/agents' })
     expect(await screen.findByText('Ollama Cloud')).toBeInTheDocument()
     expect(screen.getByText('Alibaba Token Plan')).toBeInTheDocument()
+  })
+
+  it('badges the model cell only when vision is enabled', async () => {
+    // a1 has vision: true, a2 has vision: false — only a1 gets the badge.
+    renderWithProviders(<AgentList />, { route: '/agents' })
+    await waitFor(() => expect(screen.getByText('doc-writer')).toBeInTheDocument())
+    expect(screen.getAllByText('vision')).toHaveLength(1)
   })
 
   it('falls back to None when a row has no provider', async () => {

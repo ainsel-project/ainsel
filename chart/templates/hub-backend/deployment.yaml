@@ -211,6 +211,12 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.plugins.credentialSecretName | default "ainsel-plugin-credentials" }}
                   key: secret
+            {{- with .Values.hub.defaultAgentImage }}
+            {{- if .enabled }}
+            - name: HUB_DEFAULT_AGENT_IMAGE
+              value: "{{ .repository }}:{{ .tag | default $.Chart.AppVersion }}{{ with .digest }}@{{ . }}{{ end }}"
+            {{- end }}
+            {{- end }}
             {{- with .Values.hub.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

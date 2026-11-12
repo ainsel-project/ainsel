@@ -159,7 +159,7 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
   "description": "...",
   "imageRef": {"name": "img-claude-coder"},
   "llm": {"model": "unsloth/gpt-oss-120b-GGUF:F16", "provider": "ollama-cloud", "maxTurns": 25, "temperature": 0.2, "vision": true},
-  "persona": {"id": "01J..."},
+  "persona": {"text": "You review pull requests. ..."},
   "enabledTools": ["read", "edit"],
   "replicas": 3,
   "memory": {"enabled": true, "provider": "example"},
@@ -168,7 +168,9 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
 }
 ```
 
-`imageRef.name` is required and must reference an existing `AgentImage`. `llm.provider` is required on create and must be one of `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom` (`400` otherwise, naming the valid ids); on update an empty or absent provider leaves the stored one unchanged, and an unknown one is rejected with `400`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+`imageRef.name` is required and must reference an existing `AgentImage` — on a chart install, the built-in `ainsel-standard-pi` ("AInsel Standard (Pi)") is always there. `llm.provider` is required on create and must be one of `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom` (`400` otherwise, naming the valid ids); on update an empty or absent provider leaves the stored one unchanged, and an unknown one is rejected with `400`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+
+`persona` takes **either** `id` — a shared persona template from `/api/v1/personas` — **or** `text`, the agent's own instructions. With `text` the hub stores the instructions as a persona owned by the new agent, the same agent-owned persona that [`PUT /api/v1/agents/{name}/persona`](#put-apiv1agentsnamepersona) edits later, so no library entry is needed first. Setting both is a `400`; `text` without persona storage configured is a `503`. If the Agent CR is then refused, the owned persona is deleted again.
 
 | Request block | `llm.provider` | Secret |
 |---|---|---|
@@ -210,12 +212,13 @@ Delete an Agent, and reclaim the persona it owned if any (best-effort).
 
 ### POST /api/v1/agents/{name}/pause
 
-Pause the agent: the hub's task-claim endpoint (`next-task`) withholds work until the
-pause ends. Pending tasks stay queued and drain in id order on resume; events keep
-routing to the agent meanwhile. Already-claimed tasks are not interrupted, and
-interactive chat (`/api/v1/chat`) keeps working — a human talking to the agent
-directly is deliberate intent, not channel noise. Pause state lives on the Agent CRD
-(`spec.pause`), so `kubectl patch` works too, and expiry is evaluated at read time.
+> **Not enforced.** The pause was withheld at the legacy `next-task` claim endpoint,
+> which is gone: per-task Jobs are dispatched without reading `spec.pause`, so a paused
+> agent keeps working. Use `replicas: 0` to stop dispatch. This endpoint is slated for
+> removal ([#249](https://github.com/ainsel-project/ainsel/issues/249)).
+
+Record a pause on the agent. Pause state lives on the Agent CRD (`spec.pause`), so
+`kubectl patch` works too, and expiry is evaluated at read time.
 
 **Request body** (all fields optional; an absent body means an indefinite pause):
 ```json

@@ -89,6 +89,8 @@ The operator reconciles the connector and starts a webhook-receiver deployment t
 
 An `AgentImage` defines the container image and tool configuration for an agent runtime. An `Agent` references an image and adds the LLM configuration and persona.
 
+A chart install already ships one: **AInsel Standard (Pi)** (`ainsel-standard-pi`), the Pi runtime of the installed release, which the hub creates on startup and moves to the new release's image on every `helm upgrade` (`hub.defaultAgentImage` in the chart values). The console's new-agent wizard preselects it and lets you write the agent's instructions inline, so the quickest first agent needs no YAML at all. Create your own `AgentImage` only when you need a different runtime:
+
 > **Note — tools are not implicit.** The shipped `ainsel-pi` runtime image gives agents shell and git access, but installs no forge tools: the tool-discovery directory it scans (`/usr/local/bin/tools`) is empty. To let an agent act on the forge — post review comments, label issues — use or build an agent image that carries the forge tool binaries (or attach an MCP server), declare them under `spec.tools[]` / `spec.mcpServers[]` on the `AgentImage`, and select them per agent with `spec.enabledTools` (see [CRD Reference](docs/crd-reference.md)).
 
 ```yaml
@@ -100,9 +102,7 @@ metadata:
   namespace: ainsel
 spec:
   displayName: Pi Runtime
-  image:
-    repository: <your-registry>/ainsel-pi
-    tag: latest
+  imageURL: <your-registry>/ainsel-pi:<tag>
 ```
 
 ```yaml
@@ -115,7 +115,7 @@ metadata:
 spec:
   displayName: PR Reviewer
   imageRef:
-    name: pi-runtime
+    name: ainsel-standard-pi   # or pi-runtime, the custom image above
   runtime:
     imagePullPolicy: IfNotPresent
   llm:

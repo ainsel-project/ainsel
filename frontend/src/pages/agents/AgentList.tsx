@@ -10,6 +10,7 @@ import { Dot } from '../../primitives/Dot'
 import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { Tag } from '../../primitives/Tag'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { llmProviderLabel } from './agentFormModel'
@@ -117,7 +118,16 @@ export function AgentList() {
       key: 'model',
       header: 'Model',
       width: 200,
-      cell: (a) => <span className="num">{a.llm?.model ?? '—'}</span>,
+      cell: (a) => (
+        <>
+          <span className="num">{a.llm?.model ?? '—'}</span>{' '}
+          {a.llm?.vision === true && (
+            <Tag title="Image input enabled — screenshots and image attachments are sent to the model (if the endpoint supports it)">
+              vision
+            </Tag>
+          )}
+        </>
+      ),
     },
     {
       key: 'provider',

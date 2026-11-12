@@ -141,6 +141,10 @@ section for worked examples.
 | `hub.connectorImages.webhook.repository` | string | `dpinsel/ainsel-webhook-receiver` | Webhook-receiver image repository. Rendered into the hub's `CONNECTOR_IMAGE_WEBHOOK` (`repository:tag[@digest]`); the hub copies repository/tag/digest into a new connector's `spec.image.*`, the event-gateway operator composes the container image from them. Parsing rules in [services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#webhook-connectors) |
 | `hub.connectorImages.webhook.tag` | string | `0.1.0` | The tag the receiver follows: rebuild the image and this tag moves, and the next rollout of the connector picks it up |
 | `hub.connectorImages.webhook.digest` | string | `""` | Set to pin the receiver to one build — then the tag records where that build came from and nothing moves it |
+| `hub.defaultAgentImage.enabled` | bool | `true` | Have the hub write the built-in "AInsel Standard (Pi)" `AgentImage` (`ainsel-standard-pi`) on every start, so the first agent needs no image registration. `false` stops the writes; an image already created stays until you delete it |
+| `hub.defaultAgentImage.repository` | string | `dpinsel/ainsel-pi` | Pi runtime image repository. Rendered into the hub's `HUB_DEFAULT_AGENT_IMAGE` (`repository:tag[@digest]`) |
+| `hub.defaultAgentImage.tag` | string | `""` | Empty follows the chart's `appVersion`, the Pi image the release pipeline publishes with this chart, so a `helm upgrade` upgrades the default image. Set only to pin a build |
+| `hub.defaultAgentImage.digest` | string | `""` | Optional digest pin |
 | `hub.resources` | object | 50m/128Mi → 200m/256Mi | CPU/memory |
 
 > **Security note:** the hub ingress intentionally publishes only
@@ -161,8 +165,8 @@ binary's full env-var reference — including the chart-managed variables
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `TASK_CLAIM_TIMEOUT_SECONDS` | int | `1800` | Duration (in seconds) after which a `claimed` task is considered stale. A background reaper runs every 5m and resets stale claims to `pending` (or `failed` if max attempts reached) with a 30s retry delay. |
-| `TASK_EXPIRY_SECONDS` | int | `86400` | Pickup deadline for queued tasks, in seconds. A task still `pending` (never claimed) past its deadline becomes terminal `expired` — distinct from `failed` — and the sender is notified through the same path that reports a failed task (the invocation closes as `timeout`). The deadline is stamped at enqueue time, so changing this never retroactively expires existing tasks. `0` disables the reaper. |
+| `TASK_START_TIMEOUT_SECONDS` | int | `900` | How long a task may sit unstarted (no worker activity yet) before the console flags it `queued · stuck`. Display only — nothing is retried or failed. |
+| `TASK_EXPIRY_SECONDS` | int | `86400` | Pickup deadline for queued tasks, in seconds. A task still `pending` past its deadline becomes terminal `expired` — distinct from `failed` — and the sender is notified through the same path that reports a failed task (the invocation closes as `timeout`). The deadline is stamped at enqueue time, so changing this never retroactively expires existing tasks. `0` disables the reaper. |
 | `HUB_WS_ALLOWED_ORIGINS` | string | _empty_ | Comma-separated list of extra Origins allowed to open `/api/v1/ws`. Same-origin requests are always allowed, so this is only needed when the UI is served from a different host or port than the hub API (local development). Entries may be full origins (`https://app.example.com`) or bare hosts (`localhost:5173`). |
 | `OIDC_JWKS_URL` / `OIDC_USERINFO_URL` | string | _empty_ | Optional escape hatches pinning the JWKS / userinfo endpoints instead of the issuer's discovery document. The chart has no dedicated values for these; see [docs/deployment.md](../../docs/deployment.md). |
 

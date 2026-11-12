@@ -202,8 +202,8 @@ graph TD
     HUB -->|insert| EQ
     EQ -->|poll + match| HUB
     HUB -->|enqueue tasks| EQ
-    EQ -->|long-poll| AR1[task Job: code-reviewer<br/>agent runtime pod per task]
-    EQ -->|long-poll| AR2[task Job: issue-triager<br/>agent runtime pod per task]
+    EQ -->|fetch by id| AR1[task Job: code-reviewer<br/>agent runtime pod per task]
+    EQ -->|fetch by id| AR2[task Job: issue-triager<br/>agent runtime pod per task]
     AR1 -->|ACK/NACK| HUB
     AR2 -->|ACK/NACK| HUB
 

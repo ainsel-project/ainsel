@@ -56,6 +56,31 @@ const llmSchema = z.object({
 // "leave unchanged".
 const replicasSchema = z.coerce.number().int().min(0).optional()
 
+/**
+ * The persona step: either the agent's own instructions, written inline and
+ * stored by the hub as a persona owned by the new agent, or a shared template
+ * from the persona library. Inline is the default so the first agent does not
+ * need a library entry first (issue #88).
+ */
+const personaSchema = z
+  .object({
+    mode: z.enum(['inline', 'template']),
+    id: z.string().optional(),
+    text: z.string().optional(),
+  })
+  .superRefine((p, ctx) => {
+    if (p.mode === 'inline' && !p.text?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['text'],
+        message: 'Instructions are required',
+      })
+    }
+    if (p.mode === 'template' && !p.id) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['id'], message: 'Persona is required' })
+    }
+  })
+
 /** A custom provider needs its base URL. */
 function requireCustomProviderUrl(
   data: { llm: { provider?: string }; customProviderUrl?: string },
@@ -82,7 +107,7 @@ export const agentSchema = z
     llm: llmSchema,
     providerApiKey: z.string().optional(),
     customProviderUrl: z.string().optional(),
-    persona: z.object({ id: z.string().min(1, 'Persona is required') }),
+    persona: personaSchema,
     replicas: replicasSchema,
     groupId: z.string().optional(),
   })
@@ -121,7 +146,7 @@ export const agentDefaults: AgentFormInput = {
   },
   customProviderUrl: '',
   providerApiKey: '',
-  persona: { id: '' },
+  persona: { mode: 'inline', id: '', text: '' },
   replicas: 1,
   groupId: '',
 }
@@ -176,7 +201,10 @@ export function buildAgentRequest(
       values.providerApiKey ?? '',
       values.customProviderUrl ?? '',
     ),
-    persona: { id: values.persona.id },
+    persona:
+      values.persona.mode === 'inline'
+        ? { text: values.persona.text ?? '' }
+        : { id: values.persona.id ?? '' },
     replicas: values.replicas,
     groupId: opts.isEdit ? undefined : values.groupId,
   }
