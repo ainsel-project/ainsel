@@ -15,6 +15,7 @@ import (
 	"time"
 
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -56,19 +57,6 @@ const llmCheckMaxBodyBytes = 1 << 20
 // the per-request context timeout is what caps a probe.
 var llmCheckHTTPClient = &http.Client{}
 
-// llmCheckProviderDefaults mirrors the operator's per-provider base URLs in
-// operators/agent/internal/controller/env.go (resolvePiProvider). Keep the two
-// in sync: a probe against a different URL than the agent actually runs on
-// answers the wrong question. An agent's own provider-block baseUrl override
-// always wins over this map; "custom" is deliberately absent because it has
-// no default URL — its URL lives only in spec.customProvider.url, which a
-// bare (provider, model) pair cannot resolve.
-var llmCheckProviderDefaults = map[string]string{
-	agentv1alpha1.AgentLLMProviderOllamaCloud:  "https://ollama.com/v1",
-	agentv1alpha1.AgentLLMProviderOpenCode:     "https://opencode.ai/zen/go/v1",
-	agentv1alpha1.AgentLLMProviderAlibabaCloud: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
-}
-
 // llmCheckRequest is the request body: the two strings the plugin holds. A
 // fuller agent-like spec was rejected on purpose — resolution is the hub's
 // job, and the plugin must not learn or send base URLs and keys.
@@ -106,15 +94,16 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "provider and model are required")
 		return
 	}
-	if req.Provider == agentv1alpha1.AgentLLMProviderCustom {
-		// A bare pair cannot resolve a custom provider: its URL exists only
-		// on a specific agent's spec, so there is nothing to probe from here.
-		writeError(w, http.StatusBadRequest, "provider \"custom\" cannot be checked from a provider/model pair")
-		return
-	}
-	defaultBase, known := llmCheckProviderDefaults[req.Provider]
+	p, known := llmprovider.Lookup(req.Provider)
 	if !known {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown provider %q", req.Provider))
+		return
+	}
+	if p.CheckBaseURL == "" {
+		// A bare pair cannot resolve a provider without a fixed endpoint
+		// (custom): its URL exists only on a specific agent's spec, so there
+		// is nothing to probe from here.
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("provider %q cannot be checked from a provider/model pair", req.Provider))
 		return
 	}
 
@@ -135,7 +124,7 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 	var baseURL, key string
 	var usable bool
 	for _, a := range candidates {
-		target, secretRef, ok := llmCheckAgentTarget(a, defaultBase)
+		target, secretRef, ok := llmCheckAgentTarget(a)
 		if !ok {
 			continue
 		}
@@ -221,39 +210,30 @@ func (s *Server) llmCheckCandidates(r *http.Request, provider, model string) ([]
 	return append(exact, fallback...), nil
 }
 
-// llmCheckAgentTarget derives the probe target from the agent's own spec:
-// the provider block's baseUrl override when set, else the hub-side default.
-// ok is false when the agent has no provider block or no key selector — a
-// pair the hub cannot tie to a stored key cannot be checked.
-func llmCheckAgentTarget(a *agentv1alpha1.Agent, defaultBase string) (string, *corev1.SecretKeySelector, bool) {
-	var baseURL string
-	var ref *corev1.SecretKeySelector
-	switch a.Spec.LLM.Provider {
-	case agentv1alpha1.AgentLLMProviderOllamaCloud:
-		if a.Spec.OllamaCloud == nil {
-			return "", nil, false
-		}
-		baseURL, ref = a.Spec.OllamaCloud.BaseURL, a.Spec.OllamaCloud.APIKeySecretRef
-	case agentv1alpha1.AgentLLMProviderOpenCode:
-		if a.Spec.OpenCode == nil {
-			return "", nil, false
-		}
-		baseURL, ref = a.Spec.OpenCode.BaseURL, a.Spec.OpenCode.APIKeySecretRef
-	case agentv1alpha1.AgentLLMProviderAlibabaCloud:
-		if a.Spec.AlibabaCloud == nil {
-			return "", nil, false
-		}
-		baseURL, ref = a.Spec.AlibabaCloud.BaseURL, a.Spec.AlibabaCloud.APIKeySecretRef
-	default:
+// llmCheckAgentTarget derives the probe target from the agent's own spec and
+// the llmprovider registry. Every check speaks OpenAI chat completions, so
+// the target is the provider's OpenAI-compatible base (CheckBaseURL). For a
+// provider whose agents run on that same protocol (openai-completions), the
+// block's baseUrl override wins, so the probe hits the endpoint the agent
+// actually uses; for native-API providers (OpenAI Responses, Anthropic,
+// Gemini) the override points at the native API and cannot be probed this
+// way, so the registry's compatible endpoint is used. ok is false when the
+// provider cannot be checked or the agent has no provider block or no key
+// selector — a pair the hub cannot tie to a stored key cannot be checked.
+func llmCheckAgentTarget(a *agentv1alpha1.Agent) (string, *corev1.SecretKeySelector, bool) {
+	p, known := llmprovider.Lookup(a.Spec.LLM.Provider)
+	if !known || p.CheckBaseURL == "" {
 		return "", nil, false
 	}
-	if ref == nil {
+	cred, present := p.Credential(&a.Spec)
+	if !present || cred.APIKeySecretRef == nil {
 		return "", nil, false
 	}
-	if baseURL == "" {
-		baseURL = defaultBase
+	baseURL := p.CheckBaseURL
+	if p.PiAPI == llmprovider.PiAPIOpenAICompletions && cred.BaseURL != "" {
+		baseURL = cred.BaseURL
 	}
-	return baseURL, ref, true
+	return baseURL, cred.APIKeySecretRef, true
 }
 
 // errLLMCheckKeyMissing marks "the selector resolved but there is no usable

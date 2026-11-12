@@ -13,6 +13,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,13 +43,8 @@ func llmCheckAgent(name, provider, model, baseURL, secretName string) *agentv1al
 		LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
 		Key:                  "api-key",
 	}
-	switch provider {
-	case agentv1alpha1.AgentLLMProviderOllamaCloud:
-		a.Spec.OllamaCloud = &agentv1alpha1.AgentOllamaCloud{BaseURL: baseURL, APIKeySecretRef: ref}
-	case agentv1alpha1.AgentLLMProviderOpenCode:
-		a.Spec.OpenCode = &agentv1alpha1.AgentOpenCode{BaseURL: baseURL, APIKeySecretRef: ref}
-	case agentv1alpha1.AgentLLMProviderAlibabaCloud:
-		a.Spec.AlibabaCloud = &agentv1alpha1.AgentAlibabaCloud{BaseURL: baseURL, APIKeySecretRef: ref}
+	if p, ok := llmprovider.Lookup(provider); ok {
+		p.SetCredential(&a.Spec, llmprovider.Credential{BaseURL: baseURL, APIKeySecretRef: ref})
 	}
 	return a
 }
@@ -256,7 +252,7 @@ func TestLLMCheck_BadRequests(t *testing.T) {
 		{"missing provider", `{"model":"m"}`},
 		{"missing model", `{"provider":"ollama-cloud"}`},
 		{"empty strings", `{"provider":"  ","model":""}`},
-		{"unknown provider", `{"provider":"openai","model":"m"}`},
+		{"unknown provider", `{"provider":"not-a-provider","model":"m"}`},
 		{"custom provider", `{"provider":"custom","model":"m"}`},
 	}
 	for _, tc := range cases {
@@ -654,22 +650,29 @@ func TestLLMCheck_ReasonCapped(t *testing.T) {
 	}
 }
 
-// TestLLMCheck_DefaultBaseURL pins the hub-side default map against drift
-// from the operator's env.go defaults: an agent without a baseUrl override is
-// probed at the built-in URL. The probe cannot reach the internet here, so
-// the assertion is that the failure sentence names the default URL.
+// TestLLMCheck_DefaultBaseURL pins the probe targets: the hub and the
+// operator both read the llmprovider registry, so for providers whose agents
+// speak OpenAI chat completions the check probes the URL the agent runs on,
+// and custom stays uncheckable.
 func TestLLMCheck_DefaultBaseURL(t *testing.T) {
-	if got := llmCheckProviderDefaults["ollama-cloud"]; got != "https://ollama.com/v1" {
-		t.Errorf("ollama-cloud default = %q", got)
+	for _, p := range llmprovider.All() {
+		if p.PiAPI == llmprovider.PiAPIOpenAICompletions && p.ID != "custom" && p.CheckBaseURL != p.DefaultBaseURL {
+			t.Errorf("%s: check URL %q differs from the URL agents run on %q", p.ID, p.CheckBaseURL, p.DefaultBaseURL)
+		}
 	}
-	if got := llmCheckProviderDefaults["opencode"]; got != "https://opencode.ai/zen/go/v1" {
-		t.Errorf("opencode default = %q", got)
+	for id, want := range map[string]string{
+		"ollama-cloud": "https://ollama.com/v1",
+		"opencode":     "https://opencode.ai/zen/go/v1",
+	} {
+		if p, _ := llmprovider.Lookup(id); p.CheckBaseURL != want {
+			t.Errorf("%s check URL = %q, want %q", id, p.CheckBaseURL, want)
+		}
 	}
-	if got := llmCheckProviderDefaults["alibaba-cloud"]; !strings.HasPrefix(got, "https://token-plan.") {
-		t.Errorf("alibaba-cloud default = %q", got)
+	if p, _ := llmprovider.Lookup("alibaba-cloud"); !strings.HasPrefix(p.CheckBaseURL, "https://token-plan.") {
+		t.Errorf("alibaba-cloud check URL = %q", p.CheckBaseURL)
 	}
-	if _, ok := llmCheckProviderDefaults["custom"]; ok {
-		t.Error("custom must have no default URL")
+	if p, _ := llmprovider.Lookup("custom"); p.CheckBaseURL != "" {
+		t.Error("custom must have no check URL")
 	}
 
 	// Endpoint building: trailing slash trimmed, path appended once.
