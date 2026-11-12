@@ -30,7 +30,7 @@ graph TD
 
     MGR -->|Agent CRUD, queue signals| K8s[Kubernetes API]
     RTR -->|poll unrouted, enqueue tasks| PG[(PostgreSQL<br/>events / agent_tasks)]
-    API -->|ingest, claim, ack, nack| PG
+    API -->|ingest, fetch, ack, nack| PG
     SYNC -->|list triggers| PG
     API -->|CRUD| K8s
 ```
@@ -57,7 +57,7 @@ sequenceDiagram
     loop For each matched agent
         R->>T: INSERT task (pending)
     end
-    Note over T: Task pods claim via<br/>GET /api/internal/agents/{name}/next-task
+    Note over T: Task pods fetch by id via<br/>GET /api/internal/agents/{name}/tasks/{id}
 ```
 
 ## Trigger Index
@@ -96,7 +96,7 @@ The API server serves two audiences:
 graph LR
     CLIENT[ainsel-hub-frontend / CLI] -->|/api/v1| API[API Server]
     CONNECTORS[Connectors] -->|/api/internal/events| API
-    TASKPOD[Task job pods] -->|next-task / ack / nack| API
+    TASKPOD[Task job pods] -->|fetch / ack / nack| API
     API -->|Agent CRUD| K8s[Kubernetes API]
     API -->|everything else| PG[(PostgreSQL)]
 ```
@@ -108,5 +108,5 @@ graph LR
 | `handlers_agents.go` | `/api/v1/agents`, `/api/v1/agents/:name` |
 | `handlers_connectors.go` | `/api/v1/connectors`, `/api/v1/connectors/:name` |
 | `handlers_triggers.go` | `/api/v1/triggers`, `/api/v1/triggers/:name` |
-| `handlers_eventqueue.go` | `/api/internal/agents/{name}/next-task`, `ack`, `nack` |
+| `handlers_eventqueue.go` | `/api/internal/agents/{name}/tasks/{id}`, `ack`, `nack` |
 | `server.go` | Route registration, health check, JSON helpers |

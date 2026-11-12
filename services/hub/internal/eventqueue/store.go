@@ -1,7 +1,7 @@
 // Package eventqueue implements a PostgreSQL-backed event queue that replaces
 // the former NATS JetStream. Events are inserted by connectors (via the hub ingest API),
-// routed by the hub router into agent_tasks, and claimed by agent runtimes via
-// HTTP long-poll with LISTEN/NOTIFY wakeup.
+// routed by the hub router into agent_tasks, and run by per-task Jobs that fetch
+// their task by id and ack or nack it.
 package eventqueue
 
 import (
@@ -77,11 +77,13 @@ func (t Task) Started() bool {
 // QueueDepth is the per-agent work accounting the hub publishes for the
 // operator to scale on.
 type QueueDepth struct {
-	// Pending is tasks waiting to be claimed, including those still inside a
-	// retry backoff: work is waiting either way, so it also means "not quiet".
+	// Pending is tasks not yet resolved, including those still inside a retry
+	// backoff and those a per-task Job is running (a Job worker never claims,
+	// so its task stays pending until it acks): work is waiting either way, so
+	// it also means "not quiet".
 	Pending int32
-	// Active is tasks currently claimed. A claimed task is only recovered by
-	// the reaper once its claim times out, so this is the drain signal.
+	// Active is tasks in the 'claimed' status. Nothing claims any more, so it
+	// stays zero; the field is kept for the published signal's shape.
 	Active int32
 }
 
@@ -105,7 +107,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // SetQueueObserver registers a callback fired whenever an agent's queue state
-// may have changed: enqueue, claim, ack, nack and reaper transitions.
+// may have changed: enqueue, ack, nack and expiry transitions.
 //
 // The callback must not block, because it runs inline on the request path that
 // mutated the queue; the hub's queue-signal publisher only parks the agent name
@@ -297,7 +299,8 @@ func (s *Store) MarkRouted(ctx context.Context, eventID string) error {
 	return nil
 }
 
-// EnqueueTask inserts a task for an agent and notifies any long-poll waiters.
+// EnqueueTask inserts a task for an agent and reports the queue change to the
+// observer, which publishes the agent's due tasks for Job dispatch.
 // Duplicate (event_id, agent_name) pairs are silently ignored. When a pickup
 // deadline is configured (SetTaskExpiry) the row is stamped with it, so the
 // deadline a task gets is the one that was configured when it was enqueued.
@@ -317,38 +320,7 @@ func (s *Store) EnqueueTask(ctx context.Context, task Task) error {
 		return fmt.Errorf("eventqueue: enqueue task for %q: %w", task.AgentName, err)
 	}
 	s.observe(task.AgentName)
-	return s.NotifyAgent(ctx, task.AgentName)
-}
-
-// ClaimTask atomically claims the next pending task for an agent using
-// SELECT FOR UPDATE SKIP LOCKED. Returns nil, nil if no task is available.
-func (s *Store) ClaimTask(ctx context.Context, agentName string) (*Task, error) {
-	var t Task
-	err := s.pool.QueryRow(ctx,
-		`UPDATE agent_tasks
-		 SET status = 'claimed', claimed_at = now(), attempts = attempts + 1
-		 WHERE id = (
-		     SELECT id FROM agent_tasks
-		     WHERE agent_name = $1
-		       AND status = 'pending'
-		       AND (retry_after IS NULL OR retry_after <= now())
-		     ORDER BY created_at ASC
-		     FOR UPDATE SKIP LOCKED
-		     LIMIT 1
-		 )
-		 RETURNING id, event_id, agent_name, trigger_name, invocation_id, headers, payload, attempts`,
-		agentName,
-	).Scan(&t.ID, &t.EventID, &t.AgentName, &t.TriggerName, &t.InvocationID, &t.Headers, &t.Payload, &t.Attempts)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("eventqueue: claim task for %q: %w", agentName, err)
-	}
-	// pending -> claimed: the agent's drain signal just moved, and if this was
-	// the last pending task another pod may now be scalable down.
-	s.observe(agentName)
-	return &t, nil
+	return nil
 }
 
 // AckTask marks a task as completed.
@@ -369,17 +341,13 @@ func (s *Store) AckTask(ctx context.Context, taskID int64) error {
 }
 
 // NakTask returns a task to pending with a retry delay, or marks it failed
-// if max_attempts is reached. It counts the attempt only when the row was never
-// claimed — the per-task Job path, where no ClaimTask runs (the task stays
-// pending until its worker acks) and the nack is the only place a failed
-// delivery can be counted. On the legacy claim path ClaimTask already counted
-// the claim of this very run, so incrementing again would spend max_attempts
-// twice per attempt and silently halve the retry budget.
+// if max_attempts is reached. The nack is where a failed attempt is counted:
+// a per-task Job worker never claims, so the task stays pending until it acks.
 func (s *Store) NakTask(ctx context.Context, taskID int64, delay time.Duration, errMsg string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE agent_tasks
 		 SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
-		     attempts = attempts + CASE WHEN status = 'claimed' THEN 0 ELSE 1 END,
+		     attempts = attempts + 1,
 		     retry_after = now() + make_interval(secs => $2),
 		     error = $3
 		 WHERE id = $1`,
@@ -457,115 +425,6 @@ func (s *Store) UpdateTaskInvocation(ctx context.Context, taskID int64, invocati
 	return nil
 }
 
-// NotifyAgent sends a pg_notify on the "agent_tasks" channel with the agent
-// name as payload, waking any long-poll waiters for that agent.
-func (s *Store) NotifyAgent(ctx context.Context, agentName string) error {
-	_, err := s.pool.Exec(ctx, `SELECT pg_notify('agent_tasks', $1)`, agentName)
-	if err != nil {
-		return fmt.Errorf("eventqueue: notify agent %q: %w", agentName, err)
-	}
-	return nil
-}
-
-// WaitForTask blocks until a task is available for agentName or timeout
-// expires. Uses pg LISTEN/NOTIFY for efficient wakeup instead of busy-polling.
-// Returns nil, nil on timeout with no task.
-func (s *Store) WaitForTask(ctx context.Context, agentName string, timeout time.Duration) (*Task, error) {
-	// Try immediate claim first.
-	task, err := s.ClaimTask(ctx, agentName)
-	if err != nil || task != nil {
-		return task, err
-	}
-
-	// Open a dedicated connection for LISTEN.
-	conn, err := s.pool.Acquire(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("eventqueue: acquire conn for listen: %w", err)
-	}
-	defer conn.Release()
-
-	if _, err := conn.Exec(ctx, "LISTEN agent_tasks"); err != nil {
-		return nil, fmt.Errorf("eventqueue: listen: %w", err)
-	}
-	defer func() { _, _ = conn.Exec(context.Background(), "UNLISTEN agent_tasks") }()
-
-	deadline := time.Now().Add(timeout)
-	for {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil, nil
-		}
-
-		// Wait for notification with a context deadline.
-		waitCtx, cancel := context.WithTimeout(ctx, remaining)
-		notification, err := conn.Conn().WaitForNotification(waitCtx)
-		cancel()
-
-		if err != nil {
-			// Context cancelled (shutdown) or timeout — try one last claim.
-			task, claimErr := s.ClaimTask(ctx, agentName)
-			if claimErr != nil {
-				return nil, claimErr
-			}
-			return task, nil
-		}
-
-		// Only wake if the notification is for our agent.
-		if notification.Payload == agentName {
-			task, err := s.ClaimTask(ctx, agentName)
-			if err != nil {
-				return nil, err
-			}
-			if task != nil {
-				return task, nil
-			}
-			// Spurious notification (task already claimed by another replica); loop.
-		}
-	}
-}
-
-// ReapedTask describes a task whose claim was reset by ReapStaleClaims.
-type ReapedTask struct {
-	ID        int64
-	AgentName string
-}
-
-// ReapStaleClaims resets tasks that have been in 'claimed' status longer than
-// timeout without being acked or naked. Tasks whose attempts have reached
-// max_attempts are marked 'failed'; all others are returned to 'pending' with
-// a 30-second retry delay. Returns the list of reaped tasks for logging.
-func (s *Store) ReapStaleClaims(ctx context.Context, timeout time.Duration) ([]ReapedTask, error) {
-	rows, err := s.pool.Query(ctx,
-		`UPDATE agent_tasks
-		 SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
-		     retry_after = now() + interval '30 seconds',
-		     error = 'claim timeout: agent did not ack/nak within deadline'
-		 WHERE status = 'claimed'
-		   AND claimed_at < now() - make_interval(secs => $1)
-		 RETURNING id, agent_name`,
-		timeout.Seconds(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("eventqueue: reap stale claims: %w", err)
-	}
-	defer rows.Close()
-
-	var reaped []ReapedTask
-	seen := map[string]bool{}
-	for rows.Next() {
-		var rt ReapedTask
-		if err := rows.Scan(&rt.ID, &rt.AgentName); err != nil {
-			return nil, fmt.Errorf("eventqueue: scan reaped task: %w", err)
-		}
-		reaped = append(reaped, rt)
-		if !seen[rt.AgentName] {
-			seen[rt.AgentName] = true
-			s.observe(rt.AgentName)
-		}
-	}
-	return reaped, rows.Err()
-}
-
 // ExpiredTask describes a task moved to 'expired' by ExpirePendingTasks. The
 // caller uses InvocationID to close the invocation record and notify the
 // sender through the same path that reports a failed task.
@@ -578,9 +437,8 @@ type ExpiredTask struct {
 // ExpirePendingTasks moves pending tasks whose pickup deadline (expires_at,
 // stamped by EnqueueTask) has passed to the terminal status 'expired'. It is
 // guarded on two fronts: rows stamped with no deadline (expiry disabled when
-// they were enqueued) never match, and only never-claimed rows are considered
-// — a task a worker is working on is the claim reaper's problem, not this
-// one's. Returns the expired tasks so the caller can notify senders; fires the
+// they were enqueued) never match, and only rows still in 'pending' are
+// considered. Returns the expired tasks so the caller can notify senders; fires the
 // queue observer for each affected agent.
 func (s *Store) ExpirePendingTasks(ctx context.Context) ([]ExpiredTask, error) {
 	rows, err := s.pool.Query(ctx,

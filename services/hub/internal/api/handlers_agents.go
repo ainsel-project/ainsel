@@ -533,7 +533,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The agent task endpoints (next-task, tasks/{id}[/ack|/nack]) live solely
+	// The agent task endpoints (tasks/{id}[/ack|/nack]) live solely
 	// on /api/internal/agents/ (handleInternalAgent). The old /api/v1 aliases
 	// are gone: they dispatched into the task handlers ahead of the CRUD
 	// requireRead/requireWrite checks below, letting any authenticated user
@@ -591,7 +591,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 // handleInternalAgent serves agent task endpoints under /api/internal/agents/.
 // These paths bypass the OIDC middleware (they don't match /api/v1/) and are
 // protected by X-Internal-Token at the handler level. Only task operations
-// (next-task, task fetch, ack, nack) are exposed; CRUD operations remain on
+// (task fetch, ack, nack) are exposed; CRUD operations remain on
 // /api/v1/.
 //
 // This is the sole entry point for the task handlers, and the token check runs
@@ -607,10 +607,6 @@ func (s *Server) handleInternalAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.HasSuffix(name, "/next-task") {
-		s.handleAgentNextTask(w, r)
-		return
-	}
 	if strings.Contains(name, "/tasks/") {
 		if strings.HasSuffix(name, "/ack") {
 			s.handleAgentTaskAck(w, r)

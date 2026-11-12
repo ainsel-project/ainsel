@@ -76,7 +76,7 @@ func retrySeedStore(t *testing.T) invocations.Store {
 	return store
 }
 
-// A retry claim of a task whose first attempt failed records a fresh running
+// A retry fetch of a task whose earlier attempts failed records a fresh running
 // invocation, repoints the task at it, and rewrites the cached header — while
 // the closed first-attempt row stays untouched as history.
 func TestRecordRetryInvocationSupersedesTerminalInvocation(t *testing.T) {
@@ -84,7 +84,7 @@ func TestRecordRetryInvocationSupersedesTerminalInvocation(t *testing.T) {
 	eq := &fakeEventQueue{connectors: map[string]string{"evt_test1": "c-2cfb8617"}}
 	task := retryTestTask()
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, claimRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err != nil {
 		t.Fatalf("recordRetryInvocation: %v", err)
 	}
 
@@ -126,37 +126,22 @@ func TestRecordRetryInvocationSupersedesTerminalInvocation(t *testing.T) {
 	}
 }
 
-func TestRecordRetryInvocationSkipsFirstClaim(t *testing.T) {
+// The row is never claimed, so NakTask leaves the first retry at
+// attempts == 1. The fetch must supersede the invocation the nack handler
+// closed, or the retry runs under the dead id and never shows up in the
+// Activity feed.
+func TestRecordRetryInvocationRepointsAfterFirstNack(t *testing.T) {
 	rec := retrySeedStore(t)
 	eq := &fakeEventQueue{connectors: map[string]string{"evt_test1": "c-2cfb8617"}}
 	task := retryTestTask()
 	task.Attempts = 1
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, claimRetryMinAttempts); err != nil {
-		t.Fatalf("recordRetryInvocation: %v", err)
-	}
-	if task.InvocationID != "inv-first" || eq.updatedTaskID != 0 {
-		t.Errorf("first claim must be a no-op, got inv=%q store updated=%d", task.InvocationID, eq.updatedTaskID)
-	}
-}
-
-// Job-mode fetch (per-task Jobs): the row is never claimed, so NakTask leaves
-// the first retry at attempts == 1 — below the claim path's threshold. With
-// the job-mode threshold the fetch must still supersede the invocation the
-// nack handler closed, or the retry runs under the dead id and never shows up
-// in the Activity feed.
-func TestRecordRetryInvocationJobModeRepointsAfterFirstNack(t *testing.T) {
-	rec := retrySeedStore(t)
-	eq := &fakeEventQueue{connectors: map[string]string{"evt_test1": "c-2cfb8617"}}
-	task := retryTestTask()
-	task.Attempts = 1
-
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, jobRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err != nil {
 		t.Fatalf("recordRetryInvocation: %v", err)
 	}
 
 	if task.InvocationID == "inv-first" || task.InvocationID == "" {
-		t.Fatalf("job-mode retry not repointed, id = %q", task.InvocationID)
+		t.Fatalf("retry not repointed, id = %q", task.InvocationID)
 	}
 	if eq.updatedTaskID != 1486 || eq.updatedInvID != task.InvocationID {
 		t.Errorf("store updated to task=%d inv=%q, want task=1486 inv=%q", eq.updatedTaskID, eq.updatedInvID, task.InvocationID)
@@ -189,15 +174,15 @@ func TestRecordRetryInvocationJobModeRepointsAfterFirstNack(t *testing.T) {
 	}
 }
 
-// attempts == 0 on the fetch path means the row was never nacked: this is the
+// attempts == 0 means the row was never nacked: this is the
 // first attempt, and its invocation must be left alone.
-func TestRecordRetryInvocationJobModeSkipsFirstFetch(t *testing.T) {
+func TestRecordRetryInvocationSkipsFirstFetch(t *testing.T) {
 	rec := retrySeedStore(t)
 	eq := &fakeEventQueue{connectors: map[string]string{"evt_test1": "c-2cfb8617"}}
 	task := retryTestTask()
 	task.Attempts = 0
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, jobRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err != nil {
 		t.Fatalf("recordRetryInvocation: %v", err)
 	}
 	if task.InvocationID != "inv-first" || eq.updatedTaskID != 0 {
@@ -207,14 +192,14 @@ func TestRecordRetryInvocationJobModeSkipsFirstFetch(t *testing.T) {
 
 // A second fetch while the retried attempt is still running must not record a
 // third invocation — the terminal check keeps the repoint idempotent.
-func TestRecordRetryInvocationJobModeKeepsIdWhenStillRunning(t *testing.T) {
+func TestRecordRetryInvocationKeepsIdWhenStillRunning(t *testing.T) {
 	rec := invocationstest.New(100)
 	rec.Record(invocations.Invocation{ID: "inv-first", AgentName: "a-b626d516", TriggerName: "t-2a229c25", EventID: "evt_test1"})
 	eq := &fakeEventQueue{}
 	task := retryTestTask()
 	task.Attempts = 1
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, jobRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err != nil {
 		t.Fatalf("recordRetryInvocation: %v", err)
 	}
 	if task.InvocationID != "inv-first" || eq.updatedTaskID != 0 {
@@ -229,25 +214,11 @@ func TestRecordRetryInvocationKeepsIdWhenRowMissing(t *testing.T) {
 	eq := &fakeEventQueue{connectorMissing: true}
 	task := retryTestTask()
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, claimRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err != nil {
 		t.Fatalf("recordRetryInvocation: %v", err)
 	}
 	if task.InvocationID != "inv-first" || eq.updatedTaskID != 0 {
 		t.Errorf("missing row must be a no-op, got inv=%q store updated=%d", task.InvocationID, eq.updatedTaskID)
-	}
-}
-
-func TestRecordRetryInvocationKeepsIdWhenStillRunning(t *testing.T) {
-	rec := invocationstest.New(100)
-	rec.Record(invocations.Invocation{ID: "inv-first", AgentName: "a-b626d516", TriggerName: "t-2a229c25", EventID: "evt_test1"})
-	eq := &fakeEventQueue{}
-	task := retryTestTask()
-
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, claimRetryMinAttempts); err != nil {
-		t.Fatalf("recordRetryInvocation: %v", err)
-	}
-	if task.InvocationID != "inv-first" || eq.updatedTaskID != 0 {
-		t.Errorf("running row must not be superseded, got inv=%q store updated=%d", task.InvocationID, eq.updatedTaskID)
 	}
 }
 
@@ -258,7 +229,7 @@ func TestRecordRetryInvocationConnectorLookupError(t *testing.T) {
 	eq := &fakeEventQueue{connectorErr: true}
 	task := retryTestTask()
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, claimRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err != nil {
 		t.Fatalf("recordRetryInvocation with connector error: %v", err)
 	}
 	fresh, ok := rec.Get(task.InvocationID)
@@ -269,13 +240,13 @@ func TestRecordRetryInvocationConnectorLookupError(t *testing.T) {
 
 func TestRecordRetryInvocationTaskWithoutInvocation(t *testing.T) {
 	// Tasks enqueued without a recorded invocation (channel transfers, chat)
-	// get their first one on a retry claim.
+	// get their first one on a retry fetch.
 	rec := invocationstest.New(100)
 	eq := &fakeEventQueue{connectors: map[string]string{"evt_test1": "chat"}}
 	task := retryTestTask()
 	task.InvocationID = ""
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, claimRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err != nil {
 		t.Fatalf("recordRetryInvocation: %v", err)
 	}
 	if task.InvocationID == "" || eq.updatedTaskID != 1486 {
@@ -292,7 +263,7 @@ func TestRecordRetryInvocationUpdaterFailureLeavesTaskAlone(t *testing.T) {
 	eq := &fakeEventQueue{updateErr: context.DeadlineExceeded}
 	task := retryTestTask()
 
-	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task, claimRetryMinAttempts); err == nil {
+	if err := recordRetryInvocation(context.Background(), rec, eq, eq, task); err == nil {
 		t.Fatal("expected the updater error to propagate")
 	}
 	if task.InvocationID != "inv-first" {

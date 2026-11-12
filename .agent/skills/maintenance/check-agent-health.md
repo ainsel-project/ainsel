@@ -125,12 +125,10 @@ What to extract, in order:
 - `kubectl get events -n <namespace> --sort-by='.lastTimestamp' | tail -30` —
   often the whole answer (`Insufficient cpu`, `ImagePullBackOff`).
 
-If the task is `claimed` with no live Job, the hub's stale-claim reaper returns
-it to the queue after `TASK_CLAIM_TIMEOUT_SECONDS` (default 1800 s, swept every
-5 min) and notifies the agent — so a dead pod self-heals within ~30 min. Check
-`kubectl logs deploy/hub-backend --since=1h | jq -r 'select(.msg=="reaped stale claim")'`
-to see whether that has already been happening in a loop: a task that is reaped
-repeatedly is a task that kills its pod, not a queue bug.
+A per-task Job never claims: its task stays `pending` until the run acks, so a
+pod that dies mid-task strands nothing — the Job restarts the same row
+(`backoffLimit` paces it). A task that keeps coming back with rising `attempts`
+is a task that kills its pod, not a queue bug.
 
 **Save the evidence**: `kubectl logs -n <namespace> job/$JOB -c agent > /tmp/<agent>-<taskID>.log`
 before the TTL deletes it. Task logs and transcripts contain the payload that
@@ -143,7 +141,6 @@ triggered the run — treat them as sensitive, redact before pasting into issues
 | `lastInvocation` old, no tasks, events `unmatched` | not the agent — trigger filters / connector | `GET /api/v1/events?status=unmatched`; `kubectl describe webhookconnector -n <namespace>` |
 | Events arrive, no task for this agent | trigger/bridge/permission scope | hub log (`deploy/hub-backend`) lines for that event id |
 | `pendingTasks > 0`, no Jobs | operator | `kubectl logs deploy/k8s-ai-agent-operator --tail=200`, `describe agent` |
-| Task `claimed` with no live Job | dead pod; the hub reaps it after `TASK_CLAIM_TIMEOUT_SECONDS` | hub logs: `reaped stale claim` (repeated = the task kills its pod) |
 | Job exists, pod `Pending` | scheduling / capacity | `kubectl describe pod` events (`Insufficient cpu`) |
 | `ImagePullBackOff` | registry / pull secret | pod events; the `AgentImage`'s image reference |
 | `CrashLoopBackOff` in `agent`, message like `api-key secret not found` | credentials | secret `<agent>-<provider>-key`, key `api-key` |

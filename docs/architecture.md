@@ -349,7 +349,7 @@ erDiagram
         text invocation_id
         jsonb headers
         jsonb payload
-        text status "pending | claimed | completed | failed"
+        text status "pending | completed | failed | expired (claimed: legacy)"
         int attempts "max_attempts = 10"
     }
 ```

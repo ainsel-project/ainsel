@@ -22,7 +22,7 @@ The hub backend:
   per-agent queue depth onto `Agent` status so
   [`operators/agent/`](../../operators/agent/) can render one Job per
   task.
-- Serves task pickup (`/api/internal/agents/{name}/next-task`, `ack`,
+- Serves task fetch (`/api/internal/agents/{name}/tasks/{id}`, `ack`,
   `nack`) for task pods and `/api/v1/*` for the [`frontend/`](../../frontend/)
   console.
 

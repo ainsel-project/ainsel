@@ -189,6 +189,22 @@ the delete-conflict referrers are `{"agentName", "agentId"}` instead of
 `{"agentImageName", "agentImageId"}`. In the console the image's Tools tab is now clearly
 the catalog, and each agent's Tools and Skills sections edit that agent's own selection.
 
+### Unreleased — `next-task` long-poll removed
+
+- **Removed: `GET /api/internal/agents/{name}/next-task`.** Per-task Job
+  runtimes fetch their task by id (`.../tasks/{id}`) and never called it; it
+  only served runtime images predating #359, which now get 404. Point such an
+  agent's `spec.imageRef` at a current `AgentImage`.
+- **Removed: `TASK_CLAIM_TIMEOUT_SECONDS` and the stale-claim reaper.** Nothing
+  claims any more, so there is nothing to reap. Drop the variable from
+  `hub.extraEnv`; the hub ignores it. Migration `0035` returns any row still
+  `claimed` at upgrade to `pending` (or `failed` if its last attempt is spent).
+- **Agent pause is not enforced.** It was withheld only at `next-task`; the
+  per-task Job path never read `spec.pause`, so this changes no runtime
+  behaviour. Use `replicas: 0` to stop an agent's dispatch. See
+  [#249](https://github.com/ainsel-project/ainsel/issues/249) for the
+  feature's removal.
+
 ### Unreleased — legacy metric aliases removed
 
 `GET /api/v1/metrics/{summary,timeseries,agents}` are gone and answer `404`.
@@ -201,7 +217,7 @@ paths must switch to the canonical ones.
 - **Job-per-task execution model.** Task execution moved to one-shot
   Kubernetes Jobs (one Job per task, single execution model). Agent runtimes
   must talk to the internal task routes
-  (`/api/internal/agents/{name}/next-task`, `.../tasks/{id}`,
+  (`/api/internal/agents/{name}/tasks/{id}`,
   `.../tasks/{id}/ack`, `.../tasks/{id}/nack`) — true for every runtime image
   built after that change.
 - **Removed: legacy agent task route aliases.** The

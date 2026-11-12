@@ -87,90 +87,6 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// handleAgentNextTask serves GET /api/internal/agents/{name}/next-task?timeout=30s.
-// Long-polls for the next pending task for the named agent.
-// Returns 200 with the task JSON, or 204 No Content on timeout.
-//
-// Authentication is the dispatcher's job: handleInternalAgent enforces
-// X-Internal-Token before dispatching here.
-func (s *Server) handleAgentNextTask(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	// Extract agent name from path: /api/internal/agents/{name}/next-task
-	path := stripAgentsPrefix(r.URL.Path)
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 2 || parts[0] == "" || parts[1] != "next-task" {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	agentName := parts[0]
-
-	// Parse timeout (default 30s, max 60s).
-	timeout := 30 * time.Second
-	if v := r.URL.Query().Get("timeout"); v != "" {
-		if secs, err := strconv.Atoi(strings.TrimSuffix(v, "s")); err == nil && secs > 0 {
-			timeout = time.Duration(secs) * time.Second
-			if timeout > 60*time.Second {
-				timeout = 60 * time.Second
-			}
-		}
-	}
-
-	// A paused agent gets no tasks: pending rows stay queued as a backlog and
-	// drain on resume (routed tasks are never dropped by the pause). Hold the
-	// long-poll for the shorter of the poll timeout and the remaining pause,
-	// then answer no-content — so a runtime re-checks promptly when an
-	// expiring pause lapses instead of hammering the endpoint in a tight loop.
-	if paused, resumesAt := s.agentPauseState(r.Context(), agentName); paused {
-		wait := timeout
-		if !resumesAt.IsZero() {
-			if rem := time.Until(resumesAt); rem < wait {
-				wait = rem
-			}
-		}
-		if wait > 0 {
-			select {
-			case <-time.After(wait):
-			case <-r.Context().Done():
-			}
-		}
-		w.Header().Set("X-Agent-Paused", "true")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
-		return
-	}
-
-	task, err := s.eventQueue.WaitForTask(r.Context(), agentName, timeout)
-	if err != nil {
-		slog.Error("wait for task failed", "agent", agentName, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to poll task")
-		return
-	}
-	if task == nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	// A re-claimed task (attempts >= 2) is a retry of an attempt that already
-	// finished — its original invocation row was closed 'failure' by the nack
-	// handler when that attempt gave up. Retrying under the dead id would run
-	// invisibly: nothing in 'running' for the Activity feed, logs and
-	// transcript filed under a completed record. Record a fresh invocation and
-	// repoint the task at it so the attempt is observable end to end.
-	if err := recordRetryInvocation(r.Context(), s.invocations, s.eventQueue, s.eventQueue, task, claimRetryMinAttempts); err != nil {
-		slog.Error("retry invocation not recorded", "task_id", task.ID, "agent", agentName, "error", err)
-	}
-
-	writeJSON(w, http.StatusOK, task)
-}
-
 // headerInvocationID names the task header carrying the invocation id. The
 // same constant lives in the router and cron packages; the api package needs
 // its own copy because it must rewrite the header when re-pointing a retry at
@@ -188,20 +104,11 @@ type eventConnectorReader interface {
 	EventConnector(ctx context.Context, eventID string) (string, bool, error)
 }
 
-// Retry thresholds for recordRetryInvocation. The claim path (next-task
-// long-poll) counts attempts per claim — ClaimTask increments the row — so
-// its first retry is attempt 2. The job-mode fetch path never claims: the
-// row stays 'pending' until its worker acks and NakTask increments attempts
-// on it, so the first job-mode retry already sits at attempt 1.
-const (
-	claimRetryMinAttempts = 2
-	jobRetryMinAttempts   = 1
-)
-
 // recordRetryInvocation re-points a retry task at a freshly recorded
-// invocation row, mutating task in place so the response (long-poll or
-// fetch-by-id) hands the runner the new id. minAttempts is the attempts value
-// the first retry carries on the calling path (see the constants above).
+// invocation row, mutating task in place so the fetch-by-id response hands the
+// runner the new id. A per-task Job worker never claims: the row stays
+// 'pending' until its worker acks and NakTask increments attempts on it, so
+// any task with attempts >= 1 is a retry.
 //
 // Only a finished ('terminal') invocation is superseded: a 'running' row or
 // one that was pruned (unknown) means there is nothing to supersede and the
@@ -210,8 +117,8 @@ const (
 // attempts are left untouched as history, which gives the Activity feed one
 // row per attempt instead of a single row whose status flip-flops under
 // concurrent attempts.
-func recordRetryInvocation(ctx context.Context, rec invocations.Store, upd taskInvocationUpdater, events eventConnectorReader, task *eventqueue.Task, minAttempts int) error {
-	if task == nil || task.Attempts < minAttempts || task.AgentName == "" {
+func recordRetryInvocation(ctx context.Context, rec invocations.Store, upd taskInvocationUpdater, events eventConnectorReader, task *eventqueue.Task) error {
+	if task == nil || task.Attempts < 1 || task.AgentName == "" {
 		return nil
 	}
 	if task.InvocationID != "" {
@@ -513,7 +420,7 @@ func (s *Server) handleAgentTaskGet(w http.ResponseWriter, r *http.Request) {
 	// Attempts >= 1 identifies the retry on this path (NakTask counts the
 	// attempt on the pending row); the terminal check inside keeps
 	// re-fetches of a running attempt a no-op.
-	if err := recordRetryInvocation(r.Context(), s.invocations, s.eventQueue, s.eventQueue, task, jobRetryMinAttempts); err != nil {
+	if err := recordRetryInvocation(r.Context(), s.invocations, s.eventQueue, s.eventQueue, task); err != nil {
 		slog.Error("retry invocation not recorded", "task_id", task.ID, "agent", parts[0], "error", err)
 	}
 	writeJSON(w, http.StatusOK, task)
@@ -588,7 +495,7 @@ func (s *Server) handleQueueRecent(w http.ResponseWriter, r *http.Request) {
 }
 
 // stripAgentsPrefix removes the /api/internal/agents/ prefix from a path,
-// returning the remainder (e.g. "{name}/next-task"). The legacy
+// returning the remainder (e.g. "{name}/tasks/{id}/ack"). The legacy
 // /api/v1/agents/ task aliases are gone; paths on that prefix never reach the
 // task handlers anymore.
 func stripAgentsPrefix(path string) string {

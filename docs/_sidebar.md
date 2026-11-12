@@ -35,3 +35,4 @@
 ## Contributing
 
 - [Conventions](conventions)
+- [ADR 0001: One-shot task fetch](adr/0001-one-shot-task-fetch)

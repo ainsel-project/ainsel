@@ -89,7 +89,6 @@ type containerConfig struct {
 	// metric panels. Empty means the default, the hub's own records. See
 	// wireMetricsSource.
 	metricsSource        string
-	claimTimeoutSecs     int
 	taskStartTimeoutSecs int
 	// taskExpirySecs is the pickup deadline for queued tasks (TASK_EXPIRY_SECONDS,
 	// default 1 day, 0 disables). A task still pending past it becomes 'expired'

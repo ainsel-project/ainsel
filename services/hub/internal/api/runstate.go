@@ -9,11 +9,8 @@ import (
 
 // DefaultTaskStartTimeout is how long a task may wait for a worker before the
 // UI flags it as stuck (queued · stuck). Overridable via
-// TASK_START_TIMEOUT_SECONDS. It is deliberately separate from
-// TASK_CLAIM_TIMEOUT_SECONDS, which governs the resident-agent claim reaper:
-// in per-task Job mode nothing claims, so the claim timeout governs nothing
-// here, and a task that never gets a worker must not need a claim to be
-// recognised as stuck.
+// TASK_START_TIMEOUT_SECONDS. In per-task Job mode nothing claims, so a task
+// that never gets a worker must not need a claim to be recognised as stuck.
 const DefaultTaskStartTimeout = 15 * time.Minute
 
 // deriveRunState computes the single display run state shared by every view —
@@ -25,7 +22,8 @@ const DefaultTaskStartTimeout = 15 * time.Minute
 //   - completed → success, failed → failure, expired → timeout
 //     (a task that was never picked up before its deadline; the deadline is a
 //     timeout in the run vocabulary — the task itself never ran to fail)
-//   - started (claimed, or a conversation row exists) → running
+//   - started (claimed on the removed legacy path, or a conversation row
+//     exists) → running
 //   - otherwise → queued, flagged stuck once it has waited past stuckAfter
 //
 // With no task row there is nothing to back a "queued" or "running" claim: a
@@ -34,7 +32,8 @@ const DefaultTaskStartTimeout = 15 * time.Minute
 // never running, never queued.
 //
 // "started" lags up to one LLM turn on the per-task Job path (pod boot to
-// first assistant message is invisible until #382's claim endpoint lands);
+// first assistant message is invisible: nothing marks a task started at pod
+// boot, see #47);
 // that is accepted for display. It must not be confused with a real start
 // timestamp for billing or scaling.
 func deriveRunState(task *eventqueue.Task, inv *invocations.Invocation, now time.Time, stuckAfter time.Duration) (state string, stuck bool) {
