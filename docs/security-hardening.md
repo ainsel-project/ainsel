@@ -59,7 +59,7 @@ These controls protect against:
 
 The following are tracked in the parent Epic (#652) and are not part of this initial hardening:
 
-- **FQDN-based egress filtering:** The current 443/TCP egress rule is broad by necessity — agents must reach external LLM APIs (ollama.com, opencode.ai, aliyuncs.com, custom providers) over HTTPS. Standard Kubernetes NetworkPolicy cannot express FQDN-based rules. The Epic tracks a sidecar proxy approach for FQDN-scoped egress filtering.
+- **FQDN-based egress filtering:** The current 443/TCP egress rule is broad by necessity — agents must reach external LLM APIs (ollama.com, opencode.ai, aliyuncs.com, api.openai.com, api.anthropic.com, generativelanguage.googleapis.com, custom providers) over HTTPS. Standard Kubernetes NetworkPolicy cannot express FQDN-based rules. The Epic tracks a sidecar proxy approach for FQDN-scoped egress filtering.
 - **Per-request audit logging:** Network flows are not logged per-request today.
 - **TLS inspection:** Egress TLS traffic is not inspected or intercepted.
 - **Secret isolation from agent-visible scope:** Agent pods can read their own API key secrets. Further isolation (e.g. short-lived tokens, secret injection via sidecar) is deferred.

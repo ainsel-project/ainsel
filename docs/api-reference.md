@@ -169,7 +169,17 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
 }
 ```
 
-`imageRef.name` is required and must reference an existing `AgentImage`. Any names in `enabledTools` not declared by that image are rejected. The `ollamaCloud.apiKey`, when present, is stored in a Secret named `<agent>-ollama-key` and never echoed back.
+`imageRef.name` is required and must reference an existing `AgentImage`. Any names in `enabledTools` not declared by that image are rejected. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+
+| Request block | `llm.provider` | Secret |
+|---|---|---|
+| `ollamaCloud` | `ollama-cloud` | `<agent>-llm-key` |
+| `openCode` | `opencode` | `<agent>-opencode-key` |
+| `alibabaCloud` | `alibaba-cloud` | `<agent>-alibaba-key` |
+| `openAI` | `openai` | `<agent>-openai-key` |
+| `anthropic` | `anthropic` | `<agent>-anthropic-key` |
+| `google` | `google` | `<agent>-google-key` |
+| `customProvider` (also takes `url`) | `custom` | `<agent>-custom-provider-key` |
 
 **Response:** `201 Created` with the same shape as `GET /api/v1/agents/{name}`. `400` on validation errors, `500` on Kubernetes failures.
 
@@ -305,8 +315,9 @@ strings. Credentials never leave the hub.
 ```
 
 Both fields are required. `provider` must be one of `ollama-cloud`,
-`opencode`, `alibaba-cloud`; `custom` is rejected with `400` — its URL exists
-only on a specific agent's spec, so a bare pair cannot resolve it.
+`opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`; `custom` is
+rejected with `400` — its URL exists only on a specific agent's spec, so a
+bare pair cannot resolve it.
 
 **How the hub answers.** It picks a *representative agent*: one visible to the
 caller (plugin callers: their effective groups plus public agents; admin
@@ -314,11 +325,20 @@ sessions: all), preferring agents whose `(provider, model)` matches exactly
 over provider-only matches, both in name order. Candidates without a usable
 stored key are skipped — the representative is the first matching agent that
 has one, so a `404` genuinely means no visible agent can probe the pair. The
-probe target comes from that agent's own spec — the provider block's `baseUrl`
-override when set, else the hub's built-in default (mirroring the operator's
-`env.go` defaults) — and the key is read through the agent's
-`apiKeySecretRef`. It then sends the cheapest possible completion
-(`POST {baseUrl}/chat/completions`, `max_tokens: 1`) with an 8 s cap; any 2xx
+probe target comes from the `shared/api/llmprovider` registry and that agent's
+spec: for `ollama-cloud`, `opencode` and `alibaba-cloud` it is the provider
+block's `baseUrl` override when set, else the built-in URL the agent also runs
+on; for `openai`, `anthropic` and `google` it is the provider's
+OpenAI-compatible endpoint (`https://api.openai.com/v1`,
+`https://api.anthropic.com/v1`,
+`https://generativelanguage.googleapis.com/v1beta/openai`), since the agent
+itself uses the native API. An agent whose `openAI`, `anthropic` or `google`
+block sets its own `baseUrl` (a gateway or proxy) is not used for the check:
+the vendor endpoint would answer for a different service, and the key never
+travels to an endpoint the admin did not configure. The key is read through
+the agent's `apiKeySecretRef`. OpenAI probes cap the reply with
+`max_completion_tokens` (its reasoning models reject `max_tokens`). It then sends the cheapest possible completion
+(`POST {baseUrl}/chat/completions` with a one-token cap — `max_tokens: 1`, or `max_completion_tokens: 1` for OpenAI) with an 8 s cap; any 2xx
 from the provider is `ok`.
 
 | Status | Meaning |

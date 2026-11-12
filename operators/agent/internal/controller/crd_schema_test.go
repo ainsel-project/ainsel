@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 )
 
 // TestAgentImageCRDHasTokenFromEnv ensures the checked-in CRD base matches the
@@ -139,7 +141,8 @@ func TestAgentCRDHasModelLicense(t *testing.T) {
 }
 
 // TestAgentCRDProviderEnumAndBaseURLs guards issue #96: the checked-in Agent
-// CRD must constrain spec.llm.provider to the four supported values with no
+// CRD must constrain spec.llm.provider to exactly the registry's providers
+// (shared/api/llmprovider), in registry order, with no
 // default (a default would just move the silent-Ollama-Cloud fallback into
 // the schema), and must carry the per-provider baseUrl override fields.
 // Without the enum the API server accepts any provider string and only the
@@ -170,7 +173,7 @@ func TestAgentCRDProviderEnumAndBaseURLs(t *testing.T) {
 	provider = mustMap(t, provider, "provider")
 
 	enum := mustSlice(t, provider, "enum")
-	want := []string{"ollama-cloud", "opencode", "alibaba-cloud", "custom"}
+	want := llmprovider.IDs()
 	if len(enum) != len(want) {
 		t.Fatalf("spec.llm.provider enum = %v, want %v", enum, want)
 	}
@@ -183,8 +186,8 @@ func TestAgentCRDProviderEnumAndBaseURLs(t *testing.T) {
 		t.Error("spec.llm.provider must have no schema default (issue #96 removes the silent fallback)")
 	}
 
-	// baseUrl overrides on the three built-in provider blocks.
-	for _, block := range []string{"ollamaCloud", "openCode", "alibabaCloud"} {
+	// baseUrl overrides on every built-in provider block.
+	for _, block := range []string{"ollamaCloud", "openCode", "alibabaCloud", "openAI", "anthropic", "google"} {
 		props := mustMap(t, mustMap(t, specProps, "properties"), block)
 		itemProps := mustMap(t, props, "properties")
 		if _, ok := itemProps["baseUrl"]; !ok {

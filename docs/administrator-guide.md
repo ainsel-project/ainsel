@@ -130,7 +130,7 @@ state as the operators reconcile it.*
 
 3. **Define an agent.** Create an `Agent` CRD with a `displayName`,
    `llm.provider` (required — one of `ollama-cloud`, `opencode`,
-   `alibaba-cloud`, `custom`), `llm.model`, `imageRef`, a `persona` (inline or
+   `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom`), `llm.model`, `imageRef`, a `persona` (inline or
    ConfigMap), and an `enabledTools` list. The agent operator
    reconciles a Deployment (replica count from `spec.scaling`) and a
    per-agent metrics Service.

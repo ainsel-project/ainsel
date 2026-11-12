@@ -61,7 +61,7 @@ When the Agent controller creates a Deployment for an Agent CR, it sets these en
 | Variable | Source | Description |
 |----------|--------|-------------|
 | `AGENT_NAME` | `metadata.name` | Agent name |
-| `PI_PROVIDER` | `spec.llm.provider` | Pi provider key resolved from the explicit provider (`ollama-api-key`, `opencode`, `alibaba-cloud`, `openai` for custom). There is no fallback: an empty or unknown provider fails the reconcile with `Ready=False` / `InvalidLLMProvider` (issue #96) |
+| `PI_PROVIDER` | `spec.llm.provider` | Pi provider key resolved from the explicit provider (`ollama-api-key`, `opencode`, `alibaba-cloud`; Pi's built-in `openai`, `anthropic`, `google`; `ainsel-custom` for custom). There is no fallback: an empty or unknown provider fails the reconcile with `Ready=False` / `InvalidLLMProvider` (issue #96) |
 | `AINSEL_LLM_MODEL` | `spec.llm.model` | LLM model — the canonical, provider-neutral runtime contract |
 | `OLLAMA_CLOUD_MODEL` | `spec.llm.model` | Transitional alias of `AINSEL_LLM_MODEL`, dual-written with the same value for one release so old runtime images keep working (issue #96). Remove after the alias window |
 | `OLLAMA_CLOUD_MAX_TURNS` | `spec.llm.maxTurns` | Tool-loop turn cap (legacy name; a provider-neutral rename is a known follow-up) |

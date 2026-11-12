@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	sharedpersonas "github.com/ainsel-project/ainsel/shared/api/personas"
 	sharedskills "github.com/ainsel-project/ainsel/shared/api/skills"
 
@@ -334,8 +335,13 @@ func (r *AgentReconciler) reconcilePiModelsConfigMap(ctx context.Context, agent 
 	// extension reads this block to inject sampling params into each
 	// provider request. Keeps all LLM config in one ConfigMap and out of
 	// the pod env.
+	// The temperature reaches the provider through the pi-ainsel-llm-config
+	// extension, which writes it into an OpenAI chat-shaped request body;
+	// native APIs (OpenAI Responses, Anthropic, Gemini) shape requests
+	// differently and some models reject a temperature outright, so it is
+	// only emitted for OpenAI-compatible providers.
 	var ainselBlock string
-	if agent.Spec.LLM.Temperature != nil {
+	if agent.Spec.LLM.Temperature != nil && pp.API == llmprovider.PiAPIOpenAICompletions {
 		ainselBlock = fmt.Sprintf(`,
     "ainsel": {
         "temperature": %s
@@ -402,10 +408,17 @@ func (r *AgentReconciler) reconcilePiModelsConfigMap(ctx context.Context, agent 
 			strconv.FormatFloat(c.CacheRead, 'g', -1, 64),
 			strconv.FormatFloat(c.CacheWrite, 'g', -1, 64))
 	}
-	modelsJSON := fmt.Sprintf(`{
+	var modelsJSON string
+	if pp.BuiltIn {
+		modelsJSON, err = builtInModelsJSON(agent, pp, apiKeyRef)
+		if err != nil {
+			return err
+		}
+	} else {
+		modelsJSON = fmt.Sprintf(`{
     "providers": {
         %q: {
-            "api": "openai-completions",
+            "api": %q,
             "apiKey": %q,
             "baseUrl": %q%s,
             "models": [
@@ -418,7 +431,8 @@ func (r *AgentReconciler) reconcilePiModelsConfigMap(ctx context.Context, agent 
             ]
         }
     }%s
-}`, pp.Name, apiKeyRef, pp.BaseURL, providerCompatBlock, agent.Spec.LLM.Model, contextWindow, input, pp.Compat, thinkingLevelMapBlock, modelCompatBlock, costBlock, ainselBlock)
+}`, pp.Name, pp.API, apiKeyRef, pp.BaseURL, providerCompatBlock, agent.Spec.LLM.Model, contextWindow, input, pp.Compat, thinkingLevelMapBlock, modelCompatBlock, costBlock, ainselBlock)
+	}
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -875,17 +889,10 @@ func (r *AgentReconciler) agentImageToAgents(ctx context.Context, obj client.Obj
 }
 
 func referencesSecret(agent ainselv1alpha1.Agent, secretName string) bool {
-	if agent.Spec.OllamaCloud != nil && agent.Spec.OllamaCloud.APIKeySecretRef != nil && agent.Spec.OllamaCloud.APIKeySecretRef.Name == secretName {
-		return true
-	}
-	if agent.Spec.OpenCode != nil && agent.Spec.OpenCode.APIKeySecretRef != nil && agent.Spec.OpenCode.APIKeySecretRef.Name == secretName {
-		return true
-	}
-	if agent.Spec.AlibabaCloud != nil && agent.Spec.AlibabaCloud.APIKeySecretRef != nil && agent.Spec.AlibabaCloud.APIKeySecretRef.Name == secretName {
-		return true
-	}
-	if agent.Spec.CustomProvider != nil && agent.Spec.CustomProvider.APIKeySecretRef != nil && agent.Spec.CustomProvider.APIKeySecretRef.Name == secretName {
-		return true
+	for _, p := range llmprovider.All() {
+		if cred, ok := p.Credential(&agent.Spec); ok && cred.APIKeySecretRef != nil && cred.APIKeySecretRef.Name == secretName {
+			return true
+		}
 	}
 	// The image-env secret is always operator-managed with a fixed name.
 	if "agent-"+agent.Name+"-image-env" == secretName {
@@ -920,4 +927,43 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Named("agent").
 		Complete(r)
+}
+
+// builtInModelsJSON renders models.json for one of Pi's built-in providers
+// (OpenAI, Anthropic, Google). Pi's own catalog supplies each model's API,
+// reasoning, compat and thinking settings, so the entry carries only the key,
+// the block's baseUrl override and per-model overrides for what the Agent
+// spec actually sets. The context window is overridden only when the spec
+// sets one: unlike the OpenAI-compatible endpoints, Pi knows these models'
+// real limits. Vision is always applied, matching its "false sends no
+// images" contract. A model id Pi does not know still runs: Pi falls back to
+// a generic model entry for the provider.
+func builtInModelsJSON(agent *ainselv1alpha1.Agent, pp piProviderConfig, apiKeyRef string) (string, error) {
+	override := map[string]any{"input": []string{"text"}}
+	if agent.Spec.LLM.Vision != nil && *agent.Spec.LLM.Vision {
+		override["input"] = []string{"text", "image"}
+	}
+	if w := agent.Spec.LLM.ContextWindow; w != nil && *w > 0 {
+		override["contextWindow"] = *w
+	}
+	if c := agent.Spec.LLM.Cost; c != nil {
+		override["cost"] = map[string]float64{
+			"input":      c.Input,
+			"output":     c.Output,
+			"cacheRead":  c.CacheRead,
+			"cacheWrite": c.CacheWrite,
+		}
+	}
+	provider := map[string]any{
+		"apiKey":         apiKeyRef,
+		"modelOverrides": map[string]any{agent.Spec.LLM.Model: override},
+	}
+	if pp.BaseURLOverride != "" {
+		provider["baseUrl"] = pp.BaseURLOverride
+	}
+	b, err := json.MarshalIndent(map[string]any{"providers": map[string]any{pp.Name: provider}}, "", "    ")
+	if err != nil {
+		return "", fmt.Errorf("rendering models.json: %w", err)
+	}
+	return string(b), nil
 }

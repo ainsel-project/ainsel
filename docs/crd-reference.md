@@ -42,7 +42,7 @@ for its container image and tool catalog.
 | `runtime.imagePullPolicy` | string | No | Kubernetes image pull policy (`Always`, `Never`, `IfNotPresent`) |
 | `runtime.resources` | ResourceRequirements | No | CPU/memory requests and limits for the agent pod |
 | `llm.model` | string | Yes | LLM model identifier (e.g. `unsloth/gpt-oss-120b-GGUF:F16`) |
-| `llm.provider` | string | Yes (no schema default) | LLM provider backend. Enum: `ollama-cloud`, `opencode`, `alibaba-cloud`, `custom`. Unknown values are rejected by the API server; an unset provider fails the reconcile with `Ready=False` / reason `InvalidLLMProvider` — there is deliberately no fallback to a built-in provider, so agents never end up on a provider nobody chose |
+| `llm.provider` | string | Yes (no schema default) | LLM provider backend. Enum: `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom`. Each provider is described once in the `shared/api/llmprovider` registry, which sets its Pi provider key, Pi API type, default base URL and key env var. `openai`, `anthropic` and `google` run on Pi's built-in providers: the generated `models.json` supplies only the key, the block's `baseUrl` override and per-model overrides (`llm.contextWindow` when set, `llm.vision`, `llm.cost`), so Pi's model catalog keeps each model's reasoning and API settings. `llm.temperature` applies to the OpenAI-compatible providers only (`ollama-cloud`, `opencode`, `alibaba-cloud`, `custom`). Unknown values are rejected by the API server; an unset provider fails the reconcile with `Ready=False` / reason `InvalidLLMProvider` — there is deliberately no fallback to a built-in provider, so agents never end up on a provider nobody chose |
 | `llm.maxTurns` | int | No | Maximum tool-use loop turns |
 | `llm.temperature` | float64 | No | LLM sampling temperature |
 | `llm.vision` | bool | No | Whether pi sends image input. When true the operator advertises `"input": ["text", "image"]` to pi, so screenshots and image attachments are attached; while false pi sends none, even to a model that can see them. The endpoint is never probed: images sent to a model that cannot see them fail the request. Takes effect when the agent's pod next starts (the init container copies `models.json` in at start). Default false |
@@ -63,8 +63,14 @@ for its container image and tool catalog.
 | `openCode.baseUrl` | string | No | Override for the OpenCode API base URL (default `https://opencode.ai/zen/go/v1`) |
 | `alibabaCloud.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Alibaba Token Plan API key (key: `api-key`). Used when `llm.provider` is `alibaba-cloud` |
 | `alibabaCloud.baseUrl` | string | No | Override for the Alibaba base URL — e.g. a different MaaS region than the built-in `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`, or a private compatible-mode endpoint |
+| `openAI.apiKeySecretRef` | SecretKeySelector | No | Secret containing the OpenAI API key (key: `api-key`), exposed to Pi as `OPENAI_API_KEY`. Used when `llm.provider` is `openai`; Pi's built-in OpenAI provider (Responses API) |
+| `openAI.baseUrl` | string | No | Override for the OpenAI API base URL (default `https://api.openai.com/v1`) |
+| `anthropic.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Anthropic API key (key: `api-key`), exposed to Pi as `ANTHROPIC_API_KEY`. Used when `llm.provider` is `anthropic`; Pi's built-in Anthropic provider (Messages API) |
+| `anthropic.baseUrl` | string | No | Override for the Anthropic API base URL (default `https://api.anthropic.com`) |
+| `google.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Gemini API key (key: `api-key`), exposed to Pi as `GEMINI_API_KEY`. Used when `llm.provider` is `google`; Pi's built-in Google provider (Gemini API) |
+| `google.baseUrl` | string | No | Override for the Gemini API base URL (default `https://generativelanguage.googleapis.com/v1beta`) |
 | `customProvider.url` | string | No | Base URL of a custom OpenAI-compatible LLM API (e.g. `https://api.openai.com/v1`). Required when `llm.provider` is `custom` (the `customProvider` block is optional, but `url` is mandatory when `customProvider` is specified) |
-| `customProvider.apiKeySecretRef` | SecretKeySelector | No | Secret containing the custom provider API key (key: `api-key`) |
+| `customProvider.apiKeySecretRef` | SecretKeySelector | No | Secret containing the custom provider API key (key: `api-key`). The generated `models.json` registers the custom endpoint under the Pi provider key `ainsel-custom` (before #89 it was `openai`, which shadowed Pi's built-in OpenAI provider) |
 
 ### Status
 

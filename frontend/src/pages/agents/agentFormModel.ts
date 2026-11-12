@@ -1,19 +1,11 @@
 import { z } from 'zod'
-import type {
-  AgentAlibabaCloud,
-  AgentCustomProvider,
-  AgentOllamaCloud,
-  AgentOpenCode,
-  AgentRequest,
-} from '../../api/agents'
+import type { AgentRequest } from '../../api/agents'
+import { findLlmProvider, LLM_PROVIDER_REGISTRY, type ProviderRequestField } from './llmProviders'
 
-export const LLM_PROVIDERS = [
+export const LLM_PROVIDERS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '', label: 'None' },
-  { value: 'ollama-cloud', label: 'Ollama Cloud' },
-  { value: 'opencode', label: 'OpenCode' },
-  { value: 'alibaba-cloud', label: 'Alibaba Token Plan' },
-  { value: 'custom', label: 'Custom' },
-] as const
+  ...LLM_PROVIDER_REGISTRY.map((p) => ({ value: p.id, label: p.label })),
+]
 
 /**
  * Human-readable label for a stored LLM provider id. Derived from the same
@@ -27,12 +19,9 @@ export function llmProviderLabel(provider: string | undefined): string {
   return LLM_PROVIDERS.find((p) => p.value === provider)?.label ?? provider
 }
 
-export const API_KEY_LABELS: Record<string, string> = {
-  'ollama-cloud': 'Ollama Cloud API Key',
-  opencode: 'OpenCode API Key',
-  'alibaba-cloud': 'Alibaba Token Plan API Key',
-  custom: 'API Key',
-}
+export const API_KEY_LABELS: Record<string, string> = Object.fromEntries(
+  LLM_PROVIDER_REGISTRY.map((p) => [p.id, p.apiKeyLabel]),
+)
 
 /** The LLM block: model, sampling, context and vision, shared by every agent write form. */
 const llmSchema = z.object({
@@ -144,16 +133,12 @@ function buildProviderRequest(
   provider: string,
   apiKey: string,
   customProviderUrl: string,
-): Pick<AgentRequest, 'ollamaCloud' | 'openCode' | 'alibabaCloud' | 'customProvider'> {
+): Pick<AgentRequest, ProviderRequestField> {
+  const p = findLlmProvider(provider)
+  if (!p) return {}
   const key = apiKey ? { apiKey } : undefined
-
-  const ollamaCloud: AgentOllamaCloud | undefined = provider === 'ollama-cloud' ? key : undefined
-  const openCode: AgentOpenCode | undefined = provider === 'opencode' ? key : undefined
-  const alibabaCloud: AgentAlibabaCloud | undefined = provider === 'alibaba-cloud' ? key : undefined
-  const customProvider: AgentCustomProvider | undefined =
-    provider === 'custom' ? { url: customProviderUrl, ...(key ?? {}) } : undefined
-
-  return { ollamaCloud, openCode, alibabaCloud, customProvider }
+  if (p.needsUrl) return { [p.requestField]: { url: customProviderUrl, ...(key ?? {}) } }
+  return key ? { [p.requestField]: key } : {}
 }
 
 /**

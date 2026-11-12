@@ -13,6 +13,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -168,6 +169,9 @@ type SimpleAgentResponse struct {
 	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
 	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
 	AlibabaCloud   *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
+	OpenAI         *AgentAPIKeyInfo         `json:"openAI,omitempty"`
+	Anthropic      *AgentAPIKeyInfo         `json:"anthropic,omitempty"`
+	Google         *AgentAPIKeyInfo         `json:"google,omitempty"`
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
 	Status         *SimpleAgentStatus       `json:"status,omitempty"`
 	UpdatedAt      string                   `json:"updatedAt,omitempty"`
@@ -219,27 +223,23 @@ type AgentMemoryInfo struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-// AgentOllamaCloudInfo is the REST representation of Ollama Cloud credentials.
-type AgentOllamaCloudInfo struct {
-	// APIKey is the Ollama Cloud API key. If provided, the backend will create
+// AgentAPIKeyInfo is the REST representation of an API-key provider block
+// (Ollama Cloud, OpenCode, Alibaba Token Plan, OpenAI, Anthropic, Google).
+type AgentAPIKeyInfo struct {
+	// APIKey is the provider API key. If provided, the backend will create
 	// a secret to store it. On response, this field is always empty for security.
 	APIKey string `json:"apiKey,omitempty"`
 }
 
+// AgentOllamaCloudInfo is the REST representation of Ollama Cloud credentials.
+type AgentOllamaCloudInfo = AgentAPIKeyInfo
+
 // AgentOpenCodeInfo is the REST representation of OpenCode credentials.
-type AgentOpenCodeInfo struct {
-	// APIKey is the OpenCode API key. If provided, the backend will create
-	// a secret to store it. On response, this field is always empty for security.
-	APIKey string `json:"apiKey,omitempty"`
-}
+type AgentOpenCodeInfo = AgentAPIKeyInfo
 
 // AgentAlibabaCloudInfo is the REST representation of Alibaba Token Plan
 // credentials.
-type AgentAlibabaCloudInfo struct {
-	// APIKey is the Alibaba Token Plan API key. If provided, the backend will create
-	// a secret to store it. On response, this field is always empty for security.
-	APIKey string `json:"apiKey,omitempty"`
-}
+type AgentAlibabaCloudInfo = AgentAPIKeyInfo
 
 // AgentCustomProviderInfo is the REST representation of a custom LLM provider.
 type AgentCustomProviderInfo struct {
@@ -296,6 +296,9 @@ type SimpleAgentCreateRequest struct {
 	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
 	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
 	AlibabaCloud   *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
+	OpenAI         *AgentAPIKeyInfo         `json:"openAI,omitempty"`
+	Anthropic      *AgentAPIKeyInfo         `json:"anthropic,omitempty"`
+	Google         *AgentAPIKeyInfo         `json:"google,omitempty"`
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
 }
 
@@ -320,6 +323,9 @@ type SimpleAgentUpdateRequest struct {
 	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
 	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
 	AlibabaCloud   *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
+	OpenAI         *AgentAPIKeyInfo         `json:"openAI,omitempty"`
+	Anthropic      *AgentAPIKeyInfo         `json:"anthropic,omitempty"`
+	Google         *AgentAPIKeyInfo         `json:"google,omitempty"`
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
 }
 
@@ -416,19 +422,13 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		}
 	}
 
-	// OllamaCloud - note: API key is never returned in responses for security
-	if a.Spec.OllamaCloud != nil {
-		resp.OllamaCloud = &AgentOllamaCloudInfo{}
-	}
-
-	// OpenCode - note: API key is never returned in responses for security
-	if a.Spec.OpenCode != nil {
-		resp.OpenCode = &AgentOpenCodeInfo{}
-	}
-
-	// AlibabaCloud - note: API key is never returned in responses for security
-	if a.Spec.AlibabaCloud != nil {
-		resp.AlibabaCloud = &AgentAlibabaCloudInfo{}
+	// API-key provider blocks: presence only — the key is never returned.
+	for _, f := range apiKeyProviderFields {
+		if p, ok := llmprovider.Lookup(f.id); ok {
+			if _, present := p.Credential(&a.Spec); present {
+				*f.response(&resp) = &AgentAPIKeyInfo{}
+			}
+		}
 	}
 
 	// CustomProvider - note: API key is never returned in responses for security
@@ -845,8 +845,39 @@ func (r *SimpleAgentCreateRequest) toUpdateFields() *SimpleAgentUpdateRequest {
 		OllamaCloud:    r.OllamaCloud,
 		OpenCode:       r.OpenCode,
 		AlibabaCloud:   r.AlibabaCloud,
+		OpenAI:         r.OpenAI,
+		Anthropic:      r.Anthropic,
+		Google:         r.Google,
 		CustomProvider: r.CustomProvider,
 	}
+}
+
+// apiKeyProviderFields ties each API-key provider in the llmprovider registry
+// to its field on the write request and on the response. The custom provider
+// is not listed: it carries a URL and keeps its own handling.
+var apiKeyProviderFields = []struct {
+	id       string
+	request  func(*SimpleAgentUpdateRequest) *AgentAPIKeyInfo
+	response func(*SimpleAgentResponse) **AgentAPIKeyInfo
+}{
+	{agentv1alpha1.AgentLLMProviderOllamaCloud,
+		func(r *SimpleAgentUpdateRequest) *AgentAPIKeyInfo { return r.OllamaCloud },
+		func(r *SimpleAgentResponse) **AgentAPIKeyInfo { return &r.OllamaCloud }},
+	{agentv1alpha1.AgentLLMProviderOpenCode,
+		func(r *SimpleAgentUpdateRequest) *AgentAPIKeyInfo { return r.OpenCode },
+		func(r *SimpleAgentResponse) **AgentAPIKeyInfo { return &r.OpenCode }},
+	{agentv1alpha1.AgentLLMProviderAlibabaCloud,
+		func(r *SimpleAgentUpdateRequest) *AgentAPIKeyInfo { return r.AlibabaCloud },
+		func(r *SimpleAgentResponse) **AgentAPIKeyInfo { return &r.AlibabaCloud }},
+	{agentv1alpha1.AgentLLMProviderOpenAI,
+		func(r *SimpleAgentUpdateRequest) *AgentAPIKeyInfo { return r.OpenAI },
+		func(r *SimpleAgentResponse) **AgentAPIKeyInfo { return &r.OpenAI }},
+	{agentv1alpha1.AgentLLMProviderAnthropic,
+		func(r *SimpleAgentUpdateRequest) *AgentAPIKeyInfo { return r.Anthropic },
+		func(r *SimpleAgentResponse) **AgentAPIKeyInfo { return &r.Anthropic }},
+	{agentv1alpha1.AgentLLMProviderGoogle,
+		func(r *SimpleAgentUpdateRequest) *AgentAPIKeyInfo { return r.Google },
+		func(r *SimpleAgentResponse) **AgentAPIKeyInfo { return &r.Google }},
 }
 
 // putAgentSecret stores a provider API key under name, creating the secret or
@@ -955,46 +986,26 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 	}
 
 	// Provider API keys: a non-empty key stores a secret and points the spec
-	// at it. The secret names embed the agent name, so repeated updates
-	// rotate the value in place. API keys are never returned in responses.
-	if req.OllamaCloud != nil && req.OllamaCloud.APIKey != "" {
-		secretName := fmt.Sprintf("%s-llm-key", name)
-		if err := s.putAgentSecret(ctx, secretName, req.OllamaCloud.APIKey); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create Ollama Cloud secret: "+err.Error())
+	// at it; a blank or absent key leaves the stored block untouched. The
+	// secret names embed the agent name, so repeated updates rotate the value
+	// in place. API keys are never returned in responses.
+	for _, f := range apiKeyProviderFields {
+		info := f.request(req)
+		if info == nil || info.APIKey == "" {
+			continue
+		}
+		p, _ := llmprovider.Lookup(f.id)
+		secretName := name + p.HubSecretSuffix
+		if err := s.putAgentSecret(ctx, secretName, info.APIKey); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create "+p.Label+" secret: "+err.Error())
 			return false
 		}
-		spec.OllamaCloud = &agentv1alpha1.AgentOllamaCloud{
+		p.SetCredential(spec, llmprovider.Credential{
 			APIKeySecretRef: &corev1.SecretKeySelector{
 				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
 				Key:                  "api-key",
 			},
-		}
-	}
-	if req.OpenCode != nil && req.OpenCode.APIKey != "" {
-		secretName := fmt.Sprintf("%s-opencode-key", name)
-		if err := s.putAgentSecret(ctx, secretName, req.OpenCode.APIKey); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create OpenCode secret: "+err.Error())
-			return false
-		}
-		spec.OpenCode = &agentv1alpha1.AgentOpenCode{
-			APIKeySecretRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  "api-key",
-			},
-		}
-	}
-	if req.AlibabaCloud != nil && req.AlibabaCloud.APIKey != "" {
-		secretName := fmt.Sprintf("%s-alibaba-key", name)
-		if err := s.putAgentSecret(ctx, secretName, req.AlibabaCloud.APIKey); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create Alibaba Token Plan secret: "+err.Error())
-			return false
-		}
-		spec.AlibabaCloud = &agentv1alpha1.AgentAlibabaCloud{
-			APIKeySecretRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  "api-key",
-			},
-		}
+		})
 	}
 
 	// Custom provider (URL and optional API key). When the agent has no

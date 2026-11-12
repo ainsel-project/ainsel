@@ -96,6 +96,44 @@ spec:
                       The endpoint is never probed.
                     type: string
                 type: object
+              anthropic:
+                description: |-
+                  AgentAnthropic configures the Anthropic API provider (API key).
+                  The APIKey is stored in a secret created by the hub backend.
+                properties:
+                  apiKeySecretRef:
+                    description: |-
+                      APIKeySecretRef references the secret containing the Anthropic API key.
+                      The secret must have a key named "api-key".
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  baseUrl:
+                    description: |-
+                      BaseURL overrides the provider's API base URL written to the agent's
+                      generated models.json. Unset means the built-in URL
+                      (https://api.anthropic.com). The endpoint is never probed.
+                    type: string
+                type: object
               customProvider:
                 description: |-
                   AgentCustomProvider configures a custom LLM provider.
@@ -178,6 +216,45 @@ spec:
                   - value
                   type: object
                 type: array
+              google:
+                description: |-
+                  AgentGoogle configures the Google Gemini API provider (API key).
+                  The APIKey is stored in a secret created by the hub backend.
+                properties:
+                  apiKeySecretRef:
+                    description: |-
+                      APIKeySecretRef references the secret containing the Gemini API key.
+                      The secret must have a key named "api-key".
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  baseUrl:
+                    description: |-
+                      BaseURL overrides the provider's API base URL written to the agent's
+                      generated models.json. Unset means the built-in URL
+                      (https://generativelanguage.googleapis.com/v1beta). The endpoint is
+                      never probed.
+                    type: string
+                type: object
               imageRef:
                 description: AgentImageRef references an AgentImage by metadata name
                   in the same namespace.
@@ -271,6 +348,9 @@ spec:
                     - ollama-cloud
                     - opencode
                     - alibaba-cloud
+                    - openai
+                    - anthropic
+                    - google
                     - custom
                     type: string
                   temperature:
@@ -383,6 +463,44 @@ spec:
                       BaseURL overrides the provider's API base URL written to the agent's
                       generated models.json. Unset means the built-in URL
                       (https://ollama.com/v1). The endpoint is never probed.
+                    type: string
+                type: object
+              openAI:
+                description: |-
+                  AgentOpenAI configures the OpenAI API provider (API key).
+                  The APIKey is stored in a secret created by the hub backend.
+                properties:
+                  apiKeySecretRef:
+                    description: |-
+                      APIKeySecretRef references the secret containing the OpenAI API key.
+                      The secret must have a key named "api-key".
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  baseUrl:
+                    description: |-
+                      BaseURL overrides the provider's API base URL written to the agent's
+                      generated models.json. Unset means the built-in URL
+                      (https://api.openai.com/v1). The endpoint is never probed.
                     type: string
                 type: object
               openCode:
