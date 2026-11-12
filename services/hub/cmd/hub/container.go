@@ -88,9 +88,13 @@ type containerConfig struct {
 	// metricsSource is HUB_METRICS_SOURCE: which backend answers the event
 	// metric panels. Empty means the default, the hub's own records. See
 	// wireMetricsSource.
-	metricsSource          string
-	claimTimeoutSecs       int
-	taskStartTimeoutSecs   int
+	metricsSource        string
+	claimTimeoutSecs     int
+	taskStartTimeoutSecs int
+	// taskExpirySecs is the pickup deadline for queued tasks (TASK_EXPIRY_SECONDS,
+	// default 1 day, 0 disables). A task still pending past it becomes 'expired'
+	// and the sender is notified like a failed task (issue #236).
+	taskExpirySecs         int
 	connectorCfg           api.ConnectorConfig
 	hubAllowInsecureNoAuth bool
 	// Auth-event audit-trail retention (issue #116): rows older than
@@ -114,6 +118,9 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 
 	// --- Event Queue ---
 	c.eventQueue = eventqueue.NewStore(pool)
+	// Stamped at enqueue time, so a later config change never retroactively
+	// expires tasks an existing deployment already queued.
+	c.eventQueue.SetTaskExpiry(time.Duration(cfg.taskExpirySecs) * time.Second)
 
 	// --- AuthZ ---
 	c.authzStore, c.authzChecker = wireAuthZ(ctx, pool)
