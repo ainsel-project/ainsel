@@ -352,6 +352,15 @@ describe('AgentWizard', () => {
     expect(labels).not.toContain('None')
   })
 
+  it('does not carry a typed key over to another provider', async () => {
+    const user = userEvent.setup()
+    renderWizard('/agents/new?step=model')
+    await user.selectOptions(await screen.findByLabelText(/^provider$/i), 'openai')
+    await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-openai')
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), 'anthropic')
+    expect(screen.getByLabelText('Anthropic API Key')).toHaveValue('')
+  })
+
   it('creates a Google agent with its key and without a temperature', async () => {
     const user = userEvent.setup()
     renderWizard()

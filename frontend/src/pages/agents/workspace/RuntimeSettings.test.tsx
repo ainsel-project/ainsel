@@ -303,6 +303,21 @@ describe('RuntimeSettings', () => {
     expect(body.llm as Record<string, unknown>).not.toHaveProperty('temperature')
   })
 
+  it('drops a key typed for one provider when switching to another', async () => {
+    const user = userEvent.setup()
+    renderSettings({
+      llm: { ...agent.llm!, provider: 'openai' },
+      openAI: {},
+    } as Partial<AgentResponse>)
+    await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-openai')
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), 'anthropic')
+    expect(screen.getByLabelText('Anthropic API Key')).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)).not.toHaveProperty('anthropic')
+    expect(putBody(fetchMock)).not.toHaveProperty('openAI')
+  })
+
   it('shows the stored key after save and refetch', async () => {
     const user = userEvent.setup()
     const view = renderMutable(agent)

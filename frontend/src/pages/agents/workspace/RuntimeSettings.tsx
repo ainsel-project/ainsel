@@ -155,9 +155,12 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
           <div className="form-grid cols-2">
             <ProviderFields
               provider={provider}
-              onProviderChange={(v) =>
+              onProviderChange={(v) => {
+                // A key belongs to the provider it was typed for; never send
+                // it as another provider's key.
+                setValue('providerApiKey', '')
                 setValue('llm.provider', v, { shouldDirty: true, shouldValidate: true })
-              }
+              }}
               urlRegistration={register('customProviderUrl')}
               keyRegistration={register('providerApiKey')}
               providerError={errors.llm?.provider?.message}
