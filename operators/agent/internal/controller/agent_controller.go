@@ -194,6 +194,15 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		})
 	}
 
+	// 4.28. Temperature: only OpenAI-compatible providers receive it (see
+	// reconcilePiModelsConfigMap). Report a temperature that is set but
+	// ignored instead of letting it vanish. Non-blocking.
+	if c := temperatureCondition(&agent); c != nil {
+		apimeta.SetStatusCondition(&agent.Status.Conditions, *c)
+	} else {
+		apimeta.RemoveStatusCondition(&agent.Status.Conditions, ainselv1alpha1.AgentConditionTemperatureApplied)
+	}
+
 	// 4.5. ConfigMap with Pi models.json for ollama-cloud agents (must exist before Deployment)
 	if err := r.reconcilePiModelsConfigMap(ctx, &agent, agentName); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling Pi models ConfigMap: %w", err)
@@ -951,4 +960,29 @@ func builtInModelsJSON(agent *ainselv1alpha1.Agent, pp piProviderConfig, apiKeyR
 		return "", fmt.Errorf("rendering models.json: %w", err)
 	}
 	return string(b), nil
+}
+
+// temperatureCondition returns the TemperatureApplied condition for the
+// agent, or nil when no temperature is set.
+func temperatureCondition(agent *ainselv1alpha1.Agent) *metav1.Condition {
+	if agent.Spec.LLM.Temperature == nil {
+		return nil
+	}
+	if p, ok := llmprovider.Lookup(agent.Spec.LLM.Provider); ok && p.PiAPI != llmprovider.PiAPIOpenAICompletions {
+		return &metav1.Condition{
+			Type:   ainselv1alpha1.AgentConditionTemperatureApplied,
+			Status: metav1.ConditionFalse,
+			Reason: "TemperatureNotSupported",
+			Message: fmt.Sprintf("spec.llm.temperature is not applied for provider %s: it runs on Pi's built-in provider, "+
+				"whose requests the temperature injection does not reach", p.ID),
+			LastTransitionTime: metav1.Now(),
+		}
+	}
+	return &metav1.Condition{
+		Type:               ainselv1alpha1.AgentConditionTemperatureApplied,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Applied",
+		Message:            "spec.llm.temperature is sent with every request",
+		LastTransitionTime: metav1.Now(),
+	}
 }

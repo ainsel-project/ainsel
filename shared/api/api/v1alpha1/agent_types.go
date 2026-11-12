@@ -458,6 +458,11 @@ const (
 	// False while unset (Reason ModelLicenseUnrecorded), True when recorded.
 	// Recording status only — the operator does not verify the licence text.
 	AgentConditionModelLicenseRecorded = "ModelLicenseRecorded"
+	// AgentConditionTemperatureApplied reports whether spec.llm.temperature
+	// reaches the model: True (Reason Applied) for OpenAI-compatible
+	// providers, False (Reason TemperatureNotSupported) for providers that
+	// run on Pi's built-in providers. Absent while no temperature is set.
+	AgentConditionTemperatureApplied = "TemperatureApplied"
 )
 
 // +kubebuilder:object:root=true
