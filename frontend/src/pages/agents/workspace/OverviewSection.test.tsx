@@ -180,7 +180,6 @@ describe('OverviewSection', () => {
         tools: [],
         env: [{ name: 'TURN_TIMEOUT_MS', value: '900000' }],
         mcpServers: [],
-        enabledSkills: [],
       })
     })
     renderOverview()
@@ -220,7 +219,6 @@ describe('OverviewSection', () => {
         tools: [],
         env: [{ name: 'TURN_TIMEOUT_MS', value: '900000' }],
         mcpServers: [],
-        enabledSkills: [],
       })
     })
     renderOverview()

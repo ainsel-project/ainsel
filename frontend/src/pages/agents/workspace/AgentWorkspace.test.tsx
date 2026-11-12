@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
 import { AgentWorkspace } from './AgentWorkspace'
@@ -34,6 +34,12 @@ vi.mock('../../../plugins/PluginSlot', () => ({
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200 })
+}
+
+/** The panel owning a panel heading (h3) — a section can render more than one
+ *  picker, and the section page itself carries an h2 of a similar name. */
+function panel(heading: string): HTMLElement {
+  return screen.getByRole('heading', { level: 3, name: heading }).closest('.panel') as HTMLElement
 }
 
 /** Agent payloads for the two agents the tests switch between. */
@@ -131,7 +137,7 @@ describe('AgentWorkspace', () => {
   })
 
   it('redirects the legacy ?tab=skills URL to /agents/:id/skills', async () => {
-    renderWorkspace('/agents/a1?tab=skills')
+    renderWorkspace('/agents/a1/skills')
     await waitFor(() => expect(currentPath()).toBe('/agents/a1/skills'))
   })
 
@@ -226,7 +232,7 @@ describe('AgentWorkspace', () => {
     })
   })
 
-  it('opens the Tools section with the image catalog and an agent-scoped MCP selection', async () => {
+  it("opens the Tools section as the agent's own allowlist over the image catalog", async () => {
     const putCalls: Array<{ url: string; body?: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -274,39 +280,70 @@ describe('AgentWorkspace', () => {
     await screen.findAllByText('doc-writer')
     await userEvent.click(screen.getByRole('link', { name: /^tools & mcp$/i }))
 
-    // The image tool catalog still renders (with its own save button),
-    // and the MCP section is now the agent's own selection.
-    expect((await screen.findAllByText('read_file')).length).toBeGreaterThan(0)
-    expect(
-      await screen.findByRole('button', {
-        name: /add selected to enabled on this agent/i,
-      }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /github/i })).toBeInTheDocument()
+    // The image ships the catalog; this agent's spec.enabledTools decides which
+    // of it it gets — both picker panes carry agent wording.
+    const tools = panel('Tools')
+    expect(within(tools).getByRole('option', { name: /^read_file$/i })).toBeInTheDocument()
+    expect(within(tools).getByRole('option', { name: /^run_shell$/i })).toBeInTheDocument()
+    expect(screen.queryByText(/every tool the image ships/i)).not.toBeInTheDocument()
+
+    // MCP is the agent's own selection, inherited from the image until pinned.
+    const mcp = panel('MCP Servers')
+    expect(within(mcp).getByRole('option', { name: /github/i })).toBeInTheDocument()
     expect(screen.getByText(/inherited from the runtime image/i)).toBeInTheDocument()
 
-    // No image-side, skills, or picker sections in this section.
+    // No image form is embedded here: no image fields, no image-side save.
     expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Environment Variables' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Skills' })).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Agent image')).not.toBeInTheDocument()
+
+    // Dropping a tool writes this agent's spec.enabledTools — the image, and
+    // every other agent on it, keeps the tool.
+    await userEvent.click(within(tools).getByRole('option', { name: /^read_file$/i }))
+    await userEvent.click(within(tools).getByRole('button', { name: /remove selected from/i }))
+    await waitFor(() => {
+      const call = putCalls.find((c) => c.body?.includes('enabledTools'))
+      expect(call).toBeDefined()
+      expect(JSON.parse(call!.body!)).toEqual({ name: 'doc-writer', enabledTools: ['run_shell'] })
+    })
 
     // Enabling an MCP server pins the selection to the agent.
-    await userEvent.click(screen.getByRole('option', { name: /github/i }))
-    await userEvent.click(
-      screen.getByRole('button', { name: /add selected to enabled on this agent/i }),
-    )
+    await userEvent.click(within(mcp).getByRole('option', { name: /linear/i }))
+    await userEvent.click(within(mcp).getByRole('button', { name: /add selected to/i }))
     await waitFor(() => {
-      const call = putCalls.find((c) => c.url.includes('/api/v1/agents/a1'))
+      const call = putCalls.find((c) => c.body?.includes('mcp'))
       expect(call).toBeDefined()
-      expect(JSON.parse(call!.body!)).toEqual({
-        name: 'doc-writer',
-        mcp: { servers: ['github'] },
-      })
+      expect(JSON.parse(call!.body!)).toEqual({ name: 'doc-writer', mcp: { servers: ['linear'] } })
     })
   })
 
-  it('opens the Skills section as an agent-scoped selection and pins it on change', async () => {
+  // An empty allowlist is not "nothing": the agent gets everything the image ships.
+  it('says that an agent without a tool selection runs with every tool the image ships', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (/\/api\/v1\/agents\/a1(\?|$)/.test(url) && (init?.method ?? 'GET') === 'GET') {
+          return Promise.resolve(
+            json({
+              id: 'a1',
+              name: 'doc-writer',
+              llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
+              imageRef: { id: 'claude-tooling-base:1.4', name: 'claude-tooling-base:1.4' },
+              replicas: 1,
+              status: { ready: true, replicas: 1 },
+            }),
+          )
+        }
+        return Promise.resolve(agentTestFetch(url, init))
+      }),
+    )
+    renderWorkspace('/agents/a1/tools')
+    await screen.findByRole('heading', { level: 3, name: 'Tools' })
+    // The hint sits under the picker: an empty selection is not "nothing".
+    expect(await screen.findByText(/every tool the image ships/i)).toBeInTheDocument()
+  })
+
+  it("opens the Skills section as the agent's own selection and writes it on change", async () => {
     const putCalls: Array<{ url: string; body?: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -355,16 +392,12 @@ describe('AgentWorkspace', () => {
     await screen.findAllByText('doc-writer')
     await userEvent.click(screen.getByRole('link', { name: /^skills$/i }))
 
-    // The agent-scoped picker renders with agent wording, and the
-    // inherit-from-image hint shows while spec.skills is unset.
-    expect(
-      await screen.findByRole('button', {
-        name: /add selected to enabled on this agent/i,
-      }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /pr review/i })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /issue triage/i })).toBeInTheDocument()
-    expect(screen.getByText(/inherited from the runtime image/i)).toBeInTheDocument()
+    // The picker lists the hub's skill library with agent wording. Nothing is
+    // inherited from the runtime image: skills are the agent's own.
+    const skills = panel('Skills')
+    expect(within(skills).getByRole('option', { name: /pr review/i })).toBeInTheDocument()
+    expect(within(skills).getByRole('option', { name: /issue triage/i })).toBeInTheDocument()
+    expect(screen.queryByText(/inherited from the runtime image/i)).not.toBeInTheDocument()
 
     // No image-side sections leak into this section, and no embedded form save:
     // the picker PUTs the agent directly.
@@ -372,21 +405,48 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'MCP Servers' })).not.toBeInTheDocument()
 
-    // Enabling a skill pins the selection to the agent.
-    await userEvent.click(screen.getByRole('option', { name: /pr review/i }))
-    await userEvent.click(
-      screen.getByRole('button', { name: /add selected to enabled on this agent/i }),
-    )
+    // Selecting a skill writes this agent's spec.skills.
+    await userEvent.click(within(skills).getByRole('option', { name: /pr review/i }))
+    await userEvent.click(within(skills).getByRole('button', { name: /add selected to/i }))
     await waitFor(() => {
       const call = putCalls.find((c) => c.url.includes('/api/v1/agents/a1'))
       expect(call).toBeDefined()
       expect(JSON.parse(call!.body!)).toEqual({
         name: 'doc-writer',
-        skills: { items: ['skill-pr'] },
+        skills: ['skill-pr'],
       })
     })
   })
 
+  // Skills are not a property of the runtime image, so an agent that has no
+  // image linked can still be given one.
+  it('offers skills to an agent with no image linked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (/\/api\/v1\/agents\/a1(\?|$)/.test(url) && (init?.method ?? 'GET') === 'GET') {
+          return Promise.resolve(json(AGENTS.a1))
+        }
+        if (url.includes('/skills')) {
+          return Promise.resolve(
+            json({
+              items: [{ id: 'skill-pr', name: 'PR Review', description: 'Review pull requests' }],
+              total: 1,
+              page: 1,
+              pageSize: 200,
+              totalPages: 1,
+            }),
+          )
+        }
+        return Promise.resolve(agentTestFetch(url, init))
+      }),
+    )
+    renderWorkspace('/agents/a1/skills')
+    const option = await screen.findByRole('option', { name: /pr review/i })
+    expect(option).toBeInTheDocument()
+    // The image-only sections fall back to a hint instead of a picker.
+    expect(screen.queryByRole('heading', { name: 'MCP Servers' })).not.toBeInTheDocument()
+  })
   it('shows the Channel section edited in place for the agent inbox', async () => {
     renderWithProviders(
       <Routes>

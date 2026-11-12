@@ -32,7 +32,7 @@ type ImageFormContainerProps = {
    */
   embedded?: boolean
   /** Which form sections to render; see ImageFormViewProps.sections. */
-  sections?: 'all' | 'image' | 'tools' | 'skills'
+  sections?: 'all' | 'image' | 'tools'
   /** Second zone of the merged Environment card in embedded 'image' mode —
    *  see ImageFormViewProps.agentEnvSlot. */
   agentEnvSlot?: ReactNode
@@ -79,7 +79,6 @@ export function ImageFormContainer({
       tools: DEFAULT_SHELL_TOOLS,
       env: [],
       mcpServers: [],
-      enabledSkills: [],
     },
   })
 
@@ -96,7 +95,6 @@ export function ImageFormContainer({
         tools: (existing.data.tools ?? []).map(toFormTool),
         env: (existing.data.env ?? []).map(envVarToFormValue),
         mcpServers: (existing.data.mcpServers ?? []).map((m) => m.name),
-        enabledSkills: existing.data.enabledSkills ?? [],
       })
       setSelectedIndex((existing.data.tools ?? []).length > 0 ? 0 : null)
       initialized.current = true
@@ -145,7 +143,6 @@ export function ImageFormContainer({
         tools: nextTools,
         env: (result.image.env ?? []).map(envVarToFormValue),
         mcpServers: (result.image.mcpServers ?? []).map((m) => m.name),
-        enabledSkills: result.image.enabledSkills ?? [],
       })
       setSelectedIndex(nextTools.length > 0 ? 0 : null)
     } catch (err) {
@@ -180,7 +177,6 @@ export function ImageFormContainer({
         tools: nextTools,
         env: (saved.env ?? []).map(envVarToFormValue),
         mcpServers: (saved.mcpServers ?? []).map((m) => m.name),
-        enabledSkills: saved.enabledSkills ?? [],
       })
       setSelectedIndex(nextTools.length > 0 ? 0 : null)
       if (!embedded) {

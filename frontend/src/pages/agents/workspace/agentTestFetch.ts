@@ -172,7 +172,6 @@ export function agentTestFetch(url: string, init?: RequestInit): Response {
         ],
         env: [],
         mcpServers: [],
-        enabledSkills: [],
       }),
       { status: 200 },
     )
@@ -195,14 +194,12 @@ export function agentTestFetch(url: string, init?: RequestInit): Response {
             displayName: 'Claude Tooling Base',
             imageURL: 'ghcr.io/ainsel/claude-tooling:1.4',
             toolCount: 2,
-            enabledSkills: [],
           },
           {
             id: 'minimal:1.0',
             displayName: 'Minimal',
             imageURL: 'ghcr.io/ainsel/minimal:1.0',
             toolCount: 0,
-            enabledSkills: [],
           },
         ],
         total: 2,

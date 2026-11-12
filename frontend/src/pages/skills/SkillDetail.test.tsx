@@ -109,7 +109,7 @@ describe('SkillDetail', () => {
       'fetch',
       skillFetch(SKILL, 409, {
         error: 'skill in use',
-        referrers: [{ agentImageName: 'reviewer-image' }],
+        referrers: [{ agentName: 'reviewer' }],
       }),
     )
     renderWithProviders(
@@ -123,26 +123,26 @@ describe('SkillDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
     const deleteButtons = screen.getAllByRole('button', { name: /^delete$/i })
     await userEvent.click(deleteButtons[deleteButtons.length - 1])
-    await waitFor(() => expect(screen.getByText('reviewer-image')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('reviewer')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /cannot delete/i })).toBeInTheDocument()
   })
 
-  // #154: the delete-409 referrer list links each image to its detail page
-  // when the payload carries the image id and the image list resolves it.
-  it('links delete-409 referrers that resolve in the image list', async () => {
+  // #154: the delete-409 referrer list links each agent to its detail page
+  // when the payload carries the agent id and the agent list resolves it.
+  it('links delete-409 referrers that resolve in the agent list', async () => {
     const base = skillFetch(SKILL, 409, {
       error: 'skill in use',
       referrers: [
-        { agentImageName: 'reviewer-image', agentImageId: 'reviewer-image' },
-        { agentImageName: 'gone-image', agentImageId: 'gone-image' },
+        { agentName: 'reviewer', agentId: 'reviewer' },
+        { agentName: 'gone-agent', agentId: 'gone-agent' },
       ],
     })
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
-      if (url.includes('/agent-images')) {
+      if (url.includes('/api/v1/agents')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              items: [{ id: 'reviewer-image', displayName: 'reviewer-image' }],
+              items: [{ id: 'reviewer', name: 'reviewer' }],
               total: 1,
               page: 1,
               pageSize: 200,
@@ -165,11 +165,58 @@ describe('SkillDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
     const deleteButtons = screen.getAllByRole('button', { name: /^delete$/i })
     await userEvent.click(deleteButtons[deleteButtons.length - 1])
-    const link = await screen.findByRole('link', { name: 'reviewer-image' })
-    expect(link).toHaveAttribute('href', '/agent-images/reviewer-image')
+    const link = await screen.findByRole('link', { name: 'reviewer' })
+    expect(link).toHaveAttribute('href', '/agents/reviewer')
     // An id the side list does not resolve stays plain text.
-    expect(screen.getByText('gone-image')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'gone-image' })).not.toBeInTheDocument()
+    expect(screen.getByText('gone-agent')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'gone-agent' })).not.toBeInTheDocument()
+  })
+
+  // Skills are selected on the agent, so assigning from a skill's page writes
+  // that agent's own spec.skills — never a shared image's list.
+  it('assigns the skill to an agent through the assignments picker', async () => {
+    const puts: string[] = []
+    const base = skillFetch(SKILL)
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.endsWith('/assignments') && method === 'GET') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ items: [{ agentName: 'reviewer' }] }), { status: 200 }),
+        )
+      }
+      if (url.includes('/assignments/') && method === 'PUT') {
+        puts.push(url)
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (url.includes('/api/v1/agents') && method === 'GET') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                { id: 'reviewer', name: 'reviewer' },
+                { id: 'doc-writer', name: 'doc-writer' },
+              ],
+              total: 2,
+              page: 1,
+              pageSize: 200,
+              totalPages: 1,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return base(url, init)
+    })
+    renderWithProviders(
+      <Routes>
+        <Route path="/skills/:id" element={<SkillDetail />} />
+      </Routes>,
+      { route: '/skills/code-review' },
+    )
+    // doc-writer sits in the available pane: it does not select the skill yet.
+    await userEvent.click(await screen.findByRole('option', { name: /doc-writer/ }))
+    await userEvent.click(screen.getByRole('button', { name: /add selected to/i }))
+    await waitFor(() => expect(puts).toContain('/api/v1/skills/code-review/assignments/doc-writer'))
   })
 })
 

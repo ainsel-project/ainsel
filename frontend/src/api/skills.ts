@@ -102,24 +102,27 @@ export function useDeleteSkill() {
 
 // --- Assignment endpoints ---
 
+/** One agent that selects this skill (`agentName` is the Agent CR name — the
+ *  same value as the agent's API id). */
 export type SkillAssignment = {
-  agentImageName: string
+  agentName: string
+  agentId?: string
 }
 
 export function getSkillAssignments(skillId: string) {
   return request<{ items: SkillAssignment[] }>(`/skills/${encodeURIComponent(skillId)}/assignments`)
 }
 
-export function assignSkill(skillId: string, agentImageName: string) {
+export function assignSkill(skillId: string, agentName: string) {
   return request<void>(
-    `/skills/${encodeURIComponent(skillId)}/assignments/${encodeURIComponent(agentImageName)}`,
+    `/skills/${encodeURIComponent(skillId)}/assignments/${encodeURIComponent(agentName)}`,
     { method: 'PUT' },
   )
 }
 
-export function unassignSkill(skillId: string, agentImageName: string) {
+export function unassignSkill(skillId: string, agentName: string) {
   return request<void>(
-    `/skills/${encodeURIComponent(skillId)}/assignments/${encodeURIComponent(agentImageName)}`,
+    `/skills/${encodeURIComponent(skillId)}/assignments/${encodeURIComponent(agentName)}`,
     { method: 'DELETE' },
   )
 }
@@ -135,8 +138,8 @@ export function useSkillAssignments(skillId: string | undefined) {
 export function useAssignSkill() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ skillId, agentImageName }: { skillId: string; agentImageName: string }) =>
-      assignSkill(skillId, agentImageName),
+    mutationFn: ({ skillId, agentName }: { skillId: string; agentName: string }) =>
+      assignSkill(skillId, agentName),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['skills'] }),
   })
 }
@@ -144,8 +147,8 @@ export function useAssignSkill() {
 export function useUnassignSkill() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ skillId, agentImageName }: { skillId: string; agentImageName: string }) =>
-      unassignSkill(skillId, agentImageName),
+    mutationFn: ({ skillId, agentName }: { skillId: string; agentName: string }) =>
+      unassignSkill(skillId, agentName),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['skills'] }),
   })
 }

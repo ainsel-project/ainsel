@@ -18,7 +18,6 @@ describe('ImageList', () => {
                     displayName: 'claude-tooling-base',
                     imageURL: 'ghcr.io/insel/claude-tooling-base:1.4',
                     toolCount: 14,
-                    enabledSkills: ['skill-a', 'skill-b'],
                   },
                   {
                     id: 'i2',
@@ -50,13 +49,10 @@ describe('ImageList', () => {
     expect(screen.getByText('deprecated-base')).toBeInTheDocument()
   })
 
-  it('renders skill counts for each image', async () => {
+  // Skill selection lives on agents now, so the image list has no skills column.
+  it('has no skills column', async () => {
     renderWithProviders(<ImageList />, { route: '/agent-images' })
     await waitFor(() => expect(screen.getByText('claude-tooling-base')).toBeInTheDocument())
-    // First image has 2 skills — use getAllByText since the pager also shows "2"
-    const skillCells = screen.getAllByText('2').filter((el) => el.classList.contains('num'))
-    expect(skillCells.length).toBeGreaterThanOrEqual(1)
-    // Second image has no enabledSkills field, defaults to 0
-    expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('Skills')).not.toBeInTheDocument()
   })
 })

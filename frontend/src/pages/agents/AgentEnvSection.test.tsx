@@ -34,7 +34,6 @@ function stubFetch(opts: { saveStatus?: number } = {}) {
               tools: [],
               env: imageEnv,
               mcpServers: [],
-              enabledSkills: [],
             }),
             { status: 200 },
           ),

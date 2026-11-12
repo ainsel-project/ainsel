@@ -26,9 +26,10 @@ export type AgentImageRef = {
   name: string
   displayName?: string
 }
-/** Agent-scoped skill selection: present = explicit override (empty items
- *  = no skills), absent = inherit the runtime image's enabledSkills. */
-export type AgentSkills = { items: string[] }
+/** This agent's own skill selection (skill ids) — the skills it is given, from
+ *  the hub's skill library. Absent or empty = no skills; the referenced image
+ *  selects nothing for this agent. */
+export type AgentSkillIds = string[]
 /** One agent-scoped MCP server definition, resolved from the hub's MCP
  *  registry at write time (a snapshot — registry edits don't rewrite
  *  running agents). */
@@ -100,7 +101,7 @@ export type AgentResponse = AgentSummary & {
   llm?: AgentLLM
   persona?: AgentPersona
   enabledTools?: string[]
-  skills?: AgentSkills
+  skills?: AgentSkillIds
   mcp?: AgentMCP
   /** This agent's env overrides; absent = it runs on the image env alone. */
   env?: AgentEnvVar[]

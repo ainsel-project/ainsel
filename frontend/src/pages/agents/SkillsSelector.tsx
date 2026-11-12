@@ -9,22 +9,24 @@ import { Panel } from '../../primitives/Panel'
 import { Tag } from '../../primitives/Tag'
 
 type SkillsSelectorProps = {
-  enabledSkills: string[]
+  /** The agent's current skill selection (skill ids). */
+  selectedIds: string[]
   onChange: (ids: string[]) => void
-  /** Wording for non-image contexts, e.g. the agent detail Skills section. */
-  labels?: { enabledTitle?: string; emptyLabel?: string }
   /**
-   * Agent context only (issue #216): clicking a row shows that skill's body
-   * read-only below the picker, and the row lists grow into the available
-   * viewport height. Off by default so the image form stays as-is.
+   * Show that skill's body read-only below the picker and grow the row lists
+   * into the available viewport height (issue #216).
    */
   previewable?: boolean
 }
 
+/**
+ * The agent's own skill selection. Skills are not a property of the runtime
+ * image: this picks from the hub's skill library and writes `spec.skills` on
+ * the agent, so two agents on the same image can carry different skills.
+ */
 export function SkillsSelector({
-  enabledSkills,
+  selectedIds,
   onChange,
-  labels,
   previewable = false,
 }: SkillsSelectorProps) {
   const { data, isLoading } = useSkills({ pageSize: 200 })
@@ -35,17 +37,14 @@ export function SkillsSelector({
       <Panel title="Skills">
         <DualListPicker
           items={skills}
-          selectedIds={enabledSkills}
+          selectedIds={selectedIds}
           onChange={onChange}
           getId={(s) => s.id}
           getLabel={(s) => s.name}
           getDescription={(s) => s.description}
           isLoading={isLoading}
-          emptyLabel={
-            labels?.emptyLabel ??
-            'No skills available. Create skills first to enable them on this image.'
-          }
-          enabledTitle={labels?.enabledTitle ?? 'Enabled on this image'}
+          emptyLabel="No skills available. Create skills first to enable them on this agent."
+          enabledTitle="Enabled on this agent"
           onRowActivate={previewable ? setPreviewId : undefined}
           tall={previewable}
         />
