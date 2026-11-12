@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -943,11 +944,13 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 	if req.ImageRef != nil {
 		spec.ImageRef = agentv1alpha1.AgentImageRef{Name: req.ImageRef.Name}
 	}
+	// Cloned, not aliased: the spec must not share a backing array with the
+	// decoded request, matching what the removed image-inheritance code did.
 	if req.EnabledTools != nil {
-		spec.EnabledTools = *req.EnabledTools
+		spec.EnabledTools = slices.Clone(*req.EnabledTools)
 	}
 	if req.Skills != nil {
-		spec.Skills = *req.Skills
+		spec.Skills = slices.Clone(*req.Skills)
 	}
 	if res.mcpSelection != nil {
 		spec.MCP = res.mcpSelection
