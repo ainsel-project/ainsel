@@ -108,6 +108,10 @@ Both are populated on the list endpoint only, and are empty when authz is disabl
       "memory": {"enabled": true, "provider": "example"},
       "status": {"ready": true, "desired": 1, "reason": "JobPerTask"},
       "paused": false,
+      "workingHours": {"timezone": "Europe/Berlin", "days": [1, 2, 3, 4, 5], "start": "09:00", "end": "17:00"},
+      "hoursOpen": false,
+      "hoursClosesAt": "2026-06-23T15:00:00Z",
+      "hoursNextOpenAt": "2026-06-24T07:00:00Z",
       "skills": ["git-review"],
       "mcp": {"servers": [{"name": "github", "url": "https://mcp.github.com/sse", "tokenFromEnv": "GITHUB_TOKEN"}]},
       "env": [{"name": "LOG_LEVEL", "value": "debug"}, {"name": "API_TOKEN", "value": "", "secret": true}],
@@ -138,6 +142,25 @@ running (`desired` — active task Jobs — with `reason` and `message`); `desir
 ready agent is an idle agent, not a failed one.
 
 Agents may also carry their own environment variables in `env`: a list of `{"name", "value", "secret"}` layered **on top of** the referenced image's `env`. Entries whose name matches an image variable override its value (and its `secret` flag); new names are added. Absent `env` means the agent runs on the image's variables alone. Names must be valid environment variable names and unique within the list (`400` otherwise). Values of entries with `secret: true` are never returned — they read back as `""`, matching the image `env` contract — and submitting a secret entry with an empty value on update keeps the stored value.
+
+Agents may carry a weekly `workingHours` window — the hours their people are around — as
+`{"timezone", "days", "start", "end"}`: an IANA timezone, cron-numbered weekdays (`0` and
+`7` are both Sunday; empty means every day), and `HH:MM` bounds on a 24-hour clock where an
+`end` before the `start` is one window closing the next morning. Outside the window the hub
+publishes no due-task ids for the agent, and those ids are the only thing the operator
+dispatches from — so no task Job is created and no container starts, while its tasks
+accumulate as a backlog and go out in id order when the window next opens. Nothing is
+exempt, chat included: a message sent at 23:00 to a 09:00–17:00 agent is answered when the
+window opens. `workingHours` is absent for an agent with no window, which is any hour.
+`hoursOpen` answers the question the schedule raises — may this agent be handed work right
+now? — and is `true` for an agent with no window; `hoursClosesAt` is when an open window
+ends, `hoursNextOpenAt` when a shut one starts moving again. Both are computed when the
+agent is read, so they need no watcher. Requests follow the wrapper convention: an absent
+`workingHours` leaves the schedule alone, an empty one (`{}`) removes it. A window the hub
+cannot use — a timezone it cannot load, a clock that is not `HH:MM`, bounds that leave no
+window at all — is rejected with `400` rather than stored as a schedule that silently
+never holds. Like a pause this is a hold on delivery, not a stop: an agent whose window
+shuts mid-task finishes that task.
 
 Agents can be **paused**: `paused: true` means the hub withholds task delivery, so
 routed tasks accumulate as a backlog (visible via the queue-depth fields) and drain in

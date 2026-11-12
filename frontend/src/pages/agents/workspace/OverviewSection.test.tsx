@@ -96,6 +96,39 @@ describe('OverviewSection', () => {
     vi.unstubAllGlobals()
   })
 
+  // Outside a working-hours window an agent has work and is not doing it: the
+  // schedule, not a fault. The chip is what keeps a quiet night reading as broken.
+  it('says when the schedule, not a fault, is holding the work', async () => {
+    stubAgent({
+      ...baseAgent,
+      workingHours: {
+        timezone: 'Europe/Berlin',
+        days: [1, 2, 3, 4, 5],
+        start: '09:00',
+        end: '17:00',
+      },
+      hoursOpen: false,
+      hoursNextOpenAt: '2026-03-30T07:00:00Z',
+    })
+    renderOverview()
+
+    const chip = await screen.findByText(/Outside hours/)
+    expect(chip).toBeInTheDocument()
+    expect(chip.textContent).toContain('opens')
+  })
+
+  it('says nothing about hours while the window is open, or when there is none', async () => {
+    stubAgent({
+      ...baseAgent,
+      workingHours: { timezone: 'Europe/Berlin', start: '09:00', end: '17:00' },
+      hoursOpen: true,
+      hoursClosesAt: '2026-03-20T16:00:00Z',
+    })
+    renderOverview()
+    await screen.findByRole('heading', { name: /doc-writer/ })
+    expect(screen.queryByText(/Outside hours/)).not.toBeInTheDocument()
+  })
+
   it('renders the name and a status · model · image meta line', async () => {
     renderOverview()
     expect(await screen.findByRole('heading', { name: 'doc-writer' })).toBeInTheDocument()

@@ -163,17 +163,31 @@ type SimpleAgentResponse struct {
 	// PausedUntil is when an expiring pause ends (RFC3339). Empty for a
 	// running agent and for an indefinite pause, which must be lifted
 	// explicitly.
-	PausedUntil    string                   `json:"pausedUntil,omitempty"`
-	Memory         *AgentMemoryInfo         `json:"memory,omitempty"`
-	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
-	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
-	AlibabaCloud   *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
-	OpenAI         *AgentAPIKeyInfo         `json:"openAI,omitempty"`
-	Anthropic      *AgentAPIKeyInfo         `json:"anthropic,omitempty"`
-	Google         *AgentAPIKeyInfo         `json:"google,omitempty"`
-	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
-	Status         *SimpleAgentStatus       `json:"status,omitempty"`
-	UpdatedAt      string                   `json:"updatedAt,omitempty"`
+	PausedUntil string `json:"pausedUntil,omitempty"`
+	// WorkingHours is the weekly window inside which the hub may hand this agent
+	// work. Absent means it may be handed work at any hour.
+	WorkingHours *AgentWorkingHoursInfo `json:"workingHours,omitempty"`
+	// HoursOpen reports whether the agent may be handed work right now - true for
+	// an agent with no window. Hours outside a window are not an error: the tasks
+	// queue and drain when the window opens, so a console should say when the
+	// agent will get to them rather than showing it as broken.
+	HoursOpen bool `json:"hoursOpen"`
+	// HoursClosesAt is when the open window ends (RFC3339). Empty when no window
+	// is configured or the agent is outside it.
+	HoursClosesAt string `json:"hoursClosesAt,omitempty"`
+	// HoursNextOpenAt is when the window next opens (RFC3339) while the agent is
+	// outside it - when queued work starts moving.
+	HoursNextOpenAt string                   `json:"hoursNextOpenAt,omitempty"`
+	Memory          *AgentMemoryInfo         `json:"memory,omitempty"`
+	OllamaCloud     *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
+	OpenCode        *AgentOpenCodeInfo       `json:"openCode,omitempty"`
+	AlibabaCloud    *AgentAlibabaCloudInfo   `json:"alibabaCloud,omitempty"`
+	OpenAI          *AgentAPIKeyInfo         `json:"openAI,omitempty"`
+	Anthropic       *AgentAPIKeyInfo         `json:"anthropic,omitempty"`
+	Google          *AgentAPIKeyInfo         `json:"google,omitempty"`
+	CustomProvider  *AgentCustomProviderInfo `json:"customProvider,omitempty"`
+	Status          *SimpleAgentStatus       `json:"status,omitempty"`
+	UpdatedAt       string                   `json:"updatedAt,omitempty"`
 	// ManagedBy names the external system that authors this agent (spec.managedBy).
 	// Any non-empty value other than "user" means the console renders the agent
 	// read-only and the hub refuses every mutation with 409. Read-only: the
@@ -300,7 +314,10 @@ type SimpleAgentCreateRequest struct {
 	Env []AgentImageEnvVarInfo `json:"env,omitempty"`
 	// Replicas caps the number of task Jobs running at once. Defaults to 1;
 	// 0 pauses the agent (due tasks stay queued).
-	Replicas       *int32                   `json:"replicas,omitempty"`
+	Replicas *int32 `json:"replicas,omitempty"`
+	// WorkingHours confines delivery to a weekly window in an IANA timezone; work
+	// outside it stays queued until the window opens. Absent means any hour.
+	WorkingHours   *AgentWorkingHoursInfo   `json:"workingHours,omitempty"`
 	Memory         *AgentMemoryInfo         `json:"memory,omitempty"`
 	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
 	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
@@ -329,7 +346,11 @@ type SimpleAgentUpdateRequest struct {
 	Env *[]AgentImageEnvVarInfo `json:"env,omitempty"`
 	// Replicas caps the number of task Jobs running at once; 0 pauses the
 	// agent (due tasks stay queued).
-	Replicas       *int32                   `json:"replicas,omitempty"`
+	Replicas *int32 `json:"replicas,omitempty"`
+	// WorkingHours confines delivery to a weekly window; work outside it stays
+	// queued until the window opens. Absent leaves it unchanged; present-but-empty
+	// removes the window, so the agent may run at any hour again.
+	WorkingHours   *AgentWorkingHoursInfo   `json:"workingHours,omitempty"`
 	Memory         *AgentMemoryInfo         `json:"memory,omitempty"`
 	OllamaCloud    *AgentOllamaCloudInfo    `json:"ollamaCloud,omitempty"`
 	OpenCode       *AgentOpenCodeInfo       `json:"openCode,omitempty"`
@@ -421,6 +442,25 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 	resp.Paused = a.IsPaused(time.Now())
 	if resp.Paused && a.Spec.Pause.PausedUntil != nil {
 		resp.PausedUntil = a.Spec.Pause.PausedUntil.UTC().Format(time.RFC3339)
+	}
+
+	// Working hours, computed the same way: the CRD is the source of truth and a
+	// window that opens or closes needs no controller to be reported honestly. An
+	// unreadable window reads as open, because that is what the delivery path does -
+	// the console must not show a hold that is not real.
+	resp.WorkingHours = workingHoursFromSpec(a.Spec.WorkingHours)
+	open, next, hoursErr := a.WorkingHoursState(time.Now())
+	if hoursErr != nil {
+		open = true
+	}
+	resp.HoursOpen = open
+	if a.Spec.WorkingHours != nil && !next.IsZero() {
+		stamp := next.UTC().Format(time.RFC3339)
+		if open {
+			resp.HoursClosesAt = stamp
+		} else {
+			resp.HoursNextOpenAt = stamp
+		}
 	}
 
 	// Memory
@@ -877,6 +917,7 @@ func (r *SimpleAgentCreateRequest) toUpdateFields() *SimpleAgentUpdateRequest {
 		Skills:         &r.Skills,
 		Env:            &r.Env,
 		Replicas:       r.Replicas,
+		WorkingHours:   r.WorkingHours,
 		Memory:         r.Memory,
 		OllamaCloud:    r.OllamaCloud,
 		OpenCode:       r.OpenCode,
@@ -1039,6 +1080,21 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 	if msg := scalingProblem(spec.Scaling); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return false
+	}
+	// Working hours: a window the hub cannot evaluate is rejected here rather than
+	// accepted and failed open at delivery time, where the reason would be a log
+	// line nobody reads.
+	if req.WorkingHours != nil {
+		if req.WorkingHours.blank() {
+			spec.WorkingHours = nil
+		} else {
+			wh := req.WorkingHours.toSpecWorkingHours()
+			if msg := workingHoursProblem(wh); msg != "" {
+				writeError(w, http.StatusBadRequest, msg)
+				return false
+			}
+			spec.WorkingHours = wh
+		}
 	}
 	if req.Memory != nil {
 		spec.Memory = &agentv1alpha1.AgentMemory{

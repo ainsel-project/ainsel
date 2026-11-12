@@ -200,6 +200,20 @@ export function OverviewSection() {
                 </Tag>
               </span>
             ) : null}
+            {/* Outside a working-hours window the agent looks idle and is not: its
+                work is queued and goes when the window opens. Say which it is, or the
+                schedule reads as a broken agent. Pause is the louder state, so it is
+                reported on its own line above. */}
+            {!paused && agent.workingHours && !agent.hoursOpen ? (
+              <span style={{ marginLeft: 10 }}>
+                <Tag variant="stale">
+                  Outside hours
+                  {agent.hoursNextOpenAt
+                    ? ` · opens ${new Date(agent.hoursNextOpenAt).toLocaleString()}`
+                    : ''}
+                </Tag>
+              </span>
+            ) : null}
           </>
         }
         actions={

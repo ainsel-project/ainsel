@@ -84,6 +84,19 @@ export type AgentSummary = {
   /** When an expiring pause ends (RFC3339). Absent for a running agent and
    *  for an indefinite pause, which must be resumed explicitly. */
   pausedUntil?: string
+  /** The weekly window inside which the hub hands this agent work. Absent
+   *  means any hour. Outside it, tasks queue and drain when it opens. */
+  workingHours?: AgentWorkingHours
+  /** Whether the agent may be handed work right now — true when it has no
+   *  window. Outside a window is not an error: the backlog goes out when the
+   *  window opens, so a console says when rather than showing it as broken. */
+  hoursOpen?: boolean
+  /** When the open window ends (RFC3339). Absent when there is no window or
+   *  the agent is outside it. */
+  hoursClosesAt?: string
+  /** When the window next opens (RFC3339) while the agent is outside it —
+   *  when the queued work starts moving. */
+  hoursNextOpenAt?: string
   /** Authz group this agent belongs to (list endpoint only). The roster
    *  shows groupName; the id is the fallback when the name is unavailable. */
   groupId?: string
@@ -101,6 +114,16 @@ export type AgentSummary = {
  */
 export function isIdle(status?: AgentSummary['status']): boolean {
   return status != null && (status.desired ?? 0) === 0
+}
+
+/** A weekly working-hours window, stored as the hub reads it: an IANA timezone,
+ *  cron-numbered weekdays (0 and 7 are Sunday; empty means every day) and
+ *  HH:MM bounds where an end before the start closes the next morning. */
+export interface AgentWorkingHours {
+  timezone?: string
+  days?: number[]
+  start?: string
+  end?: string
 }
 
 export type AgentResponse = AgentSummary & {
@@ -122,7 +145,17 @@ export type AgentResponse = AgentSummary & {
 
 export type AgentRequest = Omit<
   AgentResponse,
-  'id' | 'status' | 'mcp' | 'env' | 'paused' | 'pausedUntil' | 'persona'
+  | 'id'
+  | 'status'
+  | 'mcp'
+  | 'env'
+  | 'paused'
+  | 'pausedUntil'
+  | 'workingHours'
+  | 'hoursOpen'
+  | 'hoursClosesAt'
+  | 'hoursNextOpenAt'
+  | 'persona'
 > & {
   groupId?: string
   /** A persona template by id, or — on create only — the agent's own
@@ -135,6 +168,10 @@ export type AgentRequest = Omit<
    *  clears the overrides so the agent runs on the image env again; a secret
    *  entry submitted with an empty value keeps its stored value. */
   env?: AgentEnvVar[]
+  /** Write-side working hours: an absent window means "leave the schedule
+   *  alone", an empty object removes it so the agent may be handed work at
+   *  any hour again. */
+  workingHours?: AgentWorkingHours
 }
 
 export type ListAgentsParams = {

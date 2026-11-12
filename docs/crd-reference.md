@@ -55,6 +55,9 @@ for its container image and tool catalog.
 | `scaling.replicas` | int32 | No | Concurrency cap: the maximum number of per-task Jobs the operator keeps in flight for this agent (default 1). Each queued task gets its own Job up to this cap; `0` pauses the agent (nothing is dispatched) |
 | `scaling.disabled` | bool | No | Set by the operator for a stopped agent: hold at zero even if the hub still counts queued work. Cleared on start |
 | `pause.pausedUntil` | Time | No | Pause window end. **Present = paused**: while active (or while `pausedUntil` is omitted = indefinite) the hub's claim endpoint hands this agent no tasks, so routed tasks accumulate as a backlog that drains in id order when the pause ends — nothing is lost. Expiry is evaluated at read time, so an expiring pause needs no controller. Orthogonal to `scaling`, which governs how many tasks run at once, not whether they are delivered. Managed via `POST`/`DELETE /api/v1/agents/{name}/pause` or by editing the CR. Caveat: while an **indefinite** pause is active nothing prunes the backlog — `agent_tasks` and invocation rows keep growing until the pause is lifted |
+| `workingHours.timezone` | string | No | IANA zone the window is read in (default `UTC`), so `09:00` means 09:00 *there*. An unknown zone is rejected by the API on write; a window that cannot be read at delivery time fails **open** and the work is delivered, so a typo cannot stall a queue forever |
+| `workingHours.days[]` | []int32 | No | Weekdays the window repeats on, numbered as in cron: `0` and `7` are Sunday, `1` Monday … `6` Saturday. Empty = every day |
+| `workingHours.start`, `workingHours.end` | string | No / Yes | `HH:MM` wall-clock bounds. An `end` before the `start` is one window that closes the following day (`22:00`–`06:00` is a night shift); equal bounds leave no window at all and are rejected |
 | `memory.enabled` | bool | Yes | Enable shared memory |
 | `memory.provider` | string | No | Memory provider |
 | `ollamaCloud.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Ollama Cloud API key (key: `api-key`). Used when `llm.provider` is `ollama-cloud` |
@@ -71,6 +74,19 @@ for its container image and tool catalog.
 | `google.baseUrl` | string | No | Override for the Gemini API base URL (default `https://generativelanguage.googleapis.com/v1beta`) |
 | `customProvider.url` | string | No | Base URL of a custom OpenAI-compatible LLM API (e.g. `https://api.openai.com/v1`). Required when `llm.provider` is `custom` (the `customProvider` block is optional, but `url` is mandatory when `customProvider` is specified) |
 | `customProvider.apiKeySecretRef` | SecretKeySelector | No | Secret containing the custom provider API key (key: `api-key`). The generated `models.json` registers the custom endpoint under the Pi provider key `ainsel-custom` (before #89 it was `openai`, which shadowed Pi's built-in OpenAI provider) |
+
+Outside its `workingHours` an agent is handed no work. The hub publishes no due-task ids
+for it, and the due-task ids are the only thing the operator dispatches from — so no task
+Job is created and **no container starts**. That is the point: a schedule that only
+delayed the work would still be waking pods. Queued tasks drain in id order when the
+window next opens, and nothing is exempt: a chat message sent at 23:00 to a
+09:00–17:00 agent is answered when the window opens, not before.
+
+Pause and working hours are two axes of the same gate and either one holds the queue —
+`pause` is a human pressing a button, `workingHours` is the schedule the agent's people
+keep. The difference is the lift: a pause is ended by a person (or its `pausedUntil`), a
+window closes by itself. Both are evaluated at read time, so no controller or timer has
+to be told when either changes.
 
 ### Status
 
@@ -143,6 +159,13 @@ spec:
     # At most two tasks run at once, each in its own Job; with an empty queue
     # the agent runs nothing at all — there is no standing container.
     replicas: 2
+  workingHours:
+    # Mon-Fri, 09:00-17:00 Berlin time. Work that arrives outside the window is kept
+    # and dispatched when it opens; until then no pod is started for it.
+    timezone: Europe/Berlin
+    days: [1, 2, 3, 4, 5]
+    start: "09:00"
+    end: "17:00"
   memory:
     enabled: true
     provider: example
