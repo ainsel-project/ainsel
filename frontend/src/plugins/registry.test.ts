@@ -5,6 +5,7 @@ import {
   activePlugins,
   navEntries,
   pluginPages,
+  pluginTabs,
   findPage,
   activeNavPath,
   slotContributions,
@@ -187,6 +188,59 @@ describe('registry', () => {
       }
       expect(pluginPages(plugin, true).map((e) => e.to)).toEqual(['/p/mem0', '/p/mem0/setup'])
       expect(pluginPages(plugin, false).map((e) => e.to)).toEqual(['/p/mem0'])
+    })
+  })
+
+  describe('pluginTabs', () => {
+    const tabsPlugin = {
+      id: 'mem0',
+      manifest: mockManifest({
+        ui: {
+          entry: '/ui/index.js',
+          pages: [
+            { path: '/', label: 'Mem' },
+            { path: '/setup', label: 'Setup', visibility: 'admin' },
+          ],
+        },
+      }),
+    }
+
+    it('leads with the Plugin home tab for admins', () => {
+      const entries = pluginTabs(tabsPlugin, true)
+      expect(entries[0]).toMatchObject({ label: 'Plugin', to: '/plugins/mem0' })
+      expect(entries.map((e) => e.to)).toEqual(['/plugins/mem0', '/p/mem0', '/p/mem0/setup'])
+    })
+
+    it('omits the Plugin home tab for non-admins', () => {
+      // /plugins/:id is the admin management view; a non-admin would only
+      // reach the "managed by administrators" dead end.
+      expect(pluginTabs(tabsPlugin, false).map((e) => e.to)).toEqual(['/p/mem0'])
+    })
+
+    it('keeps the plugin home tab even with no declared pages', () => {
+      const bare = {
+        id: 'bare',
+        manifest: mockManifest({ ui: { entry: '/ui/index.js', pages: [] } }),
+      }
+      const entries = pluginTabs(bare, true)
+      expect(entries.map((e) => e.to)).toEqual(['/plugins/bare'])
+      expect(pluginTabs(bare, false)).toEqual([])
+    })
+
+    it('preserves pluginPages order behind the home tab', () => {
+      const ordered = {
+        id: 'ord',
+        manifest: mockManifest({
+          ui: {
+            entry: '/ui/index.js',
+            pages: [
+              { path: '/b', label: 'B', section: 'Second' },
+              { path: '/a', label: 'A', section: 'First' },
+            ],
+          },
+        }),
+      }
+      expect(pluginTabs(ordered, true).map((e) => e.label)).toEqual(['Plugin', 'B', 'A'])
     })
   })
 

@@ -1,7 +1,7 @@
-import { Link, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import type { PluginManifest } from '@ainsel/plugin-sdk'
-import { activeNavPath, pluginPages } from '../../plugins/registry'
-import './PluginsWorkspace.css'
+import { activeNavPath, pluginTabs } from '../../plugins/registry'
+import { Tabs } from '../../primitives/Tabs'
 
 type PluginPagesNavProps = {
   plugin: { id: string; manifest: PluginManifest }
@@ -9,35 +9,22 @@ type PluginPagesNavProps = {
 }
 
 /**
- * Links to one plugin's visible pages — the sections of the plugin's own
- * area, mirroring the agent workspace's SectionNav. Rendered on the plugin
- * detail and above every plugin page, so a user can move between a plugin's
- * pages (and back to its detail) without ever losing the roster sidebar.
+ * The tab strip of one plugin's area — its own pages plus, for admins, a
+ * built-in `Plugin` tab back to the plugin's detail page. Rendered at the
+ * top of the plugin detail and above every plugin page, so both surfaces
+ * share one navigation metaphor and a subpage is never a dead end.
  *
- * Active state uses the same most-specific-match rule the old spine entries
- * had (activeNavPath): a root page never double-highlights on a nested path,
+ * Tabs are link-backed (`Tabs` renders `<Link role="tab">` for entries with
+ * a `to`), so they stay deep-linkable and openable in a new tab. Active
+ * state uses the same most-specific-match rule the sidebar entries have
+ * (activeNavPath): a root page never double-highlights on a nested path,
  * and deep links keep their page highlighted.
  */
 export function PluginPagesNav({ plugin, isAdmin }: PluginPagesNavProps) {
   const location = useLocation()
-  const entries = pluginPages(plugin, isAdmin)
+  const entries = pluginTabs(plugin, isAdmin)
   if (entries.length === 0) return null
   const activePath = activeNavPath(entries, location.pathname)
-  return (
-    <nav className="plugin-pages-nav" aria-label="Plugin pages">
-      <ul className="plugin-pages-list">
-        {entries.map((entry) => (
-          <li key={entry.to}>
-            <Link
-              to={entry.to}
-              className="plugin-pages-link"
-              aria-current={entry.to === activePath ? 'page' : undefined}
-            >
-              {entry.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  )
+  const tabs = entries.map((entry) => ({ value: entry.to, label: entry.label, to: entry.to }))
+  return <Tabs value={activePath ?? ''} tabs={tabs} aria-label="Plugin sections" />
 }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { PluginManifest } from '@ainsel/plugin-sdk'
@@ -19,56 +19,79 @@ const manifest = {
 
 const plugin = { id: 'memory', manifest }
 
-function renderNav(path: string, isAdmin: boolean) {
+const barePlugin = {
+  id: 'bare',
+  manifest: {
+    id: 'bare',
+    displayName: 'Bare',
+    pluginApi: '1.1',
+    ui: { entry: '/static/ui/index.js', pages: [] },
+  },
+} as unknown as { id: string; manifest: PluginManifest }
+
+function renderNav(path: string, isAdmin: boolean, p = plugin) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <PluginPagesNav plugin={plugin} isAdmin={isAdmin} />
+      <PluginPagesNav plugin={p} isAdmin={isAdmin} />
     </MemoryRouter>,
   )
 }
 
 describe('PluginPagesNav', () => {
-  it('links the plugin pages and highlights the current one most specifically', () => {
-    renderNav('/p/memory/setup', true)
-    const setup = screen.getByRole('link', { name: /Setup/i })
-    const memories = screen.getByRole('link', { name: /Memories/i })
-    // The nested page wins over the root page — never both (the old spine
-    // regression, re-established for the workspace strip).
-    expect(setup).toHaveAttribute('aria-current', 'page')
-    expect(memories).not.toHaveAttribute('aria-current')
-  })
-
-  it('keeps the page highlighted on deep links under its path', () => {
-    renderNav('/p/memory/setup/42', true)
-    expect(screen.getByRole('link', { name: /Setup/i })).toHaveAttribute('aria-current', 'page')
-  })
-
-  it('highlights the root page on its own path', () => {
+  it('renders a labelled tablist of link-backed tabs', () => {
     renderNav('/p/memory', true)
-    expect(screen.getByRole('link', { name: /Memories/i })).toHaveAttribute('aria-current', 'page')
+    const tablist = screen.getByRole('tablist', { name: 'Plugin sections' })
+    const setup = within(tablist).getByRole('tab', { name: /Setup/i })
+    // Link-backed: deep-linkable and openable in a new tab.
+    expect(setup).toHaveAttribute('href', '/p/memory/setup')
   })
 
-  it('hides admin pages from non-admins', () => {
+  it('selects the most specific tab, never two', () => {
+    renderNav('/p/memory/setup', true)
+    const setup = screen.getByRole('tab', { name: /Setup/i })
+    const memories = screen.getByRole('tab', { name: /Memories/i })
+    // The nested page wins over the root page — never both (the old spine
+    // regression, re-established for the workspace tab strip).
+    expect(setup).toHaveAttribute('aria-selected', 'true')
+    expect(memories).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('keeps the page tab selected on deep links under its path', () => {
+    renderNav('/p/memory/setup/42', true)
+    expect(screen.getByRole('tab', { name: /Setup/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: /Memories/i })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('selects the root page tab on its own path', () => {
+    renderNav('/p/memory', true)
+    expect(screen.getByRole('tab', { name: /Memories/i })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('leads with a Plugin home tab and selects it on the detail page', () => {
+    renderNav('/plugins/memory', true)
+    const home = screen.getByRole('tab', { name: 'Plugin' })
+    expect(home).toHaveAttribute('href', '/plugins/memory')
+    expect(home).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('hides the Plugin home tab and admin pages from non-admins', () => {
     renderNav('/p/memory', false)
-    expect(screen.getByRole('link', { name: /Memories/i })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Setup/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Memories/i })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /Setup/i })).not.toBeInTheDocument()
+    // /plugins/:id is admin-only — never offer non-admins a dead end.
+    expect(screen.queryByRole('tab', { name: 'Plugin' })).not.toBeInTheDocument()
   })
 
-  it('renders nothing when the plugin has no visible pages', () => {
-    const empty = {
-      id: 'bare',
-      manifest: {
-        id: 'bare',
-        displayName: 'Bare',
-        pluginApi: '1.1',
-        ui: { entry: '/static/ui/index.js', pages: [] },
-      },
-    } as unknown as { id: string; manifest: PluginManifest }
-    const { container } = render(
-      <MemoryRouter initialEntries={['/p/bare']}>
-        <PluginPagesNav plugin={empty} isAdmin />
-      </MemoryRouter>,
-    )
+  it('renders just the Plugin home tab for a zero-page plugin (admin)', () => {
+    renderNav('/plugins/bare', true, barePlugin)
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0]).toHaveTextContent('Plugin')
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('renders nothing for a zero-page plugin as a non-admin', () => {
+    const { container } = renderNav('/p/bare', false, barePlugin)
     expect(container).toBeEmptyDOMElement()
   })
 })

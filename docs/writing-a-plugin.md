@@ -192,7 +192,9 @@ Reading the fixture line by line:
   `/p/hello/admin` rendering the named export `AdminPage`. Plugin navigation
   lives in the Plugins sidebar: the main spine's single **Plugins** button
   opens the plugins workspace, whose roster lists every active plugin; a
-  plugin's own pages are linked from a pages strip inside its area. `section`
+  plugin's own pages are linked from a tab strip at the top of its area,
+  which also carries a built-in **Plugin** tab back to the plugin's detail
+  page (admins only). `section`
   is the heading shown in the page's breadcrumb (its title block); without a
   section the plugin's display name is used there. The console frames each
   page like its own: a title block with the section and the `label` above a

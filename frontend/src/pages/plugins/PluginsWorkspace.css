@@ -1,5 +1,6 @@
-/* Plugins workspace: plugin roster sidebar + per-plugin pages strip.
-   Mirrors the agent workspace (AgentWorkspace.css) with its own class names. */
+/* Plugins workspace: plugin roster sidebar. The per-plugin tab strip uses
+   the shared .tabs primitive (design/primitives.css). Mirrors the agent
+   workspace (AgentWorkspace.css) with its own class names. */
 
 .plugin-sidebar-shell {
   display: contents;
@@ -81,35 +82,6 @@
 .plugin-workspace-content {
   flex: 1;
   min-width: 0;
-}
-
-/* Strip of a plugin's own pages — the sections of the plugin's area. */
-.plugin-pages-nav {
-  padding: 12px 32px 0;
-}
-
-.plugin-pages-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.plugin-pages-link {
-  display: block;
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--paper-deep);
-  color: inherit;
-  text-decoration: none;
-}
-
-.plugin-pages-link[aria-current='page'] {
-  background: var(--paper-deep);
-  color: var(--ink-4);
-  font-weight: 600;
 }
 
 /* Below 900px the plugin roster collapses behind a toggle button. */
