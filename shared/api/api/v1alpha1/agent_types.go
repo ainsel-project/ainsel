@@ -61,6 +61,9 @@ type AgentSpec struct {
 	OllamaCloud    *AgentOllamaCloud    `json:"ollamaCloud,omitempty"`
 	OpenCode       *AgentOpenCode       `json:"openCode,omitempty"`
 	AlibabaCloud   *AgentAlibabaCloud   `json:"alibabaCloud,omitempty"`
+	OpenAI         *AgentOpenAI         `json:"openAI,omitempty"`
+	Anthropic      *AgentAnthropic      `json:"anthropic,omitempty"`
+	Google         *AgentGoogle         `json:"google,omitempty"`
 	CustomProvider *AgentCustomProvider `json:"customProvider,omitempty"`
 }
 
@@ -142,6 +145,9 @@ const (
 	AgentLLMProviderOllamaCloud  = "ollama-cloud"
 	AgentLLMProviderOpenCode     = "opencode"
 	AgentLLMProviderAlibabaCloud = "alibaba-cloud"
+	AgentLLMProviderOpenAI       = "openai"
+	AgentLLMProviderAnthropic    = "anthropic"
+	AgentLLMProviderGoogle       = "google"
 	AgentLLMProviderCustom       = "custom"
 )
 
@@ -158,7 +164,7 @@ type AgentLLM struct {
 	// stays schema-valid for one release so stored Agents are not broken
 	// by a CRD upgrade, and is rejected by the operator.
 	// +optional
-	// +kubebuilder:validation:Enum=ollama-cloud;opencode;alibaba-cloud;custom
+	// +kubebuilder:validation:Enum=ollama-cloud;opencode;alibaba-cloud;openai;anthropic;google;custom
 	Provider    string   `json:"provider,omitempty"`
 	MaxTurns    int      `json:"maxTurns,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
@@ -319,6 +325,46 @@ type AgentAlibabaCloud struct {
 	// endpoint. Unset means the built-in URL
 	// (https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1).
 	// The endpoint is never probed.
+	// +optional
+	BaseURL string `json:"baseUrl,omitempty"`
+}
+
+// AgentOpenAI configures the OpenAI API provider (API key).
+// The APIKey is stored in a secret created by the hub backend.
+type AgentOpenAI struct {
+	// APIKeySecretRef references the secret containing the OpenAI API key.
+	// The secret must have a key named "api-key".
+	APIKeySecretRef *corev1.SecretKeySelector `json:"apiKeySecretRef,omitempty"`
+	// BaseURL overrides the provider's API base URL written to the agent's
+	// generated models.json. Unset means the built-in URL
+	// (https://api.openai.com/v1). The endpoint is never probed.
+	// +optional
+	BaseURL string `json:"baseUrl,omitempty"`
+}
+
+// AgentAnthropic configures the Anthropic API provider (API key).
+// The APIKey is stored in a secret created by the hub backend.
+type AgentAnthropic struct {
+	// APIKeySecretRef references the secret containing the Anthropic API key.
+	// The secret must have a key named "api-key".
+	APIKeySecretRef *corev1.SecretKeySelector `json:"apiKeySecretRef,omitempty"`
+	// BaseURL overrides the provider's API base URL written to the agent's
+	// generated models.json. Unset means the built-in URL
+	// (https://api.anthropic.com). The endpoint is never probed.
+	// +optional
+	BaseURL string `json:"baseUrl,omitempty"`
+}
+
+// AgentGoogle configures the Google Gemini API provider (API key).
+// The APIKey is stored in a secret created by the hub backend.
+type AgentGoogle struct {
+	// APIKeySecretRef references the secret containing the Gemini API key.
+	// The secret must have a key named "api-key".
+	APIKeySecretRef *corev1.SecretKeySelector `json:"apiKeySecretRef,omitempty"`
+	// BaseURL overrides the provider's API base URL written to the agent's
+	// generated models.json. Unset means the built-in URL
+	// (https://generativelanguage.googleapis.com/v1beta). The endpoint is
+	// never probed.
 	// +optional
 	BaseURL string `json:"baseUrl,omitempty"`
 }
