@@ -27,6 +27,7 @@ pi/
 ├── pi-extensions/
 │   ├── ainsel-runner/         # one-shot task fetch + sendUserMessage event loop + ack/nack
 │   ├── ainsel-mcp/            # registers tools from remote MCP servers as mcp__<server>__<tool>
+│   ├── ainsel-tools/          # enforces this agent's tool selection (AGENT_TOOLS)
 │   ├── pi-auto-compact/       # preflight context compaction before each prompt (upstream pi-auto-compact)
 └── Dockerfile                 # base image
 └── Dockerfile.go              # Go toolchain variant
@@ -124,7 +125,7 @@ Variables consumed by the `ainsel-runner` extension (see
 | `AGENT_NAME`       | yes      | Logical agent name, used in the task URLs and propagated into event context for every tool call |
 | `AINSEL_LLM_MODEL` | yes    | Model the runner asks for; the operator writes it from `spec.llm.model`. The legacy name `OLLAMA_CLOUD_MODEL` is accepted as a fallback for one release (issue #96); there is no default model |
 | `OLLAMA_API_KEY`   | yes      | Read by the pi-ollama-cloud provider (operator mounts from `<agent>-ollama-key` Secret) |
-| `AGENT_TOOLS`      | no       | Comma-separated allowlist consumed by the ainsel-tools extension. Unset = all tools available. |
+| `AGENT_TOOLS`      | no       | This agent's tool selection (`spec.enabledTools`), enforced by the ainsel-tools extension. Unset = all tools the image provides. |
 | `AGENT_PERSONA_PATH` | no     | Default `/etc/agent/persona.md`. The entrypoint passes this (and `AGENT.md` in the same directory if present) to pi via `--append-system-prompt`. |
 
 Variables consumed by `entrypoint.sh` (git-credentials bootstrap):
@@ -146,6 +147,24 @@ sh -n agent
 
 The pi-extensions packages under `pi-extensions/` have their own
 TypeScript builds and tests.
+
+## Tools and skills: what the runtime enforces
+
+Two separate things reach a pod, both scoped to the **agent**, never to the image:
+
+**Tools** — the image declares what it ships (its capability catalog, served by
+`agent --list-tools`); the agent's `spec.enabledTools` selects what this agent may
+use, and the operator passes that selection as `AGENT_TOOLS`. The
+[`ainsel-tools`](pi-extensions/ainsel-tools/README.md) extension enforces it: only
+the selected tools are declared to the model, every other tool call is blocked, and
+catalog binaries the agent was not given are withheld from the shell. Empty means
+unrestricted.
+
+**Skills** — the agent's `spec.skills` names skills from the hub's skill library. The
+operator renders them into a ConfigMap mounted at `/var/agent-skills` and the setup
+command copies them into `~/.pi/agent/skills/`, where pi discovers them natively. No
+extension is involved, and the image is not either: an agent gets its skills whatever
+image it runs on.
 
 ## List-tools contract
 
