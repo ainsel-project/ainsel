@@ -19,6 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -75,6 +76,14 @@ type AgentReconciler struct {
 	// digest resolution contacts over plain HTTP. Every other registry is
 	// HTTPS only.
 	InsecureRegistries []string
+
+	// CredentialStorageClass is the storage class of the ChatGPT sign-in
+	// credential volume. Empty uses the cluster default.
+	CredentialStorageClass string
+
+	// CredentialVolumeSize is the requested size of that volume. The data is
+	// a few KiB; the size only has to satisfy the storage class's minimum.
+	CredentialVolumeSize resource.Quantity
 }
 
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -206,6 +215,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 4.5. ConfigMap with Pi models.json for ollama-cloud agents (must exist before Deployment)
 	if err := r.reconcilePiModelsConfigMap(ctx, &agent, agentName); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling Pi models ConfigMap: %w", err)
+	}
+
+	// 4.6. Credential volume for ChatGPT sign-in (must exist before the pods
+	// that mount it; deleted again when the agent switches to an API key).
+	if err := r.reconcileCredentialVolume(ctx, &agent, agentName); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// 4.75. Secret for AgentImage env vars (owned by the Agent for GC)
@@ -904,6 +919,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findAffectedAgents),

@@ -26,6 +26,16 @@ rules:
   - create
   - patch
 - apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
   - ainsel.dev
   resources:
   - agentimages

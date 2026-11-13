@@ -66,6 +66,10 @@ spec:
             {{- with .Values.agentOperator.insecureRegistries }}
             - --insecure-registries={{ join "," . }}
             {{- end }}
+            {{- with .Values.agentOperator.credentialVolume.storageClass }}
+            - --credential-storage-class={{ . }}
+            {{- end }}
+            - --credential-volume-size={{ .Values.agentOperator.credentialVolume.size }}
           env:
             - name: POD_NAMESPACE
               valueFrom:
