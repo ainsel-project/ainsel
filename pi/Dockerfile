@@ -25,8 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pi: pinned exact version so a release of pi cannot quietly break our
-# extension API contract. Bump deliberately.
-ARG PI_VERSION=latest
+# extension API contract, or the credential store and device-id handling the
+# planned ChatGPT sign-in depends on (#89). Bump deliberately, and check the
+# extensions against the new release.
+ARG PI_VERSION=1.5.2
 ARG PI_OLLAMA_CLOUD_VERSION=latest
 RUN npm install -g \
         "@earendil-works/pi-coding-agent@${PI_VERSION}" \
