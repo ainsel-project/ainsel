@@ -182,6 +182,33 @@ to rename things safely.
   downstream modules pick it up automatically — no `replace` directives
   needed inside the workspace.
 
+### Routing
+
+Hub HTTP routes are declared as a route table in
+[`services/hub/internal/api/server.go`](../services/hub/internal/api/server.go),
+one Go method + wildcard pattern per endpoint (issue #265):
+
+- The pattern carries the method (`"GET /api/v1/agents/{name}"`), so
+  `http.ServeMux` owns method matching. A handler must not switch on
+  `r.Method` or re-parse sub-paths out of `r.URL.Path`; the mux's own `405`
+  and `404` are the answer, and the router renders both as the documented JSON
+  error body (see [API reference → Error Format](api-reference.md#error-format)).
+- The single resource identifier of a path always uses the placeholder name
+  `{name}`, including for resources addressed by database id. `ServeMux`
+  panics at registration when the same path position carries two different
+  wildcard names, so one convention removes that class of startup failure.
+- Authz guards are attached at registration, not inside a handler branch:
+  `s.read(type, h)` / `s.write(type, h)` gate on the `{name}` path value, and
+  every `/api/internal/agents/…` task route goes through `s.internalTask`, the
+  only guard for a surface the OIDC middleware does not cover.
+- Converting a collection means deleting its old `collection` and
+  `collection/` registrations in the same commit that adds the method
+  patterns. A method-less pattern matches every method, so a leftover pair
+  stops the mux from answering `405` at all.
+- Register through `s.routes()`, never the raw mux: the route inventory in
+  `router_test.go` reads back what was registered and fails on drift from its
+  snapshot, from the plugin-credential route rules, and from these rules.
+
 ### TypeScript / Frontend
 
 - Prettier + ESLint, configs at the repo root.

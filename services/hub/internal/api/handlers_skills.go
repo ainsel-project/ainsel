@@ -151,7 +151,7 @@ func (h *skillHandlers) accessibleSet(r *http.Request) map[string]bool {
 }
 
 // RegisterSkillRoutes wires the skill endpoints into the given mux.
-func RegisterSkillRoutes(mux *http.ServeMux, svc SkillService, authzStorePtr *authzStore, checkerPtr **authz.Checker) {
+func RegisterSkillRoutes(mux routeRegistrar, svc SkillService, authzStorePtr *authzStore, checkerPtr **authz.Checker) {
 	h := &skillHandlers{svc: svc, authzStorePtr: authzStorePtr, checkerPtr: checkerPtr}
 	mux.HandleFunc("/api/v1/skills", h.handleCollection)
 	mux.HandleFunc("/api/v1/skills/", h.handleItem)

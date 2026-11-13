@@ -102,8 +102,8 @@ type PluginPublicResponse struct {
 // registerPluginRoutes mounts the plugin admin API. New() calls it; tests
 // mount the same pair through the helpers in handlers_plugins_test.go.
 func registerPluginRoutes(s *Server) {
-	s.mux.HandleFunc("/api/v1/plugins", s.handlePlugins)
-	s.mux.HandleFunc("/api/v1/plugins/", s.handlePlugin)
+	s.routes().HandleFunc("/api/v1/plugins", s.handlePlugins)
+	s.routes().HandleFunc("/api/v1/plugins/", s.handlePlugin)
 }
 
 // requirePluginAdmin gates the plugin write surface. With no authz configured

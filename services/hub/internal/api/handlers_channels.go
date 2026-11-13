@@ -28,12 +28,12 @@ func (s *Server) SetChannelService(svc *channels.Service, transfer *channels.Tra
 
 func (s *Server) registerChannelRoutes() {
 	// Collection routes.
-	s.mux.HandleFunc("/api/v1/channels", s.handleChannels)
-	s.mux.HandleFunc("/api/v1/channels/", s.handleChannelPath)
+	s.routes().HandleFunc("/api/v1/channels", s.handleChannels)
+	s.routes().HandleFunc("/api/v1/channels/", s.handleChannelPath)
 
 	// The graph's edges on their own, so a client can draw the subscriptions
 	// without walking every channel.
-	s.mux.HandleFunc("/api/v1/channel-subscriptions", s.handleChannelSubscriptions)
+	s.routes().HandleFunc("/api/v1/channel-subscriptions", s.handleChannelSubscriptions)
 }
 
 // handleChannelPath dispatches /api/v1/channels/{id} and its sub-resources:
