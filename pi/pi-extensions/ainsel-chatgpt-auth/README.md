@@ -7,6 +7,7 @@ extension: it has no `index.ts`, so the entrypoint does not load it.
 | Script | Run by | Does |
 |---|---|---|
 | `check.mjs` | `entrypoint.sh`, before pi starts | Reads the sign-in from the credential volume and refreshes the access token if it is about to expire. Exits `0` when usable, `78` when a new sign-in is needed, `1` when it could not tell (after retries). |
+| `signin.mjs` | the operator's sign-in Job | Runs OpenAI's official *Sign in with ChatGPT* (`dynamic_agent_client`, never the Codex client). Posts the authorization link to the hub, waits for the address the user pastes back, and lets Pi exchange the code and store the credential on the volume. Keeps a per-agent device ID in `device-id` next to `auth.json`. |
 
 The credential lives on the agent's own volume at
 `/home/agent/.pi/credentials/auth.json`, in Pi's format; the operator creates
