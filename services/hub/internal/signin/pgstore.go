@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 )
@@ -36,10 +36,7 @@ func scanSession(row pgx.Row) (Session, error) {
 	var s Session
 	var state string
 	if err := row.Scan(&s.ID, &s.Agent, &state, &s.AuthURL, &s.Error, &s.CreatedAt, &s.ExpiresAt, &s.PodTokenHash); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Session{}, ErrNotFound
-		}
-		return Session{}, err
+		return Session{}, pgutil.MapNoRows(err, ErrNotFound)
 	}
 	s.State = State(state)
 	return s, nil
@@ -63,8 +60,7 @@ func (p *PgStore) Start(ctx context.Context, agent, podTokenHash string) (Sessio
 		VALUES ($1, $2, 'waiting_for_pod', now() + $3::interval, $4)
 		RETURNING `+sessionColumns, ulid.Make().String(), agent, TTL.String(), podTokenHash))
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgutil.IsUniqueViolation(err) {
 			return Session{}, ErrLive
 		}
 		return Session{}, fmt.Errorf("insert sign-in session: %w", err)

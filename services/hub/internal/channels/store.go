@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -127,11 +127,8 @@ func (s *Store) Create(ctx context.Context, name, description string) (*Channel,
 func (s *Store) Get(ctx context.Context, id string) (*Channel, error) {
 	c, err := scanChannel(s.pool.QueryRow(ctx,
 		`SELECT `+channelColumns+` FROM channels WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("channels.Get: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "channels.Get")
 	}
 	return &c, nil
 }
@@ -140,11 +137,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Channel, error) {
 func (s *Store) GetByEntity(ctx context.Context, kind Kind, entityRef string) (*Channel, error) {
 	c, err := scanChannel(s.pool.QueryRow(ctx,
 		`SELECT `+channelColumns+` FROM channels WHERE kind = $1 AND entity_ref = $2`, string(kind), entityRef))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("channels.GetByEntity: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "channels.GetByEntity")
 	}
 	return &c, nil
 }
@@ -215,11 +209,8 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 
 	var kind string
 	err = tx.QueryRow(ctx, `SELECT kind FROM channels WHERE id = $1 FOR UPDATE`, id).Scan(&kind)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
 	if err != nil {
-		return fmt.Errorf("channels.Delete: %w", err)
+		return pgutil.MapNoRows(err, ErrNotFound, "channels.Delete")
 	}
 	if Kind(kind) != KindCustom {
 		return ErrNotCustom
@@ -305,8 +296,7 @@ func (s *Store) CreateBridge(ctx context.Context, fromID, toID, name string) (*B
 		 ON CONFLICT (from_channel, to_channel) DO NOTHING`,
 		id, name, fromID, toID)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgutil.IsUniqueViolation(err) {
 			return nil, ErrBridgeExists
 		}
 		return nil, fmt.Errorf("channels.CreateBridge: %w", err)
@@ -337,11 +327,8 @@ func (s *Store) pair(ctx context.Context, fromID, toID string) (*Channel, *Chann
 func (s *Store) GetBridge(ctx context.Context, id string) (*Bridge, error) {
 	b, err := scanBridge(s.pool.QueryRow(ctx,
 		`SELECT `+bridgeColumns+` FROM channel_bridges WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("channels.GetBridge: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "channels.GetBridge")
 	}
 	return &b, nil
 }

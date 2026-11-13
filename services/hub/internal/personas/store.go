@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -52,7 +52,7 @@ func (s *Store) Create(ctx context.Context, p *Persona) error {
 		 VALUES ($1, $2, $3, 0, NULLIF($4, ''), $5, $5)`,
 		p.ID, p.Name, p.Description, p.OwnerAgent, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrNameTaken
 		}
 		return fmt.Errorf("insert persona: %w", err)
@@ -97,11 +97,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Persona, error) {
 		WHERE p.id = $1
 	`, id).Scan(&p.ID, &p.Name, &p.Description, &p.CurrentVersion, &p.Text,
 		&p.OwnerAgent, &p.ManagedBy, &p.CreatedAt, &p.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.Get: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Get")
 	}
 	return &p, nil
 }
@@ -119,11 +116,8 @@ func (s *Store) GetByOwner(ctx context.Context, agentName string) (*Persona, err
 		WHERE p.owner_agent = $1
 	`, agentName).Scan(&p.ID, &p.Name, &p.Description, &p.CurrentVersion, &p.Text,
 		&p.OwnerAgent, &p.ManagedBy, &p.CreatedAt, &p.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.GetByOwner: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.GetByOwner")
 	}
 	return &p, nil
 }
@@ -176,11 +170,8 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 		WHERE p.id = $1
 		FOR UPDATE
 	`, id).Scan(&name, &description, &currentText, &currentVersion, &managedBy, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.Update: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Update")
 	}
 
 	if req.Name != nil {
@@ -211,7 +202,7 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 			`UPDATE personas SET name=$1, description=$2, current_version_id=$3, updated_at=$4 WHERE id=$5`,
 			name, description, newVersionID, now, id,
 		); err != nil {
-			if isUniqueViolation(err) {
+			if pgutil.IsUniqueViolation(err) {
 				return nil, ErrNameTaken
 			}
 			return nil, fmt.Errorf("personas.Update: %w", err)
@@ -222,7 +213,7 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 			`UPDATE personas SET name=$1, description=$2, updated_at=$3 WHERE id=$4`,
 			name, description, now, id,
 		); err != nil {
-			if isUniqueViolation(err) {
+			if pgutil.IsUniqueViolation(err) {
 				return nil, ErrNameTaken
 			}
 			return nil, fmt.Errorf("personas.Update: %w", err)
@@ -277,11 +268,8 @@ func (s *Store) GetVersion(ctx context.Context, personaID string, n int) (*Versi
 		FROM persona_versions
 		WHERE persona_id = $1 AND version_number = $2
 	`, personaID, n).Scan(&v.PersonaID, &v.VersionNumber, &v.Text, &v.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.GetVersion: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.GetVersion")
 	}
 	return &v, nil
 }
@@ -300,10 +288,7 @@ func (s *Store) Rollback(ctx context.Context, personaID string, versionNumber in
 		`SELECT text FROM persona_versions WHERE persona_id=$1 AND version_number=$2`,
 		personaID, versionNumber,
 	).Scan(&sourceText); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, fmt.Errorf("personas.Rollback: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Rollback")
 	}
 
 	var currentVersion int
@@ -314,10 +299,7 @@ func (s *Store) Rollback(ctx context.Context, personaID string, versionNumber in
 		 FOR UPDATE`,
 		personaID,
 	).Scan(&currentVersion); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, fmt.Errorf("personas.Rollback: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Rollback")
 	}
 
 	now := time.Now().UTC()
@@ -356,12 +338,4 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
 }

@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -56,7 +55,7 @@ func (s *Store) Create(ctx context.Context, sk *Skill) error {
 		 VALUES ($1, $2, $3, $4, $5, 'user', $6, $6)`,
 		sk.ID, sk.Name, sk.Description, sk.Body, sk.Tags, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrIDTaken
 		}
 		return fmt.Errorf("insert skill: %w", err)
@@ -74,11 +73,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Skill, error) {
 		SELECT id, name, description, body, tags, managed_by, created_at, updated_at
 		FROM skills WHERE id = $1
 	`, id).Scan(&sk.ID, &sk.Name, &sk.Description, &sk.Body, &sk.Tags, &sk.ManagedBy, &sk.CreatedAt, &sk.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("skills.Get: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "skills.Get")
 	}
 	if sk.Tags == nil {
 		sk.Tags = []string{}
@@ -143,11 +139,8 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Skil
 		FROM skills WHERE id = $1
 		FOR UPDATE
 	`, id).Scan(&name, &description, &body, &tags, &managedBy, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("skills.Update: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "skills.Update")
 	}
 
 	if req.Name != nil {
@@ -226,12 +219,10 @@ func (s *Store) UpsertManaged(ctx context.Context, sk *Skill) error {
 		 RETURNING created_at, updated_at`,
 		sk.ID, sk.Name, sk.Description, sk.Body, sk.Tags, now,
 	).Scan(&sk.CreatedAt, &sk.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// The conflict target exists but a user owns it: never take it over.
-		return ErrIDTakenByUser
-	}
 	if err != nil {
-		return fmt.Errorf("skills.UpsertManaged: %w", err)
+		// No updated rows means the conflict target exists but a user owns
+		// the skill: never take it over.
+		return pgutil.MapNoRows(err, ErrIDTakenByUser, "skills.UpsertManaged")
 	}
 	sk.ManagedBy = ManagedByPlugin
 	return nil
@@ -280,12 +271,4 @@ func escapeILIKE(s string) string {
 	s = strings.ReplaceAll(s, `%`, `\%`)
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	return s
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
 }
