@@ -1,0 +1,38 @@
+name: CI - OIDC deployment contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/docker-entrypoint-runtime-config.sh'
+      - 'chart/**'
+      - 'services/mcp/**'
+      - 'shared/auth/oidc/**'
+      - 'scripts/test-oidc-deployment.py'
+      - '.github/workflows/ci-oidc-deployment.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'frontend/docker-entrypoint-runtime-config.sh'
+      - 'chart/**'
+      - 'services/mcp/**'
+      - 'shared/auth/oidc/**'
+      - 'scripts/test-oidc-deployment.py'
+      - '.github/workflows/ci-oidc-deployment.yml'
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: OIDC deployment contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install Helm
+        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      - name: OIDC deployment contract tests (runtime config, MCP discovery, Helm chart)
+        run: python3 scripts/test-oidc-deployment.py
