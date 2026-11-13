@@ -263,7 +263,7 @@ export function ChannelsPage() {
           </button>
         }
       />
-      <div className="channels-page" style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
+      <div className="channels-page page">
         <div className="label" style={{ color: 'var(--ink-3)', marginTop: -8 }}>
           Three kinds of channels: a <b>connector</b> always publishes into its own channel
           (provisioned, permanent); every event in an <b>agent</b> channel is prompted to that agent

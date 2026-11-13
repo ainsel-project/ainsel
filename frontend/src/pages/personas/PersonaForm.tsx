@@ -117,7 +117,8 @@ export function PersonaForm() {
         id="persona-form"
         onSubmit={onSubmit}
         noValidate
-        style={{ padding: '28px 32px', maxWidth: 920 }}
+        className="page"
+        style={{ maxWidth: 920 }}
       >
         {submitError ? (
           <div

@@ -151,7 +151,7 @@ export function ErrorsDetail() {
         }
         actions={<RangeSelector value={range} onChange={setRange} />}
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
+      <div className="page" style={{ display: 'grid', gap: 24 }}>
         <Panel title={`Routing Errors · ${range}`} className="cropped">
           {chartState === 'ready' ? (
             <TimeSeriesChart

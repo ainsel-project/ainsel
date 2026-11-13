@@ -58,13 +58,9 @@ export function AgentWorkspace() {
       <div className="agent-workspace-main">
         <SectionNav agentId={id} current={current} plugins={plugins} />
         <div className="agent-workspace-content">
-          {isLoading ? (
-            <p className="label" style={{ padding: '28px 32px' }}>
-              Loading…
-            </p>
-          ) : null}
+          {isLoading ? <p className="label page">Loading…</p> : null}
           {error ? (
-            <p className="label" style={{ padding: '28px 32px', color: 'var(--signal)' }}>
+            <p className="label page" style={{ color: 'var(--signal)' }}>
               Failed to load agent.
             </p>
           ) : null}

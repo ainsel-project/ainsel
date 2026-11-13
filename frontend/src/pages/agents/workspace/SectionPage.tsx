@@ -23,7 +23,7 @@ export function SectionPage({ title, actions, children }: SectionPageProps) {
         title={title}
         actions={actions}
       />
-      <div style={{ padding: '28px 32px' }}>{children}</div>
+      <div className="page">{children}</div>
     </>
   )
 }

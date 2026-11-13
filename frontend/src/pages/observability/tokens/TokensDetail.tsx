@@ -207,7 +207,7 @@ export function TokensDetail() {
         }
         actions={<RangeSelector value={range} onChange={setRange} />}
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
+      <div className="page" style={{ display: 'grid', gap: 24 }}>
         <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <div className="kpi">
             <div className="hd">

@@ -133,7 +133,7 @@ export function Observability() {
         }
         actions={<RangeSelector value={range} onChange={setRange} />}
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
+      <div className="page" style={{ display: 'grid', gap: 24 }}>
         <section>
           {summaryState === 'ready' ? (
             <>

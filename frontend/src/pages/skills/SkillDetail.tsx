@@ -80,7 +80,7 @@ export function SkillDetail() {
           )
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         {isLoading ? <p className="label">Loading…</p> : null}
         {error ? (
           <p className="label" style={{ color: 'var(--signal)' }}>

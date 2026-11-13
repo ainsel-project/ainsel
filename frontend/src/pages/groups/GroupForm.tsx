@@ -99,7 +99,8 @@ export function GroupForm() {
         id="group-form"
         onSubmit={onSubmit}
         noValidate
-        style={{ padding: '28px 32px', maxWidth: 640 }}
+        className="page"
+        style={{ maxWidth: 640 }}
       >
         {submitError ? (
           <div

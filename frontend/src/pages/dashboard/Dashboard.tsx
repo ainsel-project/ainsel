@@ -75,7 +75,7 @@ export function Dashboard() {
           </>
         }
       />
-      <div className="dashboard-page">
+      <div className="page">
         <KpiRow plates={plates} />
         <div className="dashboard-grid">
           <ConnectorRegister />

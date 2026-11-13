@@ -273,7 +273,7 @@ export function UserList() {
           </>
         }
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
+      <div className="page" style={{ display: 'grid', gap: 16 }}>
         {isAdmin && (
           <div>
             {!showCreate ? (

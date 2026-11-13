@@ -264,7 +264,7 @@ export function Activity() {
           </>
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <div className="toolbar">
           <div className="field">
             <span className="label">Search</span>

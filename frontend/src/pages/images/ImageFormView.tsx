@@ -153,11 +153,8 @@ export function ImageFormView({
         id="image-form"
         onSubmit={onSubmit}
         noValidate
-        style={
-          embedded
-            ? { display: 'grid', gap: 24, maxWidth: 1100 }
-            : { display: 'grid', gap: 24, padding: '28px 32px', maxWidth: 1100 }
-        }
+        className={embedded ? undefined : 'page'}
+        style={{ display: 'grid', gap: 24, maxWidth: 1100 }}
       >
         {submitError ? <Notice variant="err">{submitError}</Notice> : null}
         {mcpWarnings.length > 0 ? (

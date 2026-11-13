@@ -189,7 +189,8 @@ export function MCPServerForm() {
         id="mcp-server-form"
         onSubmit={onSubmit}
         noValidate
-        style={{ padding: '28px 32px', maxWidth: 700 }}
+        className="page"
+        style={{ maxWidth: 700 }}
       >
         {submitError ? (
           <div

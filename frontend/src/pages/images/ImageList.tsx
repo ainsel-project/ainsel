@@ -82,7 +82,7 @@ export function ImageList() {
           </Button>
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <Panel className="cropped">
           {isLoading ? (
             <div className="label" style={{ padding: 14 }}>

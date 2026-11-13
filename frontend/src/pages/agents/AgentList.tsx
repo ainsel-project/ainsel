@@ -209,7 +209,7 @@ export function AgentList() {
           </Button>
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <div className="toolbar" style={{ marginBottom: 12 }}>
           <div className="field">
             <span className="label">Search</span>

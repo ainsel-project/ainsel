@@ -208,7 +208,7 @@ export function EventView() {
           </>
         }
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 24 }}>
+      <div className="page" style={{ display: 'grid', gap: 24 }}>
         {isLoading ? (
           <Panel className="cropped">
             <SectionStatus state="loading" />

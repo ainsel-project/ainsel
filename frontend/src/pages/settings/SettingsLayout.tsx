@@ -16,7 +16,7 @@ export function SettingsLayout() {
           </>
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <main>
           <Outlet />
         </main>

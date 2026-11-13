@@ -171,7 +171,7 @@ export function AuditEvents() {
           </>
         }
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
+      <div className="page" style={{ display: 'grid', gap: 16 }}>
         <Panel title="Filters">
           <form
             onSubmit={(e) => {
