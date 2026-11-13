@@ -376,3 +376,188 @@ func TestNoDeleteCallWhenNoCredentialVolume(t *testing.T) {
 		t.Errorf("API-key agent with no volume issued %d deletes, want 0", deletes)
 	}
 }
+
+const testSession = "01JCHATGPTSIGNIN0000ABCDEF"
+
+// requestSignIn marks the agent the way the hub does when a user clicks
+// "Sign in with ChatGPT".
+func requestSignIn(a *ainselv1alpha1.Agent) *ainselv1alpha1.Agent {
+	if a.Annotations == nil {
+		a.Annotations = map[string]string{}
+	}
+	a.Annotations[signInSessionAnnotation] = testSession
+	return a
+}
+
+func signInJobs(jobs []batchv1.Job) []batchv1.Job {
+	var out []batchv1.Job
+	for _, j := range jobs {
+		if j.Labels[credentialJobLabel] == credentialJobSignIn {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+func taskJobsOf(jobs []batchv1.Job) []batchv1.Job {
+	var out []batchv1.Job
+	for _, j := range jobs {
+		if j.Labels[TaskIDLabel] != "" {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// finishedSignInJob is a sign-in Job the cluster has finished.
+func finishedSignInJob(a *ainselv1alpha1.Agent, ok bool, at time.Time) *batchv1.Job {
+	j := buildSignInJob(a, jobModeDeployment(), testSession)
+	cond := batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue, LastTransitionTime: metav1.Time{Time: at}}
+	if !ok {
+		cond.Type = batchv1.JobFailed
+	} else {
+		j.Status.CompletionTime = &metav1.Time{Time: at}
+	}
+	j.Status.Conditions = []batchv1.JobCondition{cond}
+	return j
+}
+
+func TestSignInJobWaitsForRunningTask(t *testing.T) {
+	agent := requestSignIn(signedIn(signInJobModeAgent(7), time.Now().Add(-time.Hour)))
+	running := existingJob(t, agent, 8, false)
+	scheme := jobModeScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(agent, jobModeDeployment(), running).Build()
+	r := &AgentReconciler{Client: c, Scheme: scheme}
+	decision, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := listTaskJobs(t, c)
+	if n := len(signInJobs(jobs)); n != 0 {
+		t.Fatalf("sign-in Job created while a task Job runs (%d), want it to wait", n)
+	}
+	if n := len(taskJobsOf(jobs)); n != 1 {
+		t.Fatalf("task jobs = %d, want only the running one: no new task while a sign-in waits", n)
+	}
+	if !strings.Contains(decision.Message, "waiting for the running task") || decision.RequeueAfter == 0 {
+		t.Errorf("decision = %+v, want a wait message and a requeue", decision)
+	}
+
+	// The task finishes: the sign-in Job starts on the next pass.
+	running.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+	if err := c.Status().Update(context.Background(), running); err != nil {
+		if err := c.Update(context.Background(), running); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(signInJobs(listTaskJobs(t, c))); n != 1 {
+		t.Fatalf("sign-in jobs after the task finished = %d, want 1", n)
+	}
+}
+
+func TestSignInJobShape(t *testing.T) {
+	agent := requestSignIn(signInJobModeAgent())
+	dep := jobModeDeployment()
+	dep.Spec.Template.Spec.Containers = append(dep.Spec.Template.Spec.Containers, corev1.Container{Name: "chat", Image: "chat"})
+	dep.Spec.Template.Spec.InitContainers = []corev1.Container{{Name: "setup-pi-models", Image: "busybox"}}
+	dep.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{
+		{Name: "HUB_URL", Value: "http://hub"},
+		{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: "s"},
+		{Name: "OPENAI_API_KEY", Value: "must-not-copy"},
+		{Name: "SOME_IMAGE_ENV", Value: "x"},
+	}
+	j := buildSignInJob(agent, dep, testSession)
+
+	if j.Spec.ActiveDeadlineSeconds == nil || *j.Spec.ActiveDeadlineSeconds != 900 {
+		t.Errorf("activeDeadlineSeconds = %v, want 900", j.Spec.ActiveDeadlineSeconds)
+	}
+	if j.Spec.BackoffLimit == nil || *j.Spec.BackoffLimit != 0 {
+		t.Errorf("backoffLimit = %v, want 0", j.Spec.BackoffLimit)
+	}
+	pod := j.Spec.Template.Spec
+	if len(pod.Containers) != 1 || pod.Containers[0].Name != "agent" || len(pod.InitContainers) != 0 {
+		t.Fatalf("containers = %d (init %d), want only the agent container", len(pod.Containers), len(pod.InitContainers))
+	}
+	if pod.RestartPolicy != corev1.RestartPolicyNever {
+		t.Errorf("restartPolicy = %s, want Never", pod.RestartPolicy)
+	}
+	if len(pod.Volumes) != 1 || pod.Volumes[0].PersistentVolumeClaim == nil || pod.Volumes[0].PersistentVolumeClaim.ClaimName != "agent-worker-pi-credentials" {
+		t.Errorf("volumes = %+v, want only the credential PVC", pod.Volumes)
+	}
+	c := pod.Containers[0]
+	if !strings.Contains(strings.Join(c.Command, " "), "ainsel-chatgpt-auth/signin.mjs") {
+		t.Errorf("command = %v, want the sign-in script", c.Command)
+	}
+	env := map[string]string{}
+	for _, e := range c.Env {
+		env[e.Name] = e.Value
+	}
+	if env["AINSEL_SIGN_IN_SESSION"] != testSession || env["HUB_URL"] != "http://hub" || env["HUB_INTERNAL_VALIDATE_SECRET"] != "s" || env["AGENT_NAME"] != "worker" {
+		t.Errorf("env = %v, want session, hub URL, internal token and agent name", env)
+	}
+	if _, ok := env["OPENAI_API_KEY"]; ok {
+		t.Error("sign-in pod got OPENAI_API_KEY")
+	}
+	if _, ok := env["SOME_IMAGE_ENV"]; ok {
+		t.Error("sign-in pod got image env it does not need")
+	}
+	if j.Labels[credentialJobLabel] != credentialJobSignIn || j.Labels[AgentNameLabel] != "worker" || j.Labels[signInSessionLabel] != testSession {
+		t.Errorf("labels = %v", j.Labels)
+	}
+}
+
+func TestSignInSuccessClearsCondition(t *testing.T) {
+	agent := requestSignIn(signInJobModeAgent(7))
+	done := finishedSignInJob(agent, true, time.Now().Add(-time.Minute))
+	_, c := runSync(t, agent, done)
+	s := agent.Status.ChatGPTSignIn
+	if s == nil || s.SignedInAt == nil || s.HandledSession != testSession {
+		t.Fatalf("chatGPTSignIn = %+v, want signedInAt and handledSession set", s)
+	}
+	applySignInStatus(agent)
+	cond := apimeta.FindStatusCondition(agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired)
+	if cond == nil || cond.Status != metav1.ConditionFalse {
+		t.Errorf("SignInRequired = %+v, want False", cond)
+	}
+	if n := len(taskJobsOf(listTaskJobs(t, c))); n != 1 {
+		t.Errorf("task jobs after sign-in = %d, want the queued task dispatched", n)
+	}
+	if n := len(signInJobs(listTaskJobs(t, c))); n != 1 {
+		t.Errorf("sign-in jobs = %d, want the finished one only, not a second", n)
+	}
+}
+
+func TestSignInFailureKeepsCondition(t *testing.T) {
+	agent := requestSignIn(signInJobModeAgent(7))
+	failed := finishedSignInJob(agent, false, time.Now().Add(-time.Minute))
+	_, c := runSync(t, agent, failed)
+	s := agent.Status.ChatGPTSignIn
+	if s == nil || s.HandledSession != testSession || s.SignedInAt != nil {
+		t.Fatalf("chatGPTSignIn = %+v, want the session handled and no sign-in", s)
+	}
+	applySignInStatus(agent)
+	cond := apimeta.FindStatusCondition(agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		t.Errorf("SignInRequired = %+v, want still True", cond)
+	}
+	jobs := listTaskJobs(t, c)
+	if len(taskJobsOf(jobs)) != 0 || len(signInJobs(jobs)) != 1 {
+		t.Errorf("jobs = %d task / %d sign-in, want no task and no second sign-in Job", len(taskJobsOf(jobs)), len(signInJobs(jobs)))
+	}
+}
+
+func TestNoTaskDispatchWhileSignInJobRuns(t *testing.T) {
+	agent := requestSignIn(signedIn(signInJobModeAgent(7), time.Now().Add(-time.Hour)))
+	live := buildSignInJob(agent, jobModeDeployment(), testSession)
+	_, c := runSync(t, agent, live)
+	jobs := listTaskJobs(t, c)
+	if len(taskJobsOf(jobs)) != 0 {
+		t.Errorf("task dispatched while the sign-in Job runs")
+	}
+	if len(signInJobs(jobs)) != 1 {
+		t.Errorf("sign-in jobs = %d, want the running one only", len(signInJobs(jobs)))
+	}
+}
