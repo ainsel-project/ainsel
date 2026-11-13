@@ -259,7 +259,7 @@ type AgentAPIKeyInfo struct {
 	// KeyStored is response-only: whether an API key is stored for this
 	// provider. A block can exist without one (a base URL, or ChatGPT
 	// sign-in), so presence alone does not say.
-	KeyStored bool `json:"keyStored,omitempty"`
+	KeyStored bool `json:"keyStored"`
 }
 
 // AgentOllamaCloudInfo is the REST representation of Ollama Cloud credentials.

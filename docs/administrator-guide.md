@@ -597,6 +597,48 @@ comment, unprompted.
 
 ## 5. Operating the platform
 
+### ChatGPT sign-in
+
+An OpenAI agent can use a ChatGPT subscription instead of an API key, through
+OpenAI's official [Sign in with ChatGPT](https://developers.openai.com/siwc).
+Choose **OpenAI** as the provider and **Sign in with ChatGPT** under *How to
+authenticate*, save, then click **Sign in with ChatGPT** on the agent page:
+
+1. AInsel starts a short sign-in pod for the agent (after any running task
+   finishes) and shows OpenAI's sign-in link.
+2. Sign in with your ChatGPT account. The browser then lands on a page at
+   `http://127.0.0.1:1455/auth/callback?...` that does not load. That is
+   expected.
+3. Copy that whole address into the dialog. The pod finishes the sign-in and
+   the agent's queued tasks start.
+
+What to know:
+
+- **Where the credential lives.** It stays on a small volume of the agent's own
+  (`agent-<name>-pi-credentials`). It never passes through the hub, the database
+  or the console; only the sign-in link and the pasted address do. The chart
+  values `agentOperator.credentialVolume.storageClass` and `.size` set the
+  volume. With security hardening (the default) the storage class must support
+  `fsGroup`.
+- **One task at a time.** Two pods must not refresh the same token, so a sign-in
+  agent runs at most one task at once. The console and the hub refuse a higher
+  *Max concurrent tasks*.
+- **When the sign-in dies.** Each task first checks the sign-in and refreshes
+  the token if needed. If OpenAI rejects it, the agent shows **Sign-in required**
+  on its page and in the agent list, runs nothing, and keeps its queued tasks
+  until someone signs in again. A network or OpenAI outage during that check is
+  retried and is not treated as a dead sign-in. A token revoked before it
+  expires is only noticed when it next refreshes; until then tasks fail with an
+  authorization error.
+- **Revoking.** Each agent signs in as its own app, named after the agent's
+  device ID, and can be revoked in your ChatGPT settings. Switching the agent
+  back to an API key deletes its credential volume and the sign-in with it.
+- **Terms.** OpenAI lets open-source, self-hosted apps use Sign in with ChatGPT
+  without approval; paid or remotely hosted apps go through OpenAI's
+  [interest form](https://openai.com/form/sign-in-with-chatgpt-interest/).
+  Whether a shared AInsel installation counts as remotely hosted is not
+  settled. Check OpenAI's terms for your setup.
+
 ### Token management
 
 Agents emit per-invocation token metrics

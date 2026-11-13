@@ -1,4 +1,4 @@
-import type { AgentRequest, AgentResponse } from '../../api/agents'
+import type { AgentRequest, AgentResponse, OpenAIAuthMethod } from '../../api/agents'
 
 /** The agent write-body field that carries a provider's credential block. */
 export type ProviderRequestField = keyof Pick<
@@ -17,6 +17,9 @@ export type LlmProvider = {
   /** Runs on one of Pi's built-in providers: the temperature is not applied
    *  and the context window comes from Pi's model catalog. */
   piBuiltIn: boolean
+  /** More than one way to authenticate: the form asks which. Absent means
+   *  an API key only. */
+  authMethods?: readonly { value: OpenAIAuthMethod; label: string }[]
 }
 
 /**
@@ -56,6 +59,10 @@ export const LLM_PROVIDER_REGISTRY: readonly LlmProvider[] = [
     requestField: 'openAI',
     needsUrl: false,
     piBuiltIn: true,
+    authMethods: [
+      { value: 'APIKey', label: 'API key' },
+      { value: 'ChatGPTSignIn', label: 'Sign in with ChatGPT' },
+    ],
   },
   {
     id: 'anthropic',
@@ -94,5 +101,15 @@ export function findLlmProvider(id: string | undefined): LlmProvider | undefined
  */
 export function hasStoredKey(agent: AgentResponse, providerId: string): boolean {
   const p = findLlmProvider(providerId)
-  return p !== undefined && agent[p.requestField] != null
+  if (p === undefined) return false
+  const block = agent[p.requestField]
+  if (block == null) return false
+  // Hubs that report keyStored say it outright; older ones only report that
+  // the block exists, which then meant a key.
+  return 'keyStored' in block ? block.keyStored === true : true
+}
+
+/** The stored OpenAI auth method; API key when the agent has no openAI block. */
+export function storedAuthMethod(agent: AgentResponse): OpenAIAuthMethod {
+  return agent.openAI?.authMethod ?? 'APIKey'
 }

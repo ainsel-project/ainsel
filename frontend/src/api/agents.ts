@@ -49,7 +49,18 @@ export type AgentOllamaCloud = { apiKey?: string }
 export type AgentOpenCode = { apiKey?: string }
 export type AgentAlibabaCloud = { apiKey?: string }
 /** An API-key provider block (OpenAI, Anthropic, Google). The key is write-only. */
-export type AgentAPIKey = { apiKey?: string }
+/** How an OpenAI agent authenticates: an API key, or a ChatGPT subscription
+ *  through OpenAI's official Sign in with ChatGPT. */
+export type OpenAIAuthMethod = 'APIKey' | 'ChatGPTSignIn'
+
+export type AgentAPIKey = {
+  apiKey?: string
+  /** openAI block only. Always present on a response for that block. */
+  authMethod?: OpenAIAuthMethod
+  /** Response-only: whether a key is stored. A block can exist without one
+   *  (a base URL only, or ChatGPT sign-in). Absent from older hubs. */
+  keyStored?: boolean
+}
 export type AgentCustomProvider = { url?: string; apiKey?: string }
 
 export type AgentSummary = {
@@ -73,6 +84,12 @@ export type AgentSummary = {
     /** Operator's one-word explanation, e.g. 'JobPerTask'. */
     reason?: string
     message?: string
+    /** The agent uses ChatGPT sign-in and runs nothing until someone signs
+     *  in again. Queued tasks wait. */
+    signInRequired?: boolean
+    /** NotSignedIn or SignInExpired while required, SignedIn otherwise;
+     *  absent for agents that use an API key. */
+    signInReason?: string
   }
   /** RFC3339 timestamp of the last hub-mediated write (falls back to
    *  creation time for agents that predate the annotation). */
@@ -285,4 +302,46 @@ export function useResumeAgent() {
     mutationFn: resumeAgent,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
   })
+}
+
+/** Where a ChatGPT sign-in is. `awaiting_redirect` means `authUrl` is ready. */
+export type SignInState =
+  | 'waiting_for_pod'
+  | 'awaiting_redirect'
+  | 'exchanging'
+  | 'succeeded'
+  | 'failed'
+  | 'expired'
+  | 'cancelled'
+
+export type SignInSession = {
+  id: string
+  state: SignInState
+  authUrl?: string
+  error?: string
+  expiresAt: string
+}
+
+export function signInIsLive(state: SignInState | undefined): boolean {
+  return state === 'waiting_for_pod' || state === 'awaiting_redirect' || state === 'exchanging'
+}
+
+const signInPath = (id: string) => `/agents/${encodeURIComponent(id)}/chatgpt-sign-in`
+
+/** Start a ChatGPT sign-in: the operator runs a sign-in pod for the agent. */
+export function startSignIn(id: string) {
+  return request<SignInSession>(signInPath(id), { method: 'POST' })
+}
+
+export function getSignIn(id: string) {
+  return request<SignInSession>(signInPath(id))
+}
+
+/** Hand over the address the browser landed on after signing in. */
+export function submitSignInRedirect(id: string, redirectUrl: string) {
+  return request<void>(`${signInPath(id)}/redirect`, { method: 'POST', body: { redirectUrl } })
+}
+
+export function cancelSignIn(id: string) {
+  return request<void>(signInPath(id), { method: 'DELETE' })
 }

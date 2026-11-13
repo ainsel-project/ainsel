@@ -47,6 +47,7 @@ const STEPS = [
       'llm.vision',
       'customProviderUrl',
       'providerApiKey',
+      'openAIAuthMethod',
     ],
   },
   {
@@ -128,6 +129,8 @@ export function AgentWizard() {
   const provider = watch('llm.provider')
   const personaMode = watch('persona.mode')
   const providerApiKey = watch('providerApiKey')
+  const authMethod = watch('openAIAuthMethod')
+  const signIn = provider === 'openai' && authMethod === 'ChatGPTSignIn'
 
   // Preselect the built-in image once the list arrives, unless the user (or a
   // step they came back from) already chose one. Without it the picker starts
@@ -142,7 +145,11 @@ export function AgentWizard() {
   // What the agent still lacks after creation. The wizard never invents a
   // credential or grants tools on the user's behalf; it says what is missing.
   const stillNeeded: string[] = []
-  if (provider && !providerApiKey) {
+  if (signIn) {
+    stillNeeded.push(
+      'Sign in with ChatGPT from the agent page once it is created. The agent runs nothing until then; tasks that arrive wait for the sign-in.',
+    )
+  } else if (provider && !providerApiKey) {
     stillNeeded.push(
       `No ${findLlmProvider(provider)?.apiKeyLabel ?? 'API key'} entered. The agent cannot reach the model until one is set, here on the Model step or later on the agent's Runtime tab.`,
     )
@@ -432,6 +439,11 @@ export function AgentWizard() {
                     providerError={errors.llm?.provider?.message}
                     urlError={errors.customProviderUrl?.message}
                     mode="create"
+                    authMethod={authMethod}
+                    onAuthMethodChange={(v) => {
+                      setValue('providerApiKey', '', { shouldDirty: true })
+                      setValue('openAIAuthMethod', v, { shouldDirty: true })
+                    }}
                   />
                   <input type="hidden" {...register('llm.provider')} />
                 </div>
@@ -570,9 +582,20 @@ export function AgentWizard() {
                   <Field
                     label="Max concurrent tasks"
                     htmlFor="replicas"
-                    hint="Up to this many tasks run at once, each in its own container. 0 pauses the agent."
+                    error={errors.replicas?.message}
+                    hint={
+                      signIn
+                        ? 'ChatGPT sign-in runs one task at a time. 0 pauses the agent.'
+                        : 'Up to this many tasks run at once, each in its own container. 0 pauses the agent.'
+                    }
                   >
-                    <Input id="replicas" type="number" min={0} {...register('replicas')} />
+                    <Input
+                      id="replicas"
+                      type="number"
+                      min={0}
+                      max={signIn ? 1 : undefined}
+                      {...register('replicas')}
+                    />
                   </Field>
                 </div>
               </div>

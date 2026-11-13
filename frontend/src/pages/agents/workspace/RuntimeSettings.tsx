@@ -18,7 +18,7 @@ import {
   type RuntimeFormValues,
 } from '../agentFormModel'
 import { ContextWindowField, ProviderFields, TemperatureField } from '../ProviderFields'
-import { hasStoredKey } from '../llmProviders'
+import { hasStoredKey, storedAuthMethod } from '../llmProviders'
 
 type RuntimeSettingsProps = {
   agent: AgentResponse
@@ -71,6 +71,7 @@ function toFormValues(agent: AgentResponse): RuntimeFormInput {
     },
     customProviderUrl: agent.customProvider?.url ?? '',
     providerApiKey: '',
+    openAIAuthMethod: storedAuthMethod(agent),
     replicas: agent.replicas ?? 1,
     workingHours: workingHoursToForm(agent.workingHours),
   }
@@ -115,6 +116,8 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
   }, [storedKey, isDirty, reset])
 
   const provider = watch('llm.provider')
+  const authMethod = watch('openAIAuthMethod')
+  const signIn = provider === 'openai' && authMethod === 'ChatGPTSignIn'
   const vision = watch('llm.vision') ?? false
   const hours = watch('workingHours')
 
@@ -210,6 +213,11 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
               urlError={errors.customProviderUrl?.message}
               mode="edit"
               storedKey={provider ? hasStoredKey(agent, provider) : false}
+              authMethod={authMethod}
+              onAuthMethodChange={(v) => {
+                setValue('providerApiKey', '', { shouldDirty: true })
+                setValue('openAIAuthMethod', v, { shouldDirty: true })
+              }}
             />
             <input type="hidden" {...register('llm.provider')} />
           </div>
@@ -219,9 +227,19 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
               label="Max concurrent tasks"
               htmlFor="replicas"
               error={errors.replicas?.message}
-              hint="Up to this many tasks run at once, each in its own container. 0 pauses the agent."
+              hint={
+                signIn
+                  ? 'ChatGPT sign-in runs one task at a time. 0 pauses the agent.'
+                  : 'Up to this many tasks run at once, each in its own container. 0 pauses the agent.'
+              }
             >
-              <Input id="replicas" type="number" min={0} {...register('replicas')} />
+              <Input
+                id="replicas"
+                type="number"
+                min={0}
+                max={signIn ? 1 : undefined}
+                {...register('replicas')}
+              />
             </Field>
           </div>
 

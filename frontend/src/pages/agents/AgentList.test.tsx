@@ -286,6 +286,49 @@ describe('AgentList', () => {
     )
   }
 
+  it('agent list shows Sign-in required', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/agents')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    id: 'a1',
+                    name: 'subscriber',
+                    llm: { model: 'gpt-5', provider: 'openai' },
+                    imageRef: { name: 'img' },
+                    paused: false,
+                    status: {
+                      ready: false,
+                      desired: 0,
+                      signInRequired: true,
+                      signInReason: 'SignInExpired',
+                    },
+                  },
+                ],
+                total: 1,
+                page: 1,
+                pageSize: 20,
+                totalPages: 1,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('[]', { status: 200 }))
+      }),
+    )
+
+    renderWithProviders(<AgentList />, { route: '/agents' })
+
+    expect(await screen.findByText('subscriber')).toBeInTheDocument()
+    expect(screen.getByText('Sign-in required')).toBeInTheDocument()
+    expect(screen.queryByText('Idle')).not.toBeInTheDocument()
+  })
+
   it('renders a Group column with the group name, falling back to the id', async () => {
     stubAgentFetch()
     renderWithProviders(<AgentList />, { route: '/agents' })

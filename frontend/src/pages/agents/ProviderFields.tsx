@@ -4,6 +4,7 @@ import { Input } from '../../primitives/Input'
 import { Select } from '../../primitives/Select'
 import { LLM_PROVIDERS } from './agentFormModel'
 import { findLlmProvider } from './llmProviders'
+import type { OpenAIAuthMethod } from '../../api/agents'
 
 type ProviderFieldsProps = {
   provider: string | undefined
@@ -15,6 +16,9 @@ type ProviderFieldsProps = {
   mode: 'create' | 'edit'
   /** Edit: a credential block is stored for the selected provider. */
   storedKey?: boolean
+  /** The chosen auth method, for providers that offer more than one. */
+  authMethod?: OpenAIAuthMethod
+  onAuthMethodChange?: (method: OpenAIAuthMethod) => void
 }
 
 function keyPlaceholder(
@@ -43,8 +47,11 @@ export function ProviderFields({
   urlError,
   mode,
   storedKey,
+  authMethod,
+  onAuthMethodChange,
 }: ProviderFieldsProps) {
   const p = findLlmProvider(provider)
+  const signIn = p?.authMethods !== undefined && authMethod === 'ChatGPTSignIn'
   return (
     <>
       <Field label="Provider" htmlFor="llm.provider" error={providerError}>
@@ -65,7 +72,30 @@ export function ProviderFields({
           />
         </Field>
       ) : null}
-      {p ? (
+      {p?.authMethods ? (
+        <Field label="How to authenticate" htmlFor="openAIAuthMethod">
+          <Select
+            id="openAIAuthMethod"
+            value={authMethod ?? 'APIKey'}
+            onChange={(v) => onAuthMethodChange?.(v as OpenAIAuthMethod)}
+            options={p.authMethods}
+          />
+        </Field>
+      ) : null}
+      {signIn ? (
+        <div className="field">
+          <div className="field-label">ChatGPT subscription</div>
+          <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
+            {mode === 'create'
+              ? 'Create the agent, then sign in from the agent page. '
+              : 'Save, then sign in from the agent page. '}
+            {
+              "Runs one task at a time. Needs a Pi image with pi-coding-agent 1.5.2 or later. Uses OpenAI's official Sign in with ChatGPT."
+            }
+          </p>
+        </div>
+      ) : null}
+      {p && !signIn ? (
         <Field label={p.apiKeyLabel} htmlFor="providerApiKey">
           <Input
             id="providerApiKey"
