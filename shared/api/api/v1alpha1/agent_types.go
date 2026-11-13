@@ -54,6 +54,17 @@ type AgentSpec struct {
 	// to Scaling, which governs pod count, not task delivery.
 	// +optional
 	Pause *AgentPause `json:"pause,omitempty"`
+	// WorkingHours confines task delivery to a recurring weekly window: while
+	// now falls outside it, the hub's delivery paths hand the agent nothing, so
+	// pending agent_tasks rows accumulate as a backlog that drains (in id order)
+	// when the window next opens. Ingestion and routing are unaffected - nothing
+	// is lost outside the window. Nil means the agent may run at any hour.
+	//
+	// Pause and WorkingHours gate the same thing ("may this agent be handed
+	// work?"), Pause as a one-off and WorkingHours as a recurring schedule;
+	// either one holds the queue.
+	// +optional
+	WorkingHours *AgentWorkingHours `json:"workingHours,omitempty"`
 	// ManagedBy names the external system that authors this resource, e.g.
 	// "helm", "gitops", or "plugin". Any non-empty value other than "user"
 	// marks the resource externally managed: the hub REST API refuses every
@@ -247,6 +258,39 @@ type AgentPause struct {
 	// explicitly.
 	// +optional
 	PausedUntil *metav1.Time `json:"pausedUntil,omitempty"`
+}
+
+// AgentWorkingHours is a weekly window inside which an agent may be handed
+// work. It is read as wall-clock time in Timezone, so "09:00-18:00, Mon-Fri"
+// means 09:00 where the agent's people are, not 09:00 UTC - which matters
+// because every hub pod runs in UTC.
+//
+// The window repeats on Days; an End earlier than Start is one window that
+// crosses midnight (a 22:00-06:00 night shift is a single window, and Tuesday
+// 02:00 is still inside Monday's). Outside it the agent's tasks stay queued:
+// the hub publishes no due-task ids, so the operator creates no task Job and no
+// pod is spawned for held work.
+type AgentWorkingHours struct {
+	// Timezone is an IANA zone name, e.g. "Europe/Berlin", and the zone Days,
+	// Start and End are read in. Empty reads as UTC.
+	// +optional
+	// +kubebuilder:default=UTC
+	Timezone string `json:"timezone,omitempty"`
+	// Days are the weekday numbers the window repeats on, numbered as in cron:
+	// 0 and 7 are Sunday, 1 is Monday through 6 Saturday. Empty means every day.
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=set
+	Days []int32 `json:"days,omitempty"`
+	// Start is the window's wall-clock opening time, "HH:MM".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^([01][0-9]|2[0-3]):[0-5][0-9]$`
+	Start string `json:"start"`
+	// End is the window's wall-clock closing time, "HH:MM". It must differ from
+	// Start; an End earlier than Start closes the window on the following day.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^([01][0-9]|2[0-3]):[0-5][0-9]$`
+	End string `json:"end"`
 }
 
 // IsPaused reports whether the agent's task delivery is currently withheld.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -352,6 +352,138 @@ describe('RuntimeSettings', () => {
     renderSettings({ managedBy: 'gitops' })
     expect(screen.getByLabelText('Model')).toBeDisabled()
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('RuntimeSettings working hours', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/agents/a1') && ['PUT', 'PATCH'].includes(method)) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+        return Promise.resolve(new Response(JSON.stringify({ ...agent, ...body }), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // jsdom renders a time input as a text field and rejects partial keystrokes,
+  // so the clock is set in one change rather than typed.
+  function setClock(label: string, value: string) {
+    fireEvent.change(screen.getByLabelText(label), { target: { value } })
+  }
+
+  it('offers no window for an agent that has none, and says so', () => {
+    renderSettings()
+    expect(screen.getByRole('checkbox', { name: /weekly window/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+    expect(screen.queryByLabelText('Timezone')).not.toBeInTheDocument()
+    expect(screen.getByText('Work is handed to this agent at any hour')).toBeInTheDocument()
+  })
+
+  it('pre-fills the window, reading a Sunday stored as 7 as Sunday', () => {
+    renderSettings({
+      workingHours: {
+        timezone: 'Europe/Berlin',
+        days: [1, 2, 3, 4, 5, 7],
+        start: '09:00',
+        end: '17:00',
+      },
+      hoursOpen: false,
+      hoursNextOpenAt: '2026-03-30T07:00:00Z',
+    })
+    expect(screen.getByRole('checkbox', { name: /weekly window/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByLabelText('Timezone')).toHaveValue('Europe/Berlin')
+    expect(screen.getByLabelText('From')).toHaveValue('09:00')
+    expect(screen.getByLabelText('Until')).toHaveValue('17:00')
+    expect(screen.getByRole('checkbox', { name: 'Sun' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('checkbox', { name: 'Sat' })).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('saves a window: timezone, days and the clock, in the stored shape', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.click(screen.getByRole('checkbox', { name: /weekly window/i }))
+    await user.type(screen.getByLabelText('Timezone'), 'Europe/Berlin')
+    setClock('From', '09:00')
+    setClock('Until', '17:00')
+    await user.click(screen.getByRole('checkbox', { name: 'Mon' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Fri' }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)?.workingHours).toEqual({
+      timezone: 'Europe/Berlin',
+      days: [1, 5],
+      start: '09:00',
+      end: '17:00',
+    })
+  })
+
+  it('switching the window off asks the hub to hand work out at any hour again', async () => {
+    const user = userEvent.setup()
+    renderSettings({
+      workingHours: { timezone: 'Europe/Berlin', days: [1], start: '09:00', end: '17:00' },
+      hoursOpen: true,
+      hoursClosesAt: '2026-03-20T16:00:00Z',
+    })
+
+    await user.click(screen.getByRole('checkbox', { name: /weekly window/i }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    // Absent would mean "leave the window alone"; the empty object is the clear.
+    expect(putBody(fetchMock)?.workingHours).toEqual({})
+  })
+
+  it('blocks a window whose clock is not filled in', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.click(screen.getByRole('checkbox', { name: /weekly window/i }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    // Both sides of the clock complain, so the query is a findAll.
+    expect((await screen.findAllByText(/HH:MM/i)).length).toBeGreaterThan(0)
+    expect(putBody(fetchMock)).toBeUndefined()
+  })
+
+  it('blocks a window whose start equals its end', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.click(screen.getByRole('checkbox', { name: /weekly window/i }))
+    setClock('From', '09:00')
+    setClock('Until', '09:00')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText(/leaves no window at all/i)).toBeInTheDocument()
+    expect(putBody(fetchMock)).toBeUndefined()
+  })
+
+  it('accepts a night window, which closes the next morning', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.click(screen.getByRole('checkbox', { name: /weekly window/i }))
+    setClock('From', '22:00')
+    setClock('Until', '06:00')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)?.workingHours).toMatchObject({ start: '22:00', end: '06:00' })
   })
 })
 

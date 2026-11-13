@@ -26,6 +26,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggerindex"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
+	"github.com/ainsel-project/ainsel/services/hub/internal/workinghours"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,21 +37,26 @@ import (
 // It is unexported and lives in cmd/hub to keep the boot sequence
 // explicit and easy to step through in a debugger.
 type container struct {
-	pool           *pgxpool.Pool
-	mgr            ctrl.Manager
-	apiClient      client.Client
-	namespace      string
-	authzStore     *authz.Store
-	authzChecker   *authz.Checker
-	idx            *triggerindex.Index
-	triggerStore   *triggers.Store
-	channelStore   *channels.Store
-	channels       *channels.Service
-	channelRecon   *channels.Reconciler
-	transfer       *channels.Transfer
-	cronEmitter    *cron.Emitter
-	eventQueue     *eventqueue.Store
-	queueSignals   *queuesignal.Publisher
+	pool         *pgxpool.Pool
+	mgr          ctrl.Manager
+	apiClient    client.Client
+	namespace    string
+	authzStore   *authz.Store
+	authzChecker *authz.Checker
+	idx          *triggerindex.Index
+	triggerStore *triggers.Store
+	channelStore *channels.Store
+	channels     *channels.Service
+	channelRecon *channels.Reconciler
+	transfer     *channels.Transfer
+	cronEmitter  *cron.Emitter
+	eventQueue   *eventqueue.Store
+	queueSignals *queuesignal.Publisher
+	// deliveryGate answers "may this agent be handed work right now?" from its
+	// working hours. The queue signal is the only dispatch decision the hub makes,
+	// and it asks here: no due-task ids means the operator creates no Job, so held
+	// work never starts a pod.
+	deliveryGate   *workinghours.Gate
 	invStore       invocations.Store
 	mcpSvc         *mcpservers.Service
 	personaSvc     *personas.Service
@@ -162,9 +168,14 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 	// record of what it published is in-memory, so without a durable "who opted
 	// into queue scaling" every idle agent would age its signal out and hold a pod
 	// until it was handed work again.
+	// The gate reads the window off the Agent CR at the moment of the question, so
+	// nothing has to be told when a window opens: a kubectl edit takes effect on the
+	// next look and a hub restart has no timers to restore.
+	c.deliveryGate = workinghours.New(c.apiClient, cfg.namespace)
 	c.queueSignals = queuesignal.New(c.eventQueue,
 		queuesignal.NewK8sPatcher(c.apiClient, cfg.namespace),
-		queuesignal.WithAgentLister(queuesignal.NewK8sAgentLister(c.apiClient, cfg.namespace)))
+		queuesignal.WithAgentLister(queuesignal.NewK8sAgentLister(c.apiClient, cfg.namespace)),
+		queuesignal.WithGate(c.deliveryGate))
 	c.eventQueue.SetQueueObserver(c.queueSignals.Observe)
 
 	// --- Triggers ---

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentRequest } from '../../api/agents'
+import type { AgentRequest, AgentWorkingHours } from '../../api/agents'
 import { findLlmProvider, LLM_PROVIDER_REGISTRY, type ProviderRequestField } from './llmProviders'
 
 export const LLM_PROVIDERS: ReadonlyArray<{ value: string; label: string }> =
@@ -55,6 +55,59 @@ const llmSchema = z.object({
 // `vision`, because the hub reads an absent value on update as
 // "leave unchanged".
 const replicasSchema = z.coerce.number().int().min(0).optional()
+
+/** Clock time as the hub stores it: 24-hour HH:MM. The hub is the authority —
+ *  it rejects anything else — so the form catches it here rather than letting
+ *  the save come back as a 400 the reader has to decode. */
+const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/** Weekday numbers as the CRD numbers them: 0 and 7 are Sunday, 1 is Monday.
+ *  Both spellings of Sunday are accepted on write; the form stores 0. */
+export const WEEKDAYS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+]
+
+/**
+ * The weekly window. `enabled` is the form's switch, not a stored field: off
+ * means the window is removed from the request as an empty object, which is
+ * how the hub reads "any hour again" (absent would mean "leave it alone").
+ */
+const workingHoursSchema = z
+  .object({
+    enabled: z.boolean(),
+    timezone: z.string().optional(),
+    days: z.array(z.number().int().min(0).max(7)),
+    start: z.string().optional(),
+    end: z.string().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.enabled) return
+    for (const key of ['start', 'end'] as const) {
+      const value = v[key] ?? ''
+      if (!CLOCK.test(value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: 'Use HH:MM on a 24-hour clock.',
+        })
+      }
+    }
+    // An end equal to the start is no window at all; an end before it is one
+    // window closing the next morning, which is a night shift and legal.
+    if (CLOCK.test(v.start ?? '') && (v.start ?? '') === (v.end ?? '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['end'],
+        message: 'The same time on both sides leaves no window at all.',
+      })
+    }
+  })
 
 /**
  * The persona step: either the agent's own instructions, written inline and
@@ -123,6 +176,7 @@ export const runtimeSchema = z
     providerApiKey: z.string().optional(),
     customProviderUrl: z.string().optional(),
     replicas: replicasSchema,
+    workingHours: workingHoursSchema,
   })
   .superRefine(requireCustomProviderUrl)
 
@@ -228,5 +282,41 @@ export function buildRuntimeRequest(name: string, values: RuntimeFormValues): Ag
       values.customProviderUrl ?? '',
     ),
     replicas: values.replicas,
+    // Always sent: absent would read as "leave the schedule alone", so turning
+    // the window off has to be an explicit empty window, not an omission.
+    workingHours: workingHoursFromForm(values.workingHours),
+  }
+}
+
+/**
+ * The form's window as the hub stores it: an empty object when the switch is
+ * off — the patch convention for "no window, any hour" — and the window itself
+ * when it is on. The clock is validated above, so what reaches here is usable.
+ */
+export function workingHoursFromForm(v: RuntimeFormValues['workingHours']): AgentWorkingHours {
+  if (!v.enabled) return {}
+  return {
+    timezone: v.timezone?.trim() ?? '',
+    days: [...new Set(v.days)].sort((a, b) => a - b),
+    start: v.start ?? '',
+    end: v.end ?? '',
+  }
+}
+
+/**
+ * The stored window as the form reads it. Sunday may be stored as 0 or 7 (cron
+ * numbers it both ways), so both land on the Sunday toggle: a window written with
+ * 7 by kubectl still shows as Sunday here, and goes back as 0.
+ */
+export function workingHoursToForm(
+  wh: AgentWorkingHours | undefined,
+): RuntimeFormInput['workingHours'] {
+  const days = (wh?.days ?? []).map((d) => (d === 7 ? 0 : d)).filter((d) => d >= 0 && d <= 6)
+  return {
+    enabled: wh != null,
+    timezone: wh?.timezone ?? '',
+    days: [...new Set(days)].sort((a, b) => a - b),
+    start: wh?.start ?? '',
+    end: wh?.end ?? '',
   }
 }

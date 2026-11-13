@@ -15,6 +15,11 @@
 // ceiling and a burst of fifty events is fifty measurements of the same "yes,
 // there is work".
 //
+// A delivery gate (see WithGate) can withhold an agent's due-task ids without
+// touching its counts - which is how working hours keep a pod from being spawned
+// for work that has to wait. Counts stay honest because the backlog is real: the
+// operator and the console both need to see tasks that are queued but not running.
+//
 // Every published signal carries an observation timestamp, and a periodic sweep
 // republishes known agents whether or not anything changed. That heartbeat is
 // what lets the operator tell "this queue is empty" from "nobody has looked at
@@ -99,6 +104,13 @@ type Counter interface {
 	DueTaskIDs(ctx context.Context, agentName string, limit int) ([]int64, error)
 }
 
+// DeliveryGate reports whether an agent may be handed work right now, and when
+// that answer changes. Satisfied by *workinghours.Gate; kept as an interface so
+// the publisher's holding behaviour can be tested without a k8s reader.
+type DeliveryGate interface {
+	Hold(ctx context.Context, agentName string) (held bool, opensAt time.Time)
+}
+
 // AgentLister names the agents that expect a queue signal from the hub —
 // currently every agent, since all work runs as per-task Jobs and every task
 // Job is created from a queue signal. Satisfied by the K8s reader below.
@@ -127,6 +139,7 @@ type Publisher struct {
 	counters Counter
 	patcher  Patcher
 	lister   AgentLister
+	gate     DeliveryGate
 	tick     time.Duration
 	debounce time.Duration
 	sweep    time.Duration
@@ -136,6 +149,10 @@ type Publisher struct {
 	dirty   map[string]bool      // agents with unpublished changes
 	last    map[string]Signal    // last signal written per agent
 	nextPub map[string]time.Time // earliest time a non-edge update may be written
+	// wakes holds the agents currently held by the gate, mapped to the instant
+	// their window opens. A held agent has no queue change to mark it dirty, so
+	// without this the backlog would wait for the next sweep to start moving.
+	wakes map[string]time.Time
 }
 
 // New builds a Publisher. A nil logger becomes slog.Default(). Without
@@ -152,6 +169,7 @@ func New(counters Counter, patcher Patcher, opts ...Option) *Publisher {
 		dirty:    map[string]bool{},
 		last:     map[string]Signal{},
 		nextPub:  map[string]time.Time{},
+		wakes:    map[string]time.Time{},
 	}
 	for _, o := range opts {
 		o(p)
@@ -184,6 +202,13 @@ func withLogger(l *slog.Logger) Option { return func(p *Publisher) { p.log = l }
 // queue scaling keeps beating from the first sweep after a hub restart even when
 // it has had no work since.
 func WithAgentLister(l AgentLister) Option { return func(p *Publisher) { p.lister = l } }
+
+// WithGate points the publisher at a delivery gate. While an agent is held, its
+// signal carries no due-task ids, so the operator creates no task Job for work
+// that must wait; the counts still publish. Without a gate every agent with due
+// tasks is dispatched whenever it has them, which is the behaviour from before
+// working hours existed.
+func WithGate(g DeliveryGate) Option { return func(p *Publisher) { p.gate = g } }
 
 // Observe records that an agent's queue may have changed. It never blocks and
 // never performs I/O; it is safe to call inline from a request handler.
@@ -280,6 +305,10 @@ func (p *Publisher) markAll(ctx context.Context) {
 // publishRound re-measures and writes the marked agents. When force is set, the
 // debounce is bypassed so the sweep can keep observation timestamps fresh.
 func (p *Publisher) publishRound(ctx context.Context, force bool) {
+	// A window that just opened is its own change: nothing happened to the queue,
+	// so the publisher has to remember to look.
+	p.markWakes(time.Now())
+
 	p.mu.Lock()
 	names := make([]string, 0, len(p.dirty))
 	for name := range p.dirty {
@@ -305,6 +334,34 @@ func (p *Publisher) publishRound(ctx context.Context, force bool) {
 	}
 }
 
+// scheduleWake records when a held agent should be measured again. An agent held
+// by the gate has no queue movement to wake this publisher, and the sweep
+// interval is too coarse a promise to make about when queued work starts after a
+// window opens, so the opening instant is kept and markWakes turns it into a
+// re-measure.
+func (p *Publisher) scheduleWake(name string, held bool, opensAt time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if held && !opensAt.IsZero() {
+		p.wakes[name] = opensAt
+		return
+	}
+	delete(p.wakes, name)
+}
+
+// markWakes marks every agent whose hold has elapsed. Called before each round,
+// so the tick (not the sweep) is the latency budget for a window opening.
+func (p *Publisher) markWakes(now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for name, at := range p.wakes {
+		if !now.Before(at) {
+			p.dirty[name] = true
+			delete(p.wakes, name)
+		}
+	}
+}
+
 // publishOne measures one agent and writes it if the debounce rules permit.
 // done reports whether the agent has nothing left to say.
 func (p *Publisher) publishOne(ctx context.Context, name string, force bool) (bool, error) {
@@ -315,10 +372,23 @@ func (p *Publisher) publishOne(ctx context.Context, name string, force bool) (bo
 	// The due-id list drives Job dispatch. A failure here must not stall the
 	// counts — an agent whose signal froze would hold or lose pods — so the
 	// publish goes through rather than failing the whole signal.
-	dueIDs, dueErr := p.counters.DueTaskIDs(ctx, name, DueIDsCap)
-	if dueErr != nil {
-		p.log.Warn("queue signal: due task ids unavailable", "agent", name, "error", dueErr)
+	//
+	// A held agent gets no due ids at all, deliberately written as an empty list
+	// rather than left at the last published one: an empty list is what tells the
+	// operator to dispatch nothing, which is the point of holding.
+	held, opensAt := false, time.Time{}
+	if p.gate != nil {
+		held, opensAt = p.gate.Hold(ctx, name)
 	}
+	var dueIDs []int64
+	var dueErr error
+	if !held {
+		dueIDs, dueErr = p.counters.DueTaskIDs(ctx, name, DueIDsCap)
+		if dueErr != nil {
+			p.log.Warn("queue signal: due task ids unavailable", "agent", name, "error", dueErr)
+		}
+	}
+	p.scheduleWake(name, held, opensAt)
 
 	now := time.Now()
 	p.mu.Lock()
@@ -370,6 +440,7 @@ func (p *Publisher) publishOne(ctx context.Context, name string, force bool) (bo
 			p.mu.Lock()
 			delete(p.last, name)
 			delete(p.nextPub, name)
+			delete(p.wakes, name)
 			p.mu.Unlock()
 			p.log.Debug("queue signal: agent not found, dropping", "agent", name)
 			return true, nil

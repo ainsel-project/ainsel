@@ -687,6 +687,48 @@ spec:
                 items:
                   type: string
                 type: array
+              workingHours:
+                description: |-
+                  WorkingHours confines task delivery to a recurring weekly window: while
+                  now falls outside it, the hub's delivery paths hand the agent nothing, so
+                  pending agent_tasks rows accumulate as a backlog that drains (in id order)
+                  when the window next opens. Ingestion and routing are unaffected - nothing
+                  is lost outside the window. Nil means the agent may run at any hour.
+
+                  Pause and WorkingHours gate the same thing ("may this agent be handed
+                  work?"), Pause as a one-off and WorkingHours as a recurring schedule;
+                  either one holds the queue.
+                properties:
+                  days:
+                    description: |-
+                      Days are the weekday numbers the window repeats on, numbered as in cron:
+                      0 and 7 are Sunday, 1 is Monday through 6 Saturday. Empty means every day.
+                    items:
+                      format: int32
+                      type: integer
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-type: set
+                  end:
+                    description: |-
+                      End is the window's wall-clock closing time, "HH:MM". It must differ from
+                      Start; an End earlier than Start closes the window on the following day.
+                    pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                    type: string
+                  start:
+                    description: Start is the window's wall-clock opening time, "HH:MM".
+                    pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                    type: string
+                  timezone:
+                    default: UTC
+                    description: |-
+                      Timezone is an IANA zone name, e.g. "Europe/Berlin", and the zone Days,
+                      Start and End are read in. Empty reads as UTC.
+                    type: string
+                required:
+                - end
+                - start
+                type: object
             required:
             - displayName
             - imageRef

@@ -5,7 +5,11 @@ import {
   buildAgentRequest,
   LLM_PROVIDERS,
   llmProviderLabel,
+  runtimeSchema,
+  workingHoursFromForm,
+  workingHoursToForm,
 } from './agentFormModel'
+import type { AgentWorkingHours } from '../../api/agents'
 
 describe('llmProviderLabel', () => {
   it('maps every form option id to its label', () => {
@@ -65,5 +69,114 @@ describe('provider rules', () => {
       )
     expect(build('openai').llm).not.toHaveProperty('temperature')
     expect(build('ollama-cloud').llm?.temperature).toBe(0.4)
+  })
+})
+
+describe('workingHoursToForm', () => {
+  it('reads no stored window as a disabled, empty form', () => {
+    expect(workingHoursToForm(undefined)).toEqual({
+      enabled: false,
+      timezone: '',
+      days: [],
+      start: '',
+      end: '',
+    })
+  })
+
+  it('normalises a Sunday written as 7 into the Sunday tick', () => {
+    const stored: AgentWorkingHours = {
+      timezone: 'UTC',
+      days: [7, 1],
+      start: '09:00',
+      end: '17:00',
+    }
+    expect(workingHoursToForm(stored).days).toEqual([0, 1])
+  })
+})
+
+describe('workingHoursFromForm', () => {
+  it('sends an empty window when the toggle is off — absent would mean "leave it alone"', () => {
+    expect(
+      workingHoursFromForm({
+        enabled: false,
+        timezone: 'Europe/Berlin',
+        days: [1],
+        start: '09:00',
+        end: '17:00',
+      }),
+    ).toEqual({})
+  })
+
+  it('sends the window as written, days deduplicated and in order', () => {
+    expect(
+      workingHoursFromForm({
+        enabled: true,
+        timezone: '  Europe/Berlin ',
+        days: [5, 1, 5],
+        start: '09:00',
+        end: '22:00',
+      }),
+    ).toEqual({ timezone: 'Europe/Berlin', days: [1, 5], start: '09:00', end: '22:00' })
+  })
+
+  it('leaves a blank timezone empty, which the hub reads as UTC', () => {
+    expect(
+      workingHoursFromForm({
+        enabled: true,
+        timezone: '   ',
+        days: [],
+        start: '09:00',
+        end: '17:00',
+      }),
+    ).toEqual({ timezone: '', days: [], start: '09:00', end: '17:00' })
+  })
+})
+
+describe('runtimeSchema working hours', () => {
+  // A provider on the LLM: the schema requires one (issue #96), so a base without
+  // it would be rejected for a reason that has nothing to do with the window.
+  const base = {
+    llm: { model: 'm', provider: 'ollama-cloud', maxTurns: 1 },
+    replicas: 1,
+  }
+
+  it('rejects a window with no clock on it', () => {
+    const result = runtimeSchema.safeParse({
+      ...base,
+      workingHours: { enabled: true, timezone: '', days: [], start: '', end: '' },
+    })
+    expect(result.success).toBe(false)
+    expect(JSON.stringify(result.error?.issues)).toContain('HH:MM')
+  })
+
+  it('rejects a window whose start equals its end', () => {
+    const result = runtimeSchema.safeParse({
+      ...base,
+      workingHours: { enabled: true, timezone: '', days: [], start: '09:00', end: '09:00' },
+    })
+    expect(result.success).toBe(false)
+    expect(JSON.stringify(result.error?.issues)).toContain('leaves no window at all')
+  })
+
+  it('accepts a window that runs past midnight', () => {
+    const result = runtimeSchema.safeParse({
+      ...base,
+      workingHours: {
+        enabled: true,
+        timezone: 'Asia/Tokyo',
+        days: [3],
+        start: '22:00',
+        end: '06:00',
+      },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('leaves an untouched window alone', () => {
+    const result = runtimeSchema.safeParse({
+      ...base,
+      workingHours: { enabled: false, timezone: '', days: [], start: '', end: '' },
+    })
+    expect(result.success).toBe(true)
   })
 })
