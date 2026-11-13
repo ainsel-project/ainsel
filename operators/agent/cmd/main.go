@@ -10,6 +10,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -74,6 +75,15 @@ func main() {
 	flag.StringVar(&insecureRegistries, "insecure-registries", "",
 		"Comma-separated registry hosts (exact host:port) whose image digests are resolved over plain HTTP. "+
 			"Every other registry is HTTPS only. Intended for development registries.")
+
+	var credentialStorageClass string
+	flag.StringVar(&credentialStorageClass, "credential-storage-class", "",
+		"Storage class of the per-agent ChatGPT sign-in credential volume. Empty uses the cluster default.")
+
+	var credentialVolumeSize string
+	flag.StringVar(&credentialVolumeSize, "credential-volume-size", "1Gi",
+		"Requested size of the ChatGPT sign-in credential volume. The data is a few KiB; "+
+			"raise it only to meet a storage class minimum.")
 
 	opts := zap.Options{
 		Development: true,
@@ -184,12 +194,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	credentialSize, err := resource.ParseQuantity(credentialVolumeSize)
+	if err != nil {
+		setupLog.Error(err, "Invalid --credential-volume-size", "value", credentialVolumeSize)
+		os.Exit(1)
+	}
+
 	if err := (&controller.AgentReconciler{
 		Client:             mgr.GetClient(),
 		Scheme:             mgr.GetScheme(),
 		Recorder:           mgr.GetEventRecorderFor("agent-controller"), //nolint:staticcheck // deprecated API still required for record.EventRecorder type compatibility
 		AgentGracePeriod:   agentGracePeriod,
 		InsecureRegistries: splitList(insecureRegistries),
+
+		CredentialStorageClass: credentialStorageClass,
+		CredentialVolumeSize:   credentialSize,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Agent")
 		os.Exit(1)

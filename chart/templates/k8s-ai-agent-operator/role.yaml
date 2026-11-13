@@ -26,6 +26,11 @@ rules:
   - apiGroups: [""]
     resources: ["services", "secrets", "serviceaccounts"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # persistentvolumeclaims: the ChatGPT sign-in credential volume, one per
+  # agent that uses sign-in, deleted when the agent switches to an API key.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   # configmaps: The operator creates/updates two ConfigMaps per agent:
   #   - <agent>-pi-models: LLM model definitions for ollama-cloud agents
   #   - <agent>-forgejo-urls: connector URL mappings for multi-connector mode

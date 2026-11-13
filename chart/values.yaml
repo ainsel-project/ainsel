@@ -81,6 +81,12 @@ agentOperator:
   # Registry hosts (exact host:port) whose image digests are resolved over
   # plain HTTP, for development registries. Every other registry is HTTPS only.
   insecureRegistries: [] # e.g. ["zot.platform.svc:5000"]
+  # Per-agent volume for agents that use ChatGPT sign-in
+  # (spec.openAI.authMethod: ChatGPTSignIn). It holds Pi's auth.json so
+  # refreshed tokens survive the short-lived task pods. ReadWriteOnce.
+  credentialVolume:
+    storageClass: "" # empty = the cluster default
+    size: 1Gi # the data is a few KiB; raise only for a storage class minimum
   resources:
     requests:
       cpu: 50m

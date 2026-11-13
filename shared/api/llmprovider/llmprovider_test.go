@@ -103,3 +103,15 @@ func TestSetCredentialKeepsBaseURL(t *testing.T) {
 		})
 	}
 }
+
+// Storing an OpenAI key must not switch a ChatGPT sign-in agent back to API
+// key: the operator would delete the credential volume and the sign-in.
+func TestSetCredentialKeepsOpenAIAuthMethod(t *testing.T) {
+	p, _ := Lookup(v1alpha1.AgentLLMProviderOpenAI)
+	spec := v1alpha1.AgentSpec{OpenAI: &v1alpha1.AgentOpenAI{AuthMethod: v1alpha1.OpenAIAuthMethodChatGPTSignIn}}
+	p.SetCredential(&spec, Credential{APIKeySecretRef: &corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: "k"}, Key: "api-key"}})
+	if spec.OpenAI.AuthMethod != v1alpha1.OpenAIAuthMethodChatGPTSignIn {
+		t.Fatalf("authMethod after storing a key = %q, want ChatGPTSignIn kept", spec.OpenAI.AuthMethod)
+	}
+}

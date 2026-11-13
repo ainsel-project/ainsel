@@ -198,7 +198,13 @@ var providers = []Provider{
 			return Credential{APIKeySecretRef: s.OpenAI.APIKeySecretRef, BaseURL: s.OpenAI.BaseURL}, true
 		},
 		setBlock: func(s *v1alpha1.AgentSpec, c Credential) {
-			s.OpenAI = &v1alpha1.AgentOpenAI{APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
+			// The auth method is not a credential: storing a key leaves a
+			// ChatGPT sign-in agent signed in, and switching is explicit.
+			var method v1alpha1.OpenAIAuthMethod
+			if s.OpenAI != nil {
+				method = s.OpenAI.AuthMethod
+			}
+			s.OpenAI = &v1alpha1.AgentOpenAI{AuthMethod: method, APIKeySecretRef: c.APIKeySecretRef, BaseURL: c.BaseURL}
 		},
 	},
 	{

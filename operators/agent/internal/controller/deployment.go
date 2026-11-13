@@ -196,6 +196,29 @@ func newPodPlan(agent *ainselv1alpha1.Agent, agentName string, img *ainselv1alph
 			setupPiCommand += " && chown -R 1000:1000 /home/agent/.pi/agent/skills"
 		}
 	}
+	// ChatGPT sign-in: mount the credential volume and link Pi's auth.json to
+	// the file on it (see credentials.go). The file is created first so the
+	// link never dangles — Pi would replace a dangling link with a plain file
+	// in the emptyDir, and the next refresh would be lost with the pod.
+	if agent.UsesChatGPTSignIn() {
+		podVolumes = append(podVolumes, corev1.Volume{
+			Name: credentialVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: credentialPVCName(agentName)},
+			},
+		})
+		credMount := corev1.VolumeMount{Name: credentialVolumeName, MountPath: signInMountPath}
+		agentVolumeMounts = append(agentVolumeMounts, credMount)
+		piInitVolumeMounts = append(piInitVolumeMounts, credMount)
+		setupPiCommand += " && touch " + signInMountPath + "/auth.json" +
+			" && chmod 600 " + signInMountPath + "/auth.json" +
+			" && ln -sf " + signInMountPath + "/auth.json /home/agent/.pi/agent/auth.json"
+		if !securityHardened {
+			// No fsGroup without hardening: hand the volume root (where Pi
+			// creates its auth.json lock) and the file to UID 1000.
+			setupPiCommand += " && chown 1000:1000 " + signInMountPath + " " + signInMountPath + "/auth.json"
+		}
+	}
 	initContainer := corev1.Container{
 		Name:  "setup-pi-models",
 		Image: "busybox:1.37",
@@ -355,7 +378,16 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 // set, or when it is the agent's selected provider.
 func llmProviderEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
 	var envs []corev1.EnvVar
+	signIn := agent.UsesChatGPTSignIn()
+	if signIn {
+		envs = append(envs, corev1.EnvVar{Name: "AINSEL_AUTH_METHOD", Value: authMethodEnvValue})
+	}
 	for _, p := range llmprovider.All() {
+		// A ChatGPT sign-in replaces the OpenAI key: Pi prefers
+		// OPENAI_API_KEY over a stored sign-in, so the key must not be set.
+		if signIn && p.ID == ainselv1alpha1.AgentLLMProviderOpenAI {
+			continue
+		}
 		cred, present := p.Credential(&agent.Spec)
 		if !p.AlwaysRender && !present && p.ID != agent.Spec.LLM.Provider {
 			continue

@@ -19,6 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -75,6 +76,14 @@ type AgentReconciler struct {
 	// digest resolution contacts over plain HTTP. Every other registry is
 	// HTTPS only.
 	InsecureRegistries []string
+
+	// CredentialStorageClass is the storage class of the ChatGPT sign-in
+	// credential volume. Empty uses the cluster default.
+	CredentialStorageClass string
+
+	// CredentialVolumeSize is the requested size of that volume. The data is
+	// a few KiB; the size only has to satisfy the storage class's minimum.
+	CredentialVolumeSize resource.Quantity
 }
 
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -208,6 +217,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("reconciling Pi models ConfigMap: %w", err)
 	}
 
+	// 4.6. Credential volume for ChatGPT sign-in (must exist before the pods
+	// that mount it; deleted again when the agent switches to an API key).
+	if err := r.reconcileCredentialVolume(ctx, &agent, agentName); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// 4.75. Secret for AgentImage env vars (owned by the Agent for GC)
 	if err := r.reconcileImageEnvSecret(ctx, &agent, agentName, &img); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling image env secret: %w", err)
@@ -233,6 +248,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	applySignInStatus(&agent)
 
 	// 5.5. Surface MCP tokenFromEnv misconfiguration via Degraded condition
 	// and Warning Events so operators can discover the problem via
@@ -768,6 +784,17 @@ func (r *AgentReconciler) patchStatus(ctx context.Context, agent *ainselv1alpha1
 			"message": s.Message,
 		}
 	}
+	// The sign-in record is the operator's. It accumulates (a timestamp
+	// written by one reconcile is not recomputed by the next), so a sign-in
+	// agent only ever sends the fields it has — omitempty keeps a copy that
+	// predates a write from erasing it. null removes the record once the
+	// agent no longer uses ChatGPT sign-in.
+	switch {
+	case !agent.UsesChatGPTSignIn():
+		status["chatGPTSignIn"] = nil
+	case agent.Status.ChatGPTSignIn != nil:
+		status["chatGPTSignIn"] = agent.Status.ChatGPTSignIn
+	}
 	body, err := json.Marshal(map[string]any{"status": status})
 	if err != nil {
 		return fmt.Errorf("marshal agent status: %w", err)
@@ -904,6 +931,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findAffectedAgents),

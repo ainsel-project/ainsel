@@ -107,6 +107,17 @@ if [ -z "$MODEL" ]; then
 fi
 set -- "$@" --provider "$PI_PROVIDER" --model "$MODEL"
 
+# ChatGPT sign-in (spec.openAI.authMethod: ChatGPTSignIn): check the stored
+# sign-in before the runner fetches the task, refreshing the token if it is
+# about to expire. Exit 78 means the sign-in is missing or dead; the operator
+# turns it into SignInRequired and holds the queue, and the task stays
+# pending because nothing fetched or nacked it. Any other failure exits as
+# usual and the Job retries the pod.
+if [ "${AINSEL_AUTH_METHOD:-}" = chatgpt-sign-in ]; then
+  AINSEL_PI_ROOT="$(npm root -g)" \
+    node /usr/local/share/pi-extensions/ainsel-chatgpt-auth/check.mjs || exit $?
+fi
+
 echo "entrypoint: exec pi $*" >&2
 
 # Hold stdin open with `tail -f /dev/null` so RPC mode does not exit on

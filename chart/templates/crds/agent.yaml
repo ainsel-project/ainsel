@@ -475,8 +475,8 @@ spec:
                 type: object
               openAI:
                 description: |-
-                  AgentOpenAI configures the OpenAI API provider (API key).
-                  The APIKey is stored in a secret created by the hub backend.
+                  AgentOpenAI configures the OpenAI provider: an API key, or a ChatGPT
+                  sign-in. The APIKey is stored in a secret created by the hub backend.
                 properties:
                   apiKeySecretRef:
                     description: |-
@@ -504,6 +504,13 @@ spec:
                     - key
                     type: object
                     x-kubernetes-map-type: atomic
+                  authMethod:
+                    default: APIKey
+                    description: AuthMethod selects API key (default) or ChatGPT sign-in.
+                    enum:
+                    - APIKey
+                    - ChatGPTSignIn
+                    type: string
                   baseUrl:
                     description: |-
                       BaseURL overrides the provider's API base URL written to the agent's
@@ -747,6 +754,33 @@ spec:
                   signal.
                 format: int32
                 type: integer
+              chatGPTSignIn:
+                description: |-
+                  ChatGPTSignIn records the sign-in state of an agent that uses
+                  spec.openAI.authMethod: ChatGPTSignIn. Absent for every other agent.
+                properties:
+                  handledSession:
+                    description: HandledSession is the last sign-in session the operator
+                      acted on.
+                    type: string
+                  lastVerifiedAt:
+                    description: |-
+                      LastVerifiedAt is when a pod last confirmed (and if needed refreshed)
+                      the sign-in.
+                    format: date-time
+                    type: string
+                  signInFailedAt:
+                    description: |-
+                      SignInFailedAt is when a pod last found the sign-in unusable (its
+                      check exited with "sign-in required"). Later than SignedInAt means
+                      the agent needs a new sign-in.
+                    format: date-time
+                    type: string
+                  signedInAt:
+                    description: SignedInAt is when the last sign-in succeeded.
+                    format: date-time
+                    type: string
+                type: object
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current

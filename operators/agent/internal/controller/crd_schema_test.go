@@ -243,3 +243,35 @@ func keys(m map[string]any) []string {
 	}
 	return out
 }
+
+func TestCRDOpenAIAuthMethodEnum(t *testing.T) {
+	b, err := os.ReadFile("../../config/crd/bases/ainsel.dev_agents.yaml")
+	if err != nil {
+		t.Fatalf("read CRD: %v", err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("unmarshal CRD: %v", err)
+	}
+	v0 := mustMap(t, mustSlice(t, mustMap(t, doc, "spec"), "versions")[0], "")
+	oapi := mustMap(t, mustMap(t, v0, "schema"), "openAPIV3Schema")
+	specProps := mustMap(t, mustMap(t, mustMap(t, oapi, "properties"), "spec"), "properties")
+	openAI := mustMap(t, mustMap(t, specProps, "openAI"), "properties")
+	method := mustMap(t, openAI, "authMethod")
+
+	enum := mustSlice(t, method, "enum")
+	if len(enum) != 2 || enum[0] != "APIKey" || enum[1] != "ChatGPTSignIn" {
+		t.Fatalf("spec.openAI.authMethod enum = %v, want [APIKey ChatGPTSignIn]", enum)
+	}
+	if method["default"] != "APIKey" {
+		t.Fatalf("spec.openAI.authMethod default = %v, want APIKey", method["default"])
+	}
+
+	statusProps := mustMap(t, mustMap(t, mustMap(t, oapi, "properties"), "status"), "properties")
+	signIn := mustMap(t, mustMap(t, statusProps, "chatGPTSignIn"), "properties")
+	for _, f := range []string{"signedInAt", "signInFailedAt", "lastVerifiedAt", "handledSession"} {
+		if _, ok := signIn[f]; !ok {
+			t.Errorf("status.chatGPTSignIn missing %q; found %v", f, keys(signIn))
+		}
+	}
+}

@@ -308,6 +308,14 @@ func (a *Agent) IsPaused(now time.Time) bool {
 	return p.PausedUntil.After(now)
 }
 
+// UsesChatGPTSignIn reports whether the agent authenticates to OpenAI with a
+// ChatGPT sign-in rather than an API key. The openAI block only counts when
+// openai is the selected provider.
+func (a *Agent) UsesChatGPTSignIn() bool {
+	return a.Spec.LLM.Provider == "openai" && a.Spec.OpenAI != nil &&
+		a.Spec.OpenAI.AuthMethod == OpenAIAuthMethodChatGPTSignIn
+}
+
 // AgentScaling holds the concurrency policy for the agent's task runs. Every
 // queued task runs as its own Kubernetes Job — one pod, one task, exit — so
 // Replicas is the cap on how many of those Jobs run at once. The agent's
@@ -371,9 +379,26 @@ type AgentAlibabaCloud struct {
 	BaseURL string `json:"baseUrl,omitempty"`
 }
 
-// AgentOpenAI configures the OpenAI API provider (API key).
-// The APIKey is stored in a secret created by the hub backend.
+// OpenAIAuthMethod selects how an OpenAI agent authenticates.
+// +kubebuilder:validation:Enum=APIKey;ChatGPTSignIn
+type OpenAIAuthMethod string
+
+const (
+	// OpenAIAuthMethodAPIKey uses the API key in APIKeySecretRef.
+	OpenAIAuthMethodAPIKey OpenAIAuthMethod = "APIKey"
+	// OpenAIAuthMethodChatGPTSignIn uses a ChatGPT subscription through
+	// OpenAI's official Sign in with ChatGPT. The credential lives on a
+	// per-agent volume the operator creates; no API key is used.
+	OpenAIAuthMethodChatGPTSignIn OpenAIAuthMethod = "ChatGPTSignIn"
+)
+
+// AgentOpenAI configures the OpenAI provider: an API key, or a ChatGPT
+// sign-in. The APIKey is stored in a secret created by the hub backend.
 type AgentOpenAI struct {
+	// AuthMethod selects API key (default) or ChatGPT sign-in.
+	// +optional
+	// +kubebuilder:default=APIKey
+	AuthMethod OpenAIAuthMethod `json:"authMethod,omitempty"`
 	// APIKeySecretRef references the secret containing the OpenAI API key.
 	// The secret must have a key named "api-key".
 	APIKeySecretRef *corev1.SecretKeySelector `json:"apiKeySecretRef,omitempty"`
@@ -471,7 +496,33 @@ type AgentStatus struct {
 	// +optional
 	Scaling *AgentScalingStatus `json:"scaling,omitempty"`
 
+	// ChatGPTSignIn records the sign-in state of an agent that uses
+	// spec.openAI.authMethod: ChatGPTSignIn. Absent for every other agent.
+	// +optional
+	ChatGPTSignIn *AgentChatGPTSignInStatus `json:"chatGPTSignIn,omitempty"`
+
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// AgentChatGPTSignInStatus is the operator's record of an agent's ChatGPT
+// sign-in. It lives in status, not on the Jobs that observed it, because
+// finished Jobs are retired or age out and must not take the record along.
+type AgentChatGPTSignInStatus struct {
+	// SignedInAt is when the last sign-in succeeded.
+	// +optional
+	SignedInAt *metav1.Time `json:"signedInAt,omitempty"`
+	// SignInFailedAt is when a pod last found the sign-in unusable (its
+	// check exited with "sign-in required"). Later than SignedInAt means
+	// the agent needs a new sign-in.
+	// +optional
+	SignInFailedAt *metav1.Time `json:"signInFailedAt,omitempty"`
+	// LastVerifiedAt is when a pod last confirmed (and if needed refreshed)
+	// the sign-in.
+	// +optional
+	LastVerifiedAt *metav1.Time `json:"lastVerifiedAt,omitempty"`
+	// HandledSession is the last sign-in session the operator acted on.
+	// +optional
+	HandledSession string `json:"handledSession,omitempty"`
 }
 
 // AgentScalingStatus is the operator's account of what it is doing with this
@@ -507,6 +558,10 @@ const (
 	// providers, False (Reason TemperatureNotSupported) for providers that
 	// run on Pi's built-in providers. Absent while no temperature is set.
 	AgentConditionTemperatureApplied = "TemperatureApplied"
+	// AgentConditionSignInRequired is True while an agent that uses ChatGPT
+	// sign-in has no usable sign-in; the operator dispatches no task while
+	// it is True. Absent for agents that do not use sign-in.
+	AgentConditionSignInRequired = "SignInRequired"
 )
 
 // +kubebuilder:object:root=true

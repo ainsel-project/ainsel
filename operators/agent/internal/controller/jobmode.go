@@ -171,6 +171,11 @@ func buildTaskJob(agent *ainselv1alpha1.Agent, agentName string, deploy *appsv1.
 		c.Env = append(c.Env, corev1.EnvVar{Name: "AINSEL_TASK_DIR", Value: taskRunDir})
 	}
 
+	var failurePolicy *batchv1.PodFailurePolicy
+	if agent.UsesChatGPTSignIn() {
+		failurePolicy = signInFailurePolicy()
+	}
+
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      taskJobName(agent.Name, taskID),
@@ -182,6 +187,7 @@ func buildTaskJob(agent *ainselv1alpha1.Agent, agentName string, deploy *appsv1.
 			Parallelism:             ptr.To(int32(1)),
 			BackoffLimit:            ptr.To(taskJobBackoffLimit),
 			TTLSecondsAfterFinished: ptr.To(taskJobTTLAfterFinished),
+			PodFailurePolicy:        failurePolicy,
 			Template:                *tpl,
 		},
 	}
@@ -220,6 +226,7 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 		pending[id] = true
 	}
 
+	signIn := agent.UsesChatGPTSignIn()
 	active := int32(0)
 	have := make(map[int64]bool, len(jobList.Items))
 	retired := 0
@@ -236,6 +243,11 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 			have[id] = true
 			active++
 			continue
+		}
+		// Record a sign-in failure before the retire branch below can
+		// delete the only evidence of it.
+		if signIn {
+			recordSignInFailure(agent, j)
 		}
 		// A finished Job whose task the hub still lists as due is a dead
 		// attempt: the pod ended without an ack (never started, image pull
@@ -281,6 +293,17 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 	if deploy == nil {
 		decision.Message = fmt.Sprintf("%d task job(s) active; no pod template yet", active)
 		return decision, nil
+	}
+
+	// A ChatGPT sign-in agent without a usable sign-in runs nothing: every
+	// pod would exit at its pre-check. Due tasks stay queued for the next
+	// sign-in. spec.pause and replicas are left alone — this is state, not
+	// a change of the user's intent.
+	if signIn {
+		if required, _ := signInRequired(agent.Status.ChatGPTSignIn); required {
+			decision.Message = fmt.Sprintf("%d task job(s) active; sign-in required", active)
+			return decision, nil
+		}
 	}
 
 	unscheduled := 0
