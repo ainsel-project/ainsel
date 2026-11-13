@@ -230,8 +230,20 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 	active := int32(0)
 	have := make(map[int64]bool, len(jobList.Items))
 	retired := 0
+	signInJobLive := false
 	for i := range jobList.Items {
 		j := &jobList.Items[i]
+		// Credential Jobs (sign-in) hold the volume like a task does but
+		// are not task runs: they count against nothing but the volume.
+		if j.Labels[credentialJobLabel] != "" {
+			if jobIsFinished(j) {
+				recordSignInOutcome(agent, j)
+			} else {
+				signInJobLive = true
+				active++
+			}
+			continue
+		}
 		id, err := strconv.ParseInt(j.Labels[TaskIDLabel], 10, 64)
 		if err != nil {
 			if !jobIsFinished(j) {
@@ -281,6 +293,14 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 	decision := ScaleDecision{
 		Replicas: active,
 		Reason:   ScaleReasonJobPerTask,
+	}
+
+	// A requested sign-in comes first and needs no task slot, so it also
+	// runs for an agent at replicas: 0. New task Jobs wait for it.
+	if signIn && deploy != nil {
+		if session := signInWanted(agent); session != "" || signInJobLive {
+			return r.syncSignInJob(ctx, agent, deploy, session, active, signInJobLive, decision)
+		}
 	}
 
 	if limit == 0 {
@@ -358,5 +378,30 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 	// dispatched: status.scaling.desired should not read 0 on the very pass that
 	// started the first Jobs.
 	decision.Replicas = active
+	return decision, nil
+}
+
+// syncSignInJob holds task dispatch while a sign-in is requested or running,
+// and starts the sign-in Job once no other pod uses the credential volume.
+func (r *AgentReconciler) syncSignInJob(ctx context.Context, agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, session string, active int32, live bool, decision ScaleDecision) (ScaleDecision, error) {
+	decision.RequeueAfter = taskJobDispatchPoll
+	if live {
+		decision.Message = "ChatGPT sign-in in progress"
+		return decision, nil
+	}
+	if active > 0 {
+		decision.Message = fmt.Sprintf("%d task job(s) active; ChatGPT sign-in waiting for the running task to finish", active)
+		return decision, nil
+	}
+	job := buildSignInJob(agent, deploy, session)
+	if err := controllerutil.SetControllerReference(agent, job, r.Scheme); err != nil {
+		return decision, fmt.Errorf("setting owner reference on sign-in job: %w", err)
+	}
+	if err := r.Create(ctx, job); err != nil && !apierrors.IsAlreadyExists(err) {
+		return decision, fmt.Errorf("creating sign-in job: %w", err)
+	}
+	logf.FromContext(ctx).Info("started ChatGPT sign-in job", "agent", agent.Name, "job", job.Name)
+	decision.Replicas = 1
+	decision.Message = "ChatGPT sign-in in progress"
 	return decision, nil
 }

@@ -3,8 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -201,4 +203,180 @@ func applySignInStatus(agent *ainselv1alpha1.Agent) {
 		}
 	}
 	apimeta.SetStatusCondition(&agent.Status.Conditions, cond)
+}
+
+// Sign-in Job. When a user starts a ChatGPT sign-in, the hub names the
+// session in signInSessionAnnotation. The operator then stops dispatching new
+// task Jobs, waits for the running ones to finish (the credential volume is
+// ReadWriteOnce and two pods must not race on the refresh token), and runs a
+// short Job that drives the sign-in on the volume. Its outcome is recorded in
+// status.chatGPTSignIn, so the session is handled exactly once.
+
+const (
+	// signInSessionAnnotation is written by the hub: the session to run a
+	// sign-in pod for.
+	signInSessionAnnotation = "ainsel.dev/chatgpt-sign-in-session"
+
+	// credentialJobLabel marks a Job that uses the credential volume but is
+	// not a task run. Its value says which kind.
+	credentialJobLabel  = "ainsel.dev/credential-job" // #nosec G101 -- label key, not a credential
+	credentialJobSignIn = "signin"
+
+	// signInSessionLabel carries the session a sign-in Job serves.
+	signInSessionLabel = "ainsel.dev/sign-in-session"
+
+	// signInJobDeadline bounds the sign-in pod. It outlives the hub's
+	// 10-minute session, so an abandoned sign-in ends at the hub first and
+	// the pod exits on the closed session.
+	signInJobDeadline int64 = 900
+
+	signInScript = "/usr/local/share/pi-extensions/ainsel-chatgpt-auth/signin.mjs"
+)
+
+// signInPodSecretName is the Secret the hub writes the sign-in pod's token to
+// (services/hub: signInPodSecretName).
+func signInPodSecretName(agentName string) string {
+	return agentName + "-chatgpt-sign-in"
+}
+
+// signInWanted returns the session the hub asked for and the operator has not
+// handled yet, or "".
+func signInWanted(agent *ainselv1alpha1.Agent) string {
+	want := agent.Annotations[signInSessionAnnotation]
+	if want == "" {
+		return ""
+	}
+	if s := agent.Status.ChatGPTSignIn; s != nil && s.HandledSession == want {
+		return ""
+	}
+	return want
+}
+
+// signInJobName is deterministic per session, so a repeated reconcile finds
+// the Job it already created.
+func signInJobName(agentName, session string) string {
+	suffix := strings.ToLower(session)
+	if len(suffix) > 8 {
+		suffix = suffix[len(suffix)-8:]
+	}
+	prefix := "signin-" + agentName
+	if max := maxK8sNameLen - len(suffix) - 1; len(prefix) > max {
+		prefix = strings.TrimSuffix(prefix[:max], "-")
+	}
+	return prefix + "-" + suffix
+}
+
+// buildSignInJob renders the sign-in Job from the agent's pod template: the
+// runtime image and its security settings, but only the agent container, only
+// the credential volume and only the env the script needs. No init container:
+// nothing of Pi's agent directory is used.
+func buildSignInJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, session string) *batchv1.Job {
+	tpl := deploy.Spec.Template.DeepCopy()
+	var agentC corev1.Container
+	for _, c := range tpl.Spec.Containers {
+		if c.Name == "agent" {
+			agentC = c
+		}
+	}
+	env := []corev1.EnvVar{
+		{Name: "AGENT_NAME", Value: agent.Name},
+		{Name: "AINSEL_SIGN_IN_SESSION", Value: session},
+		// The session's own token, written by the hub. Only this pod gets
+		// it, so a task pod holding the shared internal token cannot act as
+		// the sign-in pod.
+		{Name: "AINSEL_SIGN_IN_TOKEN", ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: signInPodSecretName(agent.Name)},
+				Key:                  "token",
+			},
+		}},
+	}
+	for _, e := range agentC.Env {
+		if e.Name == "HUB_URL" || e.Name == "HUB_INTERNAL_VALIDATE_SECRET" {
+			env = append(env, e)
+		}
+	}
+	agentC.Env = env
+	agentC.EnvFrom = nil
+	agentC.Command = []string{"sh", "-c", `AINSEL_PI_ROOT="$(npm root -g)" exec node ` + signInScript}
+	agentC.Args = nil
+	agentC.Ports = nil
+	agentC.ReadinessProbe, agentC.LivenessProbe, agentC.StartupProbe = nil, nil, nil
+	agentC.VolumeMounts = []corev1.VolumeMount{{Name: credentialVolumeName, MountPath: signInMountPath}}
+
+	labels := map[string]string{}
+	for k, v := range deploy.Labels {
+		labels[k] = v
+	}
+	labels[AgentNameLabel] = agent.Name
+	labels[credentialJobLabel] = credentialJobSignIn
+	labels[signInSessionLabel] = session
+
+	tpl.Labels = labels
+	tpl.Spec.Containers = []corev1.Container{agentC}
+	tpl.Spec.InitContainers = nil
+	tpl.Spec.ShareProcessNamespace = nil
+	tpl.Spec.RestartPolicy = corev1.RestartPolicyNever
+	tpl.Spec.TerminationGracePeriodSeconds = ptr.To(taskJobGracePeriod)
+	tpl.Spec.Volumes = []corev1.Volume{{
+		Name: credentialVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			// The agent's resources are named agent-<name> (see Reconcile).
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: credentialPVCName("agent-" + agent.Name)},
+		},
+	}}
+
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      signInJobName(agent.Name, session),
+			Namespace: agent.Namespace,
+			Labels:    labels,
+		},
+		Spec: batchv1.JobSpec{
+			Completions:             ptr.To(int32(1)),
+			Parallelism:             ptr.To(int32(1)),
+			BackoffLimit:            ptr.To(int32(0)),
+			ActiveDeadlineSeconds:   ptr.To(signInJobDeadline),
+			TTLSecondsAfterFinished: ptr.To(taskJobTTLAfterFinished),
+			Template:                *tpl,
+		},
+	}
+}
+
+// recordSignInOutcome notes a finished sign-in Job: the session is handled
+// either way, and a success is the new sign-in.
+func recordSignInOutcome(agent *ainselv1alpha1.Agent, j *batchv1.Job) {
+	session := j.Labels[signInSessionLabel]
+	s := agent.Status.ChatGPTSignIn
+	if s == nil {
+		s = &ainselv1alpha1.AgentChatGPTSignInStatus{}
+		agent.Status.ChatGPTSignIn = s
+	}
+	for _, c := range j.Status.Conditions {
+		if c.Status != corev1.ConditionTrue {
+			continue
+		}
+		switch c.Type {
+		case batchv1.JobComplete:
+			at := c.LastTransitionTime.Time
+			if j.Status.CompletionTime != nil {
+				at = j.Status.CompletionTime.Time
+			}
+			if at.IsZero() {
+				at = time.Now()
+			}
+			if s.SignedInAt == nil || at.After(s.SignedInAt.Time) {
+				s.SignedInAt = &metav1.Time{Time: at}
+			}
+			// Only the Job of the session the hub currently names may mark
+			// it handled: an older Job, listed later, must not undo it.
+			if session != "" && signInWanted(agent) == session {
+				s.HandledSession = session
+			}
+		case batchv1.JobFailed:
+			if session != "" && signInWanted(agent) == session {
+				s.HandledSession = session
+			}
+		}
+	}
 }

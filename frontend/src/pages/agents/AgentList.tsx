@@ -163,6 +163,15 @@ export function AgentList() {
             </>
           )
         }
+        // A ChatGPT sign-in agent without a working sign-in runs nothing, and
+        // idle would hide why: its queue waits for someone to sign in.
+        if (a.status?.signInRequired) {
+          return (
+            <>
+              <Dot state="warn" aria-label="Sign-in required" /> Sign-in required
+            </>
+          )
+        }
         // Idle is its own state: with work arriving as one Job per task, an
         // agent with nothing queued or running has no container and nothing is
         // wrong.

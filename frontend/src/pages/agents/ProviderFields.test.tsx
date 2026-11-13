@@ -10,6 +10,7 @@ type Shape = {
   provider: string
   url: string
   key: string
+  authMethod: 'APIKey' | 'ChatGPTSignIn'
   temperature?: number
   contextWindow?: number
 }
@@ -18,15 +19,18 @@ function Harness({
   initial,
   mode,
   storedKey,
+  initialMethod,
 }: {
   initial: string
   mode: 'create' | 'edit'
   storedKey?: boolean
+  initialMethod?: 'APIKey' | 'ChatGPTSignIn'
 }) {
   const { register, setValue, watch } = useForm<Shape>({
-    defaultValues: { provider: initial, url: '', key: '' },
+    defaultValues: { provider: initial, url: '', key: '', authMethod: initialMethod ?? 'APIKey' },
   })
   const provider = watch('provider')
+  const authMethod = watch('authMethod')
   return (
     <>
       <ProviderFields
@@ -36,6 +40,8 @@ function Harness({
         keyRegistration={register('key')}
         mode={mode}
         storedKey={storedKey}
+        authMethod={authMethod}
+        onAuthMethodChange={(v) => setValue('authMethod', v)}
       />
       <TemperatureField provider={provider} registration={register('temperature')} />
       <ContextWindowField provider={provider} registration={register('contextWindow')} />
@@ -130,5 +136,50 @@ describe('hasStoredKey', () => {
     expect(hasStoredKey(agent, 'openai')).toBe(true)
     expect(hasStoredKey(agent, 'anthropic')).toBe(false)
     expect(hasStoredKey(agent, 'unknown')).toBe(false)
+  })
+})
+
+describe('ProviderFields auth method', () => {
+  it('shows only the auth method choice for OpenAI', () => {
+    const { unmount } = render(<Harness initial="openai" mode="create" />)
+    const select = screen.getByLabelText(/how to authenticate/i) as HTMLSelectElement
+    expect(Array.from(select.options).map((o) => o.text)).toEqual([
+      'API key',
+      'Sign in with ChatGPT',
+    ])
+    unmount()
+    render(<Harness initial="anthropic" mode="create" />)
+    expect(screen.queryByLabelText(/how to authenticate/i)).not.toBeInTheDocument()
+  })
+
+  it('hides the key field in sign-in mode and explains the next step', async () => {
+    render(<Harness initial="openai" mode="create" />)
+    await userEvent.selectOptions(screen.getByLabelText(/how to authenticate/i), 'ChatGPTSignIn')
+    expect(screen.queryByLabelText('OpenAI API Key')).not.toBeInTheDocument()
+    expect(screen.getByText(/pi-coding-agent 1\.5\.2 or later/)).toBeInTheDocument()
+    expect(screen.getByText(/sign in from the agent page/i)).toBeInTheDocument()
+  })
+
+  it('switching back to API key shows the key field with the stored-key hint', async () => {
+    render(<Harness initial="openai" mode="edit" storedKey initialMethod="ChatGPTSignIn" />)
+    expect(screen.queryByLabelText('OpenAI API Key')).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText(/how to authenticate/i), 'APIKey')
+    expect(screen.getByLabelText('OpenAI API Key')).toHaveAttribute(
+      'placeholder',
+      'A key is stored — leave blank to keep it',
+    )
+  })
+})
+
+describe('hasStoredKey with keyStored', () => {
+  it('trusts keyStored when the hub reports it', () => {
+    expect(
+      hasStoredKey(
+        { openAI: { authMethod: 'ChatGPTSignIn', keyStored: false } } as AgentResponse,
+        'openai',
+      ),
+    ).toBe(false)
+    expect(hasStoredKey({ openAI: { keyStored: true } } as AgentResponse, 'openai')).toBe(true)
+    expect(hasStoredKey({ openAI: {} } as AgentResponse, 'openai')).toBe(true)
   })
 })

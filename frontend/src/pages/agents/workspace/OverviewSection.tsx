@@ -29,6 +29,7 @@ import { Tag } from '../../../primitives/Tag'
 import { Textarea } from '../../../primitives/Textarea'
 import { isManaged } from '../../../utils/managed'
 import { SINCE_SENTINEL, startOfToday } from '../../../utils/time'
+import { SignInBanner } from './SignInBanner'
 import { mergeEnv } from './envRows'
 import { SectionPage } from './SectionPage'
 import { sectionPath, type SectionId } from './sections'
@@ -235,6 +236,7 @@ export function OverviewSection() {
         }
       >
         <div style={{ display: 'grid', gap: 24 }}>
+          <SignInBanner agent={agent} />
           {draft ? (
             <Panel title="Name and description" className="cropped">
               <div style={{ display: 'grid', gap: 12 }}>

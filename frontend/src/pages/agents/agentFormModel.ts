@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentRequest, AgentWorkingHours } from '../../api/agents'
+import type { AgentRequest, AgentWorkingHours, OpenAIAuthMethod } from '../../api/agents'
 import { findLlmProvider, LLM_PROVIDER_REGISTRY, type ProviderRequestField } from './llmProviders'
 
 export const LLM_PROVIDERS: ReadonlyArray<{ value: string; label: string }> =
@@ -134,6 +134,27 @@ const personaSchema = z
     }
   })
 
+const openAIAuthMethodSchema = z.enum(['APIKey', 'ChatGPTSignIn']).optional()
+
+/** ChatGPT sign-in runs one task at a time: the hub refuses more, and the
+ *  form says so before the save does. */
+function capSignInReplicas(
+  data: { llm: { provider?: string }; openAIAuthMethod?: string; replicas?: number },
+  ctx: z.RefinementCtx,
+) {
+  if (
+    data.llm.provider === 'openai' &&
+    data.openAIAuthMethod === 'ChatGPTSignIn' &&
+    (data.replicas ?? 1) > 1
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['replicas'],
+      message: 'ChatGPT sign-in runs one task at a time; set this to 1',
+    })
+  }
+}
+
 /** A custom provider needs its base URL. */
 function requireCustomProviderUrl(
   data: { llm: { provider?: string }; customProviderUrl?: string },
@@ -160,11 +181,13 @@ export const agentSchema = z
     llm: llmSchema,
     providerApiKey: z.string().optional(),
     customProviderUrl: z.string().optional(),
+    openAIAuthMethod: openAIAuthMethodSchema,
     persona: personaSchema,
     replicas: replicasSchema,
     groupId: z.string().optional(),
   })
   .superRefine(requireCustomProviderUrl)
+  .superRefine(capSignInReplicas)
 
 /**
  * The runtime section's form: the LLM and scaling fields only. Identity,
@@ -175,10 +198,12 @@ export const runtimeSchema = z
     llm: llmSchema,
     providerApiKey: z.string().optional(),
     customProviderUrl: z.string().optional(),
+    openAIAuthMethod: openAIAuthMethodSchema,
     replicas: replicasSchema,
     workingHours: workingHoursSchema,
   })
   .superRefine(requireCustomProviderUrl)
+  .superRefine(capSignInReplicas)
 
 // zod 4 tracks input/output types separately (coercions & defaults make
 // inputs wider); useForm needs both so the resolver types line up.
@@ -200,22 +225,31 @@ export const agentDefaults: AgentFormInput = {
   },
   customProviderUrl: '',
   providerApiKey: '',
+  openAIAuthMethod: 'APIKey',
   persona: { mode: 'inline', id: '', text: '' },
   replicas: 1,
   groupId: '',
 }
 
 /**
- * The provider credential blocks for a write. A block is attached only when a
- * key was entered, so an edit that leaves the key blank keeps the stored one.
+ * The provider credential blocks for a write. A key is attached only when one
+ * was entered, so an edit that leaves the key blank keeps the stored one. A
+ * provider with a choice of auth method always sends the chosen one, and in
+ * ChatGPT sign-in mode never a key (the hub refuses both together).
  */
 function buildProviderRequest(
   provider: string,
   apiKey: string,
   customProviderUrl: string,
+  authMethod: OpenAIAuthMethod | undefined,
 ): Pick<AgentRequest, ProviderRequestField> {
   const p = findLlmProvider(provider)
   if (!p) return {}
+  if (p.authMethods) {
+    const method = authMethod ?? 'APIKey'
+    const key = method === 'APIKey' && apiKey ? { apiKey } : {}
+    return { [p.requestField]: { authMethod: method, ...key } }
+  }
   const key = apiKey ? { apiKey } : undefined
   if (p.needsUrl) return { [p.requestField]: { url: customProviderUrl, ...(key ?? {}) } }
   return key ? { [p.requestField]: key } : {}
@@ -254,6 +288,7 @@ export function buildAgentRequest(
       values.llm.provider ?? '',
       values.providerApiKey ?? '',
       values.customProviderUrl ?? '',
+      values.openAIAuthMethod,
     ),
     persona:
       values.persona.mode === 'inline'
@@ -280,6 +315,7 @@ export function buildRuntimeRequest(name: string, values: RuntimeFormValues): Ag
       values.llm.provider ?? '',
       values.providerApiKey ?? '',
       values.customProviderUrl ?? '',
+      values.openAIAuthMethod,
     ),
     replicas: values.replicas,
     // Always sent: absent would read as "leave the schedule alone", so turning

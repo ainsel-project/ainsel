@@ -180,3 +180,66 @@ describe('runtimeSchema working hours', () => {
     expect(result.success).toBe(true)
   })
 })
+
+describe('OpenAI auth method', () => {
+  const base = {
+    ...agentDefaults,
+    name: 'Agent',
+    imageRef: { name: 'image' },
+    persona: { mode: 'template' as const, id: 'persona' },
+  }
+  const openai = (extra: Record<string, unknown>) => ({
+    ...base,
+    llm: { ...base.llm, model: 'gpt-5', provider: 'openai' },
+    ...extra,
+  })
+
+  it('sends ChatGPT sign-in without a key', () => {
+    const req = buildAgentRequest(
+      agentSchema.parse(openai({ openAIAuthMethod: 'ChatGPTSignIn', providerApiKey: 'sk-typed' })),
+      { isEdit: false },
+    )
+    expect(req.openAI).toEqual({ authMethod: 'ChatGPTSignIn' })
+  })
+
+  it('sends the method with an API key', () => {
+    const req = buildAgentRequest(
+      agentSchema.parse(openai({ openAIAuthMethod: 'APIKey', providerApiKey: 'sk-1' })),
+      { isEdit: false },
+    )
+    expect(req.openAI).toEqual({ authMethod: 'APIKey', apiKey: 'sk-1' })
+  })
+
+  it('caps replicas at 1 for ChatGPT sign-in', () => {
+    const result = agentSchema.safeParse(openai({ openAIAuthMethod: 'ChatGPTSignIn', replicas: 2 }))
+    expect(result.success).toBe(false)
+    expect(JSON.stringify(result.error?.issues)).toContain('one task at a time')
+    expect(agentSchema.safeParse(openai({ openAIAuthMethod: 'APIKey', replicas: 2 })).success).toBe(
+      true,
+    )
+  })
+
+  it('ignores the method for other providers', () => {
+    const req = buildAgentRequest(
+      agentSchema.parse({
+        ...base,
+        llm: { ...base.llm, model: 'm', provider: 'anthropic' },
+        openAIAuthMethod: 'ChatGPTSignIn',
+        providerApiKey: 'k',
+      }),
+      { isEdit: false },
+    )
+    expect(req.openAI).toBeUndefined()
+    expect(req.anthropic).toEqual({ apiKey: 'k' })
+  })
+
+  it('runtime schema applies the same replicas cap', () => {
+    const result = runtimeSchema.safeParse({
+      llm: { model: 'gpt-5', provider: 'openai' },
+      openAIAuthMethod: 'ChatGPTSignIn',
+      replicas: 3,
+      workingHours: { enabled: false, days: [] },
+    })
+    expect(result.success).toBe(false)
+  })
+})

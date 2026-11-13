@@ -20,6 +20,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/queuesignal"
 	"github.com/ainsel-project/ainsel/services/hub/internal/router"
+	"github.com/ainsel-project/ainsel/services/hub/internal/signin"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
@@ -64,6 +65,7 @@ type container struct {
 	chatStore      *chat.Store
 	apiServer      *api.Server
 	userTokenStore *usertokens.Store
+	signInStore    *signin.PgStore
 	// telemetryStore answers the event metric panels from the hub's own records.
 	// It is the backend those panels ask by default, so the console keeps its
 	// charts on a hub with no Prometheus and reports the same figures with one.
@@ -222,6 +224,7 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 
 	// --- API server + auth middleware ---
 	c.userTokenStore = usertokens.NewStore(pool)
+	c.signInStore = signin.NewPgStore(pool)
 	c.apiServer = wireAPIServer(c, cfg)
 	if err := wireAuthMiddleware(ctx, c, cfg); err != nil {
 		c.Close()

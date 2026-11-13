@@ -205,6 +205,7 @@ func wireAPIServer(c *container, cfg containerConfig) *api.Server {
 	srv.SetTriggerStore(c.triggerStore)
 	srv.SetChannelService(c.channels, c.transfer)
 	srv.SetUserTokenStore(c.userTokenStore)
+	srv.SetSignInStore(c.signInStore)
 	srv.SetTaskLogStore(c.taskLogStore)
 	srv.SetAuditEventStore(c.auditEventStore)
 	srv.SetTaskStartTimeout(time.Duration(cfg.taskStartTimeoutSecs) * time.Second)

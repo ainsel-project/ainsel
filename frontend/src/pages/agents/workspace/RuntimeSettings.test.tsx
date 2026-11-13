@@ -499,3 +499,70 @@ describe('legacy /agents/:id/edit route', () => {
     expect(await screen.findByText('Runtime section')).toBeInTheDocument()
   })
 })
+
+describe('RuntimeSettings ChatGPT sign-in', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+  const signInAgent = {
+    ...agent,
+    llm: { ...agent.llm, provider: 'openai', model: 'gpt-5' },
+    openAI: { authMethod: 'ChatGPTSignIn', keyStored: false },
+    replicas: 1,
+  } as AgentResponse
+
+  beforeEach(() => {
+    fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/agents/a1') && ['PUT', 'PATCH'].includes(method)) {
+        return Promise.resolve(new Response(JSON.stringify(signInAgent), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sign-in mode hides the key field and caps replicas at 1', () => {
+    renderWithProviders(<RuntimeSettings agent={signInAgent} />, { route: '/agents/a1/runtime' })
+    expect(screen.getByLabelText(/how to authenticate/i)).toHaveValue('ChatGPTSignIn')
+    expect(screen.queryByLabelText('OpenAI API Key')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Max concurrent tasks')).toHaveAttribute('max', '1')
+  })
+
+  it('saves the auth method without a key', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<RuntimeSettings agent={signInAgent} />, { route: '/agents/a1/runtime' })
+    await user.clear(screen.getByLabelText('Model'))
+    await user.type(screen.getByLabelText('Model'), 'gpt-5.1')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(putBody(fetchMock)).toBeDefined())
+    expect(putBody(fetchMock)?.openAI).toEqual({ authMethod: 'ChatGPTSignIn' })
+  })
+
+  it('refuses to save sign-in with more than one concurrent task', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <RuntimeSettings
+        agent={
+          {
+            ...signInAgent,
+            openAI: { authMethod: 'APIKey', keyStored: true },
+            replicas: 2,
+          } as AgentResponse
+        }
+      />,
+      { route: '/agents/a1/runtime' },
+    )
+    await user.selectOptions(screen.getByLabelText(/how to authenticate/i), 'ChatGPTSignIn')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/set this to 1/i)).toBeInTheDocument()
+    expect(putBody(fetchMock)).toBeUndefined()
+  })
+
+  it('reload keeps authMethod', () => {
+    const view = renderMutable(signInAgent)
+    view.rerenderWith({ ...signInAgent, updatedAt: 'later' } as AgentResponse)
+    expect(screen.getByLabelText(/how to authenticate/i)).toHaveValue('ChatGPTSignIn')
+  })
+})

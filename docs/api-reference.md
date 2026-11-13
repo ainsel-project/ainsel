@@ -191,7 +191,7 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
 }
 ```
 
-`imageRef.name` is required and must reference an existing `AgentImage` — on a chart install, the built-in `ainsel-standard-pi` ("AInsel Standard (Pi)") is always there. `llm.provider` is required on create and must be one of `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom` (`400` otherwise, naming the valid ids); on update an empty or absent provider leaves the stored one unchanged, and an unknown one is rejected with `400`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists (`{}`). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
+`imageRef.name` is required and must reference an existing `AgentImage` — on a chart install, the built-in `ainsel-standard-pi` ("AInsel Standard (Pi)") is always there. `llm.provider` is required on create and must be one of `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`, `custom` (`400` otherwise, naming the valid ids); on update an empty or absent provider leaves the stored one unchanged, and an unknown one is rejected with `400`. Any names in `enabledTools` not declared by that image are rejected — the selection is this agent's own, but it is drawn from the runtime's catalog. Provider keys are write-only: a key in a provider block is stored in a Secret and never echoed back; responses only show that the block exists, and `keyStored: true` when a key is stored (a block can exist without one: a base URL only, or ChatGPT sign-in). On update, a blank or absent key keeps the stored one, and the blocks of providers the agent no longer uses are kept, so switching back needs no new key.
 
 `persona` takes **either** `id` — a shared persona template from `/api/v1/personas` — **or** `text`, the agent's own instructions. With `text` the hub stores the instructions as a persona owned by the new agent, the same agent-owned persona that [`PUT /api/v1/agents/{name}/persona`](#put-apiv1agentsnamepersona) edits later, so no library entry is needed first. Setting both is a `400`; `text` without persona storage configured is a `503`. If the Agent CR is then refused, the owned persona is deleted again.
 
@@ -204,6 +204,8 @@ Create a new Agent. The hub generates the resource name (`a-<short id>`); the re
 | `anthropic` | `anthropic` | `<agent>-anthropic-key` |
 | `google` | `google` | `<agent>-google-key` |
 | `customProvider` (also takes `url`) | `custom` | `<agent>-custom-provider-key` |
+
+`openAI` also takes `authMethod`: `APIKey` (default) or `ChatGPTSignIn` (sign in with a ChatGPT subscription, see [ChatGPT sign-in](#post-apiv1agentsnamechatgpt-sign-in)); responses always carry it. Empty on update leaves it unchanged; any other value is a `400`. `ChatGPTSignIn` together with an `apiKey` in the same request is a `400`, and so is `replicas` above 1 for a sign-in agent (its credential volume serves one run at a time). Storing a key never changes the method. The agent's `status` carries `signInRequired` and `signInReason` (`NotSignedIn`, `SignInExpired`, `SignedIn`) for sign-in agents.
 
 **Response:** `201 Created` with the same shape as `GET /api/v1/agents/{name}`. `400` on validation errors, `500` on Kubernetes failures.
 
@@ -269,6 +271,51 @@ waiting runtime picks the backlog up immediately.
 **Response:** `200 OK` with the updated agent (`paused: false`), `404` if the agent does
 not exist, `409` if the agent is externally managed (`managedBy`). Gated by `write` on the
 agent.
+
+### POST /api/v1/agents/{name}/chatgpt-sign-in
+
+Start a ChatGPT sign-in for an agent with `openAI.authMethod: ChatGPTSignIn`. The hub
+records a session (10 minutes) and sets the annotation `ainsel.dev/chatgpt-sign-in-session`
+on the Agent; the operator then runs a short sign-in pod on the agent's credential volume,
+once no task is running. The pod posts OpenAI's authorization link, the user signs in, the
+browser lands on a `http://127.0.0.1:1455/auth/callback?...` page that does not load, and
+the user pastes that address back. The pod exchanges the code and stores the credential
+on the volume; tokens never pass through the hub.
+
+**Response:** `201 Created` with the session: `{"id", "state", "authUrl", "error", "expiresAt"}`.
+`state` is `waiting_for_pod`, `awaiting_redirect` (the `authUrl` is ready), `exchanging`,
+`succeeded`, `failed` (with `error`), `expired` or `cancelled`. `400` if the agent does not
+use ChatGPT sign-in, `409` if a sign-in is already in progress, `503` without the hub
+database. Gated by `write` on the agent; so are the calls below.
+
+### GET /api/v1/agents/{name}/chatgpt-sign-in
+
+The agent's latest sign-in session (same shape), `404` if there is none. Never includes the
+pasted address.
+
+### POST /api/v1/agents/{name}/chatgpt-sign-in/redirect
+
+Body `{"redirectUrl": "http://127.0.0.1:1455/auth/callback?code=...&state=..."}`.
+**Response:** `202 Accepted`. `400` unless it is exactly the callback the sign-in pod can use:
+`http://127.0.0.1:1455/auth/callback` with a `code`, a `client_id` and the `state` of the link
+this session showed (an error from OpenAI, or an address from an earlier attempt, is a `400`
+too). The session stays open for another paste. `409` before the authorization link is ready,
+`404` without a live session. The address is handed to the sign-in pod once and then
+deleted.
+
+### DELETE /api/v1/agents/{name}/chatgpt-sign-in
+
+Cancel the live sign-in. **Response:** `204 No Content`.
+
+Starting a sign-in also writes a token for that session to the Secret
+`<agent>-chatgpt-sign-in` (owned by the Agent), which the operator mounts into the
+sign-in pod only. The pod uses internal routes behind `X-Internal-Token` **and**
+`X-Sign-In-Token` (that session token; `403` without it, since every agent pod has
+the internal token):
+`POST /api/internal/agents/{name}/chatgpt-sign-in/{session}/auth-url` (`{"url"}`, must start
+with `https://auth.openai.com/`), `GET …/redirect` (`204` until pasted, then `200` once,
+`410` once the session has ended) and `POST …/result` (`{"ok", "error"}`). An exchange
+that has started is not cancelled and may finish after the session's 10 minutes.
 
 ### GET /api/v1/agents/{name}/persona
 
