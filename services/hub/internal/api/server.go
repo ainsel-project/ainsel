@@ -26,6 +26,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/signin"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
@@ -100,6 +101,7 @@ type Server struct {
 	authzStore             authzStore
 	authzChecker           *authz.Checker
 	userTokens             *usertokens.Store
+	signIn                 signin.Store
 	internalValidateSecret string
 	pluginCreds            *plugincreds.Issuer
 	pluginProxyTransport   http.RoundTripper
@@ -178,6 +180,11 @@ type Server struct {
 func (s *Server) SetAuthZ(store authzStore, checker *authz.Checker) {
 	s.authzStore = store
 	s.authzChecker = checker
+}
+
+// SetSignInStore wires the ChatGPT sign-in session store.
+func (s *Server) SetSignInStore(store signin.Store) {
+	s.signIn = store
 }
 
 // SetUserTokenStore wires the user token store.

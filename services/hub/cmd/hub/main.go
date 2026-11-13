@@ -13,6 +13,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/api"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	_ "github.com/ainsel-project/ainsel/services/hub/internal/metrics"
+	"github.com/ainsel-project/ainsel/services/hub/internal/signin"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/pkg/version"
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -168,6 +169,12 @@ func main() {
 					slog.Error("invocation prune failed", "error", err)
 				} else if inv > 0 {
 					slog.Info("pruned old invocations", "count", inv)
+				}
+				si, err := c.signInStore.Prune(ctx, time.Now().Add(-signin.Retention))
+				if err != nil {
+					slog.Error("sign-in session prune failed", "error", err)
+				} else if si > 0 {
+					slog.Info("pruned old sign-in sessions", "count", si)
 				}
 			}
 		}

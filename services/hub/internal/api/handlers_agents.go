@@ -19,6 +19,7 @@ import (
 	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	validation "k8s.io/apimachinery/pkg/util/validation"
@@ -252,6 +253,13 @@ type AgentAPIKeyInfo struct {
 	// APIKey is the provider API key. If provided, the backend will create
 	// a secret to store it. On response, this field is always empty for security.
 	APIKey string `json:"apiKey,omitempty"`
+	// AuthMethod is only read on the openAI block: "APIKey" (default) or
+	// "ChatGPTSignIn". Empty on a write leaves the stored method unchanged.
+	AuthMethod string `json:"authMethod,omitempty"`
+	// KeyStored is response-only: whether an API key is stored for this
+	// provider. A block can exist without one (a base URL, or ChatGPT
+	// sign-in), so presence alone does not say.
+	KeyStored bool `json:"keyStored,omitempty"`
 }
 
 // AgentOllamaCloudInfo is the REST representation of Ollama Cloud credentials.
@@ -284,6 +292,12 @@ type SimpleAgentStatus struct {
 	Reason string `json:"reason,omitempty"`
 	// Message is a short explanation safe to show a user.
 	Message string `json:"message,omitempty"`
+	// SignInRequired mirrors the SignInRequired condition: the agent uses
+	// ChatGPT sign-in and runs nothing until someone signs in.
+	SignInRequired bool `json:"signInRequired,omitempty"`
+	// SignInReason is the condition's reason: NotSignedIn or SignInExpired
+	// while required, SignedIn otherwise. Empty for API-key agents.
+	SignInReason string `json:"signInReason,omitempty"`
 }
 
 // scalingProblem explains a concurrency cap the operator cannot honour, or
@@ -294,6 +308,20 @@ func scalingProblem(scaling *agentv1alpha1.AgentScaling) string {
 	}
 	if scaling.Replicas != nil && *scaling.Replicas < 0 {
 		return "replicas must not be negative"
+	}
+	return ""
+}
+
+// signInScalingProblem refuses more than one concurrent run for a ChatGPT
+// sign-in agent: its credential volume is ReadWriteOnce and two pods must not
+// race on a rotating refresh token. The value is rejected, never changed.
+func signInScalingProblem(spec *agentv1alpha1.AgentSpec) string {
+	a := agentv1alpha1.Agent{Spec: *spec}
+	if !a.UsesChatGPTSignIn() || spec.Scaling == nil || spec.Scaling.Replicas == nil {
+		return ""
+	}
+	if *spec.Scaling.Replicas > 1 {
+		return "ChatGPT sign-in runs one task at a time; set replicas to 1"
 	}
 	return ""
 }
@@ -471,12 +499,19 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		}
 	}
 
-	// API-key provider blocks: presence only — the key is never returned.
+	// API-key provider blocks: presence and whether a key is stored — the
+	// key itself is never returned.
 	for _, f := range apiKeyProviderFields {
 		if p, ok := llmprovider.Lookup(f.id); ok {
-			if _, present := p.Credential(&a.Spec); present {
-				*f.response(&resp) = &AgentAPIKeyInfo{}
+			if cred, present := p.Credential(&a.Spec); present {
+				*f.response(&resp) = &AgentAPIKeyInfo{KeyStored: cred.APIKeySecretRef != nil}
 			}
+		}
+	}
+	if resp.OpenAI != nil {
+		resp.OpenAI.AuthMethod = string(a.Spec.OpenAI.AuthMethod)
+		if resp.OpenAI.AuthMethod == "" {
+			resp.OpenAI.AuthMethod = string(agentv1alpha1.OpenAIAuthMethodAPIKey)
 		}
 	}
 
@@ -506,6 +541,10 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		resp.Status.Desired = sc.Desired
 		resp.Status.Reason = sc.Reason
 		resp.Status.Message = sc.Message
+	}
+	if c := apimeta.FindStatusCondition(a.Status.Conditions, agentv1alpha1.AgentConditionSignInRequired); c != nil {
+		resp.Status.SignInRequired = c.Status == metav1.ConditionTrue
+		resp.Status.SignInReason = c.Reason
 	}
 
 	return resp
@@ -592,6 +631,20 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ChatGPT sign-in: start, follow, finish or cancel a sign-in session.
+	// Write-scoped: anyone who can edit the agent may sign it in.
+	if before, rest, ok := strings.Cut(name, "/chatgpt-sign-in"); ok && (rest == "" || rest == "/redirect") {
+		if before == "" {
+			writeError(w, http.StatusBadRequest, "missing agent name")
+			return
+		}
+		if !s.requireWrite(w, r, "agent", before) {
+			return
+		}
+		s.handleAgentSignIn(w, r, before, rest == "/redirect")
+		return
+	}
+
 	// Agent-scoped pause: withhold or restore task delivery (see
 	// handlers_agent_pause.go). Write-scoped like any agent config change.
 	if strings.HasSuffix(name, "/pause") {
@@ -644,6 +697,11 @@ func (s *Server) handleInternalAgent(w http.ResponseWriter, r *http.Request) {
 	name := extractName(r.URL.Path, "/api/internal/agents/")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "missing agent name")
+		return
+	}
+
+	if strings.Contains(name, "/chatgpt-sign-in/") {
+		s.handleInternalSignIn(w, r, name)
 		return
 	}
 
@@ -1101,6 +1159,28 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 			Enabled:  req.Memory.Enabled,
 			Provider: req.Memory.Provider,
 		}
+	}
+
+	// OpenAI auth method. Validated before any key is stored, so a rejected
+	// request leaves no orphan secret behind.
+	if req.OpenAI != nil && req.OpenAI.AuthMethod != "" {
+		method := agentv1alpha1.OpenAIAuthMethod(req.OpenAI.AuthMethod)
+		if method != agentv1alpha1.OpenAIAuthMethodAPIKey && method != agentv1alpha1.OpenAIAuthMethodChatGPTSignIn {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("openAI.authMethod %q is unknown: must be APIKey or ChatGPTSignIn", method))
+			return false
+		}
+		if method == agentv1alpha1.OpenAIAuthMethodChatGPTSignIn && req.OpenAI.APIKey != "" {
+			writeError(w, http.StatusBadRequest, "openAI: send an API key or choose ChatGPT sign-in, not both")
+			return false
+		}
+		if spec.OpenAI == nil {
+			spec.OpenAI = &agentv1alpha1.AgentOpenAI{}
+		}
+		spec.OpenAI.AuthMethod = method
+	}
+	if msg := signInScalingProblem(spec); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return false
 	}
 
 	// Provider API keys: a non-empty key stores a secret and points the spec
