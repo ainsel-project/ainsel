@@ -221,6 +221,10 @@ are informational.
 Administration and resource permissions remain explicit records in the hub
 DB; an IdP group alone does not grant admin access.
 
+These deployment contracts (fail-closed runtime config, MCP discovery and
+challenge, chart env wiring) are covered by
+`python3 scripts/test-oidc-deployment.py`.
+
 #### Pinning the JWKS / userinfo endpoints
 
 The hub backend resolves the JWKS and userinfo endpoints from the issuer's
