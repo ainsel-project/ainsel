@@ -42,19 +42,6 @@ const (
 	// endpoint itself, so the credential is the hub's own cluster-internal one
 	// — the same secret every other internal route checks.
 	MCPServerTokenFromEnv = "HUB_INTERNAL_VALIDATE_SECRET" // #nosec G101 -- env var name, not a credential
-
-	// mcpServerResourceType is the authz resource type of a registry row.
-	mcpServerResourceType = "mcp-server"
-
-	// skillResourceType is the authz resource type of a plugin-owned skill
-	// row, the same type the console files user skills under.
-	skillResourceType = "skill"
-
-	// defaultResourceGroup is the group a registry row is filed under when it
-	// has no ownership entry at all. It is the same group the startup group
-	// backfill assigns, so the syncer introduces no second convention for
-	// "resource with no explicit owner".
-	defaultResourceGroup = "legacy"
 )
 
 // agentMCPEndpoint is the hub path that serves one plugin's tools to agent
@@ -325,7 +312,7 @@ func (s *Syncer) reconcileSkills(ctx context.Context, plugins []connectorv1alpha
 			errs = append(errs, fmt.Errorf("pluginsync: upsert skill %s: %w", id, err))
 			continue
 		}
-		s.makeReadable(ctx, skillResourceType, id)
+		s.makeReadable(ctx, authz.ResourceSkill, id)
 	}
 	for _, id := range slices.Sorted(maps.Keys(current)) {
 		if want, wanted := desired[id]; wanted && skillOwner(current[id]) == want.owner {
@@ -428,7 +415,7 @@ func sameRegistration(cur, want *mcpservers.MCPServer) bool {
 // visibility they were given, and a row the syncer did not write this pass is
 // not its to re-open.
 func (s *Syncer) makeRowReadable(ctx context.Context, name string) {
-	s.makeReadable(ctx, mcpServerResourceType, name)
+	s.makeReadable(ctx, authz.ResourceMCPServer, name)
 }
 
 // makeReadable opens a freshly written resource to every user, which is what
@@ -438,11 +425,11 @@ func (s *Syncer) makeRowReadable(ctx context.Context, name string) {
 // It runs after an upsert only. Resources that were already registered keep
 // the visibility they were given, and a resource the syncer did not write this
 // pass is not its to re-open.
-func (s *Syncer) makeReadable(ctx context.Context, resourceType, name string) {
+func (s *Syncer) makeReadable(ctx context.Context, resourceType authz.ResourceType, name string) {
 	if s.visibility == nil {
 		return
 	}
-	err := s.visibility.SetResourcePublic(ctx, resourceType, name, true)
+	err := s.visibility.SetResourcePublic(ctx, string(resourceType), name, true)
 	if err == nil {
 		return
 	}
@@ -450,7 +437,7 @@ func (s *Syncer) makeReadable(ctx context.Context, resourceType, name string) {
 	// this row has no creator. Create it open, in the group the hub uses for
 	// resources with no explicit owner.
 	if errors.Is(err, authz.ErrNotFound) {
-		if cerr := s.visibility.SetResourceGroup(ctx, resourceType, name, defaultResourceGroup, true); cerr != nil {
+		if cerr := s.visibility.SetResourceGroup(ctx, string(resourceType), name, authz.DefaultGroupID, true); cerr != nil {
 			slog.Warn("could not open plugin resource to all users",
 				"resource_type", resourceType, "name", name, "error", cerr)
 		}
