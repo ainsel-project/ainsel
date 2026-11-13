@@ -18,12 +18,12 @@ import { GroupField } from '../../components/GroupField'
 import {
   agentDefaults,
   agentSchema,
-  API_KEY_LABELS,
   buildAgentRequest,
   type AgentFormInput,
   type AgentFormValues,
 } from './agentFormModel'
 import { ContextWindowField, ProviderFields, TemperatureField } from './ProviderFields'
+import { findLlmProvider } from './llmProviders'
 
 /**
  * The creation steps. Each step validates only its own fields, so a user can
@@ -144,7 +144,7 @@ export function AgentWizard() {
   const stillNeeded: string[] = []
   if (provider && !providerApiKey) {
     stillNeeded.push(
-      `No ${API_KEY_LABELS[provider] ?? 'API key'} entered. The agent cannot reach the model until one is set, here on the Model step or later on the agent's Runtime tab.`,
+      `No ${findLlmProvider(provider)?.apiKeyLabel ?? 'API key'} entered. The agent cannot reach the model until one is set, here on the Model step or later on the agent's Runtime tab.`,
     )
   }
   stillNeeded.push(
@@ -424,7 +424,7 @@ export function AgentWizard() {
                     onProviderChange={(v) => {
                       // A key belongs to the provider it was typed for; never send
                       // it as another provider's key.
-                      setValue('providerApiKey', '')
+                      setValue('providerApiKey', '', { shouldDirty: true })
                       setValue('llm.provider', v, { shouldDirty: true, shouldValidate: true })
                     }}
                     urlRegistration={register('customProviderUrl')}

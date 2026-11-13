@@ -14,7 +14,7 @@ describe('llmProviderLabel', () => {
     }
   })
 
-  it('treats an absent provider as the forms do — None', () => {
+  it("labels an agent stored without a provider 'None'", () => {
     expect(llmProviderLabel(undefined)).toBe('None')
     expect(llmProviderLabel('')).toBe('None')
   })

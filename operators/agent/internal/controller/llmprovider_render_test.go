@@ -269,6 +269,10 @@ func TestTemperatureCondition(t *testing.T) {
 		wantReason string
 	}{
 		{provider: "ollama-cloud", wantNil: true},
+		// Nothing is sent for an agent whose provider is unset or unknown
+		// (the reconcile fails with InvalidLLMProvider), so no claim is made.
+		{provider: "", temp: &temp, wantNil: true},
+		{provider: "ollama", temp: &temp, wantNil: true},
 		{provider: "ollama-cloud", temp: &temp, wantStatus: metav1.ConditionTrue, wantReason: "Applied"},
 		{provider: "anthropic", temp: &temp, wantStatus: metav1.ConditionFalse, wantReason: "TemperatureNotSupported"},
 		{provider: "openai", temp: &temp, wantStatus: metav1.ConditionFalse, wantReason: "TemperatureNotSupported"},
