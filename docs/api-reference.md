@@ -447,6 +447,13 @@ disabled (`isNew: true`), and removing tools the server no longer offers. Fails 
 if the image declares no MCP servers, and with `409 Conflict` if the image is externally
 managed (`managedBy`) — refreshing rewrites `spec.tools`.
 
+A server whose entry names `tokenFromEnv` is queried with that credential: the hub
+resolves the named variable against the image's `spec.env` (the same value the operator
+injects into the agent pod) and sends it as `Authorization: Bearer <value>`. An entry
+naming no variable — or naming one the image does not define with a non-empty value — is
+listed anonymously. Per-server failures (including a rejected credential) are reported as
+warnings; the token value itself never appears in a warning.
+
 **Response:** `200 OK` with `{"image": …, "warnings": […]}` (per-server errors are
 reported as warnings), `400`, `404`, `409`, or `500`.
 
@@ -1277,36 +1284,72 @@ List all registered MCP servers.
 ```json
 [
   {
-    "name": "fs",
-    "displayName": "Filesystem MCP",
-    "description": "...",
-    "image": {"repository": "ghcr.io/example/fs-mcp", "tag": "1.0.0"},
-    "transport": "sse",
-    "port": 8080,
-    "path": "/sse",
-    "env": [{"name": "FOO", "value": "bar"}],
-    "envFrom": [{"secretRef": {"name": "fs-secrets"}}],
-    "resources": {"requests": {"cpu": "50m", "memory": "64Mi"}, "limits": {"cpu": "200m", "memory": "128Mi"}},
+    "name": "forgejo",
+    "displayName": "Forgejo",
+    "description": "Forgejo forge tools",
+    "url": "https://forgejo.example.com/api/mcp",
+    "tokenFromEnv": "FORGEJO_PAT",
     "managedBy": "user",
-    "endpoint": "http://fs.ainsel.svc:8080/sse",
-    "status": {"phase": "Ready", "message": ""},
     "createdAt": "2026-05-20T09:00:00Z",
     "updatedAt": "2026-05-20T10:00:00Z"
   }
 ]
 ```
 
+`tokenFromEnv` names the agent-pod env var whose value is sent as the bearer token when
+the hub lists this server's tools (see `GET /api/v1/mcp-servers/{name}/tools`); empty
+means the server is listed anonymously. The value itself is never stored in the registry —
+it lives on the AgentImages that reference the server.
+
 ### POST /api/v1/mcp-servers
 
 Register a new MCP server. `managedBy` must be empty or `"user"` (the hub forces it to `"user"` server-side); externally managed entries (e.g. seeded by Helm) cannot be created through this API.
 
-**Request body:** same as the list item shape minus `endpoint`, `status`, `createdAt`, `updatedAt`.
+**Request body:**
+```json
+{
+  "name": "forgejo",
+  "groupId": "my-group",
+  "displayName": "Forgejo",
+  "description": "Forgejo forge tools",
+  "url": "https://forgejo.example.com/api/mcp",
+  "tokenFromEnv": "FORGEJO_PAT"
+}
+```
+
+`url` is required; `tokenFromEnv` must match `^[A-Z_][A-Z0-9_]*$` (empty = anonymous);
+`groupId` is required when access control is enabled.
 
 **Response:** `201 Created`, `400` on invalid body or bad `managedBy`, `409 Conflict` if the name exists, `500` on internal failures, or `503` if the MCP service is not configured.
 
 ### GET /api/v1/mcp-servers/{name}
 
 **Response:** `200 OK`, `400` if the name is missing or contains a slash, `404 Not Found`, `500`, or `503`.
+
+### GET /api/v1/mcp-servers/{name}/tools
+
+List the tools the registered server offers, by proxying an MCP `tools/list` request to
+its `url`.
+
+When the row names `tokenFromEnv`, the hub presents that credential, resolved the same
+way the operator injects it into the agent pod:
+
+1. A server pointing at the hub's own internal plugin endpoints
+   (`<HUB_SELF_URL>/api/internal/plugins/…`) is given the hub's internal-validate
+   secret. A user-registered row naming that variable never receives it.
+2. Otherwise the hub searches the AgentImages that reference this server, in ascending
+   image-name order, and uses the first image whose `spec.env` defines the variable with
+   a non-empty value. If two referencing images define different values, the first by
+   name wins (tool names and descriptions are server-global, so any correctly-tokenized
+   view is the right catalog).
+3. Anything unresolved — no variable named, no referencing image defines it, or the value
+   comes only from connector/operator injection outside `spec.env` — stays anonymous.
+   A wrong token is never sent.
+
+**Response:** `200 OK` returns a JSON array of `{"name": …, "description": …}`.
+`502 Bad Gateway` if the server refuses or fails the listing (the error text never
+carries the token value), `404` if the row does not exist, `503` if the MCP service is
+not configured.
 
 ### PUT /api/v1/mcp-servers/{name}
 
