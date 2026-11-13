@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	cronparse "github.com/ainsel-project/ainsel/shared/api/cron"
 )
@@ -53,7 +54,7 @@ type CronTriggerUpdateRequest struct {
 
 // cronTriggerResourceType is the authz resource type used for ownership and
 // access grants on cron triggers.
-const cronTriggerResourceType = "cron-trigger"
+const cronTriggerResourceType = string(authz.ResourceCronTrigger)
 
 func toCronTriggerResponse(ct *triggers.CronTrigger) CronTriggerResponse {
 	resp := CronTriggerResponse{
@@ -231,15 +232,7 @@ func (s *Server) createCronTrigger(ctx context.Context, w http.ResponseWriter, r
 		return
 	}
 
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(r.Context(), cronTriggerResourceType, id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
-	}
+	s.assignGroup(r.Context(), authz.ResourceCronTrigger, id, req.GroupID)
 
 	writeJSON(w, http.StatusCreated, toCronTriggerResponse(ct))
 }

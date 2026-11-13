@@ -234,15 +234,7 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 			h.writeSkillError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := h.getAuthzStore().SetResourceGroup(r.Context(), "skill", sk.ID, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", sk.ID)
-			}
-		}
+		assignGroup(r.Context(), h.getAuthzStore(), authz.ResourceSkill, sk.ID, req.GroupID)
 		writeJSON(w, http.StatusCreated, sk)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")

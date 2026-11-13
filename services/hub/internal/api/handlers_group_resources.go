@@ -14,27 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// groupResourceTypes are the authz resource types a group can own. The list
-// mirrors docs/access-control.md: every resource type with a resource_groups
-// row. Order defines the order items are returned in; the frontend groups by
-// type anyway.
-//
-// Note on channels: only standalone (custom) channels have resource-group
-// rows. A connector's or an agent's channel is authorised through the
-// referenced entity (see channelAuthzTarget), so it belongs to that
-// connector's/agent's group and is surfaced on this page through the
-// connector/agent panel instead — never double-counted here.
-var groupResourceTypes = []string{
-	"agent",
-	"agent-image",
-	"connector",
-	"persona",
-	"skill",
-	"channel",
-	"mcp-server",
-	"trigger",
-	"cron-trigger",
-}
+// The groupable resource types are the canonical authz.AllResourceTypes (see
+// its note on channels, which mirrors docs/access-control.md); the listing
+// below iterates them in order — the frontend groups by type anyway.
 
 // groupResourceCap bounds the items returned per type. Well above any
 // realistic group size; it keeps the fan-out across the backing stores
@@ -83,8 +65,8 @@ func (s *Server) handleGroupResources(w http.ResponseWriter, r *http.Request, gr
 	}
 
 	items := make([]GroupResourceItem, 0)
-	for _, resourceType := range groupResourceTypes {
-		items = append(items, s.groupResourcesOfType(r, groupID, resourceType)...)
+	for _, resourceType := range authz.AllResourceTypes {
+		items = append(items, s.groupResourcesOfType(r, groupID, string(resourceType))...)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -232,7 +214,7 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			return out, nil
 		}
 		// Standalone (custom) channels only: derived channels have no
-		// resource-group rows of their own (see groupResourceTypes).
+		// resource-group rows of their own (see authz.AllResourceTypes).
 		views, err := s.channelSvc.List(ctx, channels.KindCustom, time.Time{})
 		if err != nil {
 			return nil, err

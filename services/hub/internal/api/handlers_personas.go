@@ -222,15 +222,7 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 			h.writePersonaError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := h.getAuthzStore().SetResourceGroup(r.Context(), "persona", p.ID, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", p.ID)
-			}
-		}
+		assignGroup(r.Context(), h.getAuthzStore(), authz.ResourcePersona, p.ID, req.GroupID)
 		writeJSON(w, http.StatusCreated, p)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
