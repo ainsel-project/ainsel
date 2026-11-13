@@ -320,23 +320,40 @@ func managedMessage(row *mcpservers.MCPServer) string {
 	return mcpservers.ManagedError{Manager: row.ManagedBy}.Error()
 }
 
-// agentImagesReferencingMCPServer returns the names of all AgentImages in the
-// server namespace that have the given MCP server name in their Spec.MCPServers.
-func (s *Server) agentImagesReferencingMCPServer(ctx context.Context, name string) ([]string, error) {
+// agentImagesAttachingMCPServer returns the AgentImages in the server namespace
+// that have the given MCP server name in their Spec.MCPServers, sorted by name so
+// callers get a deterministic answer. One definition of "which images attach this
+// row" for both the reference check and the credential resolution below.
+func (s *Server) agentImagesAttachingMCPServer(ctx context.Context, name string) ([]agentv1alpha1.AgentImage, error) {
 	var list agentv1alpha1.AgentImageList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
 		return nil, err
 	}
-	var images []string
+	var images []agentv1alpha1.AgentImage
 	for _, img := range list.Items {
 		for _, m := range img.Spec.MCPServers {
 			if m.Name == name {
-				images = append(images, img.Name)
+				images = append(images, img)
 				break
 			}
 		}
 	}
+	sort.Slice(images, func(i, j int) bool { return images[i].Name < images[j].Name })
 	return images, nil
+}
+
+// agentImagesReferencingMCPServer returns the names of all AgentImages in the
+// server namespace that have the given MCP server name in their Spec.MCPServers.
+func (s *Server) agentImagesReferencingMCPServer(ctx context.Context, name string) ([]string, error) {
+	images, err := s.agentImagesAttachingMCPServer(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(images))
+	for _, img := range images {
+		names = append(names, img.Name)
+	}
+	return names, nil
 }
 
 // mcpBearerForServer resolves the credential named by a registry row's
@@ -346,6 +363,13 @@ func (s *Server) agentImagesReferencingMCPServer(ctx context.Context, name strin
 // the var, answers "" and the row is listed anonymously — what happened in every
 // case before.
 //
+// The image's snapshot must name the row's *current* variable. A registry edit
+// changes the row's tokenFromEnv without rewriting existing images (the agent CR
+// holds a snapshot — docs/api-reference.md), so an image whose reference names a
+// different variable holds a credential the row no longer claims: sending it would
+// hand the row's URL a secret the registry never pointed there. Such a candidate
+// is skipped, and the row is listed anonymously.
+//
 // A plugin-managed row keeps answering "" here for a different reason: its
 // tokenFromEnv names HUB_INTERNAL_VALIDATE_SECRET, which the operator injects into
 // the agent pod rather than the image env, and the endpoint also demands the
@@ -354,21 +378,19 @@ func (s *Server) mcpBearerForServer(ctx context.Context, name, tokenFromEnv stri
 	if tokenFromEnv == "" {
 		return ""
 	}
-	var list agentv1alpha1.AgentImageList
-	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
+	images, err := s.agentImagesAttachingMCPServer(ctx, name)
+	if err != nil {
 		// The listing still works anonymously, so this is a degraded read rather
 		// than a failed one: report it, do not fail the request over it.
 		slog.Warn("mcp tools: image lookup failed, listing anonymously", "server", name, "error", err)
 		return ""
 	}
-	images := list.Items
-	sort.Slice(images, func(i, j int) bool { return images[i].Name < images[j].Name })
 	for i := range images {
 		for _, ref := range images[i].Spec.MCPServers {
-			if ref.Name != name {
+			if ref.Name != name || ref.TokenFromEnv != tokenFromEnv {
 				continue
 			}
-			if token := mcpBearerForImage(images[i], ref); token != "" {
+			if token := mcpBearerForImage(&images[i], ref); token != "" {
 				return token
 			}
 		}

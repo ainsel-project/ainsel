@@ -134,12 +134,12 @@ func authedMCPServer(t *testing.T, want string) (url string, seenAuth func() str
 	inner := mcpserver.NewStreamableHTTPServer(srv)
 
 	var mu sync.Mutex
-	var seen string
+	var lastSeenAuth string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		seen = r.Header.Get("Authorization")
+		lastSeenAuth = r.Header.Get("Authorization")
 		mu.Unlock()
-		if want != "" && seen != "Bearer "+want {
+		if want != "" && lastSeenAuth != "Bearer "+want {
 			// Same shape as forgejo-mcp's refusal.
 			http.Error(w, "Unauthorized: this server requires a per-request token", http.StatusUnauthorized)
 			return
@@ -150,7 +150,7 @@ func authedMCPServer(t *testing.T, want string) (url string, seenAuth func() str
 	return ts.URL, func() string {
 		mu.Lock()
 		defer mu.Unlock()
-		return seen
+		return lastSeenAuth
 	}
 }
 
@@ -267,7 +267,7 @@ func TestMCPBearerForImage(t *testing.T) {
 		{"name the image does not carry", agentv1alpha1.AgentImageMCPServer{TokenFromEnv: "MISSING"}, ""},
 	}
 	for _, c := range cases {
-		if got := mcpBearerForImage(img, c.server); got != c.want {
+		if got := mcpBearerForImage(&img, c.server); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.why, got, c.want)
 		}
 	}
@@ -313,5 +313,33 @@ func TestMCPBearerForServer_RequiresTheImageToAttachTheRow(t *testing.T) {
 
 	if got := s.mcpBearerForServer(t.Context(), "forge", "FORGEJO_TOKEN"); got != "" {
 		t.Errorf("expected no token from an image that does not attach the row, got %q", got)
+	}
+}
+
+// A registry edit changes the row's tokenFromEnv but never rewrites existing images
+// (the agent CR holds a snapshot), so the two names can disagree. The image's
+// snapshot then names a credential the row no longer claims, and sending it would
+// hand the row's URL a secret the registry never pointed there: the row is listed
+// anonymously unless an image's reference names the row's current variable.
+func TestMCPBearerForServer_RowEditDivergesFromImageSnapshot(t *testing.T) {
+	s := testServer(t,
+		// Snapshot names the pre-edit variable — its value is not this row's credential.
+		imageWithMCPServer("img-a", "http://forge.test/mcp", "OLD_FORGEJO_TOKEN", []agentv1alpha1.AgentImageEnvVar{
+			{Name: "OLD_FORGEJO_TOKEN", Value: "stale", Secret: true},
+		}),
+	)
+
+	if got := s.mcpBearerForServer(t.Context(), "forge", "FORGEJO_TOKEN"); got != "" {
+		t.Errorf("expected anonymous when the image snapshot names a different var, got %q", got)
+	}
+
+	// An image whose reference names the row's current variable does supply it.
+	if err := s.client.Create(t.Context(), imageWithMCPServer("img-b", "http://forge.test/mcp", "FORGEJO_TOKEN", []agentv1alpha1.AgentImageEnvVar{
+		{Name: "FORGEJO_TOKEN", Value: "current", Secret: true},
+	})); err != nil {
+		t.Fatalf("seed matching image: %v", err)
+	}
+	if got := s.mcpBearerForServer(t.Context(), "forge", "FORGEJO_TOKEN"); got != "current" {
+		t.Errorf("expected the matching image to answer, got %q", got)
 	}
 }

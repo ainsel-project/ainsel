@@ -426,3 +426,40 @@ func TestMCPServerTools_FailsAsAnonymousWhenNoImageCarriesTheVar(t *testing.T) {
 		t.Fatalf("expected 502 from a server that refuses anonymous calls, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+// The row was edited after the image was written, so the image's snapshot names the
+// old variable while the row names a new one. The credential the snapshot names is
+// not this row's credential — the tools read stays anonymous rather than sending a
+// secret the registry never pointed at the row's URL.
+func TestMCPServerTools_StaysAnonymousWhenTheRowAndImageSnapshotDisagree(t *testing.T) {
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	url, seenAuth := authedMCPServer(t, "forge-token")
+
+	if err := s.mcp.Create(ctx, &mcpservers.MCPServer{
+		Name:         "forge",
+		DisplayName:  "Forge",
+		URL:          url,
+		TokenFromEnv: "FORGEJO_TOKEN", // #nosec G101 -- env var name, not a credential
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+	// The image attached the row before the edit: its reference still names the old var.
+	img := imageWithMCPServer("img-a", url, "OLD_FORGEJO_TOKEN", []agentv1alpha1.AgentImageEnvVar{
+		{Name: "OLD_FORGEJO_TOKEN", Value: "forge-token", Secret: true},
+	})
+	if err := s.client.Create(ctx, img); err != nil {
+		t.Fatalf("seed image: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp-servers/forge/tools", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 from an anonymous call to a server that refuses it, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := seenAuth(); got != "" {
+		t.Errorf("expected no Authorization header, got %q", got)
+	}
+}

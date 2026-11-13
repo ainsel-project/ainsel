@@ -49,7 +49,7 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 	freshByServer := make(map[string][]mcpToolSummary, len(img.Spec.MCPServers))
 	var errs []string
 	for _, mcpServer := range img.Spec.MCPServers {
-		tools, err := listMCPTools(ctx, mcpServer.URL, mcpBearerForImage(img, mcpServer))
+		tools, err := listMCPTools(ctx, mcpServer.URL, mcpBearerForImage(&img, mcpServer))
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", mcpServer.Name, err))
 			continue
@@ -154,7 +154,7 @@ func mergeMCPTools(
 //
 // A name that no env var of the image carries answers "" — the server is then
 // listed as before, anonymously.
-func mcpBearerForImage(img agentv1alpha1.AgentImage, server agentv1alpha1.AgentImageMCPServer) string {
+func mcpBearerForImage(img *agentv1alpha1.AgentImage, server agentv1alpha1.AgentImageMCPServer) string {
 	if server.TokenFromEnv == "" {
 		return ""
 	}
