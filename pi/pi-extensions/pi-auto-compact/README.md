@@ -93,4 +93,4 @@ entry point, so upstream imports resolve to the running host pi.
 - Code: <https://github.com/Chasen-Liao/pi-auto-compact>
 - npm:  <https://www.npmjs.com/package/pi-auto-compact>
 - Version pinned: `^1.3.1` (needs pi-coding-agent `>=0.99.0`; the runtime pins
-  `PI_VERSION=latest` in `pi/Dockerfile`, currently 1.x)
+  `PI_VERSION=1.5.2` in `pi/Dockerfile`)
