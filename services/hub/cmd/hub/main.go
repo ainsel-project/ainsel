@@ -32,6 +32,13 @@ func init() {
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
+	// One-time operational subcommands dispatch before any container wiring, so
+	// they need neither HUB_DB_URL nor a running manager (issue #263).
+	if len(os.Args) > 1 && os.Args[1] == migrateSkillsShapeCmd {
+		os.Exit(runMigrateSkillsShape(os.Args[2:]))
+	}
+
 	slog.Info("starting hub", "version", version.Version, "commit", version.Commit)
 
 	cfg := containerConfig{

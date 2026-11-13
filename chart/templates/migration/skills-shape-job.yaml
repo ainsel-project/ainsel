@@ -1,0 +1,89 @@
+{{- /*
+One-time rewrite of Agent.spec.skills from the removed `{items: […]}` wrapper to
+the plain list (issue #263).
+
+Post-hooks are the whole point: they run after the chart's CRD templates are
+applied, and the migration must not run before them — the API server validates on
+write, so patching a list against the old object-shaped schema is rejected.
+
+The Job is idempotent: a run over already-migrated agents reports everything as
+skipped and writes nothing, which is what makes leaving this enabled safe on
+every later upgrade. It fails the upgrade when it cannot migrate something
+(an unrecognized shape is left untouched and reported) rather than reporting
+success over a half-migrated cluster — set `migrations.skillsShape.enabled` to
+false to run the command yourself instead:
+
+  kubectl exec deploy/hub-backend -n <namespace> -- /hub migrate-skills-shape -n <namespace>
+
+RBAC: the hub-backend ServiceAccount already has get/list/patch on
+ainsel.dev/agents, so no extra grants are needed.
+*/ -}}
+{{- $migrations := .Values.migrations | default dict }}
+{{- $skillsShape := dig "skillsShape" dict $migrations | default dict }}
+{{- if dig "enabled" true $skillsShape }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ainsel-migrate-skills-shape
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # One retry covers a transient API-server hiccup; anything past that is a
+  # real problem an operator has to read about.
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ainsel-migration
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: hub-backend
+      {{- with .Values.hub.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $skillsShape.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $skillsShape.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate-skills-shape
+          # The hub image already carries the subcommand — no second image to
+          # build, publish or pin.
+          image: "{{ .Values.hub.image.repository }}:{{ .Values.hub.image.tag }}"
+          imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+          {{- with .Values.hub.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - /hub
+          args:
+            - migrate-skills-shape
+            - -n
+            - {{ .Values.hub.namespace | default .Values.namespace | quote }}
+            {{- with $skillsShape.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $skillsShape.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

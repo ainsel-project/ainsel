@@ -558,3 +558,33 @@ observability:
   # Enable only when the Prometheus Operator is installed.
   prometheusRules:
     enabled: false
+
+# =============================================================================
+# One-time migrations
+# =============================================================================
+#
+# Shape fixes that have to run against existing objects after a CRD change. Each
+# is a Job, not a long-lived component, and each is idempotent — re-running it on
+# a cluster that needs nothing is a logged no-op.
+migrations:
+  # Rewrite Agent.spec.skills from the removed `{items: […]}` wrapper to the
+  # plain list (see docs/upgrade-guide.md). Runs as a post-install/post-upgrade
+  # hook, i.e. after this chart applies the new CRDs — the migration must not run
+  # before them, because the API server rejects writing a list while the old
+  # object schema is still in place.
+  #
+  # Leave enabled: an already-migrated cluster pays one Job that patches nothing.
+  # Set false to run it yourself instead:
+  #   kubectl exec deploy/hub-backend -n <namespace> -- /hub migrate-skills-shape -n <namespace>
+  #
+  # A Job failure fails the upgrade on purpose: an unrecognized spec.skills shape
+  # is reported and left untouched, and a half-migrated cluster is worse than a
+  # failed one. Read the Job's logs, fix the object, run the upgrade again.
+  skillsShape:
+    enabled: true
+    # Extra args for `hub migrate-skills-shape`, e.g. ["--dry-run"] to see what it
+    # would change, or ["--all-namespaces"] for a multi-namespace install.
+    extraArgs: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []

@@ -122,6 +122,53 @@ The package doc comment in
 [`services/hub/cmd/migrate-triggers/main.go`](https://github.com/ainsel-project/ainsel/blob/main/services/hub/cmd/migrate-triggers/main.go)
 is the source of truth for usage.
 
+## Migrating the skills wrapper to a list
+
+`Agent.spec.skills` changed from the wrapper object `skills: {items: […]}` to a plain
+list. Objects still in the old shape cannot be read by the hub or the agent operator at
+all — the field is on the `Agent` CR, so one un-migrated agent fails the whole list. Run
+the one-time rewrite after applying the new CRDs:
+
+```bash
+kubectl apply -f chart/templates/crds/
+kubectl exec deploy/hub-backend -n <namespace> -- /hub migrate-skills-shape -n <namespace>
+```
+
+- The chart runs this for you: the `migrations.skillsShape` hook Job is a
+  `post-install,post-upgrade` hook, so it runs after the chart applies the CRDs — the
+  ordering the rewrite needs. Set `migrations.skillsShape.enabled: false` to opt out.
+- `-n` selects the namespace (default `$HUB_NAMESPACE`, then `ainsel`);
+  `--all-namespaces` covers a multi-namespace install; `--dry-run` reports without writing.
+- It needs no database and starts nothing, so it runs from the hub image in any cluster
+  the hub's own ServiceAccount can reach — the ServiceAccount already has
+  `get`/`list`/`patch` on `ainsel.dev/agents`.
+- It prints one line per agent — what shape it found and what it did — and exits non-zero
+  when it left something alone, so a hook Job failure means "read this output".
+
+Per object:
+
+| stored `spec.skills` | what happens |
+|---|---|
+| absent | skipped |
+| a list, including `[]` | skipped, never rewritten — this is what makes a second run a no-op and keeps an explicit `[]` as `[]` |
+| `{items: [ids…]}` | rewritten to the same list |
+| `{}`, `{items: []}`, `{items: null}` | rewritten to an explicit `[]` — never `null`, never removed |
+| anything else (string, number, a wrapper holding a non-string) | reported and skipped, counted as an error |
+
+Assert the empty-selection case against the Kubernetes object, not the hub's response:
+
+```bash
+kubectl get agent <name> -n <namespace> -o jsonpath='{.spec.skills}'   # -> []
+```
+
+The hub's REST response omits an empty list because `AgentSpec.Skills` is `omitempty`, so
+`[]` and absent are indistinguishable there — and both mean "no skills".
+
+The implementation is
+[`services/hub/cmd/hub/migrate_skills.go`](https://github.com/ainsel-project/ainsel/blob/main/services/hub/cmd/hub/migrate_skills.go);
+it reads `spec.skills` as unstructured JSON on purpose, since the typed decode is what fails
+on the old shape.
+
 ## Rolling back
 
 List available revisions:
@@ -176,23 +223,21 @@ capability catalog it ships (`spec.tools`). What an agent may use is selected on
   the declared tool set to that selection, blocks any other tool call, and withholds
   catalog binaries the agent was not given from the shell.
 
-**Upgrade order.** The CRD change makes existing `Agent` objects with the wrapper shape
-unreadable, so apply the new CRDs first and fix the objects immediately after:
-
-```bash
-kubectl apply -f chart/templates/crds/
-helm upgrade ainsel oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> -n <namespace> -f values.yaml
-
-# Which agents still hold the old wrapper shape?
-kubectl get agents -n <namespace> -o json \
-  | jq -r '.items[] | select((.spec.skills // {}) | type == "object") | .metadata.name'
-
-# For each one, write the same ids as a plain list.
-kubectl patch agent <name> -n <namespace> --type=merge -p '{"spec":{"skills":["<skill-id>"]}}'
-```
+**Upgrade order.** The CRD change makes existing `Agent` objects with the wrapper
+shape unreadable, and the fix has to run *after* the new CRDs are applied — see
+[Migrating the skills wrapper to a list](#migrating-the-skills-wrapper-to-a-list).
+The chart does it for you as a `post-install,post-upgrade` hook Job
+(`migrations.skillsShape`, enabled by default).
 
 Until patched, the hub and operator cannot read those agents (they surface as errors rather
-than silently running with the wrong skills), so do it in the same maintenance window.
+than silently running with the wrong skills), so do it in the same maintenance window. Expect
+a brief error loop from the hub and the operator between their new pods starting and the hook
+Job finishing — that is the state above, and it clears itself when the migration runs.
+
+**The API rejects the old shape with a pointer.** A create or update whose `skills` is an
+object gets `400 skills must be a list of skill ids; the {items: [...]} wrapper was removed -
+see docs/upgrade-guide.md` instead of the decoder's Go type name, so a client that still sends
+the wrapper is told what to send.
 
 **Review each agent's tool selection before upgrading.** A non-empty `enabledTools` list
 used to be cosmetic; from now on it is a hard limit. An agent that lists tools but omits

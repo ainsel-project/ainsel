@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1160,8 +1159,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 
 func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req SimpleAgentCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -1271,8 +1269,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 	var req SimpleAgentUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 

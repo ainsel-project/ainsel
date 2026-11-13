@@ -128,7 +128,7 @@ Agents carry an `updatedAt` timestamp (RFC3339) in both list and detail response
 
 Agents also carry `managedBy` when externally managed (omitted or `"user"` otherwise) — see [Managed resources](#managed-resources-managedby).
 
-Agents also carry an agent-scoped skill selection in `skills`: a plain list of skill ids from the skill library (`/skills`). It belongs to the agent, not to its image — the image carries no skill defaults. **Absent or empty = no skills.** Every id must exist in the library; unknown ids are rejected with `400`. On `PUT`, sending `"skills": []` clears the selection.
+Agents also carry an agent-scoped skill selection in `skills`: a plain list of skill ids from the skill library (`/skills`). It belongs to the agent, not to its image — the image carries no skill defaults. **Absent or empty = no skills.** Every id must exist in the library; unknown ids are rejected with `400`. On `PUT`, sending `"skills": []` clears the selection. A value that is not a list — including the `{"items": […]}` wrapper this field used to take — is rejected with `400` and a message naming the expected shape, not the decoder's Go type.
 
 The same wrapper semantics apply to the agent-scoped MCP selection in `mcp`, with one asymmetry: **requests carry registry names** (`{"servers": ["github"]}`), and the hub resolves each name to its full definition from the MCP registry (`/mcp-servers`, unknown names → `400`) when writing — **responses return the resolved definitions** (`name`, `url`, `tokenFromEnv`). The agent CR holds a snapshot: later registry edits do not rewrite existing agents. Absent `mcp` inherits the referenced image's `mcpServers` (legacy); `{"servers": []}` explicitly connects to none.
 
@@ -217,7 +217,7 @@ Fetch one Agent by resource name.
 
 Update an Agent. Body fields are all optional; only fields that are present are applied. When `imageRef` or `enabledTools` changes, the new combination is re-validated against the referenced `AgentImage`.
 
-`skills` **replaces** this agent's skill selection when present: `{"skills": []}` gives it none. Ids are validated against the skill library, unknown ones are rejected with `400`.
+`skills` **replaces** this agent's skill selection when present: `{"skills": []}` gives it none. Ids are validated against the skill library, unknown ones are rejected with `400`. A non-list value (the old `{"items": […]}` wrapper, a string) is a `400` naming the expected shape; `null` counts as absent, so it leaves the selection alone.
 
 `env` **replaces** this agent's override list when present: `{"env": []}` clears the overrides so the agent runs on the image's variables again. A secret entry submitted with an empty `value` keeps its stored value, so a client that never received the secret can round-trip the list safely.
 
