@@ -248,6 +248,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	applySignInStatus(&agent)
 
 	// 5.5. Surface MCP tokenFromEnv misconfiguration via Degraded condition
 	// and Warning Events so operators can discover the problem via
@@ -782,6 +783,13 @@ func (r *AgentReconciler) patchStatus(ctx context.Context, agent *ainselv1alpha1
 			"reason":  s.Reason,
 			"message": s.Message,
 		}
+	}
+	// The sign-in record is the operator's; null removes it once the agent
+	// no longer uses ChatGPT sign-in.
+	if agent.Status.ChatGPTSignIn != nil {
+		status["chatGPTSignIn"] = agent.Status.ChatGPTSignIn
+	} else {
+		status["chatGPTSignIn"] = nil
 	}
 	body, err := json.Marshal(map[string]any{"status": status})
 	if err != nil {

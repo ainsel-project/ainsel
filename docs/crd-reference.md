@@ -66,7 +66,8 @@ for its container image and tool catalog.
 | `openCode.baseUrl` | string | No | Override for the OpenCode API base URL (default `https://opencode.ai/zen/go/v1`) |
 | `alibabaCloud.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Alibaba Token Plan API key (key: `api-key`). Used when `llm.provider` is `alibaba-cloud` |
 | `alibabaCloud.baseUrl` | string | No | Override for the Alibaba base URL — e.g. a different MaaS region than the built-in `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`, or a private compatible-mode endpoint |
-| `openAI.apiKeySecretRef` | SecretKeySelector | No | Secret containing the OpenAI API key (key: `api-key`), exposed to Pi as `OPENAI_API_KEY`. Used when `llm.provider` is `openai`; Pi's built-in OpenAI provider (Responses API) |
+| `openAI.authMethod` | string | No | How an `openai` agent authenticates: `APIKey` (default) uses `openAI.apiKeySecretRef`; `ChatGPTSignIn` uses a ChatGPT subscription through OpenAI's official *Sign in with ChatGPT*. In sign-in mode the operator creates a ReadWriteOnce PVC `agent-<name>-pi-credentials` (size and storage class from the chart's `agentOperator.credentialVolume`) holding Pi's `auth.json`, renders no `OPENAI_API_KEY`, and each task pod checks the sign-in before it runs (see `SignInRequired` under Status). Switching back to `APIKey` deletes the PVC and the sign-in with it |
+| `openAI.apiKeySecretRef` | SecretKeySelector | No | Secret containing the OpenAI API key (key: `api-key`), exposed to Pi as `OPENAI_API_KEY`. Used when `llm.provider` is `openai` and `openAI.authMethod` is `APIKey`; Pi's built-in OpenAI provider (Responses API) |
 | `openAI.baseUrl` | string | No | Override for the OpenAI API base URL (default `https://api.openai.com/v1`) |
 | `anthropic.apiKeySecretRef` | SecretKeySelector | No | Secret containing the Anthropic API key (key: `api-key`), exposed to Pi as `ANTHROPIC_API_KEY`. Used when `llm.provider` is `anthropic`; Pi's built-in Anthropic provider (Messages API) |
 | `anthropic.baseUrl` | string | No | Override for the Anthropic API base URL (default `https://api.anthropic.com`) |
@@ -100,11 +101,21 @@ to be told when either changes.
 | `lastInvocation` | Time | Last queue activity (hub-written idle clock driving the quiet window). `nil` means the hub has never observed this agent, which is not the same as its queue being empty |
 | `scaling` | AgentScalingStatus | The operator's decision: `desired` count, `mode` (`static` or `queue`), `reason` and `message` explaining it (`ScaledToZero`, `Draining`, `QueueSignalStale`, …) |
 | `paused` | bool | Display mirror of the effective pause state of `spec.pause`, written by the operator each reconcile (requeued at expiry so it self-clears). `kubectl get agents` shows it. The authoritative gate is the hub evaluating `spec.pause` at read time, so this may lag briefly |
+| `chatGPTSignIn` | AgentChatGPTSignInStatus | Only for `openAI.authMethod: ChatGPTSignIn`, written by the operator: `signedInAt` (last successful sign-in), `signInFailedAt` (a task pod last found the sign-in missing or rejected), `lastVerifiedAt`, `handledSession`. Absent for every other agent |
 | `observedGeneration` | int64 | Last observed generation |
+
+`SignInRequired` (only on agents with `openAI.authMethod: ChatGPTSignIn`; absent
+otherwise): `True` with reason `NotSignedIn` until the first sign-in succeeds, or
+`SignInExpired` once a task pod's pre-check exits `78` after the latest sign-in
+(OpenAI rejected the refresh, or no credential is stored). While it is `True` the
+operator dispatches no task Job; due tasks stay queued and run after the next sign-in.
+`spec.pause` and `spec.scaling.replicas` are never changed. `False` with reason
+`SignedIn` otherwise. A network or OpenAI outage during the pre-check is retried and
+then fails the pod normally, so it never sets this condition.
 
 The hub and the operator both write this status, and neither clobbers the other's
 fields: each patches only its own (`pendingTasks`, `activeTasks`, `queueObservedAt`,
-`lastInvocation` for the hub; `replicas`, `scaling`, conditions for the operator). The
+`lastInvocation` for the hub; `replicas`, `scaling`, `chatGPTSignIn`, conditions for the operator). The
 split is load-bearing — the operator scales on a drain signal it does not own, so it
 must not be the one to clear it.
 

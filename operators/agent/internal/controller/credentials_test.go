@@ -4,11 +4,15 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -164,5 +168,142 @@ func TestSignInEnvOmitsAPIKey(t *testing.T) {
 	}
 	if e := envByName(llmProviderEnv(providerAgent(ainselv1alpha1.AgentLLMProviderOpenAI)), "AINSEL_AUTH_METHOD"); e != nil {
 		t.Errorf("AINSEL_AUTH_METHOD = %+v on an API-key agent, want absent", e)
+	}
+}
+
+// signInJobModeAgent is the job-mode fixture switched to ChatGPT sign-in.
+func signInJobModeAgent(dueIDs ...int64) *ainselv1alpha1.Agent {
+	a := jobModeAgent(1, dueIDs...)
+	a.Spec.LLM.Provider = ainselv1alpha1.AgentLLMProviderOpenAI
+	a.Spec.OpenAI = &ainselv1alpha1.AgentOpenAI{AuthMethod: ainselv1alpha1.OpenAIAuthMethodChatGPTSignIn}
+	return a
+}
+
+func signedIn(a *ainselv1alpha1.Agent, at time.Time) *ainselv1alpha1.Agent {
+	a.Status.ChatGPTSignIn = &ainselv1alpha1.AgentChatGPTSignInStatus{SignedInAt: &metav1.Time{Time: at}}
+	return a
+}
+
+// failedBySignIn is a task Job whose pod exited 78, as the cluster reports it:
+// the Job's podFailurePolicy failed it outright.
+func failedBySignIn(t *testing.T, a *ainselv1alpha1.Agent, taskID int64, at time.Time) *batchv1.Job {
+	t.Helper()
+	j := existingJob(t, a, taskID, false)
+	j.Status.Conditions = []batchv1.JobCondition{{
+		Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: batchv1.JobReasonPodFailurePolicy,
+		LastTransitionTime: metav1.Time{Time: at},
+	}}
+	return j
+}
+
+func TestTaskJobHasPodFailurePolicyInSignInMode(t *testing.T) {
+	j := buildTaskJob(signInJobModeAgent(), "agent-worker", jobModeDeployment(), 1)
+	p := j.Spec.PodFailurePolicy
+	if p == nil || len(p.Rules) != 1 {
+		t.Fatalf("podFailurePolicy = %+v, want one rule", p)
+	}
+	r := p.Rules[0]
+	if r.Action != batchv1.PodFailurePolicyActionFailJob || r.OnExitCodes == nil ||
+		r.OnExitCodes.ContainerName == nil || *r.OnExitCodes.ContainerName != "agent" ||
+		r.OnExitCodes.Operator != batchv1.PodFailurePolicyOnExitCodesOpIn ||
+		len(r.OnExitCodes.Values) != 1 || r.OnExitCodes.Values[0] != 78 {
+		t.Errorf("rule = %+v, want FailJob on exit 78 of container agent", r)
+	}
+
+	if j := buildTaskJob(jobModeAgent(1), "agent-worker", jobModeDeployment(), 1); j.Spec.PodFailurePolicy != nil {
+		t.Errorf("API-key agent Job has podFailurePolicy %+v, want none", j.Spec.PodFailurePolicy)
+	}
+}
+
+func TestNoDispatchWhileSignInRequired(t *testing.T) {
+	agent := signInJobModeAgent(7)
+	decision, c := runSync(t, agent)
+	if jobs := listTaskJobs(t, c); len(jobs) != 0 {
+		t.Fatalf("dispatched %d jobs for an agent that never signed in, want 0", len(jobs))
+	}
+	if !strings.Contains(decision.Message, "sign-in required") {
+		t.Errorf("scale message = %q, want it to say sign-in required", decision.Message)
+	}
+	applySignInStatus(agent)
+	cond := apimeta.FindStatusCondition(agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != "NotSignedIn" {
+		t.Errorf("SignInRequired = %+v, want True/NotSignedIn", cond)
+	}
+}
+
+func TestSignedInAgentDispatches(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(7), time.Now().Add(-time.Hour))
+	_, c := runSync(t, agent)
+	if jobs := listTaskJobs(t, c); len(jobs) != 1 {
+		t.Fatalf("dispatched %d jobs for a signed-in agent, want 1", len(jobs))
+	}
+	applySignInStatus(agent)
+	cond := apimeta.FindStatusCondition(agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "SignedIn" {
+		t.Errorf("SignInRequired = %+v, want False/SignedIn", cond)
+	}
+}
+
+func TestExit78SetsSignInExpired(t *testing.T) {
+	now := time.Now()
+	agent := signedIn(signInJobModeAgent(7), now.Add(-time.Hour))
+	dead := failedBySignIn(t, agent, 7, now.Add(-time.Minute))
+
+	scheme := jobModeScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(agent, jobModeDeployment(), dead).Build()
+	r := &AgentReconciler{Client: c, Scheme: scheme}
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatalf("syncPerTaskJobs: %v", err)
+	}
+	if s := agent.Status.ChatGPTSignIn; s == nil || s.SignInFailedAt == nil {
+		t.Fatalf("chatGPTSignIn = %+v, want signInFailedAt recorded", s)
+	}
+	for _, j := range listTaskJobs(t, c) {
+		if j.Name == dead.Name && !jobIsFinished(&j) {
+			t.Fatalf("task re-dispatched while the sign-in is dead: %s", j.Name)
+		}
+	}
+	if jobs := listTaskJobs(t, c); len(jobs) != 0 {
+		t.Errorf("jobs = %d, want the dead attempt retired and nothing new dispatched", len(jobs))
+	}
+
+	// The record is status, not the Job: with the Job gone, a later reconcile
+	// still holds the queue.
+	_, c2 := runSync(t, agent)
+	if jobs := listTaskJobs(t, c2); len(jobs) != 0 {
+		t.Errorf("after the failed Job is gone, dispatched %d jobs, want 0", len(jobs))
+	}
+	applySignInStatus(agent)
+	cond := apimeta.FindStatusCondition(agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != "SignInExpired" {
+		t.Errorf("SignInRequired = %+v, want True/SignInExpired", cond)
+	}
+}
+
+func TestFailureBeforeSignInIsIgnored(t *testing.T) {
+	now := time.Now()
+	agent := signedIn(signInJobModeAgent(7), now)
+	old := failedBySignIn(t, agent, 7, now.Add(-time.Hour))
+	_, c := runSync(t, agent, old)
+	if agent.Status.ChatGPTSignIn.SignInFailedAt != nil {
+		t.Error("a failure from before the latest sign-in was recorded as expiring it")
+	}
+	if jobs := listTaskJobs(t, c); len(jobs) != 1 || jobIsFinished(&jobs[0]) {
+		t.Errorf("jobs = %+v, want the old attempt retired and a fresh one dispatched", jobs)
+	}
+}
+
+func TestAPIKeyAgentHasNoSignInCondition(t *testing.T) {
+	agent := jobModeAgent(1, 7)
+	apimeta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+		Type: ainselv1alpha1.AgentConditionSignInRequired, Status: metav1.ConditionTrue, Reason: "NotSignedIn",
+	})
+	agent.Status.ChatGPTSignIn = &ainselv1alpha1.AgentChatGPTSignInStatus{}
+	applySignInStatus(agent)
+	if c := apimeta.FindStatusCondition(agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired); c != nil {
+		t.Errorf("SignInRequired = %+v on an API-key agent, want absent", c)
+	}
+	if agent.Status.ChatGPTSignIn != nil {
+		t.Errorf("chatGPTSignIn = %+v on an API-key agent, want cleared", agent.Status.ChatGPTSignIn)
 	}
 }

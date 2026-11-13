@@ -3,10 +3,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -82,4 +86,111 @@ func (r *AgentReconciler) reconcileCredentialVolume(ctx context.Context, agent *
 		return fmt.Errorf("creating credential volume: %w", err)
 	}
 	return nil
+}
+
+// Sign-in required gate. A task pod checks the sign-in before it fetches its
+// task and exits exitSignInRequired when the sign-in is missing or dead. The
+// task Job's podFailurePolicy fails the Job on that exit code instead of
+// retrying it, and the operator records the failure in status and dispatches
+// nothing until a new sign-in succeeds. The task row was never fetched or
+// nacked, so it stays pending and runs after the sign-in.
+
+const (
+	// exitSignInRequired is the runtime's "sign-in required" exit code
+	// (EX_CONFIG), shared with pi/pi-extensions/ainsel-chatgpt-auth.
+	exitSignInRequired int32 = 78
+
+	signInReasonNotSignedIn = "NotSignedIn"
+	signInReasonExpired     = "SignInExpired"
+	signInReasonSignedIn    = "SignedIn"
+)
+
+// signInFailurePolicy fails a task Job outright when its runtime reports that
+// the sign-in is required: retrying the pod cannot help until someone signs in.
+func signInFailurePolicy() *batchv1.PodFailurePolicy {
+	return &batchv1.PodFailurePolicy{
+		Rules: []batchv1.PodFailurePolicyRule{{
+			Action: batchv1.PodFailurePolicyActionFailJob,
+			OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
+				ContainerName: ptr.To("agent"),
+				Operator:      batchv1.PodFailurePolicyOnExitCodesOpIn,
+				Values:        []int32{exitSignInRequired},
+			},
+		}},
+	}
+}
+
+// signInFailureTime reports when a Job was failed by the sign-in rule. The
+// rule is the only podFailurePolicy rule a task Job carries, so the Job's
+// PodFailurePolicy reason identifies it.
+func signInFailureTime(j *batchv1.Job) (time.Time, bool) {
+	for _, c := range j.Status.Conditions {
+		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue && c.Reason == batchv1.JobReasonPodFailurePolicy {
+			if c.LastTransitionTime.IsZero() {
+				return time.Now(), true
+			}
+			return c.LastTransitionTime.Time, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// recordSignInFailure notes a sign-in failure the cluster reported for a task
+// Job. A failure older than the latest sign-in belongs to the previous one and
+// is ignored. It must run before the Job is retired: the Job is evidence, the
+// status field is the record.
+func recordSignInFailure(agent *ainselv1alpha1.Agent, j *batchv1.Job) {
+	at, ok := signInFailureTime(j)
+	if !ok {
+		return
+	}
+	s := agent.Status.ChatGPTSignIn
+	if s == nil {
+		s = &ainselv1alpha1.AgentChatGPTSignInStatus{}
+		agent.Status.ChatGPTSignIn = s
+	}
+	if s.SignedInAt != nil && !at.After(s.SignedInAt.Time) {
+		return
+	}
+	if s.SignInFailedAt == nil || at.After(s.SignInFailedAt.Time) {
+		s.SignInFailedAt = &metav1.Time{Time: at}
+	}
+}
+
+// signInRequired derives the gate from status alone, so it survives the Jobs
+// that observed it.
+func signInRequired(s *ainselv1alpha1.AgentChatGPTSignInStatus) (bool, string) {
+	if s == nil || s.SignedInAt == nil {
+		return true, signInReasonNotSignedIn
+	}
+	if s.SignInFailedAt != nil && s.SignInFailedAt.After(s.SignedInAt.Time) {
+		return true, signInReasonExpired
+	}
+	return false, signInReasonSignedIn
+}
+
+// applySignInStatus sets the SignInRequired condition for a sign-in agent, and
+// removes both the condition and the sign-in record from every other agent:
+// the condition is absent, not False, where sign-in does not apply.
+func applySignInStatus(agent *ainselv1alpha1.Agent) {
+	if !agent.UsesChatGPTSignIn() {
+		apimeta.RemoveStatusCondition(&agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired)
+		agent.Status.ChatGPTSignIn = nil
+		return
+	}
+	required, reason := signInRequired(agent.Status.ChatGPTSignIn)
+	cond := metav1.Condition{
+		Type:    ainselv1alpha1.AgentConditionSignInRequired,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: "ChatGPT sign-in is valid",
+	}
+	if required {
+		cond.Status = metav1.ConditionTrue
+		cond.Message = "No task runs until someone signs in with ChatGPT from the agent page"
+		if reason == signInReasonExpired {
+			cond.Message = "The ChatGPT sign-in expired or was revoked; " + cond.Message
+		}
+	}
+	apimeta.SetStatusCondition(&agent.Status.Conditions, cond)
 }
