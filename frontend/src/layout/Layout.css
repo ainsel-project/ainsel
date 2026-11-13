@@ -1,11 +1,17 @@
 .shell {
   display: grid;
   grid-template-columns: 236px 1fr;
+  /* Paired vh/dvh: `vh` is the *largest* viewport on mobile browsers (the URL
+     bar retracts on scroll), so a `100vh` page is taller than what is visible.
+     `dvh` tracks the visible height; the first declaration is the fallback for
+     engines without it — the same pair Spine.css uses. */
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
-  /* Height of chrome rendered above .canvas (the mobile top bar on small
-     screens). Viewport-filling pages (e.g. chat) subtract it via
-     calc(100dvh - var(--chrome-top)). */
+  /* Height of the chrome above .canvas — the mobile top bar. It inherits into
+     the canvas and is consumed by `.titleblock { top: … }` in Titleblock.css,
+     which is what keeps the sticky title block below the bar instead of under
+     it. */
   --chrome-top: 0px;
 }
 
@@ -44,6 +50,7 @@
   position: relative;
   padding: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
 }
 
@@ -125,6 +132,7 @@
   }
   .canvas {
     min-height: calc(100vh - 60px);
+    min-height: calc(100dvh - 60px);
   }
   .titleblock {
     padding: 14px 16px 12px;

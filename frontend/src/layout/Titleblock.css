@@ -9,7 +9,10 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   position: sticky;
-  top: 0;
+  /* Below the mobile top bar, not under it. `--chrome-top` is declared on
+     `.shell` (Layout.css) and inherits here: 0px on desktop, 60px at the drawer
+     breakpoint. A literal 0 would put the title block behind the bar. */
+  top: var(--chrome-top);
   z-index: 10;
 }
 .titleblock .crumbs {
@@ -40,4 +43,17 @@
 .titleblock .actions {
   display: flex;
   gap: 8px;
+}
+
+/* Phone tier (issue #261): title and actions cannot share a row at 360px — the
+   actions would squeeze the heading to a few characters. The gutters are
+   already the 16px the drawer breakpoint gives them in Layout.css. */
+@media (max-width: 480px) {
+  .titleblock {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .titleblock .actions {
+    flex-wrap: wrap;
+  }
 }
