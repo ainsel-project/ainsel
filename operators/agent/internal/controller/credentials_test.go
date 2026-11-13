@@ -14,7 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 // signInAgent is an OpenAI agent that authenticates with a ChatGPT sign-in.
@@ -305,5 +308,71 @@ func TestAPIKeyAgentHasNoSignInCondition(t *testing.T) {
 	}
 	if agent.Status.ChatGPTSignIn != nil {
 		t.Errorf("chatGPTSignIn = %+v on an API-key agent, want cleared", agent.Status.ChatGPTSignIn)
+	}
+}
+
+// With hardening off nothing applies fsGroup, so the init container (root)
+// must hand the volume root to UID 1000: Pi takes its auth.json lock as a
+// directory next to the resolved file, on the volume.
+func TestPodPlanSignInUnhardenedChownsVolumeRoot(t *testing.T) {
+	a := signInAgent()
+	a.Spec.Runtime.SecurityHardened = ptr.To(false)
+	cmd := strings.Join(newPodPlan(a, "agent-golden", &ainselv1alpha1.AgentImage{}).initContainers[0].Command, " ")
+	if !strings.Contains(cmd, "chown 1000:1000 /home/agent/.pi/credentials ") {
+		t.Errorf("init command %q does not chown the credential volume root", cmd)
+	}
+}
+
+// A sign-in agent's record must survive a status patch from a reconcile that
+// started from a copy without it (an informer cache that has not caught up).
+func TestPatchStatusKeepsSignInRecordOfSignInAgent(t *testing.T) {
+	stored := signInAgent()
+	stored.Status.ChatGPTSignIn = &ainselv1alpha1.AgentChatGPTSignInStatus{SignedInAt: &metav1.Time{Time: time.Now().Truncate(time.Second)}}
+	scheme := jobModeScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stored).WithStatusSubresource(&ainselv1alpha1.Agent{}).Build()
+	r := &AgentReconciler{Client: c, Scheme: scheme}
+
+	stale := stored.DeepCopy()
+	stale.Status.ChatGPTSignIn = nil
+	if err := r.patchStatus(context.Background(), stale); err != nil {
+		t.Fatalf("patchStatus: %v", err)
+	}
+	var got ainselv1alpha1.Agent
+	_ = c.Get(context.Background(), types.NamespacedName{Namespace: stored.Namespace, Name: stored.Name}, &got)
+	if got.Status.ChatGPTSignIn == nil || got.Status.ChatGPTSignIn.SignedInAt == nil {
+		t.Fatalf("chatGPTSignIn = %+v after a patch from a stale copy, want the record kept", got.Status.ChatGPTSignIn)
+	}
+}
+
+func TestNoCredentialVolumeDeleteForUnownedPVC(t *testing.T) {
+	a := providerAgent(ainselv1alpha1.AgentLLMProviderOpenAI)
+	foreign := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "agent-golden-pi-credentials", Namespace: a.Namespace}}
+	scheme := jobModeScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, foreign).Build()
+	r := &AgentReconciler{Client: c, Scheme: scheme}
+	if err := r.reconcileCredentialVolume(context.Background(), a, "agent-"+a.Name); err != nil {
+		t.Fatalf("reconcileCredentialVolume: %v", err)
+	}
+	if _, err := getCredentialPVC(t, r, a); err != nil {
+		t.Fatalf("a PVC the agent does not own was deleted (Get err = %v)", err)
+	}
+}
+
+func TestNoDeleteCallWhenNoCredentialVolume(t *testing.T) {
+	a := providerAgent(ainselv1alpha1.AgentLLMProviderOpenAI)
+	scheme := jobModeScheme()
+	deletes := 0
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a).WithInterceptorFuncs(interceptor.Funcs{
+		Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			deletes++
+			return cl.Delete(ctx, obj, opts...)
+		},
+	}).Build()
+	r := &AgentReconciler{Client: c, Scheme: scheme}
+	if err := r.reconcileCredentialVolume(context.Background(), a, "agent-"+a.Name); err != nil {
+		t.Fatalf("reconcileCredentialVolume: %v", err)
+	}
+	if deletes != 0 {
+		t.Errorf("API-key agent with no volume issued %d deletes, want 0", deletes)
 	}
 }

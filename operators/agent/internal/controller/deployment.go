@@ -214,7 +214,9 @@ func newPodPlan(agent *ainselv1alpha1.Agent, agentName string, img *ainselv1alph
 			" && chmod 600 " + signInMountPath + "/auth.json" +
 			" && ln -sf " + signInMountPath + "/auth.json /home/agent/.pi/agent/auth.json"
 		if !securityHardened {
-			setupPiCommand += " && chown 1000:1000 " + signInMountPath + "/auth.json"
+			// No fsGroup without hardening: hand the volume root (where Pi
+			// creates its auth.json lock) and the file to UID 1000.
+			setupPiCommand += " && chown 1000:1000 " + signInMountPath + " " + signInMountPath + "/auth.json"
 		}
 	}
 	initContainer := corev1.Container{

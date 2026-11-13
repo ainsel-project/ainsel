@@ -784,12 +784,16 @@ func (r *AgentReconciler) patchStatus(ctx context.Context, agent *ainselv1alpha1
 			"message": s.Message,
 		}
 	}
-	// The sign-in record is the operator's; null removes it once the agent
-	// no longer uses ChatGPT sign-in.
-	if agent.Status.ChatGPTSignIn != nil {
-		status["chatGPTSignIn"] = agent.Status.ChatGPTSignIn
-	} else {
+	// The sign-in record is the operator's. It accumulates (a timestamp
+	// written by one reconcile is not recomputed by the next), so a sign-in
+	// agent only ever sends the fields it has — omitempty keeps a copy that
+	// predates a write from erasing it. null removes the record once the
+	// agent no longer uses ChatGPT sign-in.
+	switch {
+	case !agent.UsesChatGPTSignIn():
 		status["chatGPTSignIn"] = nil
+	case agent.Status.ChatGPTSignIn != nil:
+		status["chatGPTSignIn"] = agent.Status.ChatGPTSignIn
 	}
 	body, err := json.Marshal(map[string]any{"status": status})
 	if err != nil {

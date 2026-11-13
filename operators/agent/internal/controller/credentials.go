@@ -25,9 +25,12 @@ import (
 //
 // Only the credential lives here. Pi's agent directory stays an emptyDir; the
 // setup init container links <agentDir>/auth.json to the file on this volume.
-// Pi writes auth.json in place (never by rename), so writes follow the link,
-// and its lock directory lands next to the link in the per-pod emptyDir — safe
-// because at most one pod uses the volume at a time.
+// Pi writes auth.json in place (never by rename), so writes follow the link.
+// Pi locks the resolved file, so its lock directory (auth.json.lock) is
+// created on this volume too: UID 1000 must be able to create entries in the
+// volume root. With security hardening the pod's fsGroup grants that (the
+// storage class must support fsGroup); without it the init container chowns
+// the root.
 
 const (
 	// credentialVolumeName is the pod volume backed by the agent's PVC.
@@ -55,19 +58,24 @@ func (r *AgentReconciler) reconcileCredentialVolume(ctx context.Context, agent *
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: credentialPVCName(agentName), Namespace: agent.Namespace},
 	}
+	err := r.Get(ctx, client.ObjectKeyFromObject(pvc), pvc)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("reading credential volume: %w", err)
+	}
+	exists := err == nil
 	if !agent.UsesChatGPTSignIn() {
+		// Read from the cache first: most agents never had a volume, and a
+		// claim of this name the agent does not own is not ours to delete.
+		if !exists || !metav1.IsControlledBy(pvc, agent) {
+			return nil
+		}
 		if err := r.Delete(ctx, pvc); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("deleting credential volume: %w", err)
 		}
 		return nil
 	}
-
-	err := r.Get(ctx, client.ObjectKeyFromObject(pvc), pvc)
-	if err == nil {
+	if exists {
 		return nil // a PVC's spec is immutable once bound; nothing to update
-	}
-	if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("reading credential volume: %w", err)
 	}
 	pvc.Labels = map[string]string{"ainsel.dev/agent": agent.Name}
 	pvc.Spec = corev1.PersistentVolumeClaimSpec{
