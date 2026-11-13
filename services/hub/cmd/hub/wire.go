@@ -238,6 +238,14 @@ func wireAPIServer(c *container, cfg containerConfig) *api.Server {
 		slog.Warn("HUB_INTERNAL_VALIDATE_SECRET not set, user token validate endpoint disabled")
 	}
 
+	// The hub's own address, the base of the internal plugin MCP endpoints.
+	// Tool listing uses it to decide when the platform credential may be
+	// presented (resolveMCPServerToken) — the same value the plugin registry
+	// syncer writes its row URLs from, so the two always agree.
+	if selfURL := os.Getenv("HUB_SELF_URL"); selfURL != "" {
+		srv.SetHubSelfURL(selfURL)
+	}
+
 	// Extra Origins allowed to open /api/v1/ws. Same-origin is always
 	// permitted, so this is only needed when the UI is served from a different
 	// host or port than the hub API (local development).

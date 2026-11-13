@@ -339,8 +339,12 @@ func (s *Server) agentImagesReferencingMCPServer(ctx context.Context, name strin
 }
 
 // handleMCPServerTools proxies a tools/list request to the named MCP server
-// and returns the discovered tools. tools/list does not require authentication,
-// so the proxy sends no bearer.
+// and returns the discovered tools. When the registry row names a
+// tokenFromEnv, the bearer is resolved the same way the operator injects it
+// (see resolveMCPServerToken): the platform exception for the hub's own
+// plugin endpoints, else the first AgentImage — by name — referencing the row
+// whose spec.env defines the var. A row naming no var, or naming one no
+// referencing image defines, is listed anonymously.
 func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request, name string) {
 	m, err := s.mcp.Get(r.Context(), name)
 	if err != nil {
@@ -352,9 +356,14 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 
-	tools, err := listMCPTools(r.Context(), m.URL, "")
+	token, err := s.resolveMCPServerToken(r.Context(), m.Name, m.TokenFromEnv, m.URL, nil, true)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to list tools: "+err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	tools, err := listMCPTools(r.Context(), m.URL, token)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to list tools: "+redactToken(err.Error(), token))
 		return
 	}
 

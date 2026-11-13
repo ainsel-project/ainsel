@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -353,5 +354,99 @@ func TestUpdateMCPServer_PluginManaged409(t *testing.T) {
 	}
 	if got.URL != row.URL || got.DisplayName != row.DisplayName || got.TokenFromEnv != row.TokenFromEnv {
 		t.Errorf("row changed despite the refused update: %+v", got)
+	}
+}
+
+// --- Token-resolved tool listing (issue #251) --------------------------------
+
+func TestMCPServers_ToolsUsesTokenResolvedFromReferencingImage(t *testing.T) {
+	const sentinel = "tok-tools-sentinel" // #nosec G101 -- test fixture
+	srv, authSeen := fakeTokenMCPServer(t, sentinel, false)
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	if err := s.mcp.Create(ctx, &mcpservers.MCPServer{
+		Name: "forgejo", DisplayName: "Forgejo", URL: srv.URL, TokenFromEnv: "FORGEJO_PAT",
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+	if err := s.client.Create(ctx, mcpImage("img-tools-token1", "forgejo", srv.URL, "FORGEJO_PAT",
+		agentv1alpha1.AgentImageEnvVar{Name: "FORGEJO_PAT", Value: sentinel, Secret: true})); err != nil {
+		t.Fatalf("create image: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp-servers/forgejo/tools", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out) != 1 || out[0]["name"] != "echo" {
+		t.Fatalf("expected the echo tool, got %v", out)
+	}
+	for _, a := range authSeen() {
+		if a != "Bearer "+sentinel {
+			t.Errorf("expected bearer token on every call, saw %q", a)
+		}
+	}
+}
+
+func TestMCPServers_ToolsAnonymousWhenNoImageDefinesVar(t *testing.T) {
+	// The row names a var no referencing image defines: the listing stays
+	// anonymous (never a wrong token), and the server's 401 surfaces as 502 —
+	// the same failure mode as before the fix, for a setup that cannot resolve.
+	srv, authSeen := fakeTokenMCPServer(t, "tok-tools-absent", false)
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	if err := s.mcp.Create(ctx, &mcpservers.MCPServer{
+		Name: "forgejo", DisplayName: "Forgejo", URL: srv.URL, TokenFromEnv: "FORGEJO_PAT",
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp-servers/forgejo/tools", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, a := range authSeen() {
+		if a != "" {
+			t.Errorf("unresolvable token must stay anonymous, saw %q", a)
+		}
+	}
+}
+
+func TestMCPServers_ToolsErrorBodyDoesNotLeakToken(t *testing.T) {
+	// The server rejects even the correct bearer and echoes the Authorization
+	// header back: the 502 body must not carry the credential.
+	const sentinel = "tok-tools-leaktest" // #nosec G101 -- test fixture
+	srv, _ := fakeTokenMCPServer(t, sentinel, true)
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	if err := s.mcp.Create(ctx, &mcpservers.MCPServer{
+		Name: "forgejo", DisplayName: "Forgejo", URL: srv.URL, TokenFromEnv: "FORGEJO_PAT",
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+	if err := s.client.Create(ctx, mcpImage("img-tools-leaktest", "forgejo", srv.URL, "FORGEJO_PAT",
+		agentv1alpha1.AgentImageEnvVar{Name: "FORGEJO_PAT", Value: sentinel, Secret: true})); err != nil {
+		t.Fatalf("create image: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp-servers/forgejo/tools", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), sentinel) {
+		t.Errorf("502 body leaked the token value: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "failed to list tools") {
+		t.Errorf("expected the existing 502 wording, got %s", rec.Body.String())
 	}
 }

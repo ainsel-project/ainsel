@@ -49,10 +49,19 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 	freshByServer := make(map[string][]mcpToolSummary, len(img.Spec.MCPServers))
 	var errs []string
 	for _, mcpServer := range img.Spec.MCPServers {
-		// tools/list does not require auth; never forward credentials from here.
-		tools, err := listMCPTools(ctx, mcpServer.URL, "")
+		// A server whose row names tokenFromEnv has no anonymous tool list:
+		// present the credential the row names, resolved from the image's own
+		// env — the same value the operator injects into the agent pod. A row
+		// naming no var (or naming one this image does not define) stays
+		// anonymous; see resolveMCPServerToken.
+		token, err := s.resolveMCPServerToken(ctx, mcpServer.Name, mcpServer.TokenFromEnv, mcpServer.URL, img.Spec.Env, false)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", mcpServer.Name, err))
+			continue
+		}
+		tools, err := listMCPTools(ctx, mcpServer.URL, token)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %s", mcpServer.Name, redactToken(err.Error(), token)))
 			continue
 		}
 		freshByServer[mcpServer.Name] = tools

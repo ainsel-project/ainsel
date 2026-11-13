@@ -101,10 +101,14 @@ type Server struct {
 	authzChecker           *authz.Checker
 	userTokens             *usertokens.Store
 	internalValidateSecret string
-	pluginCreds            *plugincreds.Issuer
-	pluginProxyTransport   http.RoundTripper
-	pluginProxyOnce        sync.Once
-	pluginMCPOnce          sync.Once
+	// hubSelfURL is the hub's own in-cluster address (HUB_SELF_URL), the base
+	// of the internal plugin MCP endpoints. It gates the platform-token
+	// exception in resolveMCPServerToken; empty disables that exception.
+	hubSelfURL           string
+	pluginCreds          *plugincreds.Issuer
+	pluginProxyTransport http.RoundTripper
+	pluginProxyOnce      sync.Once
+	pluginMCPOnce        sync.Once
 	// pluginMCP is the MCP client the plugin tool endpoints use to list and call
 	// tools on a plugin's own MCP server. Wired by SetPluginMCPClient; see
 	// getPluginMCPClient for the default.
@@ -194,6 +198,12 @@ func (s *Server) SetSkillsMCPToken(token string) {
 // SetInternalValidateSecret sets the shared secret for /api/internal/user-tokens/validate.
 func (s *Server) SetInternalValidateSecret(secret string) {
 	s.internalValidateSecret = secret
+}
+
+// SetHubSelfURL sets the hub's own address used to recognize the internal
+// plugin MCP endpoints when listing their tools. See resolveMCPServerToken.
+func (s *Server) SetHubSelfURL(url string) {
+	s.hubSelfURL = url
 }
 
 // SetPluginMCPClient sets the MCP client used to reach plugin MCP endpoints.
