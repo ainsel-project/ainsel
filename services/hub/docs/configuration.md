@@ -163,3 +163,10 @@ The one-time [`migrate-triggers`](../cmd/migrate-triggers/main.go) tool (see
 [Upgrading from CRD-based trigger storage](../../../docs/upgrade-guide.md#migrating-triggers-from-crd-storage))
 additionally needs read access to `Trigger` and `CronTrigger` CRDs in
 `HUB_NAMESPACE` when run in-cluster.
+
+`hub migrate-skills-shape` (see
+[Migrating the skills wrapper to a list](../../../docs/upgrade-guide.md#migrating-the-skills-wrapper-to-a-list))
+needs `get`/`list`/`patch` on `ainsel.dev/agents` in the namespace it migrates —
+which the `hub-backend` ServiceAccount already has, so the chart's hook Job needs no
+extra grants. It reads `spec.skills` as unstructured JSON, so it works on objects the
+hub itself cannot decode; it needs no database access at all.

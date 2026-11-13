@@ -281,3 +281,21 @@ handled there.
 | `observability.podMonitor.labels` | object | `{}` | Extra labels on the PodMonitors |
 | `observability.podMonitor.interval` | string | `30s` | Scrape interval |
 | `observability.prometheusRules.enabled` | bool | `false` | Install CPU throttling / OOM PrometheusRule (requires the Prometheus Operator / `monitoring.coreos.com/v1` PrometheusRule CRD) |
+
+### Migrations
+
+One-time shape fixes that run against existing objects after a CRD change. Each is
+a Job, not a long-lived component, and each is idempotent — a run over a cluster
+that needs nothing reports everything skipped and writes nothing.
+
+| Value | Type | Default | Description |
+|-------|------|---------|-------------|
+| `migrations.skillsShape.enabled` | bool | `true` | Run `hub migrate-skills-shape` as a `post-install,post-upgrade` hook Job, rewriting `Agent.spec.skills` from the removed `{items: […]}` wrapper to the plain list. Post-hooks are the required ordering: the rewrite must run after this chart applies the new CRDs, because the API server rejects writing a list while the old object schema is in place. Set `false` to run it yourself (`kubectl exec deploy/hub-backend -n <ns> -- /hub migrate-skills-shape -n <ns>`). A failing Job fails the upgrade on purpose — an unrecognized `spec.skills` shape is reported and left untouched. See [the upgrade guide](../../docs/upgrade-guide.md#migrating-the-skills-wrapper-to-a-list) |
+| `migrations.skillsShape.extraArgs` | list | `[]` | Extra args for the command, e.g. `["--dry-run"]` to report without writing, or `["--all-namespaces"]` for a multi-namespace install |
+| `migrations.skillsShape.resources` | object | `{}` | CPU/memory for the Job container |
+| `migrations.skillsShape.nodeSelector` | object | `{}` | Node selection for the Job pod |
+| `migrations.skillsShape.tolerations` | list | `[]` | Tolerations for the Job pod |
+
+The Job runs as the hub's own `hub-backend` ServiceAccount, which already has
+`get`/`list`/`patch` on `ainsel.dev/agents` — no extra RBAC — and uses the
+`hub.image` image, so there is no second image to pin.

@@ -72,3 +72,9 @@ go test ./...
 - [Migrating triggers from CRD storage](../../docs/upgrade-guide.md#migrating-triggers-from-crd-storage)
   — one-time `migrate-triggers` tool for upgrading from CRD-based trigger
   storage to the database-backed model
+- [`hub migrate-skills-shape`](../../docs/upgrade-guide.md#migrating-the-skills-wrapper-to-a-list)
+  — one-time rewrite of `Agent.spec.skills` from the removed `{items: […]}` wrapper
+  to the plain list. A subcommand of the hub binary (`/hub migrate-skills-shape`), so it
+  runs from the hub image in-cluster; it reads `spec.skills` unstructured, because the
+  typed decode is what fails on the old shape. Idempotent, and it exits non-zero when it
+  left an unrecognized shape alone
