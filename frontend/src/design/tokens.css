@@ -1,6 +1,22 @@
 /* FJORD — cool slate paper, teal signal, soft rounded geometry.
    Dark themes (dark / peat / tallow) override the palette below. */
 
+/* BREAKPOINTS — the only viewport widths any stylesheet may query.
+   Custom properties cannot be used inside a media query, so the scale is a
+   documented constant rather than a token, and responsive.guard.test.ts fails
+   the build on any `@media` width outside it. That is deliberate: 1000, 899 and
+   1100 already coexist from three separate features, and a fifth magic number is
+   how "responsive" quietly turns back into per-screen special cases.
+
+     480   phone     — one column everywhere, page gutters close in
+     760   narrow    — the 4-column primitives drop to 2
+     899   workspace — the second sidebar collapses to a toggle
+     1000  drawer    — the spine becomes an off-canvas drawer, `.mobilebar` shows
+     1100  dashboard — the two-column dashboard stacks
+
+   `min-width: 1001px` is the complement of the drawer breakpoint, not a sixth
+   tier. A new tier needs a failure mode behind it, not a taste. */
+
 :root {
   /* PAPER & INK */
   --paper:        #eef1f4;
