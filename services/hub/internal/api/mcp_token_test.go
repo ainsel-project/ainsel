@@ -40,7 +40,7 @@ func fakeTokenMCPServer(t *testing.T, sentinel string, rejectEvenWithToken bool)
 		if auth != "Bearer "+sentinel || rejectEvenWithToken {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="fake-mcp"`)
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprintf(w, "401 Unauthorized: this server requires a per-request token (saw %q)\n", auth)
+			_, _ = fmt.Fprintf(w, "401 Unauthorized: this server requires a per-request token (saw %q)\n", auth)
 			return
 		}
 		var req struct {
@@ -52,11 +52,12 @@ func fakeTokenMCPServer(t *testing.T, sentinel string, rejectEvenWithToken bool)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		write := func(format string, args ...any) { _, _ = fmt.Fprintf(w, format, args...) }
 		switch req.Method {
 		case "initialize":
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"fake-mcp","version":"0.1.0"}}}`, req.ID)
+			write(`{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"fake-mcp","version":"0.1.0"}}}`, req.ID)
 		case "tools/list":
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo a message"}]}}`, req.ID)
+			write(`{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo a message"}]}}`, req.ID)
 		default:
 			if strings.HasPrefix(req.Method, "notifications/") {
 				w.WriteHeader(http.StatusAccepted)
@@ -64,7 +65,7 @@ func fakeTokenMCPServer(t *testing.T, sentinel string, rejectEvenWithToken bool)
 			}
 			// server/discover and anything else: JSON-RPC method-not-found,
 			// which makes the client fall back to the legacy initialize handshake.
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}`, req.ID)
+			write(`{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}`, req.ID)
 		}
 	}))
 	t.Cleanup(srv.Close)
