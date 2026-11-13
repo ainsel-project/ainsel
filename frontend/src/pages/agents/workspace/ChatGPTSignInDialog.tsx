@@ -92,7 +92,6 @@ export function ChatGPTSignInDialog({
 
   const s = session.data
   const state = s?.state
-  const live = signInIsLive(state)
 
   useEffect(() => {
     if (state === 'succeeded') void qc.invalidateQueries({ queryKey: ['agents'] })
@@ -110,8 +109,11 @@ export function ChatGPTSignInDialog({
 
   // Stable across renders: ConfirmModal re-focuses its first control whenever
   // onCancel changes, which would pull focus out of the paste field.
-  const liveRef = useRef(live)
-  liveRef.current = live
+  // Once the code is being exchanged there is nothing left to cancel: the
+  // hub lets the exchange finish, so the button only closes the dialog.
+  const cancellable = state === 'waiting_for_pod' || state === 'awaiting_redirect'
+  const liveRef = useRef(cancellable)
+  liveRef.current = cancellable
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const cancel = useCallback(async () => {
@@ -191,7 +193,7 @@ export function ChatGPTSignInDialog({
       title="Sign in with ChatGPT"
       body={body}
       confirmLabel={confirmLabel}
-      cancelLabel={live ? 'Cancel sign-in' : 'Close'}
+      cancelLabel={cancellable ? 'Cancel sign-in' : 'Close'}
       onConfirm={onConfirm}
       onCancel={onCancel}
     />

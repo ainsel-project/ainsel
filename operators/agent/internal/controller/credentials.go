@@ -233,6 +233,12 @@ const (
 	signInScript = "/usr/local/share/pi-extensions/ainsel-chatgpt-auth/signin.mjs"
 )
 
+// signInPodSecretName is the Secret the hub writes the sign-in pod's token to
+// (services/hub: signInPodSecretName).
+func signInPodSecretName(agentName string) string {
+	return agentName + "-chatgpt-sign-in"
+}
+
 // signInWanted returns the session the hub asked for and the operator has not
 // handled yet, or "".
 func signInWanted(agent *ainselv1alpha1.Agent) string {
@@ -275,6 +281,15 @@ func buildSignInJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, sess
 	env := []corev1.EnvVar{
 		{Name: "AGENT_NAME", Value: agent.Name},
 		{Name: "AINSEL_SIGN_IN_SESSION", Value: session},
+		// The session's own token, written by the hub. Only this pod gets
+		// it, so a task pod holding the shared internal token cannot act as
+		// the sign-in pod.
+		{Name: "AINSEL_SIGN_IN_TOKEN", ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: signInPodSecretName(agent.Name)},
+				Key:                  "token",
+			},
+		}},
 	}
 	for _, e := range agentC.Env {
 		if e.Name == "HUB_URL" || e.Name == "HUB_INTERNAL_VALIDATE_SECRET" {
@@ -353,7 +368,9 @@ func recordSignInOutcome(agent *ainselv1alpha1.Agent, j *batchv1.Job) {
 			if s.SignedInAt == nil || at.After(s.SignedInAt.Time) {
 				s.SignedInAt = &metav1.Time{Time: at}
 			}
-			if session != "" {
+			// Only the Job of the session the hub currently names may mark
+			// it handled: an older Job, listed later, must not undo it.
+			if session != "" && signInWanted(agent) == session {
 				s.HandledSession = session
 			}
 		case batchv1.JobFailed:

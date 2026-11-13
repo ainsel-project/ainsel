@@ -14,7 +14,7 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 
 	t.Run("start then latest", func(t *testing.T) {
 		s := newStore(t)
-		sess, err := s.Start(ctx, "a1")
+		sess, err := s.Start(ctx, "a1", "hash-a1")
 		if err != nil {
 			t.Fatalf("Start: %v", err)
 		}
@@ -32,20 +32,20 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 
 	t.Run("second start conflicts", func(t *testing.T) {
 		s := newStore(t)
-		if _, err := s.Start(ctx, "a1"); err != nil {
+		if _, err := s.Start(ctx, "a1", "hash-a1"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Start(ctx, "a1"); !errors.Is(err, ErrLive) {
+		if _, err := s.Start(ctx, "a1", "hash-a1"); !errors.Is(err, ErrLive) {
 			t.Fatalf("second Start err = %v, want ErrLive", err)
 		}
-		if _, err := s.Start(ctx, "a2"); err != nil {
+		if _, err := s.Start(ctx, "a2", "hash-a2"); err != nil {
 			t.Fatalf("Start for another agent: %v", err)
 		}
 	})
 
 	t.Run("full flow hands the redirect once", func(t *testing.T) {
 		s := newStore(t)
-		sess, _ := s.Start(ctx, "a1")
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
 		if err := s.SubmitRedirect(ctx, "a1", "http://127.0.0.1:1455/auth/callback?code=c"); !errors.Is(err, ErrWrongState) {
 			t.Fatalf("paste before the link exists: err = %v, want ErrWrongState", err)
 		}
@@ -77,14 +77,14 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 		if got, _ := s.Get(ctx, "a1", sess.ID); got.State != StateSucceeded {
 			t.Fatalf("after Finish state = %s, want succeeded", got.State)
 		}
-		if _, err := s.Start(ctx, "a1"); err != nil {
+		if _, err := s.Start(ctx, "a1", "hash-a1"); err != nil {
 			t.Fatalf("Start after a finished session: %v", err)
 		}
 	})
 
 	t.Run("failure keeps the message", func(t *testing.T) {
 		s := newStore(t)
-		sess, _ := s.Start(ctx, "a1")
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
 		if err := s.Finish(ctx, "a1", sess.ID, false, "OAuth state mismatch"); err != nil {
 			t.Fatal(err)
 		}
@@ -99,7 +99,7 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 
 	t.Run("cancel closes the live session", func(t *testing.T) {
 		s := newStore(t)
-		sess, _ := s.Start(ctx, "a1")
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
 		if err := s.Cancel(ctx, "a1"); err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +113,7 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 
 	t.Run("expired session reads expired and frees the agent", func(t *testing.T) {
 		s := newStore(t)
-		sess, _ := s.Start(ctx, "a1")
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
 		expire(t, s, sess.ID)
 		got, err := s.Get(ctx, "a1", sess.ID)
 		if err != nil || got.State != StateExpired {
@@ -122,14 +122,57 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 		if _, err := s.TakeRedirect(ctx, "a1", sess.ID); !errors.Is(err, ErrClosed) {
 			t.Fatalf("TakeRedirect on an expired session: err = %v, want ErrClosed", err)
 		}
-		if _, err := s.Start(ctx, "a1"); err != nil {
+		if _, err := s.Start(ctx, "a1", "hash-a1"); err != nil {
 			t.Fatalf("Start after expiry: %v", err)
+		}
+	})
+
+	t.Run("an exchange in progress can finish after the session expired", func(t *testing.T) {
+		s := newStore(t)
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
+		_ = s.SetAuthURL(ctx, "a1", sess.ID, "https://auth.openai.com/x")
+		_ = s.SubmitRedirect(ctx, "a1", "http://127.0.0.1:1455/auth/callback?code=c")
+		if _, err := s.TakeRedirect(ctx, "a1", sess.ID); err != nil {
+			t.Fatal(err)
+		}
+		expire(t, s, sess.ID)
+		if err := s.Finish(ctx, "a1", sess.ID, true, ""); err != nil {
+			t.Fatalf("Finish of a slow exchange: %v, want the success recorded", err)
+		}
+		if got, _ := s.Get(ctx, "a1", sess.ID); got.State != StateSucceeded {
+			t.Fatalf("state = %s, want succeeded", got.State)
+		}
+	})
+
+	t.Run("cancel does not abort an exchange in progress", func(t *testing.T) {
+		s := newStore(t)
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
+		_ = s.SetAuthURL(ctx, "a1", sess.ID, "https://auth.openai.com/x")
+		_ = s.SubmitRedirect(ctx, "a1", "http://127.0.0.1:1455/auth/callback?code=c")
+		_, _ = s.TakeRedirect(ctx, "a1", sess.ID)
+		if err := s.Cancel(ctx, "a1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Finish(ctx, "a1", sess.ID, true, ""); err != nil {
+			t.Fatalf("Finish after a cancel during the exchange: %v", err)
+		}
+		if got, _ := s.Get(ctx, "a1", sess.ID); got.State != StateSucceeded {
+			t.Fatalf("state = %s, want succeeded", got.State)
+		}
+	})
+
+	t.Run("keeps the pod token hash", func(t *testing.T) {
+		s := newStore(t)
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
+		got, err := s.Get(ctx, "a1", sess.ID)
+		if err != nil || got.PodTokenHash != "hash-a1" {
+			t.Fatalf("PodTokenHash = %q, %v; want hash-a1", got.PodTokenHash, err)
 		}
 	})
 
 	t.Run("get is scoped to the agent", func(t *testing.T) {
 		s := newStore(t)
-		sess, _ := s.Start(ctx, "a1")
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
 		if _, err := s.Get(ctx, "a2", sess.ID); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("Get with another agent's name: err = %v, want ErrNotFound", err)
 		}
@@ -137,7 +180,7 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 
 	t.Run("prune removes old sessions", func(t *testing.T) {
 		s := newStore(t)
-		sess, _ := s.Start(ctx, "a1")
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
 		_ = s.Finish(ctx, "a1", sess.ID, true, "")
 		n, err := s.Prune(ctx, time.Now().Add(time.Hour))
 		if err != nil || n != 1 {

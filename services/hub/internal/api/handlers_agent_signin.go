@@ -2,15 +2,23 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/signin"
@@ -143,9 +151,21 @@ func (s *Server) startSignIn(ctx context.Context, w http.ResponseWriter, name st
 		writeError(w, http.StatusBadRequest, "this agent does not use ChatGPT sign-in: choose it as the OpenAI auth method first")
 		return
 	}
-	sess, err := s.signIn.Start(ctx, name)
+	// The sign-in pod's own token: kept in a Secret the operator mounts into
+	// that pod alone, stored here only as a hash.
+	podToken, err := randomToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create the sign-in token")
+		return
+	}
+	sess, err := s.signIn.Start(ctx, name, hashToken(podToken))
 	if err != nil {
 		writeSignInError(w, err)
+		return
+	}
+	if err := s.putSignInPodSecret(ctx, &agent, podToken); err != nil {
+		_ = s.signIn.Cancel(ctx, name)
+		writeError(w, http.StatusInternalServerError, "failed to store the sign-in token: "+err.Error())
 		return
 	}
 	// Only the annotation changes: the operator reacts to it, and no spec
@@ -171,13 +191,26 @@ func (s *Server) submitSignInRedirect(ctx context.Context, w http.ResponseWriter
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	url := strings.TrimSpace(req.RedirectURL)
-	if !strings.HasPrefix(url, signInCallbackPrefix) {
+	pasted := strings.TrimSpace(req.RedirectURL)
+	if !strings.HasPrefix(pasted, signInCallbackPrefix) {
 		writeError(w, http.StatusBadRequest, "the pasted address must start with "+signInCallbackPrefix+
 			": copy the whole address from the page that did not load after signing in")
 		return
 	}
-	if err := s.signIn.SubmitRedirect(ctx, name, url); err != nil {
+	sess, err := s.signIn.Latest(ctx, name)
+	if err != nil {
+		writeSignInError(w, err)
+		return
+	}
+	// At the paste step, check the address the way the pod will. At any
+	// other step the store answers why a paste is not possible (409/404).
+	if sess.State == signin.StateAwaitingRedirect {
+		if msg := callbackProblem(pasted, sess.AuthURL); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+	}
+	if err := s.signIn.SubmitRedirect(ctx, name, pasted); err != nil {
 		writeSignInError(w, err)
 		return
 	}
@@ -202,6 +235,16 @@ func (s *Server) handleInternalSignIn(w http.ResponseWriter, r *http.Request, pa
 		return
 	}
 	ctx := r.Context()
+	sess, err := s.signIn.Get(ctx, agent, id)
+	if err != nil {
+		writeSignInError(w, err)
+		return
+	}
+	given := r.Header.Get("X-Sign-In-Token")
+	if given == "" || subtle.ConstantTimeCompare([]byte(hashToken(given)), []byte(sess.PodTokenHash)) != 1 {
+		writeError(w, http.StatusForbidden, "this call needs the sign-in pod's token")
+		return
+	}
 	switch {
 	case verb == "auth-url" && r.Method == http.MethodPost:
 		var req signInAuthURLRequest
@@ -248,4 +291,81 @@ func (s *Server) handleInternalSignIn(w http.ResponseWriter, r *http.Request, pa
 	default:
 		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown sign-in call %s %s", r.Method, verb))
 	}
+}
+
+// callbackProblem checks a pasted callback the way the sign-in pod will, so a
+// paste that cannot complete the sign-in is refused here with the session
+// left open, instead of failing the exchange and the whole session in the pod.
+// authURL is the link this session showed; its state must come back.
+func callbackProblem(pasted, authURL string) string {
+	u, err := url.Parse(pasted)
+	if err != nil || u.Scheme != "http" || u.Host != "127.0.0.1:1455" || u.Path != "/auth/callback" {
+		return "the pasted address must be " + signInCallbackPrefix + "?…: copy the whole address from the page that did not load"
+	}
+	q := u.Query()
+	if e := q.Get("error"); e != "" {
+		return fmt.Sprintf("OpenAI reported %q instead of signing in; cancel and start a new sign-in", e)
+	}
+	if q.Get("code") == "" {
+		return "the pasted address has no code: copy the whole address, including everything after the ?"
+	}
+	if want := authURLState(authURL); want != "" && q.Get("state") != want {
+		return "this address belongs to an earlier sign-in: use the link shown in this dialog and paste the address it leads to"
+	}
+	if q.Get("client_id") == "" {
+		return "the pasted address has no client_id: copy the whole address, including everything after the ?"
+	}
+	return ""
+}
+
+func authURLState(authURL string) string {
+	u, err := url.Parse(authURL)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("state")
+}
+
+// signInPodSecretName holds the sign-in pod's token for an agent. The operator
+// mounts it into the sign-in Job only; task pods never see it.
+func signInPodSecretName(agent string) string {
+	return agent + "-chatgpt-sign-in"
+}
+
+func randomToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// putSignInPodSecret writes the current session's pod token, owned by the
+// Agent so it goes when the agent does. Each sign-in replaces the token.
+func (s *Server) putSignInPodSecret(ctx context.Context, agent *agentv1alpha1.Agent, token string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      signInPodSecretName(agent.Name),
+			Namespace: s.ns,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: agentv1alpha1.GroupVersion.String(),
+				Kind:       "Agent",
+				Name:       agent.Name,
+				UID:        agent.UID,
+			}},
+		},
+		StringData: map[string]string{"token": token},
+	}
+	if err := s.client.Create(ctx, secret); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		return s.client.Update(ctx, secret)
+	}
+	return nil
 }

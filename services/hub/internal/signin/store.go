@@ -68,13 +68,19 @@ type Session struct {
 	Error     string
 	CreatedAt time.Time
 	ExpiresAt time.Time
+	// PodTokenHash is the SHA-256 (hex) of the token only the sign-in pod
+	// holds. The internal routes require it: every agent pod has the shared
+	// internal token, so that alone must not let one post a link or take the
+	// pasted address. Never sent to the console.
+	PodTokenHash string
 }
 
 // Store persists sessions. Implementations report a live session past its
 // expiry as StateExpired, and refuse to advance it.
 type Store interface {
-	// Start opens a session for agent, or returns ErrLive.
-	Start(ctx context.Context, agent string) (Session, error)
+	// Start opens a session for agent, or returns ErrLive. podTokenHash is
+	// the hash of the sign-in pod's token for this session.
+	Start(ctx context.Context, agent, podTokenHash string) (Session, error)
 	// Latest returns the agent's most recent session, or ErrNotFound.
 	Latest(ctx context.Context, agent string) (Session, error)
 	// Get returns one session of the agent, or ErrNotFound.
@@ -89,9 +95,11 @@ type Store interface {
 	// and moving the session to exchanging. It returns "" while nothing has
 	// been pasted.
 	TakeRedirect(ctx context.Context, agent, id string) (string, error)
-	// Finish ends a live session as succeeded or failed.
+	// Finish ends a live session as succeeded or failed. A session already
+	// exchanging finishes even past its expiry.
 	Finish(ctx context.Context, agent, id string, ok bool, errMsg string) error
-	// Cancel ends the agent's live session, if any.
+	// Cancel ends the agent's live session, if any, unless its code is
+	// already being exchanged.
 	Cancel(ctx context.Context, agent string) error
 	// Prune deletes sessions created before cutoff. It returns the count.
 	Prune(ctx context.Context, cutoff time.Time) (int64, error)

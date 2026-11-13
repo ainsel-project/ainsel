@@ -15,7 +15,11 @@ CREATE TABLE agent_sign_in_sessions (
     redirect_url TEXT,
     error        TEXT        NOT NULL DEFAULT '',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at   TIMESTAMPTZ NOT NULL
+    expires_at   TIMESTAMPTZ NOT NULL,
+    -- SHA-256 of the token only the sign-in pod holds (from a Secret the
+    -- operator mounts into that pod alone). The pod's internal calls must
+    -- present it: every agent pod has the shared internal token.
+    pod_token_hash TEXT      NOT NULL
 );
 
 -- One live session per agent: a second Start is a conflict, not a second pod.

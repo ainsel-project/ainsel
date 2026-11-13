@@ -16,6 +16,7 @@ async function stubHub({ redirectAfter = 1, gone = false } = {}) {
 	const seen = { authUrl: null, result: null, polls: 0, tokens: [] };
 	const server = createServer(async (req, res) => {
 		seen.tokens.push(req.headers["x-internal-token"]);
+		seen.podTokens = [...(seen.podTokens ?? []), req.headers["x-sign-in-token"]];
 		let body = "";
 		for await (const chunk of req) body += chunk;
 		const base = "/api/internal/agents/worker/chatgpt-sign-in/S1/";
@@ -70,7 +71,7 @@ async function setup(hubOpts, runtimeOpts) {
 	const lines = [];
 	const opts = {
 		ModelRuntime: rt.ModelRuntime,
-		hub: hubClient({ hubUrl: hub.url, token: "tok", agent: "worker", session: "S1" }),
+		hub: hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1" }),
 		credentialsDir: dir,
 		log: (l) => lines.push(l),
 		sleep: async () => {},
@@ -90,6 +91,7 @@ test("posts the auth url and returns the pasted redirect", async () => {
 		assert.equal(rt.calls.login[0].type, "oauth");
 		assert.equal(rt.calls.create[0].authPath, join(opts.credentialsDir, "auth.json"));
 		assert.ok(hub.seen.tokens.every((t) => t === "tok"), "every hub call carries the internal token");
+		assert.ok(hub.seen.podTokens.every((t) => t === "ptok"), "every hub call carries the sign-in pod's token");
 	} finally {
 		await hub.close();
 	}
@@ -174,7 +176,7 @@ test("refuses any prompt other than the redirect paste", async () => {
 		};
 		const code = await runSignIn({
 			ModelRuntime,
-			hub: hubClient({ hubUrl: hub.url, token: "tok", agent: "worker", session: "S1" }),
+			hub: hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1" }),
 			credentialsDir: dir,
 			log: () => {},
 			sleep: async () => {},
@@ -191,6 +193,23 @@ test("introduces itself to OpenAI as AInsel and the agent", async () => {
 	try {
 		await runSignIn({ ...opts, agentName: "worker" });
 		assert.equal(rt.calls.login[0].agentName, "AInsel worker");
+	} finally {
+		await hub.close();
+	}
+});
+
+test("a successful login exits 0 even if the hub has closed the session", async () => {
+	const { hub, rt, opts } = await setup();
+	try {
+		const closedOnResult = {
+			...opts.hub,
+			async postResult() {
+				const e = new Error("the sign-in session ended (expired or cancelled)");
+				throw e;
+			},
+		};
+		assert.equal(await runSignIn({ ...opts, hub: closedOnResult }), 0);
+		assert.equal(rt.calls.pasted, PASTED);
 	} finally {
 		await hub.close();
 	}

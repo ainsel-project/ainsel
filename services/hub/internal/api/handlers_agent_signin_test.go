@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -62,6 +63,13 @@ func call(t *testing.T, s *Server, method, path string, body any, internal bool)
 	}
 	if internal {
 		r.Header.Set("X-Internal-Token", testInternalToken)
+		// The sign-in pod also carries its session's token, from the Secret
+		// the hub wrote for it.
+		if agent, _, ok := strings.Cut(strings.TrimPrefix(path, "/api/internal/agents/"), "/"); ok {
+			if tok := podToken(s, agent); tok != "" {
+				r.Header.Set("X-Sign-In-Token", tok)
+			}
+		}
 	}
 	rec := httptest.NewRecorder()
 	s.mux.ServeHTTP(rec, r)
@@ -138,7 +146,7 @@ func TestSignInSecondStartConflicts(t *testing.T) {
 func postAuthURL(t *testing.T, s *Server, agent, id string) {
 	t.Helper()
 	code, body := call(t, s, http.MethodPost, "/api/internal/agents/"+agent+"/chatgpt-sign-in/"+id+"/auth-url",
-		map[string]string{"url": "https://auth.openai.com/api/accounts/authorize?x=1"}, true)
+		map[string]string{"url": "https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=st8"}, true)
 	if code != http.StatusNoContent {
 		t.Fatalf("post auth url: %d %s", code, body)
 	}
@@ -179,7 +187,7 @@ func TestSignInRedirectHandedOnce(t *testing.T) {
 	if code, _ := call(t, s, http.MethodGet, path, nil, true); code != http.StatusNoContent {
 		t.Fatalf("redirect before paste: %d, want 204", code)
 	}
-	const pasted = "http://127.0.0.1:1455/auth/callback?code=c&state=s"
+	const pasted = "http://127.0.0.1:1455/auth/callback?code=c&state=st8&client_id=app_x"
 	if code, body := call(t, s, http.MethodPost, "/api/v1/agents/signer/chatgpt-sign-in/redirect",
 		signInRedirectRequest{RedirectURL: pasted}, false); code != http.StatusAccepted {
 		t.Fatalf("paste: %d %s, want 202", code, body)
@@ -335,4 +343,88 @@ func TestInternalSignInRejectsForeignAuthURL(t *testing.T) {
 	if strings.Contains(string(body), "evil.example") {
 		t.Fatalf("console shows the foreign link: %s", body)
 	}
+}
+
+// A paste that has the right prefix but cannot complete the sign-in is a 400
+// with the session left open, not a doomed exchange in the pod.
+func TestSignInRedirectRejectsUnusableCallbacks(t *testing.T) {
+	s, _ := signInServer(t)
+	sess := startSignIn(t, s, "signer")
+	postAuthURL(t, s, "signer", sess.ID)
+	cases := map[string]string{
+		"http://127.0.0.1:1455/auth/callback":                                    "code",
+		"http://127.0.0.1:1455/auth/callbackX?code=c&state=st8&client_id=app_x":  "/auth/callback",
+		"http://127.0.0.1:1455/auth/callback?error=access_denied&state=st8":      "access_denied",
+		"http://127.0.0.1:1455/auth/callback?code=c&state=older&client_id=app_x": "earlier sign-in",
+		"http://127.0.0.1:1455/auth/callback?code=c&state=st8":                   "client_id",
+	}
+	for pasted, want := range cases {
+		code, body := call(t, s, http.MethodPost, "/api/v1/agents/signer/chatgpt-sign-in/redirect",
+			signInRedirectRequest{RedirectURL: pasted}, false)
+		if code != http.StatusBadRequest || !strings.Contains(string(body), want) {
+			t.Errorf("paste %q: %d %s, want 400 mentioning %q", pasted, code, body, want)
+		}
+	}
+	_, body := call(t, s, http.MethodGet, "/api/v1/agents/signer/chatgpt-sign-in", nil, false)
+	if !strings.Contains(string(body), `"state":"awaiting_redirect"`) {
+		t.Fatalf("after unusable pastes: %s, want the session still open", body)
+	}
+	if code, _ := call(t, s, http.MethodPost, "/api/v1/agents/signer/chatgpt-sign-in/redirect",
+		signInRedirectRequest{RedirectURL: "http://127.0.0.1:1455/auth/callback?code=c&state=st8&client_id=app_x"}, false); code != http.StatusAccepted {
+		t.Fatalf("the right callback afterwards: %d, want 202", code)
+	}
+}
+
+func podToken(s *Server, agent string) string {
+	var sec corev1.Secret
+	if err := s.client.Get(context.Background(), types.NamespacedName{Namespace: "test-ns", Name: agent + "-chatgpt-sign-in"}, &sec); err != nil {
+		return ""
+	}
+	if v := sec.StringData["token"]; v != "" {
+		return v
+	}
+	return string(sec.Data["token"])
+}
+
+func TestSignInStartCreatesPodSecret(t *testing.T) {
+	s, _ := signInServer(t)
+	resp := startSignIn(t, s, "signer")
+	var sec corev1.Secret
+	if err := s.client.Get(context.Background(), types.NamespacedName{Namespace: "test-ns", Name: "signer-chatgpt-sign-in"}, &sec); err != nil {
+		t.Fatalf("pod token secret: %v", err)
+	}
+	tok := podToken(s, "signer")
+	if len(tok) < 32 {
+		t.Fatalf("pod token %q is too short to be a secret", tok)
+	}
+	if len(sec.OwnerReferences) != 1 || sec.OwnerReferences[0].Name != "signer" {
+		t.Errorf("owner refs = %+v, want the Agent", sec.OwnerReferences)
+	}
+	_, body := call(t, s, http.MethodGet, "/api/v1/agents/signer/chatgpt-sign-in", nil, false)
+	if strings.Contains(string(body), tok) || strings.Contains(sessionAnnotation(t, s, "signer"), tok) {
+		t.Fatal("the pod token is visible outside its Secret")
+	}
+	_ = resp
+}
+
+// Every agent pod has the shared internal token. Only the sign-in pod has the
+// session token, so only it may post the link or take the pasted address.
+func TestInternalSignInRequiresPodToken(t *testing.T) {
+	s, _ := signInServer(t)
+	sess := startSignIn(t, s, "signer")
+	path := "/api/internal/agents/signer/chatgpt-sign-in/" + sess.ID + "/auth-url"
+	for _, tok := range []string{"", "wrong-token"} {
+		b, _ := json.Marshal(map[string]string{"url": "https://auth.openai.com/api/accounts/authorize?state=evil"})
+		r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(b))
+		r.Header.Set("X-Internal-Token", testInternalToken)
+		if tok != "" {
+			r.Header.Set("X-Sign-In-Token", tok)
+		}
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, r)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("pod token %q: %d, want 403", tok, rec.Code)
+		}
+	}
+	postAuthURL(t, s, "signer", sess.ID) // with the right token it works
 }

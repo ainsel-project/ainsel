@@ -501,6 +501,15 @@ func TestSignInJobShape(t *testing.T) {
 	if _, ok := env["OPENAI_API_KEY"]; ok {
 		t.Error("sign-in pod got OPENAI_API_KEY")
 	}
+	var tokenRef *corev1.SecretKeySelector
+	for _, e := range c.Env {
+		if e.Name == "AINSEL_SIGN_IN_TOKEN" && e.ValueFrom != nil {
+			tokenRef = e.ValueFrom.SecretKeyRef
+		}
+	}
+	if tokenRef == nil || tokenRef.Name != "worker-chatgpt-sign-in" || tokenRef.Key != "token" {
+		t.Errorf("AINSEL_SIGN_IN_TOKEN ref = %+v, want secret worker-chatgpt-sign-in key token", tokenRef)
+	}
 	if _, ok := env["SOME_IMAGE_ENV"]; ok {
 		t.Error("sign-in pod got image env it does not need")
 	}
@@ -559,5 +568,24 @@ func TestNoTaskDispatchWhileSignInJobRuns(t *testing.T) {
 	}
 	if len(signInJobs(jobs)) != 1 {
 		t.Errorf("sign-in jobs = %d, want the running one only", len(signInJobs(jobs)))
+	}
+}
+
+// A finished Job of an earlier session must not overwrite the record of a
+// newer one, whatever order the cache lists them in.
+func TestOlderSignInJobDoesNotOverrideNewer(t *testing.T) {
+	agent := requestSignIn(signInJobModeAgent(7))
+	older := buildSignInJob(agent, jobModeDeployment(), "01JOLDERSESSION00000AAAAAA")
+	older.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+	older.Status.CompletionTime = &metav1.Time{Time: time.Now().Add(-30 * time.Minute)}
+	newer := finishedSignInJob(agent, true, time.Now().Add(-time.Minute))
+
+	recordSignInOutcome(agent, newer)
+	recordSignInOutcome(agent, older)
+	if got := agent.Status.ChatGPTSignIn.HandledSession; got != testSession {
+		t.Fatalf("handledSession = %q after seeing the older Job last, want the current session %q", got, testSession)
+	}
+	if signInWanted(agent) != "" {
+		t.Error("the current session reads as unhandled, so dispatch would be held again")
 	}
 }

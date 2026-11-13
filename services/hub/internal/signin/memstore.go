@@ -69,7 +69,7 @@ func (m *MemStore) open(agent, id string) (*memSession, error) {
 	return s, nil
 }
 
-func (m *MemStore) Start(_ context.Context, agent string) (Session, error) {
+func (m *MemStore) Start(_ context.Context, agent, podTokenHash string) (Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.live(agent) != nil {
@@ -78,7 +78,7 @@ func (m *MemStore) Start(_ context.Context, agent string) (Session, error) {
 	now := m.now()
 	s := &memSession{Session: Session{
 		ID: ulid.Make().String(), Agent: agent, State: StateWaitingForPod,
-		CreatedAt: now, ExpiresAt: now.Add(TTL),
+		CreatedAt: now, ExpiresAt: now.Add(TTL), PodTokenHash: podTokenHash,
 	}}
 	m.sessions = append(m.sessions, s)
 	return s.Session, nil
@@ -153,9 +153,14 @@ func (m *MemStore) TakeRedirect(_ context.Context, agent, id string) (string, er
 func (m *MemStore) Finish(_ context.Context, agent, id string, ok bool, errMsg string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s, err := m.open(agent, id)
-	if err != nil {
-		return err
+	// An exchange the pod already started finishes whatever the clock says:
+	// the credential may already be on the volume.
+	s := m.find(agent, id)
+	if s == nil || s.State != StateExchanging {
+		var err error
+		if s, err = m.open(agent, id); err != nil {
+			return err
+		}
 	}
 	s.redirect = ""
 	if ok {
@@ -170,7 +175,8 @@ func (m *MemStore) Finish(_ context.Context, agent, id string, ok bool, errMsg s
 func (m *MemStore) Cancel(_ context.Context, agent string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s := m.live(agent); s != nil {
+	// An exchange in progress is not cancelled: the code is already spent.
+	if s := m.live(agent); s != nil && s.State != StateExchanging {
 		s.redirect = ""
 		s.State = StateCancelled
 	}

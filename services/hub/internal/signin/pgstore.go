@@ -30,12 +30,12 @@ const liveStates = `('waiting_for_pod', 'awaiting_redirect', 'exchanging')`
 // rule MemStore applies, so no sweeper is needed for correctness.
 const sessionColumns = `id, agent,
 	CASE WHEN state IN ` + liveStates + ` AND expires_at <= now() THEN 'expired' ELSE state END,
-	auth_url, error, created_at, expires_at`
+	auth_url, error, created_at, expires_at, pod_token_hash`
 
 func scanSession(row pgx.Row) (Session, error) {
 	var s Session
 	var state string
-	if err := row.Scan(&s.ID, &s.Agent, &state, &s.AuthURL, &s.Error, &s.CreatedAt, &s.ExpiresAt); err != nil {
+	if err := row.Scan(&s.ID, &s.Agent, &state, &s.AuthURL, &s.Error, &s.CreatedAt, &s.ExpiresAt, &s.PodTokenHash); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Session{}, ErrNotFound
 		}
@@ -45,7 +45,7 @@ func scanSession(row pgx.Row) (Session, error) {
 	return s, nil
 }
 
-func (p *PgStore) Start(ctx context.Context, agent string) (Session, error) {
+func (p *PgStore) Start(ctx context.Context, agent, podTokenHash string) (Session, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return Session{}, err
@@ -59,9 +59,9 @@ func (p *PgStore) Start(ctx context.Context, agent string) (Session, error) {
 		return Session{}, fmt.Errorf("expire stale sign-in sessions: %w", err)
 	}
 	s, err := scanSession(tx.QueryRow(ctx, `
-		INSERT INTO agent_sign_in_sessions (id, agent, state, expires_at)
-		VALUES ($1, $2, 'waiting_for_pod', now() + $3::interval)
-		RETURNING `+sessionColumns, ulid.Make().String(), agent, TTL.String()))
+		INSERT INTO agent_sign_in_sessions (id, agent, state, expires_at, pod_token_hash)
+		VALUES ($1, $2, 'waiting_for_pod', now() + $3::interval, $4)
+		RETURNING `+sessionColumns, ulid.Make().String(), agent, TTL.String(), podTokenHash))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -162,7 +162,8 @@ func (p *PgStore) Finish(ctx context.Context, agent, id string, ok bool, errMsg 
 	}
 	tag, err := p.pool.Exec(ctx, `
 		UPDATE agent_sign_in_sessions SET state = $3, error = $4, redirect_url = NULL
-		 WHERE agent = $1 AND id = $2 AND state IN `+liveStates+` AND expires_at > now()`,
+		 WHERE agent = $1 AND id = $2
+		   AND (state = 'exchanging' OR (state IN `+liveStates+` AND expires_at > now()))`,
 		agent, id, string(state), errMsg)
 	if err != nil {
 		return err
@@ -176,7 +177,7 @@ func (p *PgStore) Finish(ctx context.Context, agent, id string, ok bool, errMsg 
 func (p *PgStore) Cancel(ctx context.Context, agent string) error {
 	_, err := p.pool.Exec(ctx, `
 		UPDATE agent_sign_in_sessions SET state = 'cancelled', redirect_url = NULL
-		 WHERE agent = $1 AND state IN `+liveStates, agent)
+		 WHERE agent = $1 AND state IN ('waiting_for_pod', 'awaiting_redirect')`, agent)
 	return err
 }
 

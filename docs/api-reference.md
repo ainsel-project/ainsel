@@ -296,8 +296,10 @@ pasted address.
 ### POST /api/v1/agents/{name}/chatgpt-sign-in/redirect
 
 Body `{"redirectUrl": "http://127.0.0.1:1455/auth/callback?code=...&state=..."}`.
-**Response:** `202 Accepted`. `400` unless it starts with `http://127.0.0.1:1455/auth/callback`
-(the session stays open for another paste), `409` before the authorization link is ready,
+**Response:** `202 Accepted`. `400` unless it is exactly the callback the sign-in pod can use:
+`http://127.0.0.1:1455/auth/callback` with a `code`, a `client_id` and the `state` of the link
+this session showed (an error from OpenAI, or an address from an earlier attempt, is a `400`
+too). The session stays open for another paste. `409` before the authorization link is ready,
 `404` without a live session. The address is handed to the sign-in pod once and then
 deleted.
 
@@ -305,10 +307,15 @@ deleted.
 
 Cancel the live sign-in. **Response:** `204 No Content`.
 
-The sign-in pod uses internal routes behind `X-Internal-Token`:
+Starting a sign-in also writes a token for that session to the Secret
+`<agent>-chatgpt-sign-in` (owned by the Agent), which the operator mounts into the
+sign-in pod only. The pod uses internal routes behind `X-Internal-Token` **and**
+`X-Sign-In-Token` (that session token; `403` without it, since every agent pod has
+the internal token):
 `POST /api/internal/agents/{name}/chatgpt-sign-in/{session}/auth-url` (`{"url"}`, must start
 with `https://auth.openai.com/`), `GET …/redirect` (`204` until pasted, then `200` once,
-`410` once the session has ended) and `POST …/result` (`{"ok", "error"}`).
+`410` once the session has ended) and `POST …/result` (`{"ok", "error"}`). An exchange
+that has started is not cancelled and may finish after the session's 10 minutes.
 
 ### GET /api/v1/agents/{name}/persona
 

@@ -25,9 +25,11 @@ const POLL_MS = 2000;
 class SessionClosed extends Error {}
 
 // hubClient talks to the hub's internal sign-in routes for one session.
-export function hubClient({ hubUrl, token, agent, session }) {
+// podToken is this session's own token (AINSEL_SIGN_IN_TOKEN): only the
+// sign-in pod has it, so the hub can tell it from other agent pods.
+export function hubClient({ hubUrl, token, podToken, agent, session }) {
 	const base = `${hubUrl.replace(/\/$/, "")}/api/internal/agents/${encodeURIComponent(agent)}/chatgpt-sign-in/${encodeURIComponent(session)}`;
-	const headers = { "X-Internal-Token": token, "content-type": "application/json" };
+	const headers = { "X-Internal-Token": token, "X-Sign-In-Token": podToken, "content-type": "application/json" };
 	async function call(method, verb, body) {
 		const res = await fetch(`${base}/${verb}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
 		if (res.status === 410) throw new SessionClosed("the sign-in session ended (expired or cancelled)");
@@ -107,7 +109,12 @@ export async function runSignIn({ ModelRuntime, hub, agentName = "", credentials
 			throw failure ?? error;
 		}
 		log("chatgpt-signin: signed in; credential stored on the agent's volume");
-		await hub.postResult(true);
+		// The credential is on the volume now; that is the sign-in. Telling the
+		// console is best effort, and the operator reads success from the exit
+		// code.
+		await hub.postResult(true).catch((error) => {
+			log(`chatgpt-signin: could not report the result to the hub: ${error instanceof Error ? error.message : error}`);
+		});
 		return 0;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -124,6 +131,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 	const hub = hubClient({
 		hubUrl: process.env.HUB_URL ?? "",
 		token: process.env.HUB_INTERNAL_VALIDATE_SECRET ?? "",
+		podToken: process.env.AINSEL_SIGN_IN_TOKEN ?? "",
 		agent: process.env.AGENT_NAME ?? "",
 		session: process.env.AINSEL_SIGN_IN_SESSION ?? "",
 	});

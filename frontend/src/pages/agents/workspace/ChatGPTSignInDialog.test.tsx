@@ -122,6 +122,33 @@ describe('ChatGPTSignInDialog', () => {
   })
 })
 
+describe('ChatGPTSignInDialog while exchanging', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('offers no cancel once the code is being exchanged', async () => {
+    const calls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push(method)
+        const s = { id: 'S1', state: 'exchanging', expiresAt: '2026-11-13T12:00:00Z' }
+        return Promise.resolve(
+          new Response(JSON.stringify(s), { status: method === 'POST' ? 201 : 200 }),
+        )
+      }),
+    )
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(<ChatGPTSignInDialog agentId="a1" open onClose={onClose} pollMs={20} />)
+    expect(await screen.findByText(/finishing the sign-in/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /cancel sign-in/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^close$/i }))
+    expect(onClose).toHaveBeenCalled()
+    expect(calls).not.toContain('DELETE')
+  })
+})
+
 describe('SignInBanner', () => {
   beforeEach(() => vi.stubGlobal('fetch', signInHub().fetchMock))
   afterEach(() => vi.unstubAllGlobals())
