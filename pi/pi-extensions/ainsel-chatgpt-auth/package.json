@@ -1,0 +1,11 @@
+{
+  "name": "ainsel-chatgpt-auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scripts for ChatGPT sign-in agents: check (and refresh) the stored sign-in before a task runs. Not a pi extension: there is no index.ts, so the entrypoint does not load it.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --test"
+  }
+}
