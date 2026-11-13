@@ -355,3 +355,111 @@ func TestUpdateMCPServer_PluginManaged409(t *testing.T) {
 		t.Errorf("row changed despite the refused update: %+v", got)
 	}
 }
+
+// The console's "list tools" on a registry row has to reach the server the way an
+// agent does. The row names the env var; the value sits on the images that attach
+// it, so the hub reads it from there rather than asking anonymously and being told
+// the door is locked.
+func TestMCPServerTools_SendsTheCredentialTheRowNames(t *testing.T) {
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	url, seenAuth := authedMCPServer(t, "forge-token")
+
+	if err := s.mcp.Create(ctx, &mcpservers.MCPServer{
+		Name:         "forge",
+		DisplayName:  "Forge",
+		URL:          url,
+		TokenFromEnv: "FORGEJO_TOKEN", // #nosec G101 -- env var name, not a credential
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+	img := imageWithMCPServer("img-a", url, "FORGEJO_TOKEN", []agentv1alpha1.AgentImageEnvVar{
+		{Name: "FORGEJO_TOKEN", Value: "forge-token", Secret: true},
+	})
+	if err := s.client.Create(ctx, img); err != nil {
+		t.Fatalf("seed image: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp-servers/forge/tools", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+	var out []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if len(out) != 1 || out[0].Name != "create_issue" {
+		t.Fatalf("expected the server's tool, got %+v", out)
+	}
+	if got := seenAuth(); got != "Bearer forge-token" {
+		t.Errorf("server saw %q, want the token the image holds", got)
+	}
+}
+
+// With no image carrying the named var there is nothing to send: the row is listed
+// as it always was, and a server that requires a token answers the way it does for
+// any other uncredentialed caller.
+func TestMCPServerTools_FailsAsAnonymousWhenNoImageCarriesTheVar(t *testing.T) {
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	url, _ := authedMCPServer(t, "forge-token")
+
+	if err := s.mcp.Create(ctx, &mcpservers.MCPServer{
+		Name:         "forge",
+		DisplayName:  "Forge",
+		URL:          url,
+		TokenFromEnv: "FORGEJO_TOKEN", // #nosec G101 -- env var name, not a credential
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp-servers/forge/tools", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 from a server that refuses anonymous calls, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// The row was edited after the image was written, so the image's snapshot names the
+// old variable while the row names a new one. The credential the snapshot names is
+// not this row's credential — the tools read stays anonymous rather than sending a
+// secret the registry never pointed at the row's URL.
+func TestMCPServerTools_StaysAnonymousWhenTheRowAndImageSnapshotDisagree(t *testing.T) {
+	s := mcpTestServer(t)
+	ctx := t.Context()
+	url, seenAuth := authedMCPServer(t, "forge-token")
+
+	if err := s.mcp.Create(ctx, &mcpservers.MCPServer{
+		Name:         "forge",
+		DisplayName:  "Forge",
+		URL:          url,
+		TokenFromEnv: "FORGEJO_TOKEN", // #nosec G101 -- env var name, not a credential
+	}); err != nil {
+		t.Fatalf("create row: %v", err)
+	}
+	// The image attached the row before the edit: its reference still names the old var.
+	img := imageWithMCPServer("img-a", url, "OLD_FORGEJO_TOKEN", []agentv1alpha1.AgentImageEnvVar{
+		{Name: "OLD_FORGEJO_TOKEN", Value: "forge-token", Secret: true},
+	})
+	if err := s.client.Create(ctx, img); err != nil {
+		t.Fatalf("seed image: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp-servers/forge/tools", nil)
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 from an anonymous call to a server that refuses it, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := seenAuth(); got != "" {
+		t.Errorf("expected no Authorization header, got %q", got)
+	}
+}

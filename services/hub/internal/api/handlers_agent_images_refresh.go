@@ -49,8 +49,7 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 	freshByServer := make(map[string][]mcpToolSummary, len(img.Spec.MCPServers))
 	var errs []string
 	for _, mcpServer := range img.Spec.MCPServers {
-		// tools/list does not require auth; never forward credentials from here.
-		tools, err := listMCPTools(ctx, mcpServer.URL, "")
+		tools, err := listMCPTools(ctx, mcpServer.URL, mcpBearerForImage(&img, mcpServer))
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", mcpServer.Name, err))
 			continue
@@ -139,6 +138,32 @@ func mergeMCPTools(
 	}
 
 	return result
+}
+
+// mcpBearerForImage returns the bearer to present to one of an image's MCP
+// servers when listing its tools, or "" when the server asks for none.
+//
+// The registry row names the env var (tokenFromEnv) whose value the agent runtime
+// sends as the bearer, and the image's env is where that value lives. Listing
+// without it is not the neutral choice it was assumed to be: a server that
+// requires a token answers 401 rather than serving its anonymous tool list, and
+// the image is left holding no tools from it at all — which reads as "this server
+// offers nothing" rather than "we were not allowed to ask". The credential sent is
+// the same one the operator injects into the agent pod for that server, so this
+// carries a secret no further than the runtime already does.
+//
+// A name that no env var of the image carries answers "" — the server is then
+// listed as before, anonymously.
+func mcpBearerForImage(img *agentv1alpha1.AgentImage, server agentv1alpha1.AgentImageMCPServer) string {
+	if server.TokenFromEnv == "" {
+		return ""
+	}
+	for _, e := range img.Spec.Env {
+		if e.Name == server.TokenFromEnv {
+			return e.Value
+		}
+	}
+	return ""
 }
 
 // mcpToolSummary holds the minimal fields we need from an MCP tool listing.

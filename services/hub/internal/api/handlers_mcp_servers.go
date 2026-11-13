@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -319,28 +320,89 @@ func managedMessage(row *mcpservers.MCPServer) string {
 	return mcpservers.ManagedError{Manager: row.ManagedBy}.Error()
 }
 
-// agentImagesReferencingMCPServer returns the names of all AgentImages in the
-// server namespace that have the given MCP server name in their Spec.MCPServers.
-func (s *Server) agentImagesReferencingMCPServer(ctx context.Context, name string) ([]string, error) {
+// agentImagesAttachingMCPServer returns the AgentImages in the server namespace
+// that have the given MCP server name in their Spec.MCPServers, sorted by name so
+// callers get a deterministic answer. One definition of "which images attach this
+// row" for both the reference check and the credential resolution below.
+func (s *Server) agentImagesAttachingMCPServer(ctx context.Context, name string) ([]agentv1alpha1.AgentImage, error) {
 	var list agentv1alpha1.AgentImageList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
 		return nil, err
 	}
-	var images []string
+	var images []agentv1alpha1.AgentImage
 	for _, img := range list.Items {
 		for _, m := range img.Spec.MCPServers {
 			if m.Name == name {
-				images = append(images, img.Name)
+				images = append(images, img)
 				break
 			}
 		}
 	}
+	sort.Slice(images, func(i, j int) bool { return images[i].Name < images[j].Name })
 	return images, nil
 }
 
+// agentImagesReferencingMCPServer returns the names of all AgentImages in the
+// server namespace that have the given MCP server name in their Spec.MCPServers.
+func (s *Server) agentImagesReferencingMCPServer(ctx context.Context, name string) ([]string, error) {
+	images, err := s.agentImagesAttachingMCPServer(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(images))
+	for _, img := range images {
+		names = append(names, img.Name)
+	}
+	return names, nil
+}
+
+// mcpBearerForServer resolves the credential named by a registry row's
+// tokenFromEnv when no image is in hand. The registry stores only the name; the
+// value lives on the images that attach the row, so the first image (by name)
+// carrying it supplies it. A row nothing attaches yet, or an image that never got
+// the var, answers "" and the row is listed anonymously — what happened in every
+// case before.
+//
+// The image's snapshot must name the row's *current* variable. A registry edit
+// changes the row's tokenFromEnv without rewriting existing images (the agent CR
+// holds a snapshot — docs/api-reference.md), so an image whose reference names a
+// different variable holds a credential the row no longer claims: sending it would
+// hand the row's URL a secret the registry never pointed there. Such a candidate
+// is skipped, and the row is listed anonymously.
+//
+// A plugin-managed row keeps answering "" here for a different reason: its
+// tokenFromEnv names HUB_INTERNAL_VALIDATE_SECRET, which the operator injects into
+// the agent pod rather than the image env, and the endpoint also demands the
+// per-agent headers a refresh has no business claiming.
+func (s *Server) mcpBearerForServer(ctx context.Context, name, tokenFromEnv string) string {
+	if tokenFromEnv == "" {
+		return ""
+	}
+	images, err := s.agentImagesAttachingMCPServer(ctx, name)
+	if err != nil {
+		// The listing still works anonymously, so this is a degraded read rather
+		// than a failed one: report it, do not fail the request over it.
+		slog.Warn("mcp tools: image lookup failed, listing anonymously", "server", name, "error", err)
+		return ""
+	}
+	for i := range images {
+		for _, ref := range images[i].Spec.MCPServers {
+			if ref.Name != name || ref.TokenFromEnv != tokenFromEnv {
+				continue
+			}
+			if token := mcpBearerForImage(&images[i], ref); token != "" {
+				return token
+			}
+		}
+	}
+	return ""
+}
+
 // handleMCPServerTools proxies a tools/list request to the named MCP server
-// and returns the discovered tools. tools/list does not require authentication,
-// so the proxy sends no bearer.
+// and returns the discovered tools. The row names the env var whose value the
+// agent runtime sends as the bearer, and this resolves it the way a refresh does
+// (see mcpBearerForServer): a server that requires a token answers here as it does
+// for an agent, instead of refusing the request it would accept from a pod.
 func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request, name string) {
 	m, err := s.mcp.Get(r.Context(), name)
 	if err != nil {
@@ -352,7 +414,7 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 
-	tools, err := listMCPTools(r.Context(), m.URL, "")
+	tools, err := listMCPTools(r.Context(), m.URL, s.mcpBearerForServer(r.Context(), m.Name, m.TokenFromEnv))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "failed to list tools: "+err.Error())
 		return

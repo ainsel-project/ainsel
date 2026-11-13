@@ -473,6 +473,19 @@ managed (`managedBy`) — refreshing rewrites `spec.tools`.
 **Response:** `200 OK` with `{"image": …, "warnings": […]}` (per-server errors are
 reported as warnings), `400`, `404`, `409`, or `500`.
 
+Each server is queried with the credential its registry row names: when
+`tokenFromEnv` is set, the hub sends the value the image holds under that name as
+`Authorization: Bearer …` — the same credential the operator injects into the agent
+pod. A server that requires a token would otherwise answer `401` and contribute no
+tools, which reads as "this server offers nothing" rather than "we were not allowed
+to ask". Servers naming no env var are queried anonymously, and so are rows whose
+name the image does not carry under its `env`. A plugin-seeded row (e.g.
+`plugin-forgejo`) keeps answering anonymously: its `tokenFromEnv` names a
+platform-owned variable such as `HUB_INTERNAL_VALIDATE_SECRET`, which the operator
+injects into the agent pod rather than into the image's `env` — the console cannot
+author such an image, because an image MCP server naming a platform-owned variable
+is skipped with a `Degraded` condition (see the skills-MCP note below).
+
 ---
 
 ## Connectors
@@ -1339,6 +1352,27 @@ Entries that are externally managed (`managedBy` — e.g. seeded by Helm or a Gi
 pipeline) cannot be updated from the console: `409 Conflict`.
 
 **Response:** `200 OK`, `400`, `404`, `409` (externally managed), `500`, or `503`.
+
+Changing `tokenFromEnv` rewrites the row only: existing `AgentImage`s and agents keep
+the name they were written with (the agent CR holds a snapshot), and the tools
+listing below sends a credential only when an image's reference names the row's
+*current* variable.
+
+### GET /api/v1/mcp-servers/{name}/tools
+
+List the tools the server offers by forwarding a `tools/list` request to its `URL`.
+
+The row names the credential (`tokenFromEnv`) but stores no value: the hub sends the
+value of that variable from the first `AgentImage` (by name) that attaches the row
+**and** whose own `mcpServers` reference names the row's current `tokenFromEnv`. An
+image whose reference names a different (pre-edit) variable lends its value to
+nothing. When no image qualifies — none attaches the row, none carries the variable,
+or the names disagree — the request goes out anonymously, and a server that requires
+a token answers `401`, which this endpoint reports as `502`.
+
+**Response:** `200 OK` with a JSON array of `{"name": …, "description": …}`,
+`400` if the name is missing or contains a slash, `404 Not Found`, `502` if the
+server refused or was unreachable, `500`, or `503`.
 
 ### DELETE /api/v1/mcp-servers/{name}
 
