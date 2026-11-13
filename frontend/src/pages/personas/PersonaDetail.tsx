@@ -96,7 +96,7 @@ export function PersonaDetail() {
           )
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <Tabs value={tab} onChange={setTab} tabs={tabs} aria-label="Persona sections" />
         <div style={{ marginTop: 24 }}>
           {isLoading ? <p className="label">Loading…</p> : null}

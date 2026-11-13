@@ -1,0 +1,128 @@
+/* Small screens (issue #261) — the responsive layer over primitives.css,
+   imported after it in main.tsx so these declarations win at their tier.
+
+   Why a separate file rather than `@media` blocks inside primitives.css: three
+   specs (codeSurfaces, scrollCap, themeContrast) read primitives.css through
+   `cssThemeKit.parseRules`, which refuses any conditional at-rule on purpose —
+   flattening one would apply its declarations everywhere, skipping one would hide
+   them (see cssThemeKit.test.ts, which pins that). A media query in
+   primitives.css therefore breaks those specs. Keeping the whole small-screen tier
+   here leaves primitives.css a flat, desktop-only description of each primitive,
+   which is what those specs read; responsive.guard.test.ts pins the flatness.
+
+   Two tiers, and only these two live here — the breakpoint allow-list in
+   tokens.css is pinned by responsive.guard.test.ts:
+
+     760px  "narrow"  — multi-column primitives lose their widest columns
+     480px  "phone"   — everything is one column and the gutters close in
+
+   Both tiers collapse the *grid*, never the content. A fixed track such as
+   `.md-grid`'s 320px sidebar is wider than a 360px viewport minus padding, and
+   because `.canvas` is `overflow-x: hidden` the overflow is clipped rather than
+   scrolled — the content becomes unreachable, not scrollable. That is the
+   failure these rules exist to remove.
+
+   Tables are deliberately absent: `.reg-wrap` already scrolls horizontally and
+   `table.reg { min-width: 960px }` stays. */
+@media (max-width: 760px) {
+  .page {
+    padding: 20px 16px 40px;
+  }
+
+  /* Four KPI cards across ~700px is still readable; across 360px it is not. */
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Two columns is where the cell borders first go wrong: the base rule drops
+     the border only on the last cell, so every odd row keeps a stray rule on its
+     right edge. Kill it on the right-hand column instead. */
+  .info-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .info-grid > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .form-grid.cols-3,
+  .form-section > .form-grid.cols-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Stack the master-detail grid. The left pane keeps its own scroll window so
+     the page does not grow by the whole tool list before the editor appears. */
+  .md-grid {
+    grid-template-columns: 1fr;
+  }
+  .md-grid > .md-left {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-soft);
+    max-height: 320px;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 16px;
+  }
+
+  .kpi-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* One column: the vertical rules go, the horizontal ones stay (except after
+     the last cell, which would double the grid's own bottom border). */
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+  .info-grid > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .info-grid > div:last-child {
+    border-bottom: 0;
+  }
+
+  .form-grid.cols-2,
+  .form-grid.cols-3,
+  .form-section > .form-grid.cols-2,
+  .form-section > .form-grid.cols-3 {
+    grid-template-columns: 1fr;
+  }
+
+  /* The 480px floor exists to give the two panes room side by side; stacked, it
+     just makes the page taller than it needs to be. */
+  .md-grid {
+    min-height: 0;
+  }
+
+  /* Stack the picker. The arrow column becomes a row between the panes and the
+     glyphs stay ← / →: the action is "move to the other list", and a second
+     iconography for the same control would be the cost of rotating them. */
+  .dual-list {
+    grid-template-columns: 1fr;
+  }
+  .dual-list-pane + .dual-list-arrows + .dual-list-pane {
+    border-left: 0;
+  }
+  .dual-list-arrows {
+    flex-direction: row;
+    border-left: 0;
+    border-top: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+    padding: 6px 0;
+  }
+
+  /* Touch comfort, following the 44px `.menu-btn` precedent. Not an
+     accessibility fix — these already clear the WCAG 2.2 AA 24px floor. */
+  .tabs .tab {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .dual-list-arrows .btn {
+    width: 44px;
+    height: 44px;
+  }
+}

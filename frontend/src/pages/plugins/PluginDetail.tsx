@@ -239,7 +239,7 @@ export function PluginDetail() {
           }
           title="Plugin Details"
         />
-        <div style={{ padding: '28px 32px' }}>
+        <div className="page">
           <Notice variant="info">Plugins are managed by administrators.</Notice>
         </div>
       </>
@@ -290,7 +290,7 @@ export function PluginDetail() {
           </Button>
         }
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
+      <div className="page" style={{ display: 'grid', gap: 16 }}>
         {plugin.manifest && (
           <PluginPagesNav plugin={{ id: plugin.id, manifest: plugin.manifest }} isAdmin />
         )}

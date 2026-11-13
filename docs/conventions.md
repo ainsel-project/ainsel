@@ -194,6 +194,28 @@ to rename things safely.
   declaration (issue #212 rendered white chat text on a white background);
   `frontend/src/design/tokens.guard.test.ts` enforces this.
 
+#### Breakpoints and small screens
+
+- The allowed `@media` widths are the list in the BREAKPOINTS header of
+  `frontend/src/design/tokens.css` (480, 760, 899, 1000, 1100). Custom
+  properties cannot be used inside a media query, so the scale is a documented
+  constant rather than a token, and
+  `frontend/src/design/responsive.guard.test.ts` fails the build on any other
+  value. Do not add a tier for a preference; add one for a failure mode.
+- Small-screen overrides live in `frontend/src/design/responsive.css`, imported
+  after `primitives.css`. Keep `primitives.css` free of `@media`: three specs
+  read it through `cssThemeKit.parseRules`, which refuses conditional at-rules on
+  purpose, so a media query there breaks them.
+- A page's outer container uses `className="page"`, never an inline padding.
+  Inline styles cannot match a media query, so an inline `padding: '28px 32px'`
+  keeps desktop gutters on a phone; the guard spec ratchets the residue.
+- Tables are not made responsive. `.reg-wrap` scrolls horizontally and
+  `table.reg { min-width: 960px }` stays — reading a register on a phone is a
+  scroll, not a reflow.
+- Viewport-sized chrome declares `vh` and `dvh` in that order (`min-height:
+  100vh; min-height: 100dvh`). `vh` alone is the *largest* viewport on mobile
+  browsers, so the URL bar covers the bottom of the page.
+
 ### Helm
 
 - `helm lint chart/` must pass.

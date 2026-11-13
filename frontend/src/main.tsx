@@ -6,6 +6,7 @@ import './design/fonts.css'
 import './design/tokens.css'
 import './design/base.css'
 import './design/primitives.css'
+import './design/responsive.css'
 import App from './App'
 
 initTheme()

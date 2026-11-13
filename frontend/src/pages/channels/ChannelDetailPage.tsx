@@ -44,7 +44,7 @@ export function ChannelDetailPage() {
           }
           title={<>Channel</>}
         />
-        <div style={{ padding: '28px 32px' }}>
+        <div className="page">
           <Panel className="cropped">
             <SectionStatus state="loading" />
           </Panel>
@@ -64,7 +64,7 @@ export function ChannelDetailPage() {
           }
           title={<>Channel</>}
         />
-        <div style={{ padding: '28px 32px', display: 'grid', gap: 16 }}>
+        <div className="page" style={{ display: 'grid', gap: 16 }}>
           <div className="label" style={{ color: 'var(--ink-3)' }}>
             This channel is not in the registry — its source may have been deleted.{' '}
             <Tag variant="stale">id {id}</Tag>
@@ -122,7 +122,7 @@ export function ChannelDetailPage() {
           ) : null
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <ChannelEditor channelId={id} />
       </div>
     </>

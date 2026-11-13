@@ -78,7 +78,7 @@ function PluginPageContent({ plugin, page, isAdmin }: PluginPageContentProps): J
       <div style={{ padding: '12px 32px 0' }}>
         <PluginPagesNav plugin={plugin} isAdmin={isAdmin} />
       </div>
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <PluginContextProvider plugin={plugin}>
           <PluginBoundary plugin={plugin}>
             <PluginExport plugin={plugin} exportName={page.component || 'default'} />

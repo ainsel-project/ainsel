@@ -39,7 +39,7 @@ export function Profile() {
           </>
         }
       />
-      <div style={{ padding: '28px 32px', display: 'grid', gap: 24, maxWidth: 700 }}>
+      <div className="page" style={{ display: 'grid', gap: 24, maxWidth: 700 }}>
         <Panel title="Account">
           {isLoading ? (
             <div className="label" style={{ padding: 14 }}>

@@ -138,7 +138,7 @@ export function ConnectorForm() {
             </Button>
           }
         />
-        <div style={{ padding: '28px 32px', maxWidth: 760 }}>
+        <div className="page" style={{ maxWidth: 760 }}>
           <div
             style={{
               padding: '20px 24px',
@@ -254,7 +254,8 @@ export function ConnectorForm() {
         id="connector-form"
         onSubmit={onSubmit}
         noValidate
-        style={{ padding: '28px 32px', maxWidth: 760 }}
+        className="page"
+        style={{ maxWidth: 760 }}
       >
         {submitError ? (
           <div

@@ -1,3 +1,14 @@
+/* ===== Page container ===== */
+/* The one page-level padding. Every screen's outer container uses it, so the
+   phone tier can shrink the gutters in one place instead of 43 inline
+   `padding: '28px 32px'` styles that no media query can reach. The bottom value
+   is the larger one because a page ends in whitespace, not in a border — the
+   same values `.dashboard-page` shipped with. Its two overrides live in
+   responsive.css, which is where any `@media` rule has to go. */
+.page {
+  padding: 28px 32px 48px;
+}
+
 /* ===== Buttons ===== */
 .btn {
   font-family: var(--ui);

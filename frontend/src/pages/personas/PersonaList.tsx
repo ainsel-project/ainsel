@@ -101,7 +101,7 @@ export function PersonaList() {
           </Button>
         }
       />
-      <div style={{ padding: '28px 32px' }}>
+      <div className="page">
         <p className="label" style={{ margin: '0 0 14px', color: 'var(--ink-3)' }}>
           Shared templates. A persona an agent owns privately is edited in that agent’s Persona
           section and does not appear here.

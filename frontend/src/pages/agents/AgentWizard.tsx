@@ -231,7 +231,7 @@ export function AgentWizard() {
         actions={<Button onClick={() => navigate('/agents')}>Cancel</Button>}
       />
 
-      <div style={{ padding: '28px 32px', maxWidth: 920 }}>
+      <div className="page" style={{ maxWidth: 920 }}>
         <ol
           aria-label="Creation steps"
           style={{

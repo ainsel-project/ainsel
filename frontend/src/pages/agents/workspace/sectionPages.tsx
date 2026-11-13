@@ -73,12 +73,7 @@ function PluginSection({ pluginId }: { pluginId: string }) {
   if (!contribution) {
     // The plugin list loads first. Once it is in, an id without an active
     // agent.panel contribution has no panel to show, so go to the overview.
-    if (isPending)
-      return (
-        <p className="label" style={{ padding: '28px 32px' }}>
-          Loading…
-        </p>
-      )
+    if (isPending) return <p className="label page">Loading…</p>
     return <Navigate to={sectionPath(agent.id, 'overview')} replace />
   }
   return (
