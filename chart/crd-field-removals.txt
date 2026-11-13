@@ -12,3 +12,10 @@
 # an equivalent spec.mcp snapshot during 0.1.3, folding in the servers the
 # agent's runtime profile contributed, so no stored value is left to prune.
 agents.ainsel.dev enabledMCPs
+
+# Unreleased (530070a): an AgentImage is a runtime profile and carries no skill
+# selection - skills are chosen per agent. Nothing converts the old image-level list,
+# by design: an agent that should keep one selects it (console, or
+# PUT /api/v1/skills/{id}/assignments/{agentName}). See docs/upgrade-guide.md,
+# "tools and skills belong to the agent, not the image", for the upgrade order.
+agentimages.ainsel.dev enabledSkills
