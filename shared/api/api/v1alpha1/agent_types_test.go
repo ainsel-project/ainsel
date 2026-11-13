@@ -49,3 +49,26 @@ func TestAgentSpecDeepCopyEnvNil(t *testing.T) {
 		t.Fatalf("nil Env became non-nil after DeepCopy: %+v", dst.Env)
 	}
 }
+
+func TestUsesChatGPTSignIn(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider string
+		openAI   *AgentOpenAI
+		want     bool
+	}{
+		{"no openAI block", "openai", nil, false},
+		{"api key method", "openai", &AgentOpenAI{AuthMethod: OpenAIAuthMethodAPIKey}, false},
+		{"empty method defaults to api key", "openai", &AgentOpenAI{}, false},
+		{"sign-in on openai", "openai", &AgentOpenAI{AuthMethod: OpenAIAuthMethodChatGPTSignIn}, true},
+		{"sign-in block on another provider", "anthropic", &AgentOpenAI{AuthMethod: OpenAIAuthMethodChatGPTSignIn}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Agent{Spec: AgentSpec{LLM: AgentLLM{Provider: tc.provider}, OpenAI: tc.openAI}}
+			if got := a.UsesChatGPTSignIn(); got != tc.want {
+				t.Fatalf("UsesChatGPTSignIn() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
