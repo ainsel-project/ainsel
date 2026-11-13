@@ -57,7 +57,7 @@ The hub persists auth events (`auth_login`, `auth_login_failed`,
 `auth_password_changed`, `user_created`, `user_password_reset`,
 `user_deleted`) in Postgres and serves them from the admin-only
 `GET /api/v1/audit/auth-events` endpoint — see
-[api.md](api.md#audit). Both retention limits are applied by one hourly
+[api-reference.md](../../../docs/api-reference.md#audit). Both retention limits are applied by one hourly
 sweep (age-based delete first, then the row cap) and are **not** related to
 `scripts/hub-retention.py`, which prunes Docker Hub image tags. The chart
 exposes them as `hub.authEvents.retentionDays` and `hub.authEvents.maxRows`.
