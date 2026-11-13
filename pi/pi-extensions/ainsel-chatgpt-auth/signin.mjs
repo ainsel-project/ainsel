@@ -63,7 +63,7 @@ async function deviceId(dir) {
 	return id;
 }
 
-export async function runSignIn({ ModelRuntime, hub, credentialsDir = CREDENTIALS_DIR, log = console.error, sleep = delay }) {
+export async function runSignIn({ ModelRuntime, hub, agentName = "", credentialsDir = CREDENTIALS_DIR, log = console.error, sleep = delay }) {
 	try {
 		const id = await deviceId(credentialsDir);
 		const runtime = await ModelRuntime.create({
@@ -99,7 +99,10 @@ export async function runSignIn({ ModelRuntime, hub, credentialsDir = CREDENTIAL
 			},
 		};
 		try {
-			await runtime.login("openai", "oauth", interaction, { getDeviceId: () => id });
+			// The name OpenAI shows for this sign-in in the user's ChatGPT
+			// settings, so each agent can be recognised and revoked there.
+			const name = agentName ? `AInsel ${agentName}` : "AInsel";
+			await runtime.login("openai", "oauth", interaction, { getDeviceId: () => id, agentName: name });
 		} catch (error) {
 			throw failure ?? error;
 		}
@@ -124,5 +127,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 		agent: process.env.AGENT_NAME ?? "",
 		session: process.env.AINSEL_SIGN_IN_SESSION ?? "",
 	});
-	process.exit(await runSignIn({ ModelRuntime, hub }));
+	process.exit(await runSignIn({ ModelRuntime, hub, agentName: process.env.AGENT_NAME ?? "" }));
 }

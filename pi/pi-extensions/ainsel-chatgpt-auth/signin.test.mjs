@@ -50,7 +50,7 @@ function stubRuntime(behaviour = {}) {
 				calls.create.push(options);
 				return {
 					async login(provider, type, interaction, options) {
-						calls.login.push({ provider, type, deviceId: options.getDeviceId() });
+						calls.login.push({ provider, type, deviceId: options.getDeviceId(), agentName: options.agentName });
 						if (behaviour.fail) throw new Error(behaviour.fail);
 						interaction.notify({ type: "auth_url", url: AUTH_URL });
 						const pasted = await interaction.prompt({ type: "manual_code", message: "paste", signal: new AbortController().signal });
@@ -181,6 +181,16 @@ test("refuses any prompt other than the redirect paste", async () => {
 		});
 		assert.equal(code, 1);
 		assert.equal(hub.seen.result.ok, false);
+	} finally {
+		await hub.close();
+	}
+});
+
+test("introduces itself to OpenAI as AInsel and the agent", async () => {
+	const { hub, rt, opts } = await setup();
+	try {
+		await runSignIn({ ...opts, agentName: "worker" });
+		assert.equal(rt.calls.login[0].agentName, "AInsel worker");
 	} finally {
 		await hub.close();
 	}

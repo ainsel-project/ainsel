@@ -630,8 +630,8 @@ What to know:
   retried and is not treated as a dead sign-in. A token revoked before it
   expires is only noticed when it next refreshes; until then tasks fail with an
   authorization error.
-- **Revoking.** Each agent signs in as its own app, named after the agent's
-  device ID, and can be revoked in your ChatGPT settings. Switching the agent
+- **Revoking.** Each agent signs in as its own app, shown as *AInsel
+  &lt;agent name&gt;*, and can be revoked on its own in your ChatGPT settings. Switching the agent
   back to an API key deletes its credential volume and the sign-in with it.
 - **Terms.** OpenAI lets open-source, self-hosted apps use Sign in with ChatGPT
   without approval; paid or remotely hosted apps go through OpenAI's
