@@ -13,6 +13,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -60,7 +61,7 @@ func (s *Server) validatePassword(p string) error {
 // Mounted inside the auth middleware (see serveHTTPInner).
 func (s *Server) handlePasswordPolicy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	p := s.passwordPolicyOrDefault()
@@ -68,7 +69,7 @@ func (s *Server) handlePasswordPolicy(w http.ResponseWriter, r *http.Request) {
 	if classes == nil {
 		classes = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"minLength":               p.MinLength,
 		"maxLength":               MaxPasswordLen,
 		"requireCharacterClasses": classes,
@@ -90,11 +91,11 @@ func validateUsername(u string) error {
 // OUTSIDE the auth middleware (see serveHTTPInner) but behind rate limiting.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !s.LocalAuthEnabled() {
-		writeError(w, http.StatusForbidden, "local login is not enabled on this hub")
+		httpx.WriteError(w, http.StatusForbidden, "local login is not enabled on this hub")
 		return
 	}
 
@@ -103,7 +104,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	body.Username = strings.ToLower(strings.TrimSpace(body.Username))
@@ -111,7 +112,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Per-username backoff on top of the global per-IP rate limiter.
 	if locked := s.loginThrottle.denied(body.Username); locked > 0 {
 		w.Header().Set("Retry-After", formatRetryAfter(locked))
-		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		httpx.WriteError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
 		return
 	}
 
@@ -125,7 +126,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// local id, matching what a successful login for that name would write.
 		id := authz.LocalUserIDPrefix + body.Username
 		s.recordAuthEvent(r, auditevents.TypeLoginFailed, id, id, auditevents.OutcomeFailure)
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
 	}
 
 	if body.Username == "" || body.Password == "" || validateUsername(body.Username) != nil {
@@ -163,21 +164,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	tokenVersion, err := s.authzStore.UserTokenVersion(r.Context(), u.ID)
 	if err != nil {
 		slog.Error("auth_login: token version lookup failed", "username", body.Username, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	token, exp, err := localauth.IssueToken(s.localAuthSecret, u.ID, u.Username, u.IsAdmin, tokenVersion)
 	if err != nil {
 		slog.Error("auth_login: token issue failed", "username", body.Username, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	s.loginThrottle.recordSuccess(body.Username)
 	slog.Info("auth_login", "log_type", "auth_event", "username", body.Username, "isAdmin", u.IsAdmin)
 	s.recordAuthEvent(r, auditevents.TypeLogin, u.ID, u.ID, auditevents.OutcomeSuccess)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"token":     token,
 		"expiresAt": exp.UTC().Format(time.RFC3339),
 		"user": map[string]any{
@@ -200,7 +201,7 @@ const CodePasswordChangeRequired = "password_change_required"
 // request to the shared client's session-recovery path, which logs the user out
 // instead of taking them to the change screen.
 func writePasswordChangeRequired(w http.ResponseWriter) {
-	writeJSON(w, http.StatusForbidden, map[string]string{
+	httpx.WriteJSON(w, http.StatusForbidden, map[string]string{
 		"error":   "forbidden",
 		"code":    CodePasswordChangeRequired,
 		"message": "password change required",
@@ -256,7 +257,7 @@ func (s *Server) passwordChangeGate(next http.Handler) http.Handler {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if !stored.MustChangePassword {
@@ -286,12 +287,12 @@ type authMeResponse struct {
 // hub-side seam allowed to look at the store.
 func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	// Normalize a nil Roles slice to [] in JSON, as the shared handler did:
@@ -309,14 +310,14 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 			resp.MustChangePassword = stored.MustChangePassword
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // handleLogout is a stateless no-op kept for API symmetry: clients discard
 // their token; there is no server-side session to tear down.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -328,16 +329,16 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // password, so the account now holds one its owner chose.
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if !strings.HasPrefix(u.Sub, authz.LocalUserIDPrefix) {
-		writeError(w, http.StatusBadRequest, "password login is not available for this account")
+		httpx.WriteError(w, http.StatusBadRequest, "password login is not available for this account")
 		return
 	}
 
@@ -346,31 +347,31 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		New     string `json:"new"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	hash, err := s.authzStore.UserPasswordHash(r.Context(), u.Sub)
 	if err != nil || localauth.VerifyPassword(body.Current, hash) != nil {
-		writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		httpx.WriteError(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
 	if err := s.validatePassword(body.New); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	newHash, err := localauth.HashPassword(body.New)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := s.authzStore.SetPasswordWithFlag(r.Context(), u.Sub, newHash, false); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	slog.Info("auth_password_changed", "log_type", "auth_event", "sub", u.Sub)
 	s.recordAuthEvent(r, auditevents.TypePasswordChanged, u.Sub, u.Sub, auditevents.OutcomeSuccess)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // handleSignOutAll bumps the caller's token version, invalidating every
@@ -379,28 +380,28 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 // revocation switch for a suspected leaked token (issue #112).
 func (s *Server) handleSignOutAll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if !strings.HasPrefix(u.Sub, authz.LocalUserIDPrefix) {
-		writeError(w, http.StatusBadRequest, "not available for this account")
+		httpx.WriteError(w, http.StatusBadRequest, "not available for this account")
 		return
 	}
 	if err := s.authzStore.BumpTokenVersion(r.Context(), u.Sub); err != nil {
 		if errors.Is(err, authz.ErrNotFound) {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	slog.Info("auth_sign_out_all", "log_type", "auth_event", "sub", u.Sub)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func formatRetryAfter(d time.Duration) string {

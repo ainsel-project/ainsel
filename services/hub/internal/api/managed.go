@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 )
 
 // managedByUser is the reserved spec.managedBy value meaning
@@ -29,5 +31,5 @@ func isManagedCR(managedBy string) bool {
 // with 409 Conflict naming the manager, matching the MCP-server/skill
 // plugin-managed contract.
 func writeManagedConflict(w http.ResponseWriter, kind, managedBy string) {
-	writeError(w, http.StatusConflict, fmt.Sprintf("%s is managed by %s", kind, managedBy))
+	httpx.WriteError(w, http.StatusConflict, fmt.Sprintf("%s is managed by %s", kind, managedBy))
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,15 +71,15 @@ type GroupResourceItem struct {
 // is a convenience view, not an authority.
 func (s *Server) handleGroupResources(w http.ResponseWriter, r *http.Request, groupID string) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if _, err := s.authzStore.GetGroup(r.Context(), groupID); err != nil {
 		if errors.Is(err, authz.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "group not found")
+			httpx.WriteError(w, http.StatusNotFound, "group not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -86,7 +87,7 @@ func (s *Server) handleGroupResources(w http.ResponseWriter, r *http.Request, gr
 	for _, resourceType := range groupResourceTypes {
 		items = append(items, s.groupResourcesOfType(r, groupID, resourceType)...)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // groupResourcesOfType returns the caller-visible resources of one type in the

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
@@ -196,13 +197,13 @@ func (s *Server) getTokensSummary(w http.ResponseWriter, r *http.Request) {
 		rangeKey = defaultSummaryRange
 	}
 	if _, ok := supportedRanges[rangeKey]; !ok {
-		writeError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
 		return
 	}
 
 	source, reason := s.tokensBackend()
 	if source == "" {
-		writeError(w, http.StatusServiceUnavailable, reason)
+		httpx.WriteError(w, http.StatusServiceUnavailable, reason)
 		return
 	}
 
@@ -211,7 +212,7 @@ func (s *Server) getTokensSummary(w http.ResponseWriter, r *http.Request) {
 	// for the length of the TTL.
 	cacheKey := "tokens-summary:" + source + ":" + rangeKey
 	if cached, ok := s.observabilityCache.get(cacheKey); ok {
-		writeJSON(w, http.StatusOK, cached)
+		httpx.WriteJSON(w, http.StatusOK, cached)
 		return
 	}
 
@@ -225,12 +226,12 @@ func (s *Server) getTokensSummary(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UTC()
 		cur, err := s.taskLogs.TokenUsageSince(ctx, now.Add(-rng.Duration), now)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
+			httpx.WriteError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
 			return
 		}
 		prior, err := s.taskLogs.TokenUsageSince(ctx, now.Add(-2*rng.Duration), now.Add(-rng.Duration))
 		if err != nil {
-			writeError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
+			httpx.WriteError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
 			return
 		}
 		resp := TokensSummary{
@@ -247,20 +248,20 @@ func (s *Server) getTokensSummary(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt:           time.Now().UTC(),
 		}
 		s.observabilityCache.set(cacheKey, resp)
-		writeJSON(w, http.StatusOK, resp)
+		httpx.WriteJSON(w, http.StatusOK, resp)
 		return
 	}
 
 	totals, err := tokenTotalsByType(ctx, s.prom, rangeKey)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query token metrics: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query token metrics: "+err.Error())
 		return
 	}
 	// The prior window is compared as a single total, so it needs no breakdown.
 	prior, err := singleScalar(ctx, s.prom,
 		fmt.Sprintf(`sum(increase(%s[%s] offset %s))`, metricTokensUsed, rangeKey, rangeKey))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query token metrics: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query token metrics: "+err.Error())
 		return
 	}
 
@@ -283,7 +284,7 @@ func (s *Server) getTokensSummary(w http.ResponseWriter, r *http.Request) {
 	cost, costReported, err := singleScalarReported(ctx, s.prom,
 		fmt.Sprintf(`sum(increase(%s[%s]))`, metricCostUsed, rangeKey))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query cost metrics: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query cost metrics: "+err.Error())
 		return
 	}
 
@@ -301,7 +302,7 @@ func (s *Server) getTokensSummary(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:           time.Now().UTC(),
 	}
 	s.observabilityCache.set(cacheKey, resp)
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // getTokensTimeseries returns a 24h sparkline of total tokens consumed,
@@ -315,19 +316,19 @@ func (s *Server) getTokensTimeseries(w http.ResponseWriter, r *http.Request) {
 	// Accepting a parameter keeps the endpoint shape consistent with the rest of
 	// /metrics/* and leaves room for 7d later without an API break.
 	if rangeKey != defaultSummaryRange {
-		writeError(w, http.StatusBadRequest, "unsupported range; only 24h is supported")
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported range; only 24h is supported")
 		return
 	}
 
 	source, reason := s.tokensBackend()
 	if source == "" {
-		writeError(w, http.StatusServiceUnavailable, reason)
+		httpx.WriteError(w, http.StatusServiceUnavailable, reason)
 		return
 	}
 
 	cacheKey := "tokens-timeseries-" + source + "-" + rangeKey
 	if cached, ok := s.observabilityCache.get(cacheKey); ok {
-		writeJSON(w, http.StatusOK, cached)
+		httpx.WriteJSON(w, http.StatusOK, cached)
 		return
 	}
 
@@ -337,7 +338,7 @@ func (s *Server) getTokensTimeseries(w http.ResponseWriter, r *http.Request) {
 	if source == metricsSourcePostgres {
 		buckets, err := s.taskLogs.TokenUsageBuckets(r.Context(), start, end, timeseriesStep)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
+			httpx.WriteError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
 			return
 		}
 		// Dense output, same contract as the event timeseries: the sparkline
@@ -360,7 +361,7 @@ func (s *Server) getTokensTimeseries(w http.ResponseWriter, r *http.Request) {
 			Points: points,
 		}
 		s.observabilityCache.set(cacheKey, resp)
-		writeJSON(w, http.StatusOK, resp)
+		httpx.WriteJSON(w, http.StatusOK, resp)
 		return
 	}
 
@@ -368,7 +369,7 @@ func (s *Server) getTokensTimeseries(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.prom.QueryRange(r.Context(), query, start, end, timeseriesStep)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query token timeseries: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query token timeseries: "+err.Error())
 		return
 	}
 
@@ -389,7 +390,7 @@ func (s *Server) getTokensTimeseries(w http.ResponseWriter, r *http.Request) {
 		Points: points,
 	}
 	s.observabilityCache.set(cacheKey, resp)
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // getTokensBySubject returns one row per (agent, repo, event_type, model) with
@@ -403,13 +404,13 @@ func (s *Server) getTokensBySubject(w http.ResponseWriter, r *http.Request) {
 		rangeKey = defaultSummaryRange
 	}
 	if _, ok := supportedRanges[rangeKey]; !ok {
-		writeError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
 		return
 	}
 
 	source, reason := s.tokensBackend()
 	if source == "" {
-		writeError(w, http.StatusServiceUnavailable, reason)
+		httpx.WriteError(w, http.StatusServiceUnavailable, reason)
 		return
 	}
 
@@ -418,7 +419,7 @@ func (s *Server) getTokensBySubject(w http.ResponseWriter, r *http.Request) {
 	// under this one's name.
 	cacheKey := "tokens-by-subject:" + source + ":" + rangeKey
 	if cached, ok := s.observabilityCache.get(cacheKey); ok {
-		writeJSON(w, http.StatusOK, cached)
+		httpx.WriteJSON(w, http.StatusOK, cached)
 		return
 	}
 
@@ -432,7 +433,7 @@ func (s *Server) getTokensBySubject(w http.ResponseWriter, r *http.Request) {
 		rows, err = s.tokensBySubjectFromPrometheus(ctx, rangeKey)
 	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	s.writeTokensBySubject(w, cacheKey, rangeKey, source, rows)
@@ -567,7 +568,7 @@ func (s *Server) writeTokensBySubject(w http.ResponseWriter, cacheKey, rangeKey,
 		Source:    source,
 	}
 	s.observabilityCache.set(cacheKey, resp)
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // sortTokenSubjectRows orders by-subject rows by (repo, event_type, agent) so
@@ -645,18 +646,18 @@ func (s *Server) getTokensByEvent(w http.ResponseWriter, r *http.Request) {
 		rangeKey = defaultSummaryRange
 	}
 	if _, ok := supportedRanges[rangeKey]; !ok {
-		writeError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
 		return
 	}
 
 	cacheKey := "tokens-by-event-" + rangeKey
 	if cached, ok := s.observabilityCache.get(cacheKey); ok {
-		writeJSON(w, http.StatusOK, cached)
+		httpx.WriteJSON(w, http.StatusOK, cached)
 		return
 	}
 
 	if !s.taskLogs.Ready() {
-		writeError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
 		return
 	}
 
@@ -665,7 +666,7 @@ func (s *Server) getTokensByEvent(w http.ResponseWriter, r *http.Request) {
 
 	invRows, err := s.taskLogs.TokensByInvocationSince(r.Context(), since)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query token data: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query token data: "+err.Error())
 		return
 	}
 
@@ -677,7 +678,7 @@ func (s *Server) getTokensByEvent(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: time.Now().UTC(),
 	}
 	s.observabilityCache.set(cacheKey, resp)
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // invocationGetter is the subset of invocations.Store used by

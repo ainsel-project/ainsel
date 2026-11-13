@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -118,7 +119,7 @@ func (s *Server) handleTriggers(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.createTrigger(ctx, w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -126,7 +127,7 @@ func (s *Server) handleTrigger(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := extractName(r.URL.Path, "/api/v1/triggers/")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing trigger id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing trigger id")
 		return
 	}
 	switch r.Method {
@@ -146,7 +147,7 @@ func (s *Server) handleTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 		s.deleteTrigger(ctx, w, id)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -155,7 +156,7 @@ func (s *Server) listTriggers(ctx context.Context, w http.ResponseWriter, r *htt
 
 	page, err := ParsePageParams(q)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -164,7 +165,7 @@ func (s *Server) listTriggers(ctx context.Context, w http.ResponseWriter, r *htt
 
 	all, err := s.triggerStore.ListTriggers(ctx, agentRef, connectorRef)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -195,7 +196,7 @@ func (s *Server) listTriggers(ctx context.Context, w http.ResponseWriter, r *htt
 	for i := lo; i < hi; i++ {
 		items = append(items, toSimpleTriggerResponse(&all[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -207,23 +208,23 @@ func (s *Server) listTriggers(ctx context.Context, w http.ResponseWriter, r *htt
 func (s *Server) getTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	t, err := s.triggerStore.GetTrigger(ctx, id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
+		httpx.WriteError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
-	writeJSON(w, http.StatusOK, toSimpleTriggerResponse(t))
+	httpx.WriteJSON(w, http.StatusOK, toSimpleTriggerResponse(t))
 }
 
 func (s *Server) createTrigger(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req SimpleTriggerCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
 	// Validate group membership for resource creation.
 	if s.authzChecker != nil {
 		if req.GroupID == "" {
-			writeError(w, http.StatusBadRequest, "groupId is required")
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
 			return
 		}
 		if !s.requireGroupWrite(w, r, req.GroupID) {
@@ -258,7 +259,7 @@ func (s *Server) createTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	if err := s.triggerStore.CreateTrigger(ctx, t); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -273,13 +274,13 @@ func (s *Server) createTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, toSimpleTriggerResponse(t))
+	httpx.WriteJSON(w, http.StatusCreated, toSimpleTriggerResponse(t))
 }
 
 func (s *Server) updateTrigger(ctx context.Context, w http.ResponseWriter, r *http.Request, id string) {
 	var req SimpleTriggerUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
@@ -310,7 +311,7 @@ func (s *Server) updateTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 
 	t, err := s.triggerStore.UpdateTrigger(ctx, id, displayName, agentRef, connectorRef, filters)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
+		httpx.WriteError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 
@@ -324,12 +325,12 @@ func (s *Server) updateTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 	t.AgentValid = agentValid
 	t.ConnectorValid = connectorValid
 
-	writeJSON(w, http.StatusOK, toSimpleTriggerResponse(t))
+	httpx.WriteJSON(w, http.StatusOK, toSimpleTriggerResponse(t))
 }
 
 func (s *Server) deleteTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	if err := s.triggerStore.DeleteTrigger(ctx, id); err != nil {
-		writeError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
+		httpx.WriteError(w, http.StatusNotFound, "trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -45,7 +45,7 @@ type TokenVersionReader interface {
 func NewMiddleware(secret []byte, versions TokenVersionReader) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tok := extractBearer(r.Header.Get("Authorization"))
+			tok := httpx.BearerToken(r.Header.Get("Authorization"))
 			if tok == "" || !LooksLocal(tok) {
 				next.ServeHTTP(w, r)
 				return
@@ -126,7 +126,7 @@ func checkTokenVersion(ctx context.Context, versions TokenVersionReader, claims 
 func NewChainMiddleware(secret []byte, versions TokenVersionReader, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tok := extractBearer(r.Header.Get("Authorization"))
+			tok := httpx.BearerToken(r.Header.Get("Authorization"))
 			if tok == "" || !LooksLocal(tok) {
 				fallback(next).ServeHTTP(w, r)
 				return
@@ -156,14 +156,6 @@ func NewChainMiddleware(secret []byte, versions TokenVersionReader, fallback fun
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
-
-func extractBearer(header string) string {
-	const prefix = "Bearer "
-	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
-		return ""
-	}
-	return strings.TrimSpace(header[len(prefix):])
 }
 
 // RequireAuth rejects requests that carry no authenticated user in the

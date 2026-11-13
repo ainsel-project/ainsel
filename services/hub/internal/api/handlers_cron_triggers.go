@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	cronparse "github.com/ainsel-project/ainsel/shared/api/cron"
 )
@@ -87,14 +88,14 @@ func (s *Server) handleCronTriggers(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.createCronTrigger(r.Context(), w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) handleCronTrigger(w http.ResponseWriter, r *http.Request) {
 	id := extractName(r.URL.Path, "/api/v1/cron-triggers/")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing cron trigger id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing cron trigger id")
 		return
 	}
 	switch r.Method {
@@ -114,7 +115,7 @@ func (s *Server) handleCronTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 		s.deleteCronTrigger(r.Context(), w, id)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -122,14 +123,14 @@ func (s *Server) listCronTriggers(ctx context.Context, w http.ResponseWriter, r 
 	q := r.URL.Query()
 	page, err := ParsePageParams(q)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	agentRef := q.Get("agent")
 	all, err := s.triggerStore.ListCronTriggers(ctx, agentRef)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -159,7 +160,7 @@ func (s *Server) listCronTriggers(ctx context.Context, w http.ResponseWriter, r 
 	for i := lo; i < hi; i++ {
 		items = append(items, toCronTriggerResponse(&all[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -171,27 +172,27 @@ func (s *Server) listCronTriggers(ctx context.Context, w http.ResponseWriter, r 
 func (s *Server) getCronTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	ct, err := s.triggerStore.GetCronTrigger(ctx, id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
+		httpx.WriteError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
-	writeJSON(w, http.StatusOK, toCronTriggerResponse(ct))
+	httpx.WriteJSON(w, http.StatusOK, toCronTriggerResponse(ct))
 }
 
 func (s *Server) createCronTrigger(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req CronTriggerCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if req.AgentRef == "" || req.Schedule == "" || req.Prompt == "" {
-		writeError(w, http.StatusBadRequest, "agentRef, schedule, and prompt are required")
+		httpx.WriteError(w, http.StatusBadRequest, "agentRef, schedule, and prompt are required")
 		return
 	}
 
 	// Validate group membership for resource creation.
 	if s.authzChecker != nil {
 		if req.GroupID == "" {
-			writeError(w, http.StatusBadRequest, "groupId is required")
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
 			return
 		}
 		if !s.requireGroupWrite(w, r, req.GroupID) {
@@ -201,7 +202,7 @@ func (s *Server) createCronTrigger(ctx context.Context, w http.ResponseWriter, r
 
 	// Validate schedule at create time.
 	if _, err := cronparse.Parse(req.Schedule); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid schedule: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid schedule: "+err.Error())
 		return
 	}
 
@@ -227,7 +228,7 @@ func (s *Server) createCronTrigger(ctx context.Context, w http.ResponseWriter, r
 	}
 
 	if err := s.triggerStore.CreateCronTrigger(ctx, ct); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -241,20 +242,20 @@ func (s *Server) createCronTrigger(ctx context.Context, w http.ResponseWriter, r
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, toCronTriggerResponse(ct))
+	httpx.WriteJSON(w, http.StatusCreated, toCronTriggerResponse(ct))
 }
 
 func (s *Server) updateCronTrigger(ctx context.Context, w http.ResponseWriter, r *http.Request, id string) {
 	var req CronTriggerUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
 	// Validate schedule at update time if provided.
 	if req.Schedule != "" {
 		if _, err := cronparse.Parse(req.Schedule); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid schedule: "+err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, "invalid schedule: "+err.Error())
 			return
 		}
 	}
@@ -280,7 +281,7 @@ func (s *Server) updateCronTrigger(ctx context.Context, w http.ResponseWriter, r
 
 	ct, err := s.triggerStore.UpdateCronTrigger(ctx, id, displayName, agentRef, schedule, prompt, enabled)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
+		httpx.WriteError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 
@@ -295,12 +296,12 @@ func (s *Server) updateCronTrigger(ctx context.Context, w http.ResponseWriter, r
 	ct.AgentValid = agentValid
 	ct.ScheduleValid = scheduleValid
 
-	writeJSON(w, http.StatusOK, toCronTriggerResponse(ct))
+	httpx.WriteJSON(w, http.StatusOK, toCronTriggerResponse(ct))
 }
 
 func (s *Server) deleteCronTrigger(ctx context.Context, w http.ResponseWriter, id string) {
 	if err := s.triggerStore.DeleteCronTrigger(ctx, id); err != nil {
-		writeError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
+		httpx.WriteError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
 	if s.authzStore != nil {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -39,19 +40,19 @@ func toTokenResponse(t usertokens.Token) tokenResponse {
 // handleUserTokens serves GET (list) and POST (create) on /api/v1/user-tokens.
 func (s *Server) handleUserTokens(w http.ResponseWriter, r *http.Request) {
 	if s.userTokens == nil {
-		writeError(w, http.StatusServiceUnavailable, "user tokens not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "user tokens not configured")
 		return
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
 		toks, err := s.userTokens.List(r.Context(), u.Sub)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if toks == nil {
@@ -61,65 +62,65 @@ func (s *Server) handleUserTokens(w http.ResponseWriter, r *http.Request) {
 		for i, t := range toks {
 			out[i] = toTokenResponse(t)
 		}
-		writeJSON(w, http.StatusOK, out)
+		httpx.WriteJSON(w, http.StatusOK, out)
 	case http.MethodPost:
 		var body struct {
 			Name          string `json:"name"`
 			ExpiresInDays int    `json:"expiresInDays"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		if body.Name == "" {
-			writeError(w, http.StatusBadRequest, "name is required")
+			httpx.WriteError(w, http.StatusBadRequest, "name is required")
 			return
 		}
 		if body.ExpiresInDays != 30 && body.ExpiresInDays != 60 && body.ExpiresInDays != 90 {
-			writeError(w, http.StatusBadRequest, "expiresInDays must be 30, 60, or 90")
+			httpx.WriteError(w, http.StatusBadRequest, "expiresInDays must be 30, 60, or 90")
 			return
 		}
 		expiresAt := time.Now().Add(time.Duration(body.ExpiresInDays) * 24 * time.Hour)
 		tok, plaintext, err := s.userTokens.Create(r.Context(), u.Sub, body.Name, expiresAt)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, createTokenResponse{
+		httpx.WriteJSON(w, http.StatusCreated, createTokenResponse{
 			tokenResponse: toTokenResponse(tok),
 			Token:         plaintext,
 		})
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 // handleUserTokenDelete serves DELETE on /api/v1/user-tokens/{id}.
 func (s *Server) handleUserTokenDelete(w http.ResponseWriter, r *http.Request) {
 	if s.userTokens == nil {
-		writeError(w, http.StatusServiceUnavailable, "user tokens not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "user tokens not configured")
 		return
 	}
 	if r.Method != http.MethodDelete {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := extractName(r.URL.Path, "/api/v1/user-tokens/")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "token id required")
+		httpx.WriteError(w, http.StatusBadRequest, "token id required")
 		return
 	}
 	if err := s.userTokens.Revoke(r.Context(), id, u.Sub); err != nil {
 		if errors.Is(err, usertokens.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "token not found")
+			httpx.WriteError(w, http.StatusNotFound, "token not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -130,43 +131,43 @@ func (s *Server) handleUserTokenDelete(w http.ResponseWriter, r *http.Request) {
 // registered outside /api/v1/ so it bypasses the OIDC middleware.
 func (s *Server) handleUserTokenValidate(w http.ResponseWriter, r *http.Request) {
 	if s.userTokens == nil {
-		writeError(w, http.StatusServiceUnavailable, "user tokens not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "user tokens not configured")
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.internalValidateSecret == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(s.internalValidateSecret)) != 1 {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if body.Token == "" {
-		writeError(w, http.StatusBadRequest, "token is required")
+		httpx.WriteError(w, http.StatusBadRequest, "token is required")
 		return
 	}
 	tok, err := s.userTokens.Validate(r.Context(), body.Token)
 	if err != nil {
 		if errors.Is(err, usertokens.ErrNotFound) {
-			writeError(w, http.StatusUnauthorized, "invalid or expired token")
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid or expired token")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	user, err := s.authzStore.GetUser(r.Context(), tok.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "user lookup failed")
+		httpx.WriteError(w, http.StatusInternalServerError, "user lookup failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"userId":   tok.UserID,
 		"username": user.Username,
 	})

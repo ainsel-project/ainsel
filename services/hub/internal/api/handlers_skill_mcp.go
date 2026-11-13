@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
@@ -209,7 +210,7 @@ func getSkill(ctx context.Context, d SkillDiscovery, req mcp.CallToolRequest) (*
 func (s *Server) requireCatalogueToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.skillsMCPToken == "" {
-			writeError(w, http.StatusServiceUnavailable, "skill catalogue token not configured")
+			httpx.WriteError(w, http.StatusServiceUnavailable, "skill catalogue token not configured")
 			return
 		}
 		provided := r.Header.Get("X-Internal-Token")
@@ -219,7 +220,7 @@ func (s *Server) requireCatalogueToken(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		if subtle.ConstantTimeCompare([]byte(provided), []byte(s.skillsMCPToken)) != 1 {
-			writeError(w, http.StatusUnauthorized, "invalid skill catalogue token")
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid skill catalogue token")
 			return
 		}
 		next(w, r)
@@ -233,7 +234,7 @@ func (s *Server) requireCatalogueToken(next http.HandlerFunc) http.HandlerFunc {
 // that cannot connect.
 func (s *Server) handleSkillMCP(w http.ResponseWriter, r *http.Request) {
 	if s.skillMCPHandler == nil {
-		writeError(w, http.StatusServiceUnavailable, "skill catalogue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "skill catalogue not configured")
 		return
 	}
 	s.skillMCPHandler.ServeHTTP(w, r)

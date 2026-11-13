@@ -9,6 +9,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -19,17 +20,17 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 		// Any authenticated user can list users.
 		users, err := s.authzStore.ListUsers(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if users == nil {
 			users = []authz.User{}
 		}
-		writeJSON(w, http.StatusOK, users)
+		httpx.WriteJSON(w, http.StatusOK, users)
 	case http.MethodPost:
 		s.handleCreateUser(w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -47,22 +48,22 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		IsAdmin  bool   `json:"isAdmin"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	body.Username = strings.ToLower(strings.TrimSpace(body.Username))
 	if err := validateUsername(body.Username); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := s.validatePassword(body.Password); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	hash, err := localauth.HashPassword(body.Password)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	id := authz.LocalUserIDPrefix + body.Username
@@ -73,12 +74,12 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	slog.Info("user_created", "log_type", "auth_event", "id", id, "isAdmin", body.IsAdmin)
 	s.recordAuthEvent(r, auditevents.TypeUserCreated, callerSub(r), id, auditevents.OutcomeSuccess)
-	writeJSON(w, http.StatusCreated, u)
+	httpx.WriteJSON(w, http.StatusCreated, u)
 }
 
 func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
@@ -94,10 +95,10 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, u)
+		httpx.WriteJSON(w, http.StatusOK, u)
 	case http.MethodPatch:
 		if !s.requireAdmin(w, r) {
 			return
@@ -108,7 +109,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 			Disabled *bool   `json:"disabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		if body.IsAdmin != nil {
@@ -120,17 +121,17 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
+					httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
 				if target.IsAdmin {
 					admins, err := s.countAdmins(r)
 					if err != nil {
-						writeError(w, http.StatusInternalServerError, err.Error())
+						httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 						return
 					}
 					if admins <= 1 {
-						writeError(w, http.StatusConflict, "cannot demote the last admin")
+						httpx.WriteError(w, http.StatusConflict, "cannot demote the last admin")
 						return
 					}
 				}
@@ -139,7 +140,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 				if writeAuthzError(w, err, "user") {
 					return
 				}
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
@@ -152,7 +153,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 			if *body.Disabled {
 				caller, ok := oidc.FromContext(r.Context())
 				if ok && caller.Sub == id {
-					writeError(w, http.StatusConflict, "cannot disable your own account")
+					httpx.WriteError(w, http.StatusConflict, "cannot disable your own account")
 					return
 				}
 				target, err := s.authzStore.GetUser(r.Context(), id)
@@ -160,17 +161,17 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
+					httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
 				if target.IsAdmin {
 					admins, err := s.countAdmins(r)
 					if err != nil {
-						writeError(w, http.StatusInternalServerError, err.Error())
+						httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 						return
 					}
 					if admins <= 1 {
-						writeError(w, http.StatusConflict, "cannot disable the last admin")
+						httpx.WriteError(w, http.StatusConflict, "cannot disable the last admin")
 						return
 					}
 				}
@@ -179,7 +180,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 				if writeAuthzError(w, err, "user") {
 					return
 				}
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			event := "user_enabled"
@@ -193,19 +194,19 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 			// replacement password was not chosen by its owner, so it arms the
 			// forced change (issue #113).
 			if err := s.validatePassword(*body.Password); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				httpx.WriteError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			hash, err := localauth.HashPassword(*body.Password)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error")
+				httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			if err := s.authzStore.SetPasswordWithFlag(r.Context(), id, hash, true); err != nil {
 				if writeAuthzError(w, err, "user") {
 					return
 				}
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			slog.Info("user_password_reset", "log_type", "auth_event", "id", id)
@@ -213,14 +214,14 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 		}
 		u, err := s.authzStore.GetUser(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, u)
+		httpx.WriteJSON(w, http.StatusOK, u)
 	case http.MethodDelete:
 		s.handleDeleteUser(w, r, id)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -232,7 +233,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request, id str
 	}
 	caller, ok := oidc.FromContext(r.Context())
 	if ok && caller.Sub == id {
-		writeError(w, http.StatusConflict, "cannot delete your own account")
+		httpx.WriteError(w, http.StatusConflict, "cannot delete your own account")
 		return
 	}
 	target, err := s.authzStore.GetUser(r.Context(), id)
@@ -240,22 +241,22 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if target.IsAdmin {
 		admins, err := s.countAdmins(r)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if admins <= 1 {
-			writeError(w, http.StatusConflict, "cannot delete the last admin")
+			httpx.WriteError(w, http.StatusConflict, "cannot delete the last admin")
 			return
 		}
 	}
 	if err := s.authzStore.DeleteUser(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	slog.Info("user_deleted", "log_type", "auth_event", "id", id)
@@ -280,13 +281,13 @@ func (s *Server) countAdmins(r *http.Request) (int, error) {
 
 func (s *Server) handleUserSync(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -298,7 +299,7 @@ func (s *Server) handleUserSync(w http.ResponseWriter, r *http.Request, id strin
 			result, err := oidc.FetchUserInfo(r.Context(), s.userInfoClient, s.userInfoURL, token, u.Sub)
 			if err != nil {
 				if errors.Is(err, oidc.ErrUserInfoSubjectMismatch) {
-					writeError(w, http.StatusUnauthorized, "invalid userinfo subject")
+					httpx.WriteError(w, http.StatusUnauthorized, "invalid userinfo subject")
 					return
 				}
 				var uie *oidc.UserInfoError
@@ -310,18 +311,18 @@ func (s *Server) handleUserSync(w http.ResponseWriter, r *http.Request, id strin
 				// Graceful degradation: use the JWT claims we already have.
 				updated, err := s.authzStore.UpsertUser(r.Context(), u.Sub, u.Email, u.Username)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
+					httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
-				writeJSON(w, http.StatusOK, updated)
+				httpx.WriteJSON(w, http.StatusOK, updated)
 				return
 			}
 			updated, err := s.authzStore.UpsertUser(r.Context(), result.Sub, result.Email, result.Username)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusOK, updated)
+			httpx.WriteJSON(w, http.StatusOK, updated)
 			return
 		}
 
@@ -330,10 +331,10 @@ func (s *Server) handleUserSync(w http.ResponseWriter, r *http.Request, id strin
 		// so the sync button actually updates the registry row.
 		updated, err := s.authzStore.UpsertUser(r.Context(), u.Sub, u.Email, u.Username)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, updated)
+		httpx.WriteJSON(w, http.StatusOK, updated)
 		return
 	}
 
@@ -348,7 +349,7 @@ func (s *Server) handleUserSync(w http.ResponseWriter, r *http.Request, id strin
 		if writeAuthzError(w, err, "user") {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -360,26 +361,26 @@ func (s *Server) handleUserSync(w http.ResponseWriter, r *http.Request, id strin
 
 	updated, err := s.authzStore.GetUser(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Username is now '' in the response; it repopulates on the user's next authenticated request.
-	writeJSON(w, http.StatusOK, updated)
+	httpx.WriteJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	if s.authzChecker == nil {
-		writeError(w, http.StatusForbidden, "admin required")
+		httpx.WriteError(w, http.StatusForbidden, "admin required")
 		return false
 	}
 	admin, err := s.authzChecker.IsAdmin(r.Context(), u.Sub)
 	if err != nil || !admin {
-		writeError(w, http.StatusForbidden, "admin required")
+		httpx.WriteError(w, http.StatusForbidden, "admin required")
 		return false
 	}
 	return true
@@ -387,29 +388,29 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 
 func (s *Server) handleMyResources(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	resourceType := r.URL.Query().Get("type")
 	if resourceType == "" {
-		writeError(w, http.StatusBadRequest, "type query parameter is required")
+		httpx.WriteError(w, http.StatusBadRequest, "type query parameter is required")
 		return
 	}
 	groupIDs, _ := s.authzStore.UserGroupIDs(r.Context(), u.Sub)
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	includePublic := r.URL.Query().Get("includePublic") == "true"
 	all, err := s.authzStore.ListResourcesByGroups(r.Context(), resourceType, groupIDs, includePublic)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	total := len(all)
@@ -418,7 +419,7 @@ func (s *Server) handleMyResources(w http.ResponseWriter, r *http.Request) {
 	if names == nil {
 		names = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":      names,
 		"total":      total,
 		"page":       page.Page,

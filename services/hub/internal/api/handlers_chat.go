@@ -12,6 +12,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -62,12 +63,12 @@ func (s *Server) handleChatSessions(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		owner, ok := s.chatListOwnerFilter(r)
 		if !ok {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		s.listChatSessions(w, r, owner)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -86,7 +87,7 @@ func (s *Server) handleChatSession(w http.ResponseWriter, r *http.Request) {
 		id = id[:slashIdx]
 	}
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing session id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing session id")
 		return
 	}
 
@@ -100,7 +101,7 @@ func (s *Server) handleChatSession(w http.ResponseWriter, r *http.Request) {
 		case http.MethodPost:
 			s.addChatMessage(w, r, id)
 		default:
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
 		return
 	}
@@ -113,7 +114,7 @@ func (s *Server) handleChatSession(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		s.deleteChatSession(w, r, id)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -122,20 +123,20 @@ func (s *Server) handleChatSession(w http.ResponseWriter, r *http.Request) {
 // access is denied, the session is missing, or the chat store is unwired.
 func (s *Server) requireChatSessionAccess(w http.ResponseWriter, r *http.Request, id string) (*chat.Session, bool) {
 	if s.chat == nil {
-		writeError(w, http.StatusServiceUnavailable, "chat not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
 		return nil, false
 	}
 	sess, err := s.chat.GetSession(r.Context(), id)
 	if errors.Is(err, chat.ErrSessionNotFound) {
-		writeError(w, http.StatusNotFound, "session not found")
+		httpx.WriteError(w, http.StatusNotFound, "session not found")
 		return nil, false
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get session: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get session: "+err.Error())
 		return nil, false
 	}
 	if !s.chatCallerMayAccess(r, sess.UserID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return nil, false
 	}
 	return sess, true
@@ -178,16 +179,16 @@ func (s *Server) chatListOwnerFilter(r *http.Request) (string, bool) {
 
 func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request) {
 	if s.chat == nil {
-		writeError(w, http.StatusServiceUnavailable, "chat not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
 		return
 	}
 	var req chat.CreateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if req.AgentName == "" {
-		writeError(w, http.StatusBadRequest, "agentName is required")
+		httpx.WriteError(w, http.StatusBadRequest, "agentName is required")
 		return
 	}
 
@@ -199,7 +200,7 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request) {
 		if s.AuthMiddlewareConfigured() {
 			// Recording an unowned session here would make it invisible to its
 			// creator and readable by nobody in particular, so refuse instead.
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		// No authentication configured: sessions are shared, so keep the stable
@@ -209,10 +210,10 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := s.chat.CreateSession(r.Context(), req.AgentName, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create session: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create session: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, sess)
+	httpx.WriteJSON(w, http.StatusCreated, sess)
 }
 
 // listChatSessions lists chat sessions.
@@ -223,12 +224,12 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request) {
 // entry point computes it via chatListOwnerFilter.
 func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request, ownerFilter string) {
 	if s.chat == nil {
-		writeError(w, http.StatusServiceUnavailable, "chat not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
 		return
 	}
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	q := r.URL.Query()
@@ -246,7 +247,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request, ownerF
 
 	all, err := s.chat.ListSessions(r.Context(), opts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list sessions: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list sessions: "+err.Error())
 		return
 	}
 	total := len(all)
@@ -258,7 +259,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request, ownerF
 	for i := range items {
 		s.enrichSessionDisplayName(r.Context(), &items[i])
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -269,68 +270,68 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request, ownerF
 
 func (s *Server) getChatSession(w http.ResponseWriter, r *http.Request, id string) {
 	if s.chat == nil {
-		writeError(w, http.StatusServiceUnavailable, "chat not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
 		return
 	}
 	sess, err := s.chat.GetSession(r.Context(), id)
 	if errors.Is(err, chat.ErrSessionNotFound) {
-		writeError(w, http.StatusNotFound, "session not found")
+		httpx.WriteError(w, http.StatusNotFound, "session not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get session: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get session: "+err.Error())
 		return
 	}
 	s.enrichSessionDisplayName(r.Context(), sess)
-	writeJSON(w, http.StatusOK, sess)
+	httpx.WriteJSON(w, http.StatusOK, sess)
 }
 
 func (s *Server) updateChatSession(w http.ResponseWriter, r *http.Request, id string) {
 	if s.chat == nil {
-		writeError(w, http.StatusServiceUnavailable, "chat not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
 		return
 	}
 	var req chat.UpdateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	// Trim and validate the name.
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "name is required and must not be empty")
+		httpx.WriteError(w, http.StatusBadRequest, "name is required and must not be empty")
 		return
 	}
 
 	if err := s.chat.UpdateSessionName(r.Context(), id, name); err != nil {
 		if errors.Is(err, chat.ErrSessionNotFound) {
-			writeError(w, http.StatusNotFound, "session not found")
+			httpx.WriteError(w, http.StatusNotFound, "session not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to update session: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update session: "+err.Error())
 		return
 	}
 
 	// Return the updated session so the caller sees the new name.
 	sess, err := s.chat.GetSession(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch updated session: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to fetch updated session: "+err.Error())
 		return
 	}
 	s.enrichSessionDisplayName(r.Context(), sess)
-	writeJSON(w, http.StatusOK, sess)
+	httpx.WriteJSON(w, http.StatusOK, sess)
 }
 
 func (s *Server) deleteChatSession(w http.ResponseWriter, r *http.Request, id string) {
 	if s.chat == nil {
-		writeError(w, http.StatusServiceUnavailable, "chat not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
 		return
 	}
 	if err := s.chat.DeleteSession(r.Context(), id); errors.Is(err, chat.ErrSessionNotFound) {
-		writeError(w, http.StatusNotFound, "session not found")
+		httpx.WriteError(w, http.StatusNotFound, "session not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete session: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete session: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -338,16 +339,16 @@ func (s *Server) deleteChatSession(w http.ResponseWriter, r *http.Request, id st
 
 func (s *Server) addChatMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if s.chat == nil {
-		writeError(w, http.StatusServiceUnavailable, "chat not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
 		return
 	}
 	var req chat.CreateMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if req.Role == "" {
-		writeError(w, http.StatusBadRequest, "role is required")
+		httpx.WriteError(w, http.StatusBadRequest, "role is required")
 		return
 	}
 	// Validate role against the allowed set to prevent spoofing.
@@ -355,17 +356,17 @@ func (s *Server) addChatMessage(w http.ResponseWriter, r *http.Request, sessionI
 	case chat.RoleUser, chat.RoleAssistant, chat.RoleStatus:
 		// ok
 	default:
-		writeError(w, http.StatusBadRequest, "invalid role: must be user, assistant, or status")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid role: must be user, assistant, or status")
 		return
 	}
 	if req.Content == "" {
-		writeError(w, http.StatusBadRequest, "content is required")
+		httpx.WriteError(w, http.StatusBadRequest, "content is required")
 		return
 	}
 
 	msg, err := s.chat.AddMessage(r.Context(), sessionID, req.Role, req.Content, req.Tokens)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add message: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to add message: "+err.Error())
 		return
 	}
 
@@ -428,7 +429,7 @@ func (s *Server) addChatMessage(w http.ResponseWriter, r *http.Request, sessionI
 			Data:      dataJSON,
 			Raw:       string(dataJSON),
 		}); err != nil {
-			writeError(w, http.StatusBadGateway, "failed to store chat event: "+err.Error())
+			httpx.WriteError(w, http.StatusBadGateway, "failed to store chat event: "+err.Error())
 			return
 		}
 		_ = s.eventQueue.MarkRouted(r.Context(), eventID)
@@ -441,14 +442,14 @@ func (s *Server) addChatMessage(w http.ResponseWriter, r *http.Request, sessionI
 			Headers:     taskHeadersJSON,
 			Payload:     dataJSON,
 		}); err != nil {
-			writeError(w, http.StatusBadGateway, "failed to enqueue chat event for agent: "+err.Error())
+			httpx.WriteError(w, http.StatusBadGateway, "failed to enqueue chat event for agent: "+err.Error())
 			return
 		}
 		// Anything attached to that inbox now sees the message too.
 		s.transferChatMessage(r.Context(), eventID, birthChannel, agentName, headers, dataJSON)
 	}
 
-	writeJSON(w, http.StatusCreated, msg)
+	httpx.WriteJSON(w, http.StatusCreated, msg)
 }
 
 // transferChatMessage performs the bridge subscriptions out of an inbox a chat
@@ -489,7 +490,7 @@ func (s *Server) handleInternalChatSessions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	// Unrestricted: the sidecar is authenticated by X-Internal-Token and
@@ -510,13 +511,13 @@ func (s *Server) handleInternalChatSession(w http.ResponseWriter, r *http.Reques
 		id = id[:slashIdx]
 	}
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing session id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing session id")
 		return
 	}
 
 	if strings.Contains(r.URL.Path, "/messages") {
 		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		s.addChatMessage(w, r, id)
@@ -524,7 +525,7 @@ func (s *Server) handleInternalChatSession(w http.ResponseWriter, r *http.Reques
 	}
 
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	s.getChatSession(w, r, id)

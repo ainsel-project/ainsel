@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
@@ -20,11 +21,11 @@ import (
 //	?limit=N               Max messages (default 100).
 func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.taskLogs == nil {
-		writeError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
 		return
 	}
 
@@ -57,7 +58,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if scope := s.telemetryScopeFor(r); !scope.unrestricted {
 		if len(scope.agents) == 0 {
-			writeJSON(w, http.StatusOK, map[string]interface{}{
+			httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 				"messages": []tasklogs.ConversationMessage{},
 				"total":    0,
 			})
@@ -68,7 +69,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 
 	messages, err := s.taskLogs.ListConversations(r.Context(), opts)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query conversations: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query conversations: "+err.Error())
 		return
 	}
 
@@ -76,7 +77,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		messages = []tasklogs.ConversationMessage{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"messages": messages,
 		"total":    len(messages),
 	})
