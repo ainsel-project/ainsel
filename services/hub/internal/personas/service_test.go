@@ -225,7 +225,7 @@ func TestServiceGetAndList(t *testing.T) {
 	if got.Name != "a" {
 		t.Errorf("expected name=a, got %q", got.Name)
 	}
-	list, err := svc.List(ctx)
+	list, _, err := svc.List(ctx, personas.ListFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

@@ -76,7 +76,7 @@ func TestStoreList(t *testing.T) {
 	must(store.Create(ctx, &personas.Persona{ID: "01A", Name: "a", Text: "alpha"}))
 	must(store.Create(ctx, &personas.Persona{ID: "01B", Name: "b", Text: "beta"}))
 
-	got, err := store.List(ctx)
+	got, _, err := store.List(ctx, personas.ListFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestStoreListVersionsAndGetVersion(t *testing.T) {
 		t.Fatalf("Update: %v", err)
 	}
 
-	vs, err := store.ListVersions(ctx, p.ID)
+	vs, _, err := store.ListVersions(ctx, p.ID, 0, 0)
 	if err != nil {
 		t.Fatalf("ListVersions: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestStoreDeleteCascadesVersions(t *testing.T) {
 	if _, err := store.Update(ctx, p.ID, personas.UpdateRequest{Text: ptr("v2")}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	versionsBefore, err := store.ListVersions(ctx, p.ID)
+	versionsBefore, _, err := store.ListVersions(ctx, p.ID, 0, 0)
 	if err != nil {
 		t.Fatalf("ListVersions before delete: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestStoreDeleteCascadesVersions(t *testing.T) {
 	// is implemented as a plain SELECT against persona_versions, so an empty
 	// slice with no error is the observable signal that the rows were
 	// cascade-deleted (vs. left dangling).
-	versionsAfter, err := store.ListVersions(ctx, p.ID)
+	versionsAfter, _, err := store.ListVersions(ctx, p.ID, 0, 0)
 	if err != nil {
 		t.Fatalf("ListVersions after delete: %v", err)
 	}

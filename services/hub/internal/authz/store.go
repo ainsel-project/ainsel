@@ -567,6 +567,61 @@ func (s *Store) ListResourcesByGroups(ctx context.Context, resourceType string, 
 	return names, rows.Err()
 }
 
+// ListResourcesByGroupsPage returns one page of resource names of a type
+// that belong to any of the given groups, plus the total number of matching
+// names (before pagination). Same group/public semantics as
+// ListResourcesByGroups, but the page bounds are applied in SQL so the rows
+// read are proportional to the page, not to the whole group's inventory.
+// limit <= 0 means no LIMIT. Names come back ordered by resource_name
+// (unique per type, hence already deterministic).
+func (s *Store) ListResourcesByGroupsPage(ctx context.Context, resourceType string, groupIDs []string, includePublic bool, limit, offset int) ([]string, int, error) {
+	cond := `group_id = ANY($2)`
+	if includePublic {
+		cond = `(group_id = ANY($2) OR public = true)`
+	}
+
+	var total int
+	if err := s.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM resource_groups
+		WHERE resource_type = $1 AND %s
+	`, cond), resourceType, groupIDs,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("authz.ListResourcesByGroupsPage count: %w", err)
+	}
+
+	q := fmt.Sprintf(`
+		SELECT resource_name FROM resource_groups
+		WHERE resource_type = $1 AND %s
+		ORDER BY resource_name`, cond)
+	args := []any{resourceType, groupIDs}
+	if limit > 0 {
+		args = append(args, limit)
+		q += fmt.Sprintf(" LIMIT $%d", len(args))
+	}
+	if offset > 0 {
+		args = append(args, offset)
+		q += fmt.Sprintf(" OFFSET $%d", len(args))
+	}
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("authz.ListResourcesByGroupsPage: %w", err)
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, 0, fmt.Errorf("authz.ListResourcesByGroupsPage: %w", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("authz.ListResourcesByGroupsPage: %w", err)
+	}
+	return names, total, nil
+}
+
 // ListResourceGroupsByType returns a map of resource name → group ID for every
 // resource of the given type. Batched on purpose: list endpoints enrich their
 // rows with group membership without issuing one GetResourceGroup per row.

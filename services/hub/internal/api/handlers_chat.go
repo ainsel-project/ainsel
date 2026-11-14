@@ -241,17 +241,18 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request, ownerF
 	opts := chat.ListSessionsOptions{
 		AgentName: q.Get("agent"),
 		UserID:    userID,
-		Limit:     page.PageSize * page.Page, // fetch enough rows for the requested page
+		// The page bounds go into the query; the store reports the total
+		// separately, so only the page's rows are read.
+		Limit:  page.PageSize,
+		Offset: (page.Page - 1) * page.PageSize,
 	}
 
-	all, err := s.chat.ListSessions(r.Context(), opts)
+	all, total, err := s.chat.ListSessions(r.Context(), opts)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list sessions: "+err.Error())
 		return
 	}
-	total := len(all)
-	lo, hi := page.Slice(total)
-	items := all[lo:hi]
+	items := all
 	if items == nil {
 		items = []chat.Session{}
 	}

@@ -53,7 +53,7 @@ func TestList_HidesOwnedPersonas(t *testing.T) {
 		t.Fatalf("create owned: %v", err)
 	}
 
-	list, err := svc.List(ctx)
+	list, _, err := svc.List(ctx, personas.ListFilter{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestEnsureOwned_CreatesThenUpdates(t *testing.T) {
 	}
 
 	// Exactly one persona is owned by the agent.
-	versions, err := svc.ListVersions(ctx, created.ID)
+	versions, _, err := svc.ListVersions(ctx, created.ID, 0, 0)
 	if err != nil {
 		t.Fatalf("ListVersions: %v", err)
 	}

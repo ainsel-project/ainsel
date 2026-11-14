@@ -30,7 +30,7 @@ type QueueReader interface {
 // between a connector channel and an agent inbox, so the subscription view is
 // answered from the registry rather than from a copy of it here.
 type TriggerReader interface {
-	ListTriggers(ctx context.Context, agentRef, connectorRef string) ([]triggers.Trigger, error)
+	ListTriggers(ctx context.Context, opts triggers.TriggerListOptions) ([]triggers.Trigger, int, error)
 }
 
 // Service answers everything the console and the MCP server need about
@@ -141,7 +141,7 @@ func (s *Service) Subscriptions(ctx context.Context) ([]Subscription, error) {
 
 	var out []Subscription
 	if s.triggers != nil {
-		trs, err := s.triggers.ListTriggers(ctx, "", "")
+		trs, _, err := s.triggers.ListTriggers(ctx, triggers.TriggerListOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("channels: list trigger subscriptions: %w", err)
 		}

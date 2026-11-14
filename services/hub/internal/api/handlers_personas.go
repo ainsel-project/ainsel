@@ -19,10 +19,10 @@ import (
 type PersonaService interface {
 	Create(ctx context.Context, req personas.CreateRequest) (*personas.Persona, error)
 	Get(ctx context.Context, id string) (*personas.Persona, error)
-	List(ctx context.Context) ([]personas.PersonaSummary, error)
+	List(ctx context.Context, filter personas.ListFilter) ([]personas.PersonaSummary, int, error)
 	Update(ctx context.Context, id string, req personas.UpdateRequest) (*personas.Persona, error)
 	Delete(ctx context.Context, id string) error
-	ListVersions(ctx context.Context, personaID string) ([]personas.VersionSummary, error)
+	ListVersions(ctx context.Context, personaID string, limit, offset int) ([]personas.VersionSummary, int, error)
 	GetVersion(ctx context.Context, personaID string, n int) (*personas.Version, error)
 	Rollback(ctx context.Context, personaID string, toVersion int) (*personas.Persona, error)
 	// Agent-owned personas (see personas.Service): the agent detail page
@@ -175,23 +175,30 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		all, err := h.svc.List(r.Context())
+		// Authz: the accessible-id set goes into the query as id = ANY(...).
+		// nil means unrestricted (access control off or admin); an empty
+		// non-nil set means the caller sees nothing — answer from the set
+		// alone, without querying.
+		set := h.accessibleSet(r)
+		if set != nil && len(set) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"items":      []personas.PersonaSummary{},
+				"total":      0,
+				"page":       page.Page,
+				"pageSize":   page.PageSize,
+				"totalPages": 0,
+			})
+			return
+		}
+		filter := personas.ListFilter{Limit: page.PageSize, Offset: (page.Page - 1) * page.PageSize}
+		if set != nil {
+			filter.AllowedIDs = accessKeys(set)
+		}
+		items, total, err := h.svc.List(r.Context(), filter)
 		if err != nil {
 			h.writePersonaError(w, err)
 			return
 		}
-		if set := h.accessibleSet(r); set != nil {
-			filtered := all[:0]
-			for _, p := range all {
-				if set[p.ID] {
-					filtered = append(filtered, p)
-				}
-			}
-			all = filtered
-		}
-		total := len(all)
-		lo, hi := page.Slice(total)
-		items := all[lo:hi]
 		if items == nil {
 			items = []personas.PersonaSummary{}
 		}
@@ -327,14 +334,12 @@ func (h *personaHandlers) itemVersions(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	all, err := h.svc.ListVersions(r.Context(), id)
+	all, total, err := h.svc.ListVersions(r.Context(), id, page.PageSize, (page.Page-1)*page.PageSize)
 	if err != nil {
 		h.writePersonaError(w, err)
 		return
 	}
-	total := len(all)
-	lo, hi := page.Slice(total)
-	items := all[lo:hi]
+	items := all
 	if items == nil {
 		items = []personas.VersionSummary{}
 	}

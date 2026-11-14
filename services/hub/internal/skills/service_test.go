@@ -302,7 +302,7 @@ func TestServiceListEnrichesUsedBy(t *testing.T) {
 		}
 	}
 
-	summaries, err := svc.List(ctx, skills.ListFilter{})
+	summaries, _, err := svc.List(ctx, skills.ListFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestServiceListNilListerLeavesUsedByZero(t *testing.T) {
 	if _, err := svc.Create(ctx, skills.CreateRequest{ID: "solo", Name: "solo"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	summaries, err := svc.List(ctx, skills.ListFilter{})
+	summaries, _, err := svc.List(ctx, skills.ListFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

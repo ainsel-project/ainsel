@@ -330,27 +330,29 @@ func (s *Service) Get(ctx context.Context, id string) (*Skill, error) {
 	return s.store.Get(ctx, id)
 }
 
-// List returns skills (metadata only), optionally filtered. Each
-// summary is enriched with UsedBy, the number of agents that select the
-// skill. Usage is best-effort: if no lister is configured or the usage
-// lookup fails, UsedBy is left 0 and the skills are still returned.
-func (s *Service) List(ctx context.Context, filter ListFilter) ([]SkillSummary, error) {
-	summaries, err := s.store.List(ctx, filter)
+// List returns one page of skills (metadata only) plus the total number of
+// rows matching the filter, optionally filtered. Each summary is enriched
+// with UsedBy, the number of agents that select the skill. Usage is
+// best-effort: if no lister is configured or the usage lookup fails, UsedBy
+// is left 0 and the skills are still returned. Pagination is pushed into
+// the store, so only the page's rows are read and enriched.
+func (s *Service) List(ctx context.Context, filter ListFilter) ([]SkillSummary, int, error) {
+	summaries, total, err := s.store.List(ctx, filter)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if s.agents == nil {
-		return summaries, nil
+		return summaries, total, nil
 	}
 	counts, err := s.agents.UsageCounts(ctx)
 	if err != nil {
 		slog.Error("skills: usage counts unavailable", "err", err)
-		return summaries, nil
+		return summaries, total, nil
 	}
 	for i := range summaries {
 		summaries[i].UsedBy = counts[summaries[i].ID]
 	}
-	return summaries, nil
+	return summaries, total, nil
 }
 
 // SearchForDiscovery returns skill metadata for the skill MCP, without
@@ -367,15 +369,9 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]SkillSummary, 
 // The full match set is returned: bounding it is the caller's job, and a
 // caller that wants to say "there is more" needs to know whether there
 // is, which a pre-truncated list cannot show.
-//
-// The cost of that is an unbounded read -- Store.List has no LIMIT, so a
-// query-less browse fetches the whole registry to slice <=50 off it. At the
-// current size this is one small sequential scan and the truthfulness of
-// `matched` is worth more than the rows. If the registry grows by orders of
-// magnitude, the fix belongs in the store (LIMIT n+1 with a COUNT for the
-// total), not in a smaller slice here.
 func (s *Service) SearchForDiscovery(ctx context.Context, query string, tags []string) ([]SkillSummary, error) {
-	return s.store.List(ctx, ListFilter{Search: query, Tags: tags})
+	summaries, _, err := s.store.List(ctx, ListFilter{Search: query, Tags: tags})
+	return summaries, err
 }
 
 // Update applies a partial update. It re-renders the ConfigMap only when
@@ -574,7 +570,7 @@ func (s *Service) Converge(ctx context.Context) (*DeliveryReport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("skills: converge enabled skill ids: %w", err)
 	}
-	summaries, err := s.store.List(ctx, ListFilter{})
+	summaries, _, err := s.store.List(ctx, ListFilter{})
 	if err != nil {
 		return nil, err
 	}

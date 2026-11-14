@@ -81,7 +81,7 @@ func TestStoreListSessionsByAgent(t *testing.T) {
 	mustCreate(t, store, "reviewer", "user-1")
 	mustCreate(t, store, "developer", "user-2")
 
-	sessions, err := store.ListSessions(ctx, chat.ListSessionsOptions{AgentName: "developer"})
+	sessions, _, err := store.ListSessions(ctx, chat.ListSessionsOptions{AgentName: "developer"})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestStoreListSessionsByUser(t *testing.T) {
 	mustCreate(t, store, "reviewer", "user-1")
 	mustCreate(t, store, "developer", "user-2")
 
-	sessions, err := store.ListSessions(ctx, chat.ListSessionsOptions{UserID: "user-1"})
+	sessions, _, err := store.ListSessions(ctx, chat.ListSessionsOptions{UserID: "user-1"})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestStoreUpdateSessionName(t *testing.T) {
 	}
 
 	// Verify via ListSessions.
-	sessions, err := store.ListSessions(ctx, chat.ListSessionsOptions{AgentName: "developer"})
+	sessions, _, err := store.ListSessions(ctx, chat.ListSessionsOptions{AgentName: "developer"})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}

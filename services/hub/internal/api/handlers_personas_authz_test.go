@@ -32,12 +32,13 @@ type personaAuthzStub struct {
 	rollbackCalls     int
 }
 
-func (s *personaAuthzStub) ListVersions(_ context.Context, id string) ([]personas.VersionSummary, error) {
+func (s *personaAuthzStub) ListVersions(_ context.Context, id string, limit, offset int) ([]personas.VersionSummary, int, error) {
 	s.listVersionsCalls++
-	return []personas.VersionSummary{
+	items := []personas.VersionSummary{
 		{PersonaID: id, VersionNumber: 2},
 		{PersonaID: id, VersionNumber: 1},
-	}, nil
+	}
+	return items, len(items), nil
 }
 
 func (s *personaAuthzStub) GetVersion(_ context.Context, id string, n int) (*personas.Version, error) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,7 +76,7 @@ func (s *Server) GetStats(ctx context.Context) Stats {
 
 	// Triggers (from database)
 	if s.triggerStore != nil {
-		allTriggers, err := s.triggerStore.ListTriggers(ctx, "", "")
+		allTriggers, _, err := s.triggerStore.ListTriggers(ctx, triggers.TriggerListOptions{})
 		if err == nil {
 			stats.Triggers.Total = len(allTriggers)
 			for _, t := range allTriggers {
@@ -88,7 +89,7 @@ func (s *Server) GetStats(ctx context.Context) Stats {
 
 	// CronTriggers (from database)
 	if s.triggerStore != nil {
-		allCronTriggers, err := s.triggerStore.ListCronTriggers(ctx, "")
+		allCronTriggers, _, err := s.triggerStore.ListCronTriggers(ctx, triggers.CronTriggerListOptions{})
 		if err == nil {
 			stats.CronTriggers.Total = len(allCronTriggers)
 			for _, ct := range allCronTriggers {

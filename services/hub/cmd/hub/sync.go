@@ -31,7 +31,7 @@ func runSyncLoop(ctx context.Context, store *triggers.Store, idx *triggerindex.I
 // and syncs them into the in-memory trigger index and cron emitter. This
 // replaces the former Kubernetes informer-based approach.
 func syncTriggersFromDB(ctx context.Context, store *triggers.Store, idx *triggerindex.Index, emitter *cron.Emitter) {
-	allTriggers, err := store.ListTriggers(ctx, "", "")
+	allTriggers, _, err := store.ListTriggers(ctx, triggers.TriggerListOptions{})
 	if err != nil {
 		slog.Error("sync triggers from DB", "error", err)
 	} else {
@@ -49,7 +49,7 @@ func syncTriggersFromDB(ctx context.Context, store *triggers.Store, idx *trigger
 		}
 	}
 
-	allCronTriggers, err := store.ListCronTriggers(ctx, "")
+	allCronTriggers, _, err := store.ListCronTriggers(ctx, triggers.CronTriggerListOptions{})
 	if err != nil {
 		slog.Error("sync cron triggers from DB", "error", err)
 	} else {

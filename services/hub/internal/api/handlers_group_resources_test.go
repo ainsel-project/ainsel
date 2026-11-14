@@ -110,14 +110,32 @@ func (f *groupResAuthzFake) ListResourcesByGroups(_ context.Context, resourceTyp
 	return out, nil
 }
 
+// ListResourcesByGroupsPage mirrors ListResourcesByGroups with in-memory
+// page bounds, matching the SQL-side pagination of the real store.
+func (f *groupResAuthzFake) ListResourcesByGroupsPage(ctx context.Context, resourceType string, groupIDs []string, includePublic bool, limit, offset int) ([]string, int, error) {
+	all, err := f.ListResourcesByGroups(ctx, resourceType, groupIDs, includePublic)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := len(all)
+	if offset > total {
+		offset = total
+	}
+	out := all[offset:]
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, total, nil
+}
+
 // groupResPersonaFake implements PersonaService. Like the real store, List
 // returns only shared template personas — agent-owned personas are excluded.
 type groupResPersonaFake struct {
 	shared []personas.PersonaSummary
 }
 
-func (f *groupResPersonaFake) List(_ context.Context) ([]personas.PersonaSummary, error) {
-	return f.shared, nil
+func (f *groupResPersonaFake) List(_ context.Context, _ personas.ListFilter) ([]personas.PersonaSummary, int, error) {
+	return f.shared, len(f.shared), nil
 }
 
 func (f *groupResPersonaFake) Create(context.Context, personas.CreateRequest) (*personas.Persona, error) {
@@ -130,7 +148,7 @@ func (f *groupResPersonaFake) Update(context.Context, string, personas.UpdateReq
 	panic("unused")
 }
 func (f *groupResPersonaFake) Delete(context.Context, string) error { panic("unused") }
-func (f *groupResPersonaFake) ListVersions(context.Context, string) ([]personas.VersionSummary, error) {
+func (f *groupResPersonaFake) ListVersions(context.Context, string, int, int) ([]personas.VersionSummary, int, error) {
 	panic("unused")
 }
 func (f *groupResPersonaFake) GetVersion(context.Context, string, int) (*personas.Version, error) {
@@ -154,8 +172,8 @@ type groupResSkillFake struct {
 	items []skills.SkillSummary
 }
 
-func (f *groupResSkillFake) List(_ context.Context, _ skills.ListFilter) ([]skills.SkillSummary, error) {
-	return f.items, nil
+func (f *groupResSkillFake) List(_ context.Context, _ skills.ListFilter) ([]skills.SkillSummary, int, error) {
+	return f.items, len(f.items), nil
 }
 
 func (f *groupResSkillFake) Create(context.Context, skills.CreateRequest) (*skills.Skill, error) {
