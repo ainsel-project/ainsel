@@ -6,7 +6,7 @@ import { renderWithProviders } from '../../../test/renderWithProviders'
 
 const agents = [
   { id: 'a1', name: 'doc-writer', status: { ready: true } },
-  { id: 'a2', name: 'reviewer-apps', status: { ready: false }, paused: true },
+  { id: 'a2', name: 'reviewer-apps', status: { ready: false } },
 ]
 
 describe('AgentSidebar', () => {
