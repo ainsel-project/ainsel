@@ -95,7 +95,7 @@ describe('AgentEnvSection', () => {
 
     await screen.findByText('LOG_LEVEL')
     expect(screen.getByText('API_TOKEN')).toBeInTheDocument()
-    expect(screen.getByText('Agent overrides')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Environment overrides' })).toBeInTheDocument()
     expect(screen.getByText(/Currently inherited from the runtime image/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /save overrides/i })).toBeDisabled()
   })
@@ -275,8 +275,8 @@ describe('AgentEnvSection', () => {
   })
 
   it('renders nothing when no image is linked', async () => {
-    // The merged Environment card only exists with an image; the image
-    // picker's no-image hint is the single prompt (issue #215).
+    // The overrides panel only exists with an image; the image picker's
+    // no-image hint is the single prompt.
     const { container } = renderWithProviders(
       <AgentEnvSection agent={agentWith(undefined, { noImage: true })} />,
     )
