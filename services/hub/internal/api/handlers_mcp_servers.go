@@ -29,9 +29,10 @@ type mcpServerDTO struct {
 	Description  string `json:"description,omitempty"`
 	URL          string `json:"url"`
 	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
-	// ManagedBy names the row's author ("user", "helm", "plugin", ...).
-	// Read-only: the write request shape has no managedBy field, so the hub
-	// never accepts a client-supplied value and preserves the stored one.
+	// ManagedBy names the row's author ("user", "helm", "plugin", "plugin-<id>",
+	// ...). Read-only on update: the hub always preserves the stored value. The
+	// one way in is create, where a plugin caller may stamp its own
+	// "plugin-<id>" value (see mcpServerWriteRequest).
 	ManagedBy string    `json:"managedBy"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -44,6 +45,11 @@ type mcpServerWriteRequest struct {
 	Description  string `json:"description,omitempty"`
 	URL          string `json:"url"`
 	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
+	// ManagedBy stamps this row's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the row stays console-owned). It is
+	// ignored on update — the stored value is always preserved.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 func toMCPDTO(m *mcpservers.MCPServer) mcpServerDTO {
@@ -130,12 +136,19 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// Author stamping (issue #190): only a plugin caller naming itself gets a
+		// managed row; every other caller stays "user" as before.
+		managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+		if writeCreateManagedBy(w, mbErr) {
+			return
+		}
 		m := &mcpservers.MCPServer{
 			Name:         req.Name,
 			DisplayName:  req.DisplayName,
 			Description:  req.Description,
 			URL:          req.URL,
 			TokenFromEnv: req.TokenFromEnv,
+			ManagedBy:    managedBy,
 		}
 		if err := s.mcp.Create(r.Context(), m); err != nil {
 			if errors.Is(err, mcpservers.ErrAlreadyExists) {
@@ -226,10 +239,11 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if mcpservers.IsManaged(existing.ManagedBy) {
+		if mcpservers.RefusesWrite(r.Context(), existing) {
 			// The row and the endpoint it points at both belong to their author:
 			// rewriting them would send every agent that attached the server to
-			// somewhere the author never served.
+			// somewhere the author never served. The plugin the row names is that
+			// author, so it passes.
 			writeError(w, http.StatusConflict, managedMessage(existing))
 			return
 		}

@@ -187,9 +187,11 @@ type SimpleAgentResponse struct {
 	UpdatedAt       string                   `json:"updatedAt,omitempty"`
 	// ManagedBy names the external system that authors this agent (spec.managedBy).
 	// Any non-empty value other than "user" means the console renders the agent
-	// read-only and the hub refuses every mutation with 409. Read-only: the
-	// create/update request shapes have no managedBy field — only the external
-	// manager (kubectl/GitOps/Helm) sets it.
+	// read-only and the hub refuses every mutation with 409 — except to the
+	// plugin the value names. Read-only on update; the one way in is create,
+	// where a plugin caller may stamp its own "plugin-<id>" value (see
+	// SimpleAgentCreateRequest). External managers (kubectl/GitOps/Helm) set
+	// the field directly on the CR.
 	ManagedBy string `json:"managedBy,omitempty"`
 	// GroupID is the authz group this agent belongs to. Populated on the list
 	// endpoint (batched lookup); empty elsewhere and when authz is disabled.
@@ -350,6 +352,12 @@ type SimpleAgentCreateRequest struct {
 	Anthropic      *AgentAPIKeyInfo         `json:"anthropic,omitempty"`
 	Google         *AgentAPIKeyInfo         `json:"google,omitempty"`
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
+	// ManagedBy stamps this agent's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>", the value the hub composes from
+	// the caller identity); any other value is a 400. For every other caller the
+	// field is ignored and the agent stays console-owned ("user"). It is never
+	// accepted on update — the stored value is preserved.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 // SimpleAgentUpdateRequest is used to update an existing Agent. All fields are optional.
@@ -670,7 +678,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		if !s.requireWrite(w, r, "agent", name) {
 			return
 		}
-		s.deleteAgent(ctx, w, name)
+		s.deleteAgent(r, w, name)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -1248,6 +1256,13 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
+	// Author stamping (issue #190): only a plugin caller naming itself gets a
+	// managed row; every other caller stays "user" as before.
+	managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+	if writeCreateManagedBy(w, mbErr) {
+		return
+	}
+
 	// Validate group membership for resource creation. The check runs
 	// between image-ref and skills validation to keep the error precedence
 	// of the previous inline sequence.
@@ -1296,6 +1311,7 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 	agent.APIVersion = "ainsel.dev/v1alpha1"
 	agent.Kind = "Agent"
+	agent.Spec.ManagedBy = crManagedBy(managedBy)
 
 	if err := s.applyAgentRequest(ctx, agentApplyInput{
 		spec:     &agent.Spec,
@@ -1355,8 +1371,8 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 	// Externally managed agents have exactly one author; the hub refuses every
 	// spec mutation, including pause (spec.pause would be reverted by a
-	// GitOps reconciler anyway).
-	if isManagedCR(existing.Spec.ManagedBy) {
+	// GitOps reconciler anyway) — except to the plugin named in the value.
+	if isManagedCRForRequest(r, existing.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent", existing.Spec.ManagedBy)
 		return
 	}
@@ -1439,13 +1455,14 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, toSimpleAgentResponse(existing, imageDisplayName))
 }
 
-func (s *Server) deleteAgent(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) deleteAgent(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	var existing agentv1alpha1.Agent
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	if isManagedCR(existing.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, existing.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent", existing.Spec.ManagedBy)
 		return
 	}

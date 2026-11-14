@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -94,7 +93,7 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 		until = &mt
 	}
 
-	agent, code, msg := s.getAgentForPauseWrite(r.Context(), name)
+	agent, code, msg := s.getAgentForPauseWrite(r, name)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -113,7 +112,7 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 }
 
 func (s *Server) resumeAgent(w http.ResponseWriter, r *http.Request, name string) {
-	agent, code, msg := s.getAgentForPauseWrite(r.Context(), name)
+	agent, code, msg := s.getAgentForPauseWrite(r, name)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -133,7 +132,8 @@ func (s *Server) resumeAgent(w http.ResponseWriter, r *http.Request, name string
 
 // getAgentForPauseWrite fetches the agent for a pause/resume write, returning
 // an HTTP status and message on failure (0, "" on success).
-func (s *Server) getAgentForPauseWrite(ctx context.Context, name string) (*agentv1alpha1.Agent, int, string) {
+func (s *Server) getAgentForPauseWrite(r *http.Request, name string) (*agentv1alpha1.Agent, int, string) {
+	ctx := r.Context()
 	var agent agentv1alpha1.Agent
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &agent); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -142,8 +142,9 @@ func (s *Server) getAgentForPauseWrite(ctx context.Context, name string) (*agent
 		return nil, http.StatusInternalServerError, "failed to get agent: " + err.Error()
 	}
 	// Pause is a spec field: an externally managed agent's pause belongs to its
-	// author, which a reconciler would revert anyway.
-	if isManagedCR(agent.Spec.ManagedBy) {
+	// author, which a reconciler would revert anyway — except to the plugin the
+	// value names.
+	if isManagedCRForRequest(r, agent.Spec.ManagedBy) {
 		return nil, http.StatusConflict, fmt.Sprintf("agent is managed by %s", agent.Spec.ManagedBy)
 	}
 	return &agent, 0, ""

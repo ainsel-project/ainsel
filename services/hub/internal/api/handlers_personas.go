@@ -167,6 +167,24 @@ func RegisterPersonaRoutes(mux routeRegistrar, svc PersonaService, authzStorePtr
 	mux.HandleFunc("/api/v1/personas/", h.handleItem)
 }
 
+// personaCreateRequest is the POST body of /api/v1/personas. It is deliberately
+// narrower than personas.CreateRequest: `managedBy` and `ownerAgent` are
+// server-side fields — the handler composes managedBy from the authenticated
+// caller (issue #190) and ownerAgent is only ever set by the hub's own
+// copy-on-write path — so binding the service struct straight from the body
+// would let a client stamp itself as an external manager.
+type personaCreateRequest struct {
+	Name        string `json:"name"`
+	GroupID     string `json:"groupId"`
+	Description string `json:"description"`
+	Text        string `json:"text"`
+	// ManagedBy stamps this persona's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the persona stays console-owned).
+	// The value written is always the hub-composed stamp, never this field.
+	ManagedBy string `json:"managedBy,omitempty"`
+}
+
 func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -210,7 +228,7 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 			"totalPages": page.TotalPages(total),
 		})
 	case http.MethodPost:
-		var req personas.CreateRequest
+		var req personaCreateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
@@ -224,7 +242,19 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 				return
 			}
 		}
-		p, err := h.svc.Create(r.Context(), req)
+		// Author stamping (issue #190): only a plugin caller naming itself gets a
+		// managed row; every other caller stays "user" as before.
+		managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+		if writeCreateManagedBy(w, mbErr) {
+			return
+		}
+		p, err := h.svc.Create(r.Context(), personas.CreateRequest{
+			Name:        req.Name,
+			GroupID:     req.GroupID,
+			Description: req.Description,
+			Text:        req.Text,
+			ManagedBy:   managedBy,
+		})
 		if err != nil {
 			h.writePersonaError(w, err)
 			return

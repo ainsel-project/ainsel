@@ -111,8 +111,9 @@ func (s *Server) putAgentPersona(ctx context.Context, w http.ResponseWriter, r *
 		return
 	}
 	// Editing an agent's persona writes the agent's persona reference (and an
-	// owned persona) — a spec mutation of an externally managed agent.
-	if isManagedCR(agent.Spec.ManagedBy) {
+	// owned persona) — a spec mutation of an externally managed agent, unless the
+	// caller is the plugin the value names.
+	if isManagedCRForRequest(r, agent.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent", agent.Spec.ManagedBy)
 		return
 	}

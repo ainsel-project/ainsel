@@ -64,7 +64,7 @@ func (s *Server) handleAgentImagePath(w http.ResponseWriter, r *http.Request) {
 		if !s.requireWrite(w, r, "agent-image", name) {
 			return
 		}
-		s.deleteAgentImage(ctx, w, name)
+		s.deleteAgentImage(r, w, name)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -142,6 +142,13 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		return
 	}
 
+	// Author stamping (issue #190): only a plugin caller naming itself gets a
+	// managed image; every other caller stays "user" as before.
+	managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+	if writeCreateManagedBy(w, mbErr) {
+		return
+	}
+
 	// Validate group membership for resource creation.
 	if s.authzChecker != nil {
 		if req.GroupID == "" {
@@ -163,6 +170,7 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 	img.APIVersion = "ainsel.dev/v1alpha1"
 	img.Kind = "AgentImage"
+	img.Spec.ManagedBy = crManagedBy(managedBy)
 
 	img.Spec.DisplayName = req.DisplayName
 	img.Spec.Description = req.Description

@@ -48,9 +48,9 @@ func (s *Store) Create(ctx context.Context, p *Persona) error {
 	// real version id before commit (deferrable FK lets the row exist
 	// with a dangling reference until COMMIT).
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO personas (id, name, description, current_version_id, owner_agent, created_at, updated_at)
-		 VALUES ($1, $2, $3, 0, NULLIF($4, ''), $5, $5)`,
-		p.ID, p.Name, p.Description, p.OwnerAgent, now,
+		`INSERT INTO personas (id, name, description, current_version_id, owner_agent, managed_by, created_at, updated_at)
+		 VALUES ($1, $2, $3, 0, NULLIF($4, ''), NULLIF($5, ''), $6, $6)`,
+		p.ID, p.Name, p.Description, p.OwnerAgent, p.ManagedBy, now,
 	); err != nil {
 		if pgutil.IsUniqueViolation(err) {
 			return ErrNameTaken
@@ -80,7 +80,9 @@ func (s *Store) Create(ctx context.Context, p *Persona) error {
 	}
 
 	p.CurrentVersion = 1
-	p.ManagedBy = ManagedByUser
+	if p.ManagedBy == "" {
+		p.ManagedBy = ManagedByUser
+	}
 	p.CreatedAt = now
 	p.UpdatedAt = now
 	return nil

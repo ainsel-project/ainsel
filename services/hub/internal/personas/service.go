@@ -43,6 +43,12 @@ type CreateRequest struct {
 	// OwnerAgent marks the persona as owned by that Agent CR (empty =
 	// shared template). Owned personas are hidden from List.
 	OwnerAgent string `json:"ownerAgent,omitempty"`
+	// ManagedBy names this persona's author, set server-side by the create
+	// handler: "user" for console callers, or the caller's own "plugin-<id>"
+	// stamp for a plugin that authors it (issue #190). It is deliberately not
+	// part of the REST request body — the handler decodes a client DTO and
+	// composes this value from the authenticated caller, never from the body.
+	ManagedBy string
 }
 
 // ErrNotOwned is returned by DeleteOwned when the persona is not owned by
@@ -56,7 +62,9 @@ const ManagedByUser = "user"
 // IsManaged reports whether a managedBy value marks the persona externally
 // managed. Empty means console-managed (equivalent to "user") so existing
 // rows stay editable; any other value names an external author (helm,
-// gitops, ...) whose resource the console must not mutate.
+// gitops, plugin-<id>, ...) whose resource the console must not mutate.
+// The single exception — the plugin named by a "plugin-<id>" value may still
+// write its own rows — is enforced by managedRefusal, not here.
 func IsManaged(managedBy string) bool {
 	return managedBy != "" && managedBy != ManagedByUser
 }
@@ -151,6 +159,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Persona, erro
 		Description: req.Description,
 		Text:        req.Text,
 		OwnerAgent:  req.OwnerAgent,
+		ManagedBy:   req.ManagedBy,
 	}
 	if err := s.store.Create(ctx, p); err != nil {
 		return nil, err
@@ -209,7 +218,7 @@ func (s *Service) EnsureOwned(ctx context.Context, agentName, defaultName string
 	existing, err := s.store.GetByOwner(ctx, agentName)
 	switch {
 	case err == nil:
-		if IsManaged(existing.ManagedBy) {
+		if managedRefusal(ctx, existing.ManagedBy) {
 			return nil, &ManagedError{Manager: existing.ManagedBy}
 		}
 		return s.Update(ctx, existing.ID, req)
@@ -253,7 +262,7 @@ func (s *Service) DeleteOwned(ctx context.Context, personaID, agentName string) 
 	if p.OwnerAgent != agentName {
 		return ErrNotOwned
 	}
-	if IsManaged(p.ManagedBy) {
+	if managedRefusal(ctx, p.ManagedBy) {
 		return &ManagedError{Manager: p.ManagedBy}
 	}
 	if err := s.store.Delete(ctx, personaID); err != nil {
@@ -279,7 +288,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Pe
 	if err != nil {
 		return nil, err
 	}
-	if IsManaged(row.ManagedBy) {
+	if managedRefusal(ctx, row.ManagedBy) {
 		return nil, &ManagedError{Manager: row.ManagedBy}
 	}
 	if req.Name != nil {
@@ -326,7 +335,7 @@ func (s *Service) Rollback(ctx context.Context, personaID string, toVersion int)
 	if err != nil {
 		return nil, err
 	}
-	if IsManaged(row.ManagedBy) {
+	if managedRefusal(ctx, row.ManagedBy) {
 		return nil, &ManagedError{Manager: row.ManagedBy}
 	}
 	p, err := s.store.Rollback(ctx, personaID, toVersion)
@@ -347,7 +356,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if IsManaged(row.ManagedBy) {
+	if managedRefusal(ctx, row.ManagedBy) {
 		return &ManagedError{Manager: row.ManagedBy}
 	}
 	refs, err := s.agentLister.ListReferrers(ctx, id)
