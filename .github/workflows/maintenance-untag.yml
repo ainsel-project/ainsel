@@ -7,15 +7,23 @@ name: Maintenance - Docker Hub tag retention
 # docs/maintenance.md - the alternative is an ever-growing registry (456 tags /
 # 125 GB when this was written, 91% of the bytes in the pi* repos).
 #
+# The images now publish to the project's own GHCR namespace and Docker Hub is a
+# mirror during the deprecation window. This pass cleans the mirror: the account
+# comes from vars.DOCKERHUB_NAMESPACE, so a fork with its own mirror points the
+# same tooling at its own account. GHCR needs the packages API and is tracked
+# separately - see "After the mirror goes away" in docs/maintenance.md.
+#
 # Deleting is opt-in per run. The scheduled run only reports; a tag is removed
 # solely by a manual dispatch with `apply` set. That keeps an unattended cron
 # from ever taking an image out from under a running deployment.
 #
 # Required credentials for apply (the weekly report needs none):
-#   vars.DOCKERHUB_USERNAME   - existing, same as the dev-image workflows
-#   secrets.DOCKERHUB_TOKEN   - needs delete:delete-image scope. The token the
-#                               build workflows log in with may not have it; see
-#                               "Rotation notes" in docs/maintenance.md.
+#   vars.DOCKERHUB_NAMESPACE    - the account to clean; unset means the script's
+#                                 own default, the historical dpinsel mirror
+#   vars.DOCKERHUB_USERNAME     - existing, same as the dev-image workflows
+#   secrets.DOCKERHUB_TOKEN     - needs delete:delete-image scope. The token the
+#                                 build workflows log in with may not have it; see
+#                                 "Rotation notes" in docs/maintenance.md.
 
 on:
   schedule:
@@ -89,6 +97,7 @@ jobs:
     env:
       DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
       # Dispatch inputs are passed to the shell as environment variables rather
       # than interpolated into the script, so no input can inject shell syntax.
       WANT_APPLY: ${{ github.event_name == 'workflow_dispatch' && inputs.apply && 'true' || 'false' }}
@@ -108,6 +117,9 @@ jobs:
           # Built as a quoted bash array in this same step: inputs arrive through
           # the environment, so no value can inject shell syntax into the runner.
           args=(--markdown "$RUNNER_TEMP/report.md")
+          if [ -n "${DOCKERHUB_NAMESPACE:-}" ]; then
+            args+=(--namespace "$DOCKERHUB_NAMESPACE")
+          fi
           if [ "${WANT_APPLY:-false}" = "true" ]; then args+=(--apply); fi
           if [ -n "${MAX_AGE_DAYS:-}" ]; then args+=(--max-age-days "$MAX_AGE_DAYS"); fi
           if [ -n "${KEEP_NEWEST:-}" ]; then args+=(--keep-newest "$KEEP_NEWEST"); fi

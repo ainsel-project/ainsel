@@ -13,6 +13,7 @@ import importlib.machinery
 import importlib.util
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 _MODULE_PATH = Path(__file__).with_name("hub-retention.py")
@@ -358,6 +359,79 @@ class TestSummarise(unittest.TestCase):
     def test_markdown_says_applied_when_it_did(self):
         md = hr.write_markdown({"ainsel-test": plan([tag("abcdef1", 900)])}, applied=True, policy=policy())
         self.assertIn("apply (tags were deleted)", md)
+
+
+class TestNamespace(unittest.TestCase):
+    """The Docker Hub account is a parameter, not a string in the middle of a URL.
+
+    The images moved to a project-owned namespace and Docker Hub became a mirror,
+    so the same pass has to be runnable against more than one account. A
+    hardcoded owner there would quietly report (or delete) against the wrong
+    registry, and a fork's mirror would never be collected at all.
+    """
+
+    def setUp(self):
+        self.urls = []
+        self._request = hr._request
+
+        def fake_request(url, auth=None, method="GET"):
+            self.urls.append((method, url))
+            if method == "GET":
+                return 200, b'{"results": [], "next": null}'
+            return 204, b""
+
+        hr._request = fake_request
+        self.addCleanup(setattr, hr, "_request", self._request)
+
+    def test_default_namespace_is_the_historical_mirror(self):
+        hr.fetch_tags("ainsel-pi")
+        self.assertIn("/repositories/dpinsel/ainsel-pi/tags/", self.urls[0][1])
+
+    def test_namespace_reaches_the_listing_url(self):
+        hr.fetch_tags("ainsel-pi", "ainsel-mirror")
+        self.assertIn("/repositories/ainsel-mirror/ainsel-pi/tags/", self.urls[0][1])
+
+    def test_namespace_reaches_the_delete_url(self):
+        hr.delete_tag("ainsel-pi", "abcdef1", "Basic x", "ainsel-mirror")
+        self.assertEqual("DELETE", self.urls[0][0])
+        self.assertIn("/repositories/ainsel-mirror/ainsel-pi/tags/abcdef1", self.urls[0][1])
+
+    def test_cli_namespace_overrides_the_default(self):
+        # main() is exercised as far as the policy it builds: that is where the
+        # flag has to land for both URLs to follow it.
+        argv = ["--namespace", "ainsel-mirror", "--repo", "ainsel-test", "--now", NOW.isoformat()]
+        with unittest.mock.patch.object(hr, "fetch_tags", return_value=[tag("abcdef1", 900)]) as fetch:
+            self.assertEqual(0, hr.main(argv))
+        self.assertEqual("ainsel-mirror", fetch.call_args[0][1])
+
+    def test_environment_selects_the_namespace(self):
+        argv = ["--repo", "ainsel-test", "--now", NOW.isoformat()]
+        with unittest.mock.patch.dict(hr.os.environ, {"DOCKERHUB_NAMESPACE": "from-env"}):
+            with unittest.mock.patch.object(hr, "fetch_tags", return_value=[tag("abcdef1", 900)]) as fetch:
+                self.assertEqual(0, hr.main(argv))
+        self.assertEqual("from-env", fetch.call_args[0][1])
+
+    def test_empty_environment_falls_back_to_the_default(self):
+        # The workflow passes vars.DOCKERHUB_NAMESPACE through, and an unset repo
+        # variable arrives as "" - which must not become an empty account name.
+        argv = ["--repo", "ainsel-test", "--now", NOW.isoformat()]
+        with unittest.mock.patch.dict(hr.os.environ, {"DOCKERHUB_NAMESPACE": ""}):
+            with unittest.mock.patch.object(hr, "fetch_tags", return_value=[tag("abcdef1", 900)]) as fetch:
+                self.assertEqual(0, hr.main(argv))
+        self.assertEqual(hr.DEFAULT_NAMESPACE, fetch.call_args[0][1])
+
+    def test_report_names_the_namespace_it_cleaned(self):
+        md = hr.write_markdown(
+            {"ainsel-test": plan([tag("abcdef1", 900)])}, applied=False, policy=policy(namespace="ainsel-mirror")
+        )
+        self.assertIn("`ainsel-mirror`", md)
+
+    def test_a_repo_with_no_tags_reports_instead_of_crashing(self):
+        # Which is what an account that does not publish this image looks like,
+        # and --namespace makes one reachable.
+        argv = ["--namespace", "ainsel-mirror", "--repo", "ainsel-test", "--now", NOW.isoformat()]
+        with unittest.mock.patch.object(hr, "fetch_tags", return_value=[]):
+            self.assertEqual(0, hr.main(argv))
 
 
 if __name__ == "__main__":
