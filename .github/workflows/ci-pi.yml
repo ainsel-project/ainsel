@@ -45,7 +45,10 @@ jobs:
       # Every pi-extensions/* package that declares a test script must pass.
       # ainsel-tools enforces the agent's tool selection at runtime — this is
       # the only gate that keeps that enforcement code from silently breaking.
-      - name: npm ci && npm test
+      # A package that declares a typecheck script gets that too: the runner's
+      # modules are loaded by jiti, which strips types without checking them, so
+      # tsc is the only thing standing between a type error and a runtime crash.
+      - name: npm ci && npm test && npm run typecheck
         working-directory: pi/pi-extensions
         run: |
           set -e
@@ -55,5 +58,8 @@ jobs:
             grep -q '"test":' "$pkg" || continue
             echo "::group::$dir"
             (cd "$dir" && npm ci --no-audit --no-fund && npm test)
+            if grep -q '"typecheck":' "$pkg"; then
+              (cd "$dir" && npm run typecheck)
+            fi
             echo "::endgroup::"
           done
