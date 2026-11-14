@@ -35,9 +35,9 @@ long-poll, the NOTIFY wake-up and the claim lease served only pre-#359 images.
 - `attempts` grows at nack and only there. A first retry carries `attempts == 1`.
 - Pre-#359 runtime images get 404 from `next-task` and must move to a current image.
 - The status `claimed` and column `claimed_at` survive for history only.
-- Agent pause was enforced solely inside `next-task` and is not enforced on the
-  Job path; its removal in favour of `replicas: 0` is tracked in
-  [#249](https://github.com/ainsel-project/ainsel/issues/249).
+- Agent pause was enforced solely inside `next-task` and was never enforced on
+  the Job path; it has since been removed in favour of `replicas: 0`
+  ([#249](https://github.com/ainsel-project/ainsel/issues/249)).
 - Nothing records when a worker actually starts. "Started" is inferred from the
   first conversation row, which lags pod boot by up to one LLM turn. A
   start marker can be added later as an idempotent write that leaves `status`

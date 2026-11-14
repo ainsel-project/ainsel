@@ -587,7 +587,7 @@ comment, unprompted.
 
 - Schedule fires in the **hub's local time**. Confirm the hub pod's
   timezone (default UTC) when picking times.
-- Pausing without deletion → update it with `enabled: false`
+- Disabling without deletion → update it with `enabled: false`
   (console, MCP, or `PUT /api/v1/cron-triggers/{id}`).
 - Backfill missed runs is intentionally not supported — each fire is
   one invocation; if the hub is down during a slot, that slot is

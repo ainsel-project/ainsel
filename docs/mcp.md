@@ -199,7 +199,7 @@ supported. Example: `"0 9 * * 1-5"` fires at 09:00 on weekdays.
 |------|------|-----------------|
 | `list_connectors` | read | All connectors and their status. |
 | `get_connector` | read | One connector: configuration and health. |
-| `update_connector` | write | Update a connector's display name (`display_name`) or pause/resume it (`disabled`). The connector ID and webhook endpoint are immutable; renaming never recreates the connector or its channel. |
+| `update_connector` | write | Update a connector's display name (`display_name`) or disable/enable it (`disabled`). The connector ID and webhook endpoint are immutable; renaming never recreates the connector or its channel. |
 
 ### Channels
 

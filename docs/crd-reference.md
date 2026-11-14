@@ -52,9 +52,8 @@ for its container image and tool catalog.
 | `skills[]` | []string | No | **This agent's skill selection**: skill ids from the hub's skill library (`/skills`). Scoped to the agent, not the image — an agent gets its skills whatever image it runs on. Absent or empty = no skills (there is no image-level default to inherit). The hub renders them into the agent's skills ConfigMap; unknown ids are rejected with `400` |
 | `mcp.servers[]` | []AgentMCPServer | No | Agent-scoped MCP servers (`name`, `url`, `tokenFromEnv`), resolved from the hub's MCP registry when the agent is written. Present = explicit override (`servers: []` = connect to none); absent = inherit the image's `mcpServers`. The operator injects `MCP_SERVERS` / `MCP_SERVER_TOKENS` from this list |
 | `env[]` | []AgentEnvVar | No | Per-agent environment variables (`name`, `value`, `secret`) layered on top of the referenced image's `env`: a matching name overrides the image's value and secret flag, a new name is added. The operator writes the effective set to the `<agent>-image-env` Secret and injects each entry into the agent container |
-| `scaling.replicas` | int32 | No | Concurrency cap: the maximum number of per-task Jobs the operator keeps in flight for this agent (default 1). Each queued task gets its own Job up to this cap; `0` pauses the agent (nothing is dispatched) |
+| `scaling.replicas` | int32 | No | Concurrency cap: the maximum number of per-task Jobs the operator keeps in flight for this agent (default 1). Each queued task gets its own Job up to this cap; `0` stops dispatch — tasks stay queued and run when the cap goes back up |
 | `scaling.disabled` | bool | No | Set by the operator for a stopped agent: hold at zero even if the hub still counts queued work. Cleared on start |
-| `pause.pausedUntil` | Time | No | Pause window end. **Present = paused**: while active (or while `pausedUntil` is omitted = indefinite) the hub's claim endpoint hands this agent no tasks, so routed tasks accumulate as a backlog that drains in id order when the pause ends — nothing is lost. Expiry is evaluated at read time, so an expiring pause needs no controller. Orthogonal to `scaling`, which governs how many tasks run at once, not whether they are delivered. Managed via `POST`/`DELETE /api/v1/agents/{name}/pause` or by editing the CR. Caveat: while an **indefinite** pause is active nothing prunes the backlog — `agent_tasks` and invocation rows keep growing until the pause is lifted |
 | `workingHours.timezone` | string | No | IANA zone the window is read in (default `UTC`), so `09:00` means 09:00 *there*. An unknown zone is rejected by the API on write; a window that cannot be read at delivery time fails **open** and the work is delivered, so a typo cannot stall a queue forever |
 | `workingHours.days[]` | []int32 | No | Weekdays the window repeats on, numbered as in cron: `0` and `7` are Sunday, `1` Monday … `6` Saturday. Empty = every day |
 | `workingHours.start`, `workingHours.end` | string | No / Yes | `HH:MM` wall-clock bounds. An `end` before the `start` is one window that closes the following day (`22:00`–`06:00` is a night shift); equal bounds leave no window at all and are rejected |
@@ -83,11 +82,11 @@ delayed the work would still be waking pods. Queued tasks drain in id order when
 window next opens, and nothing is exempt: a chat message sent at 23:00 to a
 09:00–17:00 agent is answered when the window opens, not before.
 
-Pause and working hours are two axes of the same gate and either one holds the queue —
-`pause` is a human pressing a button, `workingHours` is the schedule the agent's people
-keep. The difference is the lift: a pause is ended by a person (or its `pausedUntil`), a
-window closes by itself. Both are evaluated at read time, so no controller or timer has
-to be told when either changes.
+`scaling.replicas: 0` is the other way to hold the queue, and it is the one a person
+uses: work keeps queueing, no Job is created, and raising the cap releases the backlog in
+id order. `workingHours` is the schedule the agent's people keep. The difference is the
+lift: `replicas` is raised by a person, a window closes by itself. Working hours are
+evaluated at read time, so no controller or timer has to be told when a window changes.
 
 ### Status
 
@@ -100,7 +99,6 @@ to be told when either changes.
 | `queueObservedAt` | Time | When the hub last *measured* this agent's queue — hub-written. If it goes stale the operator holds its container count instead of scaling down |
 | `lastInvocation` | Time | Last queue activity (hub-written idle clock driving the quiet window). `nil` means the hub has never observed this agent, which is not the same as its queue being empty |
 | `scaling` | AgentScalingStatus | The operator's decision: `desired` count, `mode` (`static` or `queue`), `reason` and `message` explaining it (`ScaledToZero`, `Draining`, `QueueSignalStale`, …) |
-| `paused` | bool | Display mirror of the effective pause state of `spec.pause`, written by the operator each reconcile (requeued at expiry so it self-clears). `kubectl get agents` shows it. The authoritative gate is the hub evaluating `spec.pause` at read time, so this may lag briefly |
 | `chatGPTSignIn` | AgentChatGPTSignInStatus | Only for `openAI.authMethod: ChatGPTSignIn`, written by the operator: `signedInAt` (last successful sign-in), `signInFailedAt` (a task pod last found the sign-in missing or rejected), `lastVerifiedAt` (a completed task or keep-alive check last confirmed the sign-in), `handledSession`. Absent for every other agent |
 | `observedGeneration` | int64 | Last observed generation |
 
@@ -109,7 +107,7 @@ otherwise): `True` with reason `NotSignedIn` until the first sign-in succeeds, o
 `SignInExpired` once a task pod's pre-check exits `78` after the latest sign-in
 (OpenAI rejected the refresh, or no credential is stored). While it is `True` the
 operator dispatches no task Job; due tasks stay queued and run after the next sign-in.
-`spec.pause` and `spec.scaling.replicas` are never changed. `False` with reason
+`spec.scaling.replicas` is never changed. `False` with reason
 `SignedIn` otherwise. A network or OpenAI outage during the pre-check is retried and
 then fails the pod normally, so it never sets this condition.
 

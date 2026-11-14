@@ -79,7 +79,7 @@ The contract, all of it set by the operator on task Jobs:
 
 If the pid file never appears, the server exits non-zero rather than serving an
 empty pod forever. If `AINSEL_TASK_DIR` is unset — a long-lived pod (scale-to-zero
-or paused), or a plain local run — none of this applies and the server serves
+or disabled), or a plain local run — none of this applies and the server serves
 until it is signalled down.
 
 ## Local development

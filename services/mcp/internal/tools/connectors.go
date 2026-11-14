@@ -49,7 +49,7 @@ func (c *ConnectorTools) UpdateConnectorTool() mcp.Tool {
 		mcp.WithDescription("Update a connector's display name or enabled state. Only provided fields are changed; omitted fields are left unchanged. The connector ID (name argument) is the immutable identity and webhook endpoint; renames go through display_name."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Connector ID (e.g. c-0c4b01e3)")),
 		mcp.WithString("display_name", mcp.Description("New user-facing connector name (e.g. connector-forgejo-ainsel). Updates the connector's label and its channel name; webhook endpoints and the connector ID are unaffected.")),
-		mcp.WithBoolean("disabled", mcp.Description("Pause (true) or resume (false) event delivery from this connector")),
+		mcp.WithBoolean("disabled", mcp.Description("Disable (true) or re-enable (false) event delivery from this connector")),
 	)
 }
 
