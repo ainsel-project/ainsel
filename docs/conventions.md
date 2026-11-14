@@ -184,6 +184,13 @@ to rename things safely.
 
 ### Routing
 
+Status: being adopted. The route table below is the target shape for issue
+#265; the merged route table does not satisfy it yet — patterns still carry no
+method, collection handlers still switch on `r.Method`, and the internal agent
+task routes are behind one subtree funnel rather than `s.internalTask`. The
+invariants are enforced by `router_test.go` as each group converts, so a rule
+listed here is only binding for the routes that already follow it.
+
 Hub HTTP routes are declared as a route table in
 [`services/hub/internal/api/server.go`](../services/hub/internal/api/server.go),
 one Go method + wildcard pattern per endpoint (issue #265):
