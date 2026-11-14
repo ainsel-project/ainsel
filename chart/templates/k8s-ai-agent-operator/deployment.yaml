@@ -70,6 +70,7 @@ spec:
             - --credential-storage-class={{ . }}
             {{- end }}
             - --credential-volume-size={{ .Values.agentOperator.credentialVolume.size }}
+            - --sign-in-keepalive-interval={{ .Values.agentOperator.signInKeepAliveInterval }}
           env:
             - name: POD_NAMESPACE
               valueFrom:

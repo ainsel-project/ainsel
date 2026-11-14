@@ -13,6 +13,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -587,5 +588,190 @@ func TestOlderSignInJobDoesNotOverrideNewer(t *testing.T) {
 	}
 	if signInWanted(agent) != "" {
 		t.Error("the current session reads as unhandled, so dispatch would be held again")
+	}
+}
+
+func keepAliveReconciler(t *testing.T, agent *ainselv1alpha1.Agent, jobs ...runtime.Object) (*AgentReconciler, client.Client) {
+	t.Helper()
+	scheme := jobModeScheme()
+	objs := append([]runtime.Object{agent, jobModeDeployment()}, jobs...)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(objs...).Build()
+	return &AgentReconciler{Client: c, Scheme: scheme, SignInKeepAliveInterval: 24 * time.Hour}, c
+}
+
+func keepAliveJobs(jobs []batchv1.Job) []batchv1.Job {
+	var out []batchv1.Job
+	for _, j := range jobs {
+		if j.Labels[credentialJobLabel] == credentialJobKeepAlive {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+func TestKeepAliveDueAfterInterval(t *testing.T) {
+	now := time.Now()
+	fresh := signedIn(signInJobModeAgent(), now.Add(-time.Hour))
+	if keepAliveDue(fresh, now, 24*time.Hour) {
+		t.Error("due an hour after signing in, want not due")
+	}
+	stale := signedIn(signInJobModeAgent(), now.Add(-25*time.Hour))
+	if !keepAliveDue(stale, now, 24*time.Hour) {
+		t.Error("not due 25 h after signing in, want due")
+	}
+	stale.Status.ChatGPTSignIn.LastVerifiedAt = &metav1.Time{Time: now.Add(-time.Hour)}
+	if keepAliveDue(stale, now, 24*time.Hour) {
+		t.Error("due although a pod verified the sign-in an hour ago")
+	}
+	if keepAliveDue(signedIn(signInJobModeAgent(), now.Add(-48*time.Hour)), now, 0) {
+		t.Error("due with the keep-alive turned off (interval 0)")
+	}
+}
+
+func TestKeepAliveNotDueWhileSignInRequired(t *testing.T) {
+	now := time.Now()
+	a := signedIn(signInJobModeAgent(), now.Add(-48*time.Hour))
+	a.Status.ChatGPTSignIn.SignInFailedAt = &metav1.Time{Time: now.Add(-time.Hour)}
+	if keepAliveDue(a, now, 24*time.Hour) {
+		t.Error("keep-alive due for an agent whose sign-in is already dead")
+	}
+	if keepAliveDue(signInJobModeAgent(), now, 24*time.Hour) {
+		t.Error("keep-alive due for an agent that never signed in")
+	}
+}
+
+func TestKeepAliveStartsForIdleAgent(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(), time.Now().Add(-25*time.Hour))
+	r, c := keepAliveReconciler(t, agent)
+	decision, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ka := keepAliveJobs(listTaskJobs(t, c))
+	if len(ka) != 1 {
+		t.Fatalf("keep-alive jobs = %d, want 1", len(ka))
+	}
+	pod := ka[0].Spec.Template.Spec
+	if !strings.Contains(strings.Join(pod.Containers[0].Command, " "), "ainsel-chatgpt-auth/check.mjs") {
+		t.Errorf("command = %v, want the check script", pod.Containers[0].Command)
+	}
+	if ka[0].Spec.ActiveDeadlineSeconds == nil || *ka[0].Spec.ActiveDeadlineSeconds != 300 {
+		t.Errorf("deadline = %v, want 300", ka[0].Spec.ActiveDeadlineSeconds)
+	}
+	if p := ka[0].Spec.PodFailurePolicy; p == nil || p.Rules[0].OnExitCodes.Values[0] != 78 {
+		t.Errorf("podFailurePolicy = %+v, want FailJob on 78", p)
+	}
+	if len(pod.Volumes) != 1 || pod.Volumes[0].PersistentVolumeClaim == nil {
+		t.Errorf("volumes = %+v, want only the credential PVC", pod.Volumes)
+	}
+	if !strings.Contains(decision.Message, "checking the ChatGPT sign-in") {
+		t.Errorf("message = %q", decision.Message)
+	}
+}
+
+func TestKeepAliveWaitsForTaskJob(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(), time.Now().Add(-25*time.Hour))
+	running := existingJob(t, agent, 8, false)
+	r, c := keepAliveReconciler(t, agent, running)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(keepAliveJobs(listTaskJobs(t, c))); n != 0 {
+		t.Fatalf("keep-alive started while a task Job runs (%d)", n)
+	}
+}
+
+func TestKeepAliveLeavesQueuedWorkToTasks(t *testing.T) {
+	// A due task refreshes the sign-in at its own pre-check; the keep-alive
+	// must not delay it.
+	agent := signedIn(signInJobModeAgent(7), time.Now().Add(-25*time.Hour))
+	r, c := keepAliveReconciler(t, agent)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	jobs := listTaskJobs(t, c)
+	if len(keepAliveJobs(jobs)) != 0 || len(taskJobsOf(jobs)) != 1 {
+		t.Fatalf("jobs = %d keep-alive / %d task, want the task dispatched instead", len(keepAliveJobs(jobs)), len(taskJobsOf(jobs)))
+	}
+}
+
+func TestNoTaskDispatchWhileKeepAliveRuns(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(7), time.Now().Add(-time.Hour))
+	live := buildKeepAliveJob(agent, jobModeDeployment(), time.Now())
+	r, c := keepAliveReconciler(t, agent, live)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(taskJobsOf(listTaskJobs(t, c))); n != 0 {
+		t.Fatalf("task dispatched while the keep-alive holds the volume (%d)", n)
+	}
+}
+
+func TestKeepAliveSuccessUpdatesLastVerified(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(), time.Now().Add(-25*time.Hour))
+	done := buildKeepAliveJob(agent, jobModeDeployment(), time.Now())
+	at := time.Now().Add(-time.Minute).Truncate(time.Second)
+	done.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+	done.Status.CompletionTime = &metav1.Time{Time: at}
+	r, c := keepAliveReconciler(t, agent, done)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	s := agent.Status.ChatGPTSignIn
+	if s.LastVerifiedAt == nil || !s.LastVerifiedAt.Time.Equal(at) {
+		t.Fatalf("lastVerifiedAt = %v, want %v", s.LastVerifiedAt, at)
+	}
+	if n := len(keepAliveJobs(listTaskJobs(t, c))); n != 1 {
+		t.Errorf("keep-alive jobs = %d, want the finished one only", n)
+	}
+}
+
+func TestKeepAlive78SetsSignInExpired(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(), time.Now().Add(-25*time.Hour))
+	failed := buildKeepAliveJob(agent, jobModeDeployment(), time.Now())
+	failed.Status.Conditions = []batchv1.JobCondition{{
+		Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: batchv1.JobReasonPodFailurePolicy,
+		LastTransitionTime: metav1.Time{Time: time.Now().Add(-time.Minute)},
+	}}
+	r, _ := keepAliveReconciler(t, agent, failed)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	applySignInStatus(agent)
+	cond := apimeta.FindStatusCondition(agent.Status.Conditions, ainselv1alpha1.AgentConditionSignInRequired)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != "SignInExpired" {
+		t.Fatalf("SignInRequired = %+v, want True/SignInExpired", cond)
+	}
+}
+
+func TestKeepAliveFailureRetriesHourly(t *testing.T) {
+	// A keep-alive that failed for another reason (network) is not retried
+	// in a tight loop: one attempt per hour.
+	agent := signedIn(signInJobModeAgent(), time.Now().Add(-25*time.Hour))
+	failed := buildKeepAliveJob(agent, jobModeDeployment(), time.Now())
+	failed.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"}}
+	r, c := keepAliveReconciler(t, agent, failed)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(keepAliveJobs(listTaskJobs(t, c))); n != 1 {
+		t.Fatalf("keep-alive jobs = %d, want no second attempt within the hour", n)
+	}
+	if agent.Status.ChatGPTSignIn.SignInFailedAt != nil {
+		t.Error("an ordinary failure was recorded as a dead sign-in")
+	}
+}
+
+func TestCompletedTaskJobUpdatesLastVerified(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(), time.Now().Add(-25*time.Hour))
+	done := existingJob(t, agent, 9, true)
+	at := time.Now().Add(-2 * time.Minute).Truncate(time.Second)
+	done.Status.CompletionTime = &metav1.Time{Time: at}
+	r, _ := keepAliveReconciler(t, agent, done)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	if s := agent.Status.ChatGPTSignIn; s.LastVerifiedAt == nil || !s.LastVerifiedAt.Time.Equal(at) {
+		t.Fatalf("lastVerifiedAt = %v, want the task's completion %v", s.LastVerifiedAt, at)
 	}
 }

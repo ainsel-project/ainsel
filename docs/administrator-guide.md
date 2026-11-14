@@ -623,6 +623,13 @@ What to know:
 - **One task at a time.** Two pods must not refresh the same token, so a sign-in
   agent runs at most one task at once. The console and the hub refuse a higher
   *Max concurrent tasks*.
+- **Staying signed in.** Every task checks the sign-in before it runs and
+  refreshes the token when needed. An agent that runs nothing for a while gets a
+  short keep-alive check instead, once its sign-in has gone unverified for
+  `agentOperator.signInKeepAliveInterval` (default `24h`, `0` turns it off). It
+  runs only when nothing else uses the agent's volume and no task is queued.
+  OpenAI does not document how long an unused refresh token lives, which is why
+  this exists and why the interval is a setting.
 - **When the sign-in dies.** Each task first checks the sign-in and refreshes
   the token if needed. If OpenAI rejects it, the agent shows **Sign-in required**
   on its page and in the agent list, runs nothing, and keeps its queued tasks

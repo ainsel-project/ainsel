@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -84,6 +85,10 @@ func main() {
 	flag.StringVar(&credentialVolumeSize, "credential-volume-size", "1Gi",
 		"Requested size of the ChatGPT sign-in credential volume. The data is a few KiB; "+
 			"raise it only to meet a storage class minimum.")
+
+	var signInKeepAlive time.Duration
+	flag.DurationVar(&signInKeepAlive, "sign-in-keepalive-interval", 24*time.Hour,
+		"How long a ChatGPT sign-in may go unverified before the operator checks and refreshes it on an idle agent. 0 disables.")
 
 	opts := zap.Options{
 		Development: true,
@@ -209,6 +214,8 @@ func main() {
 
 		CredentialStorageClass: credentialStorageClass,
 		CredentialVolumeSize:   credentialSize,
+
+		SignInKeepAliveInterval: signInKeepAlive,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Agent")
 		os.Exit(1)

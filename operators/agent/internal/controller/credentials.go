@@ -266,18 +266,9 @@ func signInJobName(agentName, session string) string {
 	return prefix + "-" + suffix
 }
 
-// buildSignInJob renders the sign-in Job from the agent's pod template: the
-// runtime image and its security settings, but only the agent container, only
-// the credential volume and only the env the script needs. No init container:
-// nothing of Pi's agent directory is used.
+// buildSignInJob renders the sign-in Job: the hub address, internal token,
+// session and the session's own token, and the sign-in script.
 func buildSignInJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, session string) *batchv1.Job {
-	tpl := deploy.Spec.Template.DeepCopy()
-	var agentC corev1.Container
-	for _, c := range tpl.Spec.Containers {
-		if c.Name == "agent" {
-			agentC = c
-		}
-	}
 	env := []corev1.EnvVar{
 		{Name: "AGENT_NAME", Value: agent.Name},
 		{Name: "AINSEL_SIGN_IN_SESSION", Value: session},
@@ -291,14 +282,39 @@ func buildSignInJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, sess
 			},
 		}},
 	}
-	for _, e := range agentC.Env {
-		if e.Name == "HUB_URL" || e.Name == "HUB_INTERNAL_VALIDATE_SECRET" {
-			env = append(env, e)
+	for _, c := range deploy.Spec.Template.Spec.Containers {
+		if c.Name != "agent" {
+			continue
+		}
+		for _, e := range c.Env {
+			if e.Name == "HUB_URL" || e.Name == "HUB_INTERNAL_VALIDATE_SECRET" {
+				env = append(env, e)
+			}
+		}
+	}
+	job := credentialPodJob(agent, deploy, signInJobName(agent.Name, session), credentialJobSignIn, signInScript, env, signInJobDeadline)
+	job.Labels[signInSessionLabel] = session
+	job.Spec.Template.Labels[signInSessionLabel] = session
+	job.Spec.BackoffLimit = ptr.To(int32(0))
+	return job
+}
+
+// credentialPodJob renders a Job that uses the credential volume without being
+// a task run: the agent's runtime image and security settings from its pod
+// template, but only the agent container, only the credential volume, only
+// the given env and the given script. No init container: nothing of Pi's
+// agent directory is used.
+func credentialPodJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, name, kind, script string, env []corev1.EnvVar, deadline int64) *batchv1.Job {
+	tpl := deploy.Spec.Template.DeepCopy()
+	var agentC corev1.Container
+	for _, c := range tpl.Spec.Containers {
+		if c.Name == "agent" {
+			agentC = c
 		}
 	}
 	agentC.Env = env
 	agentC.EnvFrom = nil
-	agentC.Command = []string{"sh", "-c", `AINSEL_PI_ROOT="$(npm root -g)" exec node ` + signInScript}
+	agentC.Command = []string{"sh", "-c", `AINSEL_PI_ROOT="$(npm root -g)" exec node ` + script}
 	agentC.Args = nil
 	agentC.Ports = nil
 	agentC.ReadinessProbe, agentC.LivenessProbe, agentC.StartupProbe = nil, nil, nil
@@ -309,10 +325,12 @@ func buildSignInJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, sess
 		labels[k] = v
 	}
 	labels[AgentNameLabel] = agent.Name
-	labels[credentialJobLabel] = credentialJobSignIn
-	labels[signInSessionLabel] = session
+	labels[credentialJobLabel] = kind
 
-	tpl.Labels = labels
+	tpl.Labels = map[string]string{}
+	for k, v := range labels {
+		tpl.Labels[k] = v
+	}
 	tpl.Spec.Containers = []corev1.Container{agentC}
 	tpl.Spec.InitContainers = nil
 	tpl.Spec.ShareProcessNamespace = nil
@@ -328,7 +346,7 @@ func buildSignInJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, sess
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      signInJobName(agent.Name, session),
+			Name:      name,
 			Namespace: agent.Namespace,
 			Labels:    labels,
 		},
@@ -336,7 +354,7 @@ func buildSignInJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, sess
 			Completions:             ptr.To(int32(1)),
 			Parallelism:             ptr.To(int32(1)),
 			BackoffLimit:            ptr.To(int32(0)),
-			ActiveDeadlineSeconds:   ptr.To(signInJobDeadline),
+			ActiveDeadlineSeconds:   ptr.To(deadline),
 			TTLSecondsAfterFinished: ptr.To(taskJobTTLAfterFinished),
 			Template:                *tpl,
 		},
@@ -379,4 +397,90 @@ func recordSignInOutcome(agent *ainselv1alpha1.Agent, j *batchv1.Job) {
 			}
 		}
 	}
+}
+
+// Keep-alive. A sign-in agent that runs no task for a long time would never
+// refresh its token, and OpenAI does not document how long an unused refresh
+// token lives. So once the sign-in has gone unverified for
+// SignInKeepAliveInterval, and nothing else uses the volume or is queued to,
+// the operator runs check.mjs once: it refreshes the token if needed and
+// exits 78 when the sign-in is dead, exactly like a task's pre-check.
+
+const (
+	credentialJobKeepAlive = "keepalive"
+
+	// keepAliveDeadline bounds the check pod.
+	keepAliveDeadline int64 = 300
+
+	checkScript = "/usr/local/share/pi-extensions/ainsel-chatgpt-auth/check.mjs"
+)
+
+// keepAliveDue reports whether a working sign-in has gone unverified for
+// interval. Zero turns the keep-alive off.
+func keepAliveDue(agent *ainselv1alpha1.Agent, now time.Time, interval time.Duration) bool {
+	if interval <= 0 || !agent.UsesChatGPTSignIn() {
+		return false
+	}
+	s := agent.Status.ChatGPTSignIn
+	if required, _ := signInRequired(s); required {
+		return false
+	}
+	last := s.SignedInAt.Time
+	if s.LastVerifiedAt != nil && s.LastVerifiedAt.After(last) {
+		last = s.LastVerifiedAt.Time
+	}
+	return now.Sub(last) >= interval
+}
+
+// keepAliveJobName is fixed per agent and hour, so a keep-alive that failed
+// for an ordinary reason (network, OpenAI down) is tried again at most hourly
+// rather than in a loop.
+func keepAliveJobName(agentName string, now time.Time) string {
+	suffix := fmt.Sprintf("%d", now.Unix()/3600)
+	prefix := "keepalive-" + agentName
+	if max := maxK8sNameLen - len(suffix) - 1; len(prefix) > max {
+		prefix = strings.TrimSuffix(prefix[:max], "-")
+	}
+	return prefix + "-" + suffix
+}
+
+// buildKeepAliveJob renders the keep-alive Job: the check script, no hub
+// access, and the sign-in failure rule so a dead sign-in fails it outright.
+func buildKeepAliveJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, now time.Time) *batchv1.Job {
+	job := credentialPodJob(agent, deploy, keepAliveJobName(agent.Name, now), credentialJobKeepAlive, checkScript, nil, keepAliveDeadline)
+	job.Spec.PodFailurePolicy = signInFailurePolicy()
+	return job
+}
+
+// recordVerified notes that a pod confirmed the sign-in at the Job's
+// completion: a finished keep-alive, or a task whose pre-check passed.
+func recordVerified(agent *ainselv1alpha1.Agent, j *batchv1.Job) {
+	at, ok := completionTime(j)
+	if !ok {
+		return
+	}
+	s := agent.Status.ChatGPTSignIn
+	if s == nil {
+		s = &ainselv1alpha1.AgentChatGPTSignInStatus{}
+		agent.Status.ChatGPTSignIn = s
+	}
+	if s.LastVerifiedAt == nil || at.After(s.LastVerifiedAt.Time) {
+		s.LastVerifiedAt = &metav1.Time{Time: at}
+	}
+}
+
+// completionTime reports when a Job completed successfully.
+func completionTime(j *batchv1.Job) (time.Time, bool) {
+	for _, c := range j.Status.Conditions {
+		if c.Type != batchv1.JobComplete || c.Status != corev1.ConditionTrue {
+			continue
+		}
+		if j.Status.CompletionTime != nil {
+			return j.Status.CompletionTime.Time, true
+		}
+		if !c.LastTransitionTime.IsZero() {
+			return c.LastTransitionTime.Time, true
+		}
+	}
+	return time.Time{}, false
 }
