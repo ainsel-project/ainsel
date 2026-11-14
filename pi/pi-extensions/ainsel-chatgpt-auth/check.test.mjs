@@ -169,3 +169,25 @@ test("a getAuth that hangs times out and is retried like a network failure", asy
 	assert.equal(h.calls.getAuth, 3);
 	assert.ok(h.lines.some((l) => l.includes("timed out")), h.lines.join("\n"));
 });
+
+test("gives Pi each attempt's deadline as a signal it can cancel cleanly", async () => {
+	// Pi cancels a lock wait on the signal, and lets a refresh it already
+	// sent finish and persist — a rotated token is never lost.
+	const seen = [];
+	const ModelRuntime = {
+		async create() {
+			return {
+				getAuth(_p, overrides) {
+					seen.push(overrides);
+					return new Promise((_, reject) => {
+						overrides?.signal?.addEventListener("abort", () => reject(overrides.signal.reason));
+					});
+				},
+			};
+		},
+	};
+	const opts = { ModelRuntime, forceRefresh: true, attemptTimeoutMs: 5, log: () => {}, sleep: async () => {} };
+	assert.equal(await runCheck(opts), 1);
+	assert.equal(seen.length, 3);
+	assert.ok(seen.every((o) => o?.signal instanceof AbortSignal && o.minOAuthValidityMs > 0), "signal and forced validity passed together");
+});

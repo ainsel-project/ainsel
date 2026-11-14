@@ -639,7 +639,7 @@ What to know:
   until someone signs in again. A network or OpenAI outage during that check is
   retried and is not treated as a dead sign-in; each attempt gives up after 20
   seconds. A stored credential that no longer parses (a pod killed while writing
-  it) counts as dead, since signing in again is the only repair. A token revoked before it
+  it) counts as dead; signing in again clears it and stores a new one. A token revoked before it
   expires is only noticed when it next refreshes; until then tasks fail with an
   authorization error.
 - **Revoking.** Each agent signs in as its own app, shown as *AInsel

@@ -65,9 +65,26 @@ async function deviceId(dir) {
 	return id;
 }
 
+// clearUnreadable empties an auth.json that does not parse (a pod killed
+// while Pi wrote it). Pi's login reads the stored credentials before writing
+// the new one, so such a file would fail every sign-in. The sign-in pod holds
+// the volume alone, and the agent's only credential is the one it is about
+// to store.
+async function clearUnreadable(path, log) {
+	const text = await readFile(path, "utf8").catch(() => "");
+	if (!text.trim()) return;
+	try {
+		JSON.parse(text);
+	} catch {
+		await writeFile(path, "{}\n", { mode: 0o600 });
+		log("chatgpt-signin: the stored credential file was unreadable and has been cleared");
+	}
+}
+
 export async function runSignIn({ ModelRuntime, hub, agentName = "", credentialsDir = CREDENTIALS_DIR, log = console.error, sleep = delay }) {
 	try {
 		const id = await deviceId(credentialsDir);
+		await clearUnreadable(join(credentialsDir, "auth.json"), log);
 		const runtime = await ModelRuntime.create({
 			authPath: join(credentialsDir, "auth.json"),
 			modelsPath: null,

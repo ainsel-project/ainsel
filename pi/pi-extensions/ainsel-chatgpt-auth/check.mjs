@@ -19,8 +19,11 @@ const RETRY_WAITS_MS = [2000, 5000];
 const FORCE_VALIDITY_MS = 10 * 365 * 24 * 3600 * 1000;
 const REFRESHED_TOO_SOON = /refresh returned a token that expires too soon/;
 
-// Bounds one attempt: Pi's token request has no timeout of its own, and a
-// hung check would hold the task, or the keep-alive, until its deadline.
+// Bounds one attempt. Pi bounds its token request (15 s) but may wait up to
+// 30 s for the credential lock, e.g. one a killed pod left behind. The
+// deadline goes to Pi as a signal: Pi stops waiting on it, yet lets a refresh
+// it already sent finish and save, so a rotated refresh token is never lost.
+// The race is only a backstop should Pi not honour the signal.
 const ATTEMPT_TIMEOUT_MS = 20_000;
 
 function withTimeout(promise, ms) {
@@ -45,10 +48,11 @@ export async function runCheck({
 	sleep = delay,
 }) {
 	const runtime = await ModelRuntime.create({ authPath, allowModelNetwork: false });
-	const overrides = forceRefresh ? { minOAuthValidityMs: FORCE_VALIDITY_MS } : undefined;
+	const overrides = forceRefresh ? { minOAuthValidityMs: FORCE_VALIDITY_MS } : {};
 	for (let attempt = 0; ; attempt++) {
 		try {
-			const auth = await withTimeout(runtime.getAuth("openai", overrides), attemptTimeoutMs);
+			const signal = AbortSignal.timeout(attemptTimeoutMs);
+			const auth = await withTimeout(runtime.getAuth("openai", { ...overrides, signal }), 2 * attemptTimeoutMs);
 			if (!auth) {
 				log("chatgpt-auth: no ChatGPT sign-in stored; sign in from the agent page");
 				return EXIT_SIGN_IN_REQUIRED;
