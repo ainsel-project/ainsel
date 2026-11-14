@@ -63,24 +63,24 @@ type AgentMCPRequest struct {
 // definitions. A nil request means "leave unchanged"; a non-nil request
 // (including an empty Servers list) is an explicit selection and returns
 // a non-nil AgentMCP.
-func (s *Server) resolveMCPRequest(ctx context.Context, w http.ResponseWriter, req *AgentMCPRequest) (*agentv1alpha1.AgentMCP, error) {
+func (s *Server) resolveMCPRequest(ctx context.Context, req *AgentMCPRequest) (*agentv1alpha1.AgentMCP, error) {
 	if req == nil {
 		return nil, nil
 	}
 	if s.mcp == nil {
-		writeError(w, http.StatusServiceUnavailable, "mcp service not configured")
-		return nil, fmt.Errorf("mcp service not configured")
+		return nil, newAPIError(http.StatusServiceUnavailable, "mcp service not configured")
 	}
 	mcp := &agentv1alpha1.AgentMCP{Servers: make([]agentv1alpha1.AgentMCPServer, 0, len(req.Servers))}
 	for _, name := range req.Servers {
 		server, err := s.mcp.Get(ctx, name)
 		if err != nil {
+			// A name that does not resolve is a bad request field, not a missing
+			// addressed resource — hence 400 here, where writeAuthzError maps
+			// authz.ErrNotFound to 404. The status is decided at this call site.
 			if errors.Is(err, mcpservers.ErrNotFound) {
-				writeError(w, http.StatusBadRequest, "mcp server not found: "+name)
-				return nil, err
+				return nil, wrapAPIError(http.StatusBadRequest, "mcp server not found: "+name, err)
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return nil, err
+			return nil, wrapAPIError(http.StatusInternalServerError, err.Error(), err)
 		}
 		mcp.Servers = append(mcp.Servers, agentv1alpha1.AgentMCPServer{
 			Name:         server.Name,
@@ -96,7 +96,7 @@ func (s *Server) resolveMCPRequest(ctx context.Context, w http.ResponseWriter, r
 // value is empty ("keep the existing value"), mirroring the image env contract.
 // A nil result means "no overrides", which is also what an empty request list
 // produces — clearing an agent's overrides returns it to the image defaults.
-func agentEnvFromRequest(w http.ResponseWriter, in []AgentImageEnvVarInfo, existing []agentv1alpha1.AgentEnvVar) ([]agentv1alpha1.AgentEnvVar, error) {
+func agentEnvFromRequest(in []AgentImageEnvVarInfo, existing []agentv1alpha1.AgentEnvVar) ([]agentv1alpha1.AgentEnvVar, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -112,18 +112,15 @@ func agentEnvFromRequest(w http.ResponseWriter, in []AgentImageEnvVarInfo, exist
 	for _, e := range in {
 		name := strings.TrimSpace(e.Name)
 		if name == "" {
-			writeError(w, http.StatusBadRequest, "env name is required")
-			return nil, fmt.Errorf("env name is required")
+			return nil, newAPIError(http.StatusBadRequest, "env name is required")
 		}
 		if errs := validation.IsEnvVarName(name); len(errs) > 0 {
-			writeError(w, http.StatusBadRequest, "invalid env name "+name+": "+errs[0])
-			return nil, fmt.Errorf("invalid env name %q", name)
+			return nil, newAPIError(http.StatusBadRequest, "invalid env name "+name+": "+errs[0])
 		}
 		if seen[name] {
 			// The operator merges by name, so duplicates would silently keep
 			// only one value. Reject instead of guessing.
-			writeError(w, http.StatusBadRequest, "duplicate env name: "+name)
-			return nil, fmt.Errorf("duplicate env name %q", name)
+			return nil, newAPIError(http.StatusBadRequest, "duplicate env name: "+name)
 		}
 		seen[name] = true
 
@@ -551,18 +548,17 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 
 // validateAgentImageRef checks that refName references an existing AgentImage and that
 // all entries in enabled are tools declared by that image. Returns the image's display
-// name along with a non-zero status code and error message on failure; returns
-// displayName, 0, "" on success.
-func (s *Server) validateAgentImageRef(ctx context.Context, refName string, enabled []string) (displayName string, statusCode int, errMessage string) {
+// name, or an *apiError carrying the status and message the handler responds with.
+func (s *Server) validateAgentImageRef(ctx context.Context, refName string, enabled []string) (string, error) {
 	if strings.TrimSpace(refName) == "" {
-		return "", http.StatusBadRequest, "imageRef.name is required"
+		return "", newAPIError(http.StatusBadRequest, "imageRef.name is required")
 	}
 	var img agentv1alpha1.AgentImage
 	if err := s.client.Get(ctx, types.NamespacedName{Namespace: s.ns, Name: refName}, &img); err != nil {
 		if apierrors.IsNotFound(err) {
-			return "", http.StatusBadRequest, fmt.Sprintf("imageRef.name %q does not match any AgentImage", refName)
+			return "", newAPIError(http.StatusBadRequest, fmt.Sprintf("imageRef.name %q does not match any AgentImage", refName))
 		}
-		return "", http.StatusInternalServerError, "lookup image: " + err.Error()
+		return "", newAPIError(http.StatusInternalServerError, "lookup image: "+err.Error())
 	}
 	valid := make(map[string]struct{}, len(img.Spec.Tools))
 	for _, t := range img.Spec.Tools {
@@ -575,9 +571,9 @@ func (s *Server) validateAgentImageRef(ctx context.Context, refName string, enab
 		}
 	}
 	if len(unknown) > 0 {
-		return "", http.StatusBadRequest, "enabledTools not in image: " + strings.Join(unknown, ",")
+		return "", newAPIError(http.StatusBadRequest, "enabledTools not in image: "+strings.Join(unknown, ","))
 	}
-	return img.Spec.DisplayName, 0, ""
+	return img.Spec.DisplayName, nil
 }
 
 // resolveImageDisplayName looks up the AgentImage by resource name and returns
@@ -872,8 +868,9 @@ type agentValidationInput struct {
 	// skills validation. createAgent uses it for the group-membership check
 	// so the error precedence (image → group → skills → MCP → env) matches
 	// the previous inline sequence; it is the only validation step that
-	// needs the request, so it stays caller-side.
-	groupCheck func() bool
+	// needs the request, so it stays caller-side. It returns an *apiError
+	// rather than writing a response, like every other step here.
+	groupCheck func() error
 }
 
 // agentValidationResult carries what the validation pipeline derived; the
@@ -892,20 +889,18 @@ type agentValidationResult struct {
 
 // validateAgentSkills checks that every skill ID in ids exists in the skills
 // service. Skills are selected on the agent, so this guards the agent write
-// path only — an AgentImage offers no skills to select. Returns a non-nil
-// error (already written to w) when any ID is unknown.
-func (s *Server) validateAgentSkills(ctx context.Context, w http.ResponseWriter, ids []string) error {
+// path only — an AgentImage offers no skills to select. An unknown ID is a
+// 400 naming the ID; any other service failure is a 500.
+func (s *Server) validateAgentSkills(ctx context.Context, ids []string) error {
 	if len(ids) == 0 || s.skills == nil {
 		return nil
 	}
 	for _, id := range ids {
 		if _, err := s.skills.Get(ctx, id); err != nil {
 			if errors.Is(err, skills.ErrNotFound) {
-				writeError(w, http.StatusBadRequest, "skill not found: "+id)
-				return err
+				return wrapAPIError(http.StatusBadRequest, "skill not found: "+id, err)
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return err
+			return wrapAPIError(http.StatusInternalServerError, err.Error(), err)
 		}
 	}
 	return nil
@@ -913,40 +908,42 @@ func (s *Server) validateAgentSkills(ctx context.Context, w http.ResponseWriter,
 
 // validateAgentRequest runs the shared validate-then-resolve sequence both
 // createAgent and updateAgent used to inline: image ref → (optional group
-// check) → enabled skills → MCP selection → env overrides. Each step writes
-// its own HTTP error; ok=false means a response has been written and the
-// caller must return without further output.
-func (s *Server) validateAgentRequest(ctx context.Context, w http.ResponseWriter, in agentValidationInput) (*agentValidationResult, bool) {
+// check) → enabled skills → MCP selection → env overrides. It writes no
+// response: the first failing step returns an *apiError and the handler maps
+// it with writeErr. Step order is load-bearing — it fixes which error a
+// request that fails several checks gets.
+func (s *Server) validateAgentRequest(ctx context.Context, in agentValidationInput) (*agentValidationResult, error) {
 	res := &agentValidationResult{}
 	if in.validateImage {
-		displayName, code, msg := s.validateAgentImageRef(ctx, in.imageRef, in.enabledTools)
-		if code != 0 {
-			http.Error(w, msg, code)
-			return nil, false
+		displayName, err := s.validateAgentImageRef(ctx, in.imageRef, in.enabledTools)
+		if err != nil {
+			return nil, err
 		}
 		res.displayName = displayName
 	}
-	if in.groupCheck != nil && !in.groupCheck() {
-		return nil, false
-	}
-	if len(in.skills) > 0 {
-		if err := s.validateAgentSkills(ctx, w, in.skills); err != nil {
-			return nil, false
+	if in.groupCheck != nil {
+		if err := in.groupCheck(); err != nil {
+			return nil, err
 		}
 	}
-	mcpSelection, err := s.resolveMCPRequest(ctx, w, in.mcp)
+	if len(in.skills) > 0 {
+		if err := s.validateAgentSkills(ctx, in.skills); err != nil {
+			return nil, err
+		}
+	}
+	mcpSelection, err := s.resolveMCPRequest(ctx, in.mcp)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	res.mcpSelection = mcpSelection
 	if in.resolveEnv {
-		agentEnv, err := agentEnvFromRequest(w, in.env, in.existingEnv)
+		agentEnv, err := agentEnvFromRequest(in.env, in.existingEnv)
 		if err != nil {
-			return nil, false
+			return nil, err
 		}
 		res.agentEnv = agentEnv
 	}
-	return res, true
+	return res, nil
 }
 
 // personaRef is the template reference of a create request. Inline
@@ -1057,17 +1054,34 @@ func (s *Server) putAgentSecret(ctx context.Context, name, value string) error {
 	return nil
 }
 
-// applyAgentRequest assembles the requested fields onto spec, shared by
+// agentApplyInput bundles what applyAgentRequest assembles from: the spec to
+// write onto, the requested fields, what validateAgentRequest resolved, and the
+// agent's resource name. Five fields instead of seven positional parameters.
+type agentApplyInput struct {
+	// spec is the spec the requested fields are assembled onto: a zero spec on
+	// create, existing.Spec on update.
+	spec *agentv1alpha1.AgentSpec
+	// req carries the requested fields, pointer-shaped: a nil field means
+	// "leave unchanged" on update and is never nil on create.
+	req *SimpleAgentUpdateRequest
+	// res carries the MCP selection and resolved env from validateAgentRequest.
+	res *agentValidationResult
+	// name is the agent resource name, used for provider secret names.
+	name string
+	// newAgent covers the one delta pointer presence does not: persona is
+	// applied on create even with an empty ID, on update only with a non-empty
+	// one. It also makes llm.provider required.
+	newAgent bool
+}
+
+// applyAgentRequest assembles the requested fields onto in.spec, shared by
 // createAgent (fresh zero spec, newAgent=true, req from
 // SimpleAgentCreateRequest.toUpdateFields) and updateAgent (existing.Spec,
-// newAgent=false, req decoded from the update body). The pointer-shaped req
-// encodes patch semantics: a nil field means "leave unchanged" on update and
-// is never nil on create. newAgent covers the one delta pointer presence
-// does not: persona is applied on create even with an empty ID, on update
-// only with a non-empty one. res carries the MCP selection and resolved env
-// from validateAgentRequest; name is the agent resource name used for
-// provider secret names. It returns false after writing an HTTP error.
-func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, spec *agentv1alpha1.AgentSpec, req *SimpleAgentUpdateRequest, res *agentValidationResult, name string, newAgent bool) bool {
+// newAgent=false, req decoded from the update body). It is not pure: provider
+// API keys are stored as secrets here. It writes no response — a rejected
+// request returns the *apiError the handler maps with writeErr.
+func (s *Server) applyAgentRequest(ctx context.Context, in agentApplyInput) error {
+	spec, req, res, name, newAgent := in.spec, in.req, in.res, in.name, in.newAgent
 	if req.Name != nil {
 		spec.DisplayName = *req.Name
 	}
@@ -1099,8 +1113,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		provider = req.LLM.Provider
 	}
 	if msg := providerProblem(provider, newAgent); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
-		return false
+		return newAPIError(http.StatusBadRequest, msg)
 	}
 	if req.LLM != nil {
 		if req.LLM.Model != "" {
@@ -1135,8 +1148,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		spec.Scaling.Replicas = req.Replicas
 	}
 	if msg := scalingProblem(spec.Scaling); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
-		return false
+		return newAPIError(http.StatusBadRequest, msg)
 	}
 	// Working hours: a window the hub cannot evaluate is rejected here rather than
 	// accepted and failed open at delivery time, where the reason would be a log
@@ -1147,8 +1159,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		} else {
 			wh := req.WorkingHours.toSpecWorkingHours()
 			if msg := workingHoursProblem(wh); msg != "" {
-				writeError(w, http.StatusBadRequest, msg)
-				return false
+				return newAPIError(http.StatusBadRequest, msg)
 			}
 			spec.WorkingHours = wh
 		}
@@ -1165,12 +1176,10 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 	if req.OpenAI != nil && req.OpenAI.AuthMethod != "" {
 		method := agentv1alpha1.OpenAIAuthMethod(req.OpenAI.AuthMethod)
 		if method != agentv1alpha1.OpenAIAuthMethodAPIKey && method != agentv1alpha1.OpenAIAuthMethodChatGPTSignIn {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("openAI.authMethod %q is unknown: must be APIKey or ChatGPTSignIn", method))
-			return false
+			return newAPIError(http.StatusBadRequest, fmt.Sprintf("openAI.authMethod %q is unknown: must be APIKey or ChatGPTSignIn", method))
 		}
 		if method == agentv1alpha1.OpenAIAuthMethodChatGPTSignIn && req.OpenAI.APIKey != "" {
-			writeError(w, http.StatusBadRequest, "openAI: send an API key or choose ChatGPT sign-in, not both")
-			return false
+			return newAPIError(http.StatusBadRequest, "openAI: send an API key or choose ChatGPT sign-in, not both")
 		}
 		if spec.OpenAI == nil {
 			spec.OpenAI = &agentv1alpha1.AgentOpenAI{}
@@ -1178,8 +1187,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		spec.OpenAI.AuthMethod = method
 	}
 	if msg := signInScalingProblem(spec); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
-		return false
+		return newAPIError(http.StatusBadRequest, msg)
 	}
 
 	// Provider API keys: a non-empty key stores a secret and points the spec
@@ -1194,8 +1202,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		p, _ := llmprovider.Lookup(f.id)
 		secretName := name + p.HubSecretSuffix
 		if err := s.putAgentSecret(ctx, secretName, info.APIKey); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create "+p.Label+" secret: "+err.Error())
-			return false
+			return wrapAPIError(http.StatusInternalServerError, "failed to create "+p.Label+" secret: "+err.Error(), err)
 		}
 		p.SetCredential(spec, llmprovider.Credential{
 			APIKeySecretRef: &corev1.SecretKeySelector{
@@ -1214,8 +1221,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 	if req.CustomProvider != nil {
 		if spec.CustomProvider == nil {
 			if req.CustomProvider.URL == "" {
-				writeError(w, http.StatusBadRequest, "custom provider URL is required")
-				return false
+				return newAPIError(http.StatusBadRequest, "custom provider URL is required")
 			}
 			spec.CustomProvider = &agentv1alpha1.AgentCustomProvider{}
 		}
@@ -1225,8 +1231,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 		if req.CustomProvider.APIKey != "" {
 			secretName := fmt.Sprintf("%s-custom-provider-key", name)
 			if err := s.putAgentSecret(ctx, secretName, req.CustomProvider.APIKey); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to create custom provider secret: "+err.Error())
-				return false
+				return wrapAPIError(http.StatusInternalServerError, "failed to create custom provider secret: "+err.Error(), err)
 			}
 			spec.CustomProvider.APIKeySecretRef = &corev1.SecretKeySelector{
 				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
@@ -1234,7 +1239,7 @@ func (s *Server) applyAgentRequest(ctx context.Context, w http.ResponseWriter, s
 			}
 		}
 	}
-	return true
+	return nil
 }
 
 func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http.Request) {
@@ -1256,12 +1261,11 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		env:           req.Env,
 	}
 	if s.authzChecker != nil {
-		in.groupCheck = func() bool {
+		in.groupCheck = func() error {
 			if req.GroupID == "" {
-				writeError(w, http.StatusBadRequest, "groupId is required")
-				return false
+				return newAPIError(http.StatusBadRequest, "groupId is required")
 			}
-			return s.requireGroupWrite(w, r, req.GroupID)
+			return s.checkGroupWrite(r, req.GroupID)
 		}
 	}
 	inlinePersona := req.Persona != nil && req.Persona.Text != ""
@@ -1273,8 +1277,9 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		writeError(w, http.StatusServiceUnavailable, "persona service not configured")
 		return
 	}
-	res, ok := s.validateAgentRequest(ctx, w, in)
-	if !ok {
+	res, err := s.validateAgentRequest(ctx, in)
+	if err != nil {
+		writeErr(w, err)
 		return
 	}
 
@@ -1292,7 +1297,14 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	agent.APIVersion = "ainsel.dev/v1alpha1"
 	agent.Kind = "Agent"
 
-	if !s.applyAgentRequest(ctx, w, &agent.Spec, req.toUpdateFields(), res, id, true) {
+	if err := s.applyAgentRequest(ctx, agentApplyInput{
+		spec:     &agent.Spec,
+		req:      req.toUpdateFields(),
+		res:      res,
+		name:     id,
+		newAgent: true,
+	}); err != nil {
+		writeErr(w, err)
 		return
 	}
 
@@ -1384,12 +1396,19 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	if req.Env != nil {
 		in.env = *req.Env
 	}
-	res, ok := s.validateAgentRequest(ctx, w, in)
-	if !ok {
+	res, err := s.validateAgentRequest(ctx, in)
+	if err != nil {
+		writeErr(w, err)
 		return
 	}
 
-	if !s.applyAgentRequest(ctx, w, &existing.Spec, &req, res, name, false) {
+	if err := s.applyAgentRequest(ctx, agentApplyInput{
+		spec: &existing.Spec,
+		req:  &req,
+		res:  res,
+		name: name,
+	}); err != nil {
+		writeErr(w, err)
 		return
 	}
 
