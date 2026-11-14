@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { request } from './client'
+import { expectArray, request } from './client'
 
 export type HubUser = {
   id: string
@@ -16,8 +16,10 @@ export type HubUser = {
   updatedAt: string
 }
 
-export function listUsers() {
-  return request<HubUser[]>('/users')
+// Validate the bare-array shape (issue #283): GroupDetail and UserList both
+// filter/map this result, and a paginated envelope must not blank the route.
+export async function listUsers(): Promise<HubUser[]> {
+  return expectArray<HubUser>(await request<unknown>('/users'), 'GET /users')
 }
 
 export function getUser(id: string) {

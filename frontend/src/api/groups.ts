@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { request } from './client'
+import { expectArray, expectItems, request } from './client'
 import type { HubUser } from './users'
 
 export type GroupRole = 'reader' | 'writer' | 'owner'
@@ -45,16 +45,23 @@ export type GroupResources = {
   items: GroupResourceItem[]
 }
 
-export function listGroups() {
-  return request<Group[]>('/groups')
+// The hub has answered these list endpoints with a paginated envelope before
+// (issue #283); validate the bare-array shape here so a wrong shape surfaces
+// as an ApiError instead of a render-time TypeError in the route.
+export async function listGroups(): Promise<Group[]> {
+  return expectArray<Group>(await request<unknown>('/groups'), 'GET /groups')
 }
 
 export function getGroup(id: string) {
   return request<GroupDetail>(`/groups/${encodeURIComponent(id)}`)
 }
 
-export function getGroupResources(id: string) {
-  return request<GroupResources>(`/groups/${encodeURIComponent(id)}/resources`)
+export async function getGroupResources(id: string): Promise<GroupResources> {
+  const env = expectItems<GroupResourceItem>(
+    await request<unknown>(`/groups/${encodeURIComponent(id)}/resources`),
+    'GET /groups/:id/resources',
+  )
+  return { items: env.items }
 }
 
 export function createGroup(body: { name: string; description?: string }) {

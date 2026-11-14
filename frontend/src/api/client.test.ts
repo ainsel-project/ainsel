@@ -4,6 +4,8 @@ import {
   PASSWORD_CHANGE_REQUIRED,
   ServiceUnavailableError,
   UnauthorizedError,
+  expectArray,
+  expectItems,
   request,
   setAuthToken,
   setUnauthorizedHandler,
@@ -249,5 +251,49 @@ describe('api/client (forced password change)', () => {
     const err = await request('/foo').catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).message).toBe('password change required')
+  })
+})
+
+describe('response shape validators (issue #283)', () => {
+  it('expectArray passes arrays through', () => {
+    const rows = [{ id: 'a' }]
+    expect(expectArray(rows, 'GET /groups')).toBe(rows)
+  })
+
+  it('expectArray throws an ApiError on a paginated envelope', () => {
+    let err: unknown
+    try {
+      expectArray({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 }, 'GET /groups')
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toContain('GET /groups')
+    expect((err as ApiError).message).toContain('expected an array response')
+  })
+
+  it('expectArray throws on an HTML error page parsed as a string', () => {
+    expect(() => expectArray('<html>502 Bad Gateway</html>', 'GET /users')).toThrowError(ApiError)
+  })
+
+  it('expectItems accepts an { items } envelope', () => {
+    const env = { items: [{ id: 'a' }], total: 1, page: 1, pageSize: 20, totalPages: 1 }
+    expect(expectItems(env, 'GET /agents')).toBe(env)
+  })
+
+  it('expectItems throws an ApiError on a bare array', () => {
+    let err: unknown
+    try {
+      expectItems([{ id: 'a' }], 'GET /agents')
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toContain('expected a paginated { items } envelope')
+  })
+
+  it('expectItems throws on null/undefined', () => {
+    expect(() => expectItems(null, 'GET /agents')).toThrowError(ApiError)
+    expect(() => expectItems(undefined, 'GET /agents')).toThrowError(ApiError)
   })
 })

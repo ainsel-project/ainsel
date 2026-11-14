@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { request } from './client'
+import { expectArray, request } from './client'
 
 export type ErrorSeverity = 'error' | 'warning'
 export type ErrorSource = 'router' | 'connector' | 'api' | 'agent' | 'hub' | 'gateway'
@@ -29,7 +29,9 @@ type ErrorsEnvelope = {
 
 export async function listErrors(params: ListErrorsParams = {}): Promise<PlatformError[]> {
   const env = await request<ErrorsEnvelope>('/errors', { query: params })
-  return env.errors ?? []
+  // A paginated envelope or an HTML error page must surface as an ApiError
+  // (issue #283) instead of a silently empty list or a render-time TypeError.
+  return expectArray<PlatformError>(env?.errors, 'GET /errors')
 }
 
 export function useErrors(params: ListErrorsParams = {}) {
