@@ -132,6 +132,7 @@ func splitDigest(ref string) (base, digest string, ok bool) {
 // Digest-pinned references are not expected here; callers should strip the
 // digest first via splitDigest. Examples:
 //
+//	"ghcr.io/ainsel-project/ainsel-pi:dev"  -> ("ghcr.io", "ainsel-project/ainsel-pi", "dev")
 //	"dpinsel/ainsel-pi:dev"                -> ("registry-1.docker.io", "dpinsel/ainsel-pi", "dev")
 //	"zot.platform.svc:5000/ainsel/pi:main" -> ("zot.platform.svc:5000", "ainsel/pi", "main")
 //	"zot.platform.svc:5000/ainsel/pi"      -> ("zot.platform.svc:5000", "ainsel/pi", "latest")

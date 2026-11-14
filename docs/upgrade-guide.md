@@ -187,6 +187,33 @@ helm rollback ainsel <revision> -n <namespace>
 
 ## Version-specific notes
 
+### Unreleased — images move to a project-owned registry namespace
+
+- **Breaking: the default image registry is now `ghcr.io/ainsel-project`.** Chart
+  defaults, the operator defaults, and the hub's `HUB_DEFAULT_AGENT_IMAGE` and
+  `CONNECTOR_IMAGE_WEBHOOK` all point there. The `dpinsel/ainsel-*` images on Docker
+  Hub are not deleted and stay pullable, but they are a mirror: new releases are
+  published to GHCR first, and a Docker Hub push happens only while the
+  `DOCKERHUB_NAMESPACE` repository variable is set.
+- **Breaking: `*.image.repository` is a name, not a full reference.** `global.imageRegistry`
+  (default `ghcr.io/ainsel-project`) is prepended to it. A values file that pins
+  `repository: dpinsel/ainsel-hub-backend` now renders
+  `ghcr.io/ainsel-project/dpinsel/ainsel-hub-backend`, which does not exist.
+  **Action:** either set the repository back to the bare name and move the registry to
+  `global.imageRegistry`, or set `global.imageRegistry: ""` to keep the old rendering
+  verbatim. A repository whose first path segment is a hostname (`registry.example.com/team/x`)
+  is treated as a full reference and is never prefixed.
+- **Unchanged: the bundled PostgreSQL image.** `postgres.image.repository` stays
+  `postgres` on Docker Hub. It is upstream content, not a project artifact, and
+  prefixing it would point the chart at an image nobody publishes.
+- **Action for anyone who pinned a digest.** A digest is registry-scoped, so
+  `image.digest` values from a `dpinsel/ainsel-*` pull do not resolve on GHCR. Clear
+  the digest and let the tag resolve, or re-pin from the new registry.
+- **Action for forks.** Nothing to do — the namespace is derived from the repo owner,
+  so a fork publishes to `ghcr.io/<your-owner>/ainsel-*` and its chart follows it with
+  no variables and no new secrets. See
+  [Where images come from](../CONTRIBUTING.md#where-images-come-from).
+
 ### Unreleased — the agent's LLM provider is required and validated
 
 - **Changed: creating an agent without `llm.provider` returns `400`.** The hub

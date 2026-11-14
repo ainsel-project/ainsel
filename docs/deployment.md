@@ -98,19 +98,25 @@ The Helm chart lives at [`chart/`](../chart/) in this monorepo. Create a `values
 ```yaml
 namespace: ainsel
 
+# Default, shown for clarity. Every project image below is this prefix plus the
+# component's own repository name, so one line moves the whole install - a
+# mirror, a fork's namespace, or your own registry.
+# global:
+#   imageRegistry: ghcr.io/ainsel-project
+
 agentOperator:
   image:
-    repository: dpinsel/ainsel-k8s-ai-agent-operator
+    repository: ainsel-k8s-ai-agent-operator
     tag: latest
 
 connectorOperator:
   image:
-    repository: dpinsel/ainsel-k8s-event-source-gateway-operator
+    repository: ainsel-k8s-event-source-gateway-operator
     tag: latest
 
 hub:
   image:
-    repository: dpinsel/ainsel-hub-backend
+    repository: ainsel-hub-backend
     tag: latest
   ingress:
     enabled: true
@@ -120,13 +126,20 @@ hub:
 ui:
   enabled: true
   image:
-    repository: dpinsel/ainsel-hub-frontend
+    repository: ainsel-hub-frontend
     tag: latest
   ingress:
     enabled: true
     host: your-domain.com
     path: /ainsel
 ```
+
+`image.repository` is a name, not a full reference: `global.imageRegistry` is
+prepended to it. Set `global.imageRegistry: ""` to get the bare name back, which is
+what the pre-namespace images on Docker Hub need — `repository: dpinsel/ainsel-hub-backend`
+with `global.imageRegistry: ""` renders exactly what it used to. A repository whose
+first path segment is a hostname (`registry.example.com/team/ainsel-hub-backend`) is
+already a full reference and is used verbatim, registry or not.
 
 > **The database:** the hub stores everything in PostgreSQL — events, task
 > deliveries, triggers, cron triggers, channels. `postgres.enabled` (default

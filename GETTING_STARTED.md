@@ -75,7 +75,7 @@ spec:
       name: my-forge-webhook-secret
       key: secret
   image:
-    repository: <your-registry>/ainsel-webhook-receiver  # defaults to dpinsel/ in values-example.yaml
+    repository: ainsel-webhook-receiver  # bare name; global.imageRegistry is prepended
     tag: latest
 ```
 
