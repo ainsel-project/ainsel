@@ -126,7 +126,7 @@ func (s *Server) handleAgentSignIn(w http.ResponseWriter, r *http.Request, name 
 			writeSignInError(w, err)
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, toSignInStatus(sess))
+		httpx.WriteJSON(w, http.StatusOK, toSignInStatus(s.settleEndedSignIn(ctx, name, sess)))
 	case http.MethodDelete:
 		if err := s.signIn.Cancel(ctx, name); err != nil {
 			writeSignInError(w, err)
@@ -203,6 +203,10 @@ func (s *Server) submitSignInRedirect(ctx context.Context, w http.ResponseWriter
 		writeSignInError(w, err)
 		return
 	}
+	if sess.State == signin.StateExchanging {
+		httpx.WriteError(w, http.StatusConflict, "the address was already received; the sign-in is finishing")
+		return
+	}
 	// At the paste step, check the address the way the pod will. At any
 	// other step the store answers why a paste is not possible (409/404).
 	if sess.State == signin.StateAwaitingRedirect {
@@ -216,6 +220,38 @@ func (s *Server) submitSignInRedirect(ctx context.Context, w http.ResponseWriter
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// settleEndedSignIn ends a live session whose sign-in pod is already gone.
+// The pod reports its own outcome, but one that is evicted, runs out of
+// memory or cannot reach the hub leaves the session open until it expires.
+// The operator records every finished sign-in Job on the Agent: the session
+// it handled, and the time of a successful sign-in.
+func (s *Server) settleEndedSignIn(ctx context.Context, name string, sess signin.Session) signin.Session {
+	if !sess.State.Live() {
+		return sess
+	}
+	var agent agentv1alpha1.Agent
+	if err := s.client.Get(ctx, types.NamespacedName{Namespace: s.ns, Name: name}, &agent); err != nil {
+		return sess
+	}
+	st := agent.Status.ChatGPTSignIn
+	if st == nil || st.HandledSession != sess.ID {
+		return sess
+	}
+	ok := st.SignedInAt != nil && !st.SignedInAt.Time.Before(sess.CreatedAt)
+	msg := ""
+	if !ok {
+		msg = "the sign-in pod stopped before finishing; start a new sign-in"
+	}
+	if err := s.signIn.Finish(ctx, name, sess.ID, ok, msg); err != nil {
+		slog.Warn("could not settle an ended chatgpt sign-in", "agent", name, "session", sess.ID, "error", err)
+		return sess
+	}
+	if got, err := s.signIn.Get(ctx, name, sess.ID); err == nil {
+		return got
+	}
+	return sess
 }
 
 // handleInternalSignIn serves the sign-in pod, behind X-Internal-Token

@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
-// runContract exercises the behaviour every Store must share. expire moves
-// the given session past its expiry (by clock or by SQL, per store).
-func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t *testing.T, s Store, id string)) {
+// runContract exercises the behaviour every Store must share. age moves the
+// given session d closer to its expiry (by clock or by SQL, per store).
+func runContract(t *testing.T, newStore func(t *testing.T) Store, age func(t *testing.T, s Store, id string, d time.Duration)) {
 	ctx := context.Background()
+	expire := func(t *testing.T, s Store, id string) { age(t, s, id, TTL+time.Second) }
 
 	t.Run("start then latest", func(t *testing.T) {
 		s := newStore(t)
@@ -127,6 +128,21 @@ func runContract(t *testing.T, newStore func(t *testing.T) Store, expire func(t 
 		}
 	})
 
+	t.Run("the link restarts the clock", func(t *testing.T) {
+		// The pod may wait for a running task before it can post the link;
+		// the user still gets the whole TTL to sign in once it is shown.
+		s := newStore(t)
+		sess, _ := s.Start(ctx, "a1", "hash-a1")
+		age(t, s, sess.ID, TTL-time.Minute)
+		if err := s.SetAuthURL(ctx, "a1", sess.ID, "https://auth.openai.com/x"); err != nil {
+			t.Fatalf("SetAuthURL: %v", err)
+		}
+		age(t, s, sess.ID, 2*time.Minute)
+		if got, _ := s.Get(ctx, "a1", sess.ID); got.State != StateAwaitingRedirect {
+			t.Fatalf("state = %s, want awaiting_redirect: the TTL counts from the link", got.State)
+		}
+	})
+
 	t.Run("an exchange in progress can finish after the session expired", func(t *testing.T) {
 		s := newStore(t)
 		sess, _ := s.Start(ctx, "a1", "hash-a1")
@@ -201,7 +217,7 @@ func TestMemStoreContract(t *testing.T) {
 			clocks[s] = &now
 			return s
 		},
-		func(t *testing.T, s Store, _ string) {
-			*clocks[s] = clocks[s].Add(TTL + time.Second)
+		func(t *testing.T, s Store, _ string, d time.Duration) {
+			*clocks[s] = clocks[s].Add(d)
 		})
 }

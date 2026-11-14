@@ -428,3 +428,77 @@ func TestInternalSignInRequiresPodToken(t *testing.T) {
 	}
 	postAuthURL(t, s, "signer", sess.ID) // with the right token it works
 }
+
+func TestSignInSecondPasteWhileExchangingSaysReceived(t *testing.T) {
+	s, _ := signInServer(t)
+	sess := startSignIn(t, s, "signer")
+	postAuthURL(t, s, "signer", sess.ID)
+	const pasted = "http://127.0.0.1:1455/auth/callback?code=c&state=st8&client_id=app_x"
+	call(t, s, http.MethodPost, "/api/v1/agents/signer/chatgpt-sign-in/redirect", signInRedirectRequest{RedirectURL: pasted}, false)
+	call(t, s, http.MethodGet, "/api/internal/agents/signer/chatgpt-sign-in/"+sess.ID+"/redirect", nil, true)
+	code, body := call(t, s, http.MethodPost, "/api/v1/agents/signer/chatgpt-sign-in/redirect",
+		signInRedirectRequest{RedirectURL: pasted}, false)
+	if code != http.StatusConflict || !strings.Contains(string(body), "already received") {
+		t.Fatalf("second paste during the exchange: %d %s, want 409 saying the address was already received", code, body)
+	}
+}
+
+// setSignInStatus plays the operator recording a sign-in Job's outcome.
+func setSignInStatus(t *testing.T, s *Server, agent string, st agentv1alpha1.AgentChatGPTSignInStatus) {
+	t.Helper()
+	var a agentv1alpha1.Agent
+	if err := s.client.Get(context.Background(), types.NamespacedName{Namespace: "test-ns", Name: agent}, &a); err != nil {
+		t.Fatal(err)
+	}
+	a.Status.ChatGPTSignIn = &st
+	if err := s.client.Status().Update(context.Background(), &a); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSignInStatusFailsSessionWhosePodStopped(t *testing.T) {
+	s, _ := signInServer(t)
+	sess := startSignIn(t, s, "signer")
+	postAuthURL(t, s, "signer", sess.ID)
+	// The pod died (evicted, out of memory) without reporting: the operator
+	// marked the session handled and no new sign-in was recorded.
+	setSignInStatus(t, s, "signer", agentv1alpha1.AgentChatGPTSignInStatus{HandledSession: sess.ID})
+	_, body := call(t, s, http.MethodGet, "/api/v1/agents/signer/chatgpt-sign-in", nil, false)
+	if !strings.Contains(string(body), `"state":"failed"`) || !strings.Contains(string(body), "stopped") {
+		t.Fatalf("status after the pod stopped: %s, want failed saying the pod stopped", body)
+	}
+	startSignIn(t, s, "signer") // the agent is free for a new sign-in
+}
+
+func TestSignInStatusSucceedsWhenOnlyTheReportWasLost(t *testing.T) {
+	s, now := signInServer(t)
+	sess := startSignIn(t, s, "signer")
+	postAuthURL(t, s, "signer", sess.ID)
+	// The pod signed in but could not tell the hub; the operator read the
+	// success from the Job.
+	setSignInStatus(t, s, "signer", agentv1alpha1.AgentChatGPTSignInStatus{
+		HandledSession: sess.ID, SignedInAt: &metav1.Time{Time: now.Add(time.Minute)},
+	})
+	_, body := call(t, s, http.MethodGet, "/api/v1/agents/signer/chatgpt-sign-in", nil, false)
+	if !strings.Contains(string(body), `"state":"succeeded"`) {
+		t.Fatalf("status after a sign-in the pod could not report: %s, want succeeded", body)
+	}
+}
+
+func TestUpdateAgentSwitchBackToAPIKeyEndsSignIn(t *testing.T) {
+	s, _ := signInServer(t)
+	startSignIn(t, s, "signer")
+	code, body := call(t, s, http.MethodPut, "/api/v1/agents/signer", SimpleAgentUpdateRequest{
+		OpenAI: &AgentAPIKeyInfo{AuthMethod: string(agentv1alpha1.OpenAIAuthMethodAPIKey), APIKey: "sk-test"},
+	}, false)
+	if code != http.StatusOK {
+		t.Fatalf("switch back to an API key: %d %s", code, body)
+	}
+	if got := sessionAnnotation(t, s, "signer"); got != "" {
+		t.Errorf("sign-in annotation = %q after switching to an API key, want it removed", got)
+	}
+	_, body = call(t, s, http.MethodGet, "/api/v1/agents/signer/chatgpt-sign-in", nil, false)
+	if !strings.Contains(string(body), `"state":"cancelled"`) {
+		t.Fatalf("session after switching to an API key: %s, want cancelled", body)
+	}
+}
