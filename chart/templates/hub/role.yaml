@@ -1,11 +1,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: hub-backend
+  name: hub
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-backend
+    app.kubernetes.io/component: hub
 rules:
   - apiGroups: ["ainsel.dev"]
     resources: ["agents", "agents/status", "webhookconnectors", "webhookconnectors/status"]

@@ -2,7 +2,7 @@ import type { Paginated } from './types'
 
 // API base URL. Defaults to `${BASE_URL}api/v1` so the app calls relative to
 // its mount point — `/api/v1` at root, `/ainsel-dev/api/v1` when mounted at
-// /ainsel-dev/. The ingress strips the prefix and forwards to hub-backend.
+// /ainsel-dev/. The ingress strips the prefix and forwards to hub.
 // import.meta.env.BASE_URL always ends in `/`, so plain concatenation
 // produces the right shape.
 // Override with VITE_API_URL=<absolute-url> at build time when needed.

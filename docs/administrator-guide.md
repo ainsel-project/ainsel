@@ -906,7 +906,7 @@ stage sigstore's trusted root as a file in the cluster and point at it:
 plugins:
   signing:
     trustedRootFile: /etc/sigstore/trusted_root.json
-connectorOperator:
+eventGatewayOperator:
   extraVolumes:
     - name: sigstore-root
       secret:
@@ -1004,7 +1004,7 @@ the whole point:
 spec:
   mcpServers:
     - name: plugin-mem0
-      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/plugins/mem0/agent-mcp
+      url: http://hub.<namespace>.svc.cluster.local:8080/api/internal/plugins/mem0/agent-mcp
       tokenFromEnv: HUB_INTERNAL_VALIDATE_SECRET
 ```
 

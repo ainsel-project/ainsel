@@ -24,10 +24,10 @@ access API and UI via port-forward:
 
 ```bash
 helm install ainsel . -n ainsel --create-namespace -f values-quickstart.yaml
-kubectl -n ainsel port-forward svc/hub-backend 8080:8080
+kubectl -n ainsel port-forward svc/hub 8080:8080
 curl http://localhost:8080/api/v1/stats
 # UI (no-auth mode):
-kubectl -n ainsel port-forward svc/hub-frontend 8081:80
+kubectl -n ainsel port-forward svc/frontend 8081:80
 ```
 
 Note: `-n` must match the chart's `namespace` value (both `ainsel` above).
@@ -100,7 +100,7 @@ helm install ainsel . -n ainsel -f chart/values-large.yaml
 | Component | Small (default) | Medium (~10 agents) | Large (~100 agents) |
 |---|---|---|---|
 | agentOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
-| connectorOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
+| eventGatewayOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
 | hub | 50m/128Mi → 200m/256Mi | 200m/512Mi → 500m/1Gi | 500m/1Gi → 2/4Gi |
 | ui | 10m/16Mi → 100m/64Mi | 50m/64Mi → 100m/128Mi | 100m/128Mi → 200m/256Mi |
 | postgres | 50m/256Mi → 500m/512Mi | 200m/512Mi → 1/2Gi | 500m/1Gi → 2/4Gi |
@@ -133,7 +133,7 @@ data volume and retention requirements.
   chart sets `POD_NAMESPACE`. Running two AInsel releases in the same
   cluster makes their gateway operators fight over connector deployments.
   Namespace-scoped watching lands in a later operator release; until then
-  keep a single release per cluster or set `connectorOperator.enabled: false`
+  keep a single release per cluster or set `eventGatewayOperator.enabled: false`
   on additional releases.
 - **TLS with cert-manager:** when `networkPolicy.enabled` is true, the
   default-deny policy still allows ingress-controller traffic to cert-manager
@@ -170,7 +170,7 @@ listed:
 | [`networkPolicy.enabled`](docs/configuration.md#networkpolicy) | `true` | Default-deny ingress; requires a policy-enforcing CNI |
 | [`networkPolicy.allowAcmeSolver`](docs/configuration.md#networkpolicy) | `true` | Let ingress reach cert-manager HTTP-01 solver pods |
 | [`createNamespace`](docs/configuration.md#global) | `false` | Render a `Namespace` object; prefer `--create-namespace` |
-| [`connectorOperator.clusterWideRbac`](docs/configuration.md#connector-operator) | `true` | ClusterRole/CRB required by released operator images; one gateway operator per cluster while enabled |
+| [`eventGatewayOperator.clusterWideRbac`](docs/configuration.md#event-gateway-operator) | `true` | ClusterRole/CRB required by released operator images; one gateway operator per cluster while enabled |
 | [`plugins.requireSignature`](docs/configuration.md#plugin-signing) | `true` | Plugin images must carry a signature the operator verifies; set `false` only if you trust your registry outright |
 | [`postgres.auth.existingSecret`](docs/configuration.md#postgres) | `""` (auto-generated) | Bring your own DB credentials (keys `username`, `password`, `database`, `dsn`) |
 | [`hub.platformExternalUrl`](docs/configuration.md#hub) | `""` (derived) | Externally-reachable platform URL used in generated links |

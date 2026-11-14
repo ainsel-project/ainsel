@@ -1,16 +1,18 @@
+{{- if .Values.eventGatewayOperator.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: hub-backend
+  name: {{ .Release.Name }}-event-gateway-operator
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-backend
+    app.kubernetes.io/component: event-gateway-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: hub-backend
+  name: {{ .Release.Name }}-event-gateway-operator
 subjects:
   - kind: ServiceAccount
-    name: hub-backend
+    name: event-gateway-operator
     namespace: {{ .Values.namespace }}
+{{- end }}

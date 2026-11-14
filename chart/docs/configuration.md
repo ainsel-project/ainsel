@@ -19,7 +19,7 @@
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
 | `networkPolicy.enabled` | bool | `true` | Apply a default-deny-ingress policy plus per-component allow rules. Requires a network stack that enforces NetworkPolicy (Calico, Cilium, k3s' built-in controller; plain flannel on upstream Kubernetes does **not** enforce) |
-| `networkPolicy.ingressNamespace` | string | `ingress-nginx` | Namespace running the ingress controller that serves the hub UI. Required so browser API traffic (ingress → hub-backend) is allowed under the default-deny policy |
+| `networkPolicy.ingressNamespace` | string | `ingress-nginx` | Namespace running the ingress controller that serves the hub UI. Required so browser API traffic (ingress → hub) is allowed under the default-deny policy |
 | `networkPolicy.allowAcmeSolver` | bool | `true` | Allow ingress-controller traffic to reach cert-manager HTTP-01 solver pods. Without it, ACME http01 issuance fails under default-deny (`wrong status code 502`). Disable only if you issue certificates via DNS-01 or provide pre-existing secrets |
 | `networkPolicy.connectorWebhookSources` | list | `[]` | Additional sources allowed to deliver webhooks to connector receiver pods, as a list of NetworkPolicy `from` peer objects. Use this when a webhook producer runs inside the cluster and delivers to connectors directly instead of through the ingress controller |
 
@@ -39,7 +39,7 @@ Per-component resource requests/limits by tier (CPU/memory):
 | Component | Small (default) | Medium (~10 agents) | Large (~100 agents) |
 |---|---|---|---|
 | agentOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
-| connectorOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
+| eventGatewayOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
 | hub | 50m/128Mi → 200m/256Mi | 200m/512Mi → 500m/1Gi | 500m/1Gi → 2/4Gi |
 | ui | 10m/16Mi → 100m/64Mi | 50m/64Mi → 100m/128Mi | 100m/128Mi → 200m/256Mi |
 | postgres | 50m/256Mi → 500m/512Mi | 200m/512Mi → 1/2Gi | 500m/1Gi → 2/4Gi |
@@ -52,7 +52,7 @@ CPU/memory tiers; scale them independently.
 
 ### Common scheduling & security overrides
 
-Every component block (`agentOperator`, `connectorOperator`, `hub`, `ui`,
+Every component block (`agentOperator`, `eventGatewayOperator`, `hub`, `ui`,
 `postgres`, `mcp`) accepts the same tail of standard Kubernetes overrides,
 written `<component>.<key>`:
 
@@ -71,7 +71,7 @@ written `<component>.<key>`:
 | `<component>.extraEnv` | list | `[]` | Extra container env entries (`{name, value}` or `{name, valueFrom}`) |
 | `<component>.extraVolumes` | list | `[]` | Extra pod volumes |
 | `<component>.extraVolumeMounts` | list | `[]` | Extra mounts on the main container |
-| `<component>.serviceAccount.annotations` | object | `{}` | Annotations on the rendered ServiceAccount. **Only exists on `agentOperator`, `connectorOperator`, `hub`, and `mcp`** — `ui` and `postgres` do not render a ServiceAccount |
+| `<component>.serviceAccount.annotations` | object | `{}` | Annotations on the rendered ServiceAccount. **Only exists on `agentOperator`, `eventGatewayOperator`, `hub`, and `mcp`** — `ui` and `postgres` do not render a ServiceAccount |
 
 ### Agent Operator
 
@@ -86,19 +86,19 @@ written `<component>.<key>`:
 | `agentOperator.insecureRegistries` | list | `[]` (flag omitted) | Registry hosts (exact `host:port`) whose image digests are resolved over plain HTTP, passed as `--insecure-registries`. For development registries; every other registry is HTTPS only |
 | `agentOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
 
-### Connector Operator
+### Event Gateway Operator
 
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
-| `connectorOperator.enabled` | bool | `true` | Set to `false` to skip deploying the event gateway operator entirely |
-| `connectorOperator.replicas` | int | `1` | Operator replicas |
-| `connectorOperator.clusterWideRbac` | bool | `true` | Install a ClusterRole + ClusterRoleBinding. Required by the released operator images, which watch Deployments, Services, Ingresses etc. across all namespaces. With cluster-wide watching, only **one** event gateway operator may run per cluster; set to `false` once you run an operator image that honors `POD_NAMESPACE` scoping |
-| `connectorOperator.hubURL` | string | `""` | Passed as `HUB_URL` to the operator, which injects it into webhook-receiver connector pods. Defaults to the chart's hub service name when empty |
-| `connectorOperator.image.repository` | string | `dpinsel/ainsel-k8s-event-source-gateway-operator` | Image repository |
-| `connectorOperator.image.tag` | string | `"0.1.0"` | Image tag |
-| `connectorOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy for the operator container |
-| `connectorOperator.connectorImagePullPolicy` | string | `IfNotPresent` | Pull policy applied to the webhook-receiver connector pods the operator creates (**not** the operator container above). Use `Always` for mutable tags (e.g. `:dev`) so newly built images are picked up on rollout |
-| `connectorOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
+| `eventGatewayOperator.enabled` | bool | `true` | Set to `false` to skip deploying the event gateway operator entirely |
+| `eventGatewayOperator.replicas` | int | `1` | Operator replicas |
+| `eventGatewayOperator.clusterWideRbac` | bool | `true` | Install a ClusterRole + ClusterRoleBinding. Required by the released operator images, which watch Deployments, Services, Ingresses etc. across all namespaces. With cluster-wide watching, only **one** event gateway operator may run per cluster; set to `false` once you run an operator image that honors `POD_NAMESPACE` scoping |
+| `eventGatewayOperator.hubURL` | string | `""` | Passed as `HUB_URL` to the operator, which injects it into webhook-receiver connector pods. Defaults to the chart's hub service name when empty |
+| `eventGatewayOperator.image.repository` | string | `dpinsel/ainsel-k8s-event-source-gateway-operator` | Image repository |
+| `eventGatewayOperator.image.tag` | string | `"0.1.0"` | Image tag |
+| `eventGatewayOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy for the operator container |
+| `eventGatewayOperator.connectorImagePullPolicy` | string | `IfNotPresent` | Pull policy applied to the webhook-receiver connector pods the operator creates (**not** the operator container above). Use `Always` for mutable tags (e.g. `:dev`) so newly built images are picked up on rollout |
+| `eventGatewayOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
 
 ### Plugin Signing
 
@@ -112,7 +112,7 @@ the operator pod (the pod template carries a checksum of the ConfigMap).
 | `plugins.requireSignature` | bool | `true` | Require every plugin image to carry a signature that verifies against the trust material below. With `false`, a signature that is present must still verify, but an unsigned plugin is accepted |
 | `plugins.signing.keys` | list | `[]` | PEM-encoded public keys (cosign `--key` form). RSA keys below 2048 bits are rejected when the policy loads |
 | `plugins.signing.keyless` | list | `[]` | Sigstore identities: `issuer` plus **exactly one** of `subject` (exact) or `subjectRegExp` (Go regexp, must be anchored with `^` and `$`) |
-| `plugins.signing.trustedRootFile` | string | `""` | In-cluster path to a sigstore `trusted_root.json`, for installs that cannot reach the public TUF mirror. Empty means public good — mount the file yourself via `connectorOperator.extraVolumes` and point here |
+| `plugins.signing.trustedRootFile` | string | `""` | In-cluster path to a sigstore `trusted_root.json`, for installs that cannot reach the public TUF mirror. Empty means public good — mount the file yourself via `eventGatewayOperator.extraVolumes` and point here |
 
 A file the operator cannot parse or validate (unknown key, bad PEM, a keyless
 entry with both `subject` and `subjectRegExp`) is a startup error, and the
@@ -137,7 +137,7 @@ section for worked examples.
 | `hub.ingress.className` | string | `nginx` | Ingress class. `nginx` renders regex paths and nginx rewrite annotations; any other class renders a literal `<path>/v1` Prefix path (no nginx annotations) — configure controller-side rewrite middleware |
 | `hub.ingress.tlsSecretName` | string | `hub-tls` | Secret holding the TLS certificate for this host |
 | `hub.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /api/$2` | Ingress annotations |
-| `hub.platformExternalUrl` | string | `""` | Externally-reachable platform URL. When empty it is derived from the hub ingress host and `ui.basePath` (`https://<hub.ingress.host><basePath>`) |
+| `hub.platformExternalUrl` | string | `""` | Externally-reachable platform URL. When empty it is derived from the hub ingress host and `frontend.basePath` (`https://<hub.ingress.host><basePath>`) |
 | `hub.connectorImages.webhook.repository` | string | `dpinsel/ainsel-webhook-receiver` | Webhook-receiver image repository. Rendered into the hub's `CONNECTOR_IMAGE_WEBHOOK` (`repository:tag[@digest]`); the hub copies repository/tag/digest into a new connector's `spec.image.*`, the event-gateway operator composes the container image from them. Parsing rules in [services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#webhook-connectors) |
 | `hub.connectorImages.webhook.tag` | string | `0.1.0` | The tag the receiver follows: rebuild the image and this tag moves, and the next rollout of the connector picks it up |
 | `hub.connectorImages.webhook.digest` | string | `""` | Set to pin the receiver to one build — then the tag records where that build came from and nothing moves it |
@@ -153,7 +153,7 @@ section for worked examples.
 > with the cluster-wide `X-Internal-Token` shared secret and must stay
 > unreachable from outside the cluster. `/health` is likewise in-cluster only —
 > the pod liveness/readiness probes call it directly. See
-> `chart/templates/hub-backend/ingress.yaml` before widening the path regex.
+> `chart/templates/hub/ingress.yaml` before widening the path regex.
 
 #### Hub Environment Variables
 
@@ -170,22 +170,22 @@ binary's full env-var reference — including the chart-managed variables
 | `HUB_WS_ALLOWED_ORIGINS` | string | _empty_ | Comma-separated list of extra Origins allowed to open `/api/v1/ws`. Same-origin requests are always allowed, so this is only needed when the UI is served from a different host or port than the hub API (local development). Entries may be full origins (`https://app.example.com`) or bare hosts (`localhost:5173`). |
 | `OIDC_JWKS_URL` / `OIDC_USERINFO_URL` | string | _empty_ | Optional escape hatches pinning the JWKS / userinfo endpoints instead of the issuer's discovery document. The chart has no dedicated values for these; see [docs/deployment.md](../../docs/deployment.md). |
 
-### UI
+### Frontend
 
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
-| `ui.enabled` | bool | `true` | Enable/disable UI deployment |
-| `ui.basePath` | string | `/ainsel` | Base path the frontend is served under (must match the ingress path prefix). Empty string serves from the domain root |
-| `ui.image.repository` | string | `dpinsel/ainsel-hub-frontend` | Image repository |
-| `ui.image.tag` | string | `"0.2.1"` | Image tag |
-| `ui.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
-| `ui.ingress.enabled` | bool | `true` | Enable ingress |
-| `ui.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
-| `ui.ingress.path` | string | `/ainsel(/|$)(.*)` | Ingress path (regex form used with the rewrite-target annotation) |
-| `ui.ingress.className` | string | `nginx` | Ingress class. Non-nginx classes render a literal Prefix path (trailing nginx capture groups stripped, no nginx annotations) |
-| `ui.ingress.tlsSecretName` | string | `ui-tls` | Secret holding the TLS certificate for this host |
-| `ui.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /$2` | Ingress annotations |
-| `ui.resources` | object | 10m/16Mi → 100m/64Mi | CPU/memory |
+| `frontend.enabled` | bool | `true` | Enable/disable UI deployment |
+| `frontend.basePath` | string | `/ainsel` | Base path the frontend is served under (must match the ingress path prefix). Empty string serves from the domain root |
+| `frontend.image.repository` | string | `dpinsel/ainsel-hub-frontend` | Image repository |
+| `frontend.image.tag` | string | `"0.2.1"` | Image tag |
+| `frontend.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
+| `frontend.ingress.enabled` | bool | `true` | Enable ingress |
+| `frontend.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
+| `frontend.ingress.path` | string | `/ainsel(/|$)(.*)` | Ingress path (regex form used with the rewrite-target annotation) |
+| `frontend.ingress.className` | string | `nginx` | Ingress class. Non-nginx classes render a literal Prefix path (trailing nginx capture groups stripped, no nginx annotations) |
+| `frontend.ingress.tlsSecretName` | string | `ui-tls` | Secret holding the TLS certificate for this host |
+| `frontend.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /$2` | Ingress annotations |
+| `frontend.resources` | object | 10m/16Mi → 100m/64Mi | CPU/memory |
 
 ### Postgres
 
@@ -260,7 +260,7 @@ handled there.
 | `auth.oidcRolesClaim` | string | `""` | JWT role/group claim: exact key first, then dotted nested path (e.g. `realm_access.roles`). Empty reads the top-level `groups` claim, or `urn:zitadel:iam:org:project:roles` when `oidcProjectId` is set. Informational; hub DB manages permissions |
 | `auth.oidcProjectId` | string | `""` | Optional legacy Zitadel project audience/scope compatibility |
 | `auth.allowInsecureNoAuth` | bool | `false` | Run the hub backend **without** auth middleware (`HUB_ALLOW_INSECURE_NO_AUTH=true`). Only effective when `oidcIssuer` is empty. For local/air-gapped testing ONLY: every `/api/v1/*` endpoint becomes open to any caller. Never enable on a reachable host without an external auth proxy in front of the ingress. You normally do not need to set this by hand: when no ingress is enabled anywhere (hub/ui/mcp) and no OIDC issuer is set, the chart detects "local mode" and enables it automatically (see `values-quickstart.yaml`) |
-| `auth.internalValidateSecret` | string | `""` | Shared secret between hub-backend and the MCP service protecting the `/api/internal/user-tokens/validate` endpoint. When unset, user-token auth is disabled and OIDC remains the only MCP auth |
+| `auth.internalValidateSecret` | string | `""` | Shared secret between hub and the MCP service protecting the `/api/internal/user-tokens/validate` endpoint. When unset, user-token auth is disabled and OIDC remains the only MCP auth |
 | `auth.skillsMcpToken` | string | `""` | Bearer token for the read-only skill catalogue MCP (`/api/internal/skills/mcp`, in-cluster). Agents get it as a normal secret env entry on their AgentImage and reference it from `spec.mcpServers[].tokenFromEnv`. Deliberately separate from `internalValidateSecret`: that one is the cluster-wide internal credential and must not become a bearer token for a second endpoint. Unset leaves the catalogue endpoint answering 503 — opt-in per instance |
 | `auth.local.adminUser` | string | `admin` | Username of the bootstrapped admin account (created on first start, `mode: local` and `mode: oidc+local`) |
 | `auth.local.adminPasswordSecret` | string | `""` | Existing Secret holding the admin password under key `password`. When empty, the chart generates one into Secret `ainsel-local-admin` (read it with `kubectl -n <ns> get secret ainsel-local-admin -o jsonpath='{.data.password}' \| base64 -d`) |
@@ -290,12 +290,12 @@ that needs nothing reports everything skipped and writes nothing.
 
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
-| `migrations.skillsShape.enabled` | bool | `true` | Run `hub migrate-skills-shape` as a `post-install,post-upgrade` hook Job, rewriting `Agent.spec.skills` from the removed `{items: […]}` wrapper to the plain list. Post-hooks are the required ordering: the rewrite must run after this chart applies the new CRDs, because the API server rejects writing a list while the old object schema is in place. Set `false` to run it yourself (`kubectl exec deploy/hub-backend -n <ns> -- /hub migrate-skills-shape -n <ns>`). A failing Job fails the upgrade on purpose — an unrecognized `spec.skills` shape is reported and left untouched. See [the upgrade guide](../../docs/upgrade-guide.md#migrating-the-skills-wrapper-to-a-list) |
+| `migrations.skillsShape.enabled` | bool | `true` | Run `hub migrate-skills-shape` as a `post-install,post-upgrade` hook Job, rewriting `Agent.spec.skills` from the removed `{items: […]}` wrapper to the plain list. Post-hooks are the required ordering: the rewrite must run after this chart applies the new CRDs, because the API server rejects writing a list while the old object schema is in place. Set `false` to run it yourself (`kubectl exec deploy/hub -n <ns> -- /hub migrate-skills-shape -n <ns>`). A failing Job fails the upgrade on purpose — an unrecognized `spec.skills` shape is reported and left untouched. See [the upgrade guide](../../docs/upgrade-guide.md#migrating-the-skills-wrapper-to-a-list) |
 | `migrations.skillsShape.extraArgs` | list | `[]` | Extra args for the command, e.g. `["--dry-run"]` to report without writing, or `["--all-namespaces"]` for a multi-namespace install |
 | `migrations.skillsShape.resources` | object | `{}` | CPU/memory for the Job container |
 | `migrations.skillsShape.nodeSelector` | object | `{}` | Node selection for the Job pod |
 | `migrations.skillsShape.tolerations` | list | `[]` | Tolerations for the Job pod |
 
-The Job runs as the hub's own `hub-backend` ServiceAccount, which already has
+The Job runs as the hub's own `hub` ServiceAccount, which already has
 `get`/`list`/`patch` on `ainsel.dev/agents` — no extra RBAC — and uses the
 `hub.image` image, so there is no second image to pin.

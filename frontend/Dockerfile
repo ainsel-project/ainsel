@@ -6,7 +6,7 @@
 #
 # Runtime env vars:
 #   BASE_PATH      mount prefix, e.g. "/ainsel-dev" (unset/empty = root /)
-#   BACKEND_HOST   hostname of the hub backend (defaults to hub-backend)
+#   BACKEND_HOST   hostname of the hub backend (defaults to hub)
 #   BACKEND_PORT   port of the hub backend (defaults to 8080)
 #
 # Build context = monorepo root: `docker build -f frontend/Dockerfile .`
@@ -53,7 +53,7 @@ COPY LICENSES /usr/share/nginx/html/legal/LICENSES
 COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
 
 # Defaults; override via deployment env vars.
-ENV BACKEND_HOST=hub-backend \
+ENV BACKEND_HOST=hub \
     BACKEND_PORT=8080 \
     BASE_PATH=""
 

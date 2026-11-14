@@ -40,7 +40,7 @@ kubectl describe webhookconnector <name> -n <namespace>
 The `Ready` condition must be `True`. If it is not, the operator has not yet provisioned the receiver Deployment and Ingress — check operator logs:
 
 ```bash
-kubectl logs -n <namespace> deploy/k8s-event-source-gateway-operator
+kubectl logs -n <namespace> deploy/event-gateway-operator
 ```
 
 Check the webhook-receiver pod logs for incoming requests (the receiver Deployment is named `connector-<id>`, e.g. `connector-c-0c4b01e3`):
@@ -200,7 +200,7 @@ kubectl exec -n <namespace> deploy/ainsel-hub -- curl -sv <mcp-server-url>/healt
 
 If the URL is not reachable, confirm the MCP server Deployment is running and that the Service name and port are correct. If the MCP server is external to the cluster, verify network policies and egress rules allow the connection.
 
-Remember that MCP servers are reached from **two** clients: hub-backend (tool discovery for AgentImages — the "Refresh MCP Tools" action — and the hub MCP registry) and agent pods at runtime. Both need ingress to the server, and agents additionally need egress if the server is in-cluster and not on 443/TCP. With `networkPolicy.enabled: true`, an in-cluster MCP server without an allow rule is silently unreachable — connections are rejected rather than timing out. See [Network Policies](network-policies.md) for the policy inventory and a verification recipe.
+Remember that MCP servers are reached from **two** clients: the hub (tool discovery for AgentImages — the "Refresh MCP Tools" action — and the hub MCP registry) and agent pods at runtime. Both need ingress to the server, and agents additionally need egress if the server is in-cluster and not on 443/TCP. With `networkPolicy.enabled: true`, an in-cluster MCP server without an allow rule is silently unreachable — connections are rejected rather than timing out. See [Network Policies](network-policies.md) for the policy inventory and a verification recipe.
 
 ---
 
@@ -237,12 +237,12 @@ Check it from outside the pod — the hub image is distroless and has no shell, 
 
 ```bash
 # Is the variable on the hub deployment at all? No output = not configured.
-kubectl -n <namespace> get deploy hub-backend -o json \
+kubectl -n <namespace> get deploy hub -o json \
   | jq -r '.spec.template.spec.containers[].env[]?
       | select(.name=="HUB_PROMETHEUS_URL") | .value'
 
 # What did the hub record about it at startup?
-kubectl -n <namespace> logs deploy/hub-backend | grep -i prometheus
+kubectl -n <namespace> logs deploy/hub | grep -i prometheus
 ```
 
 Logs are JSON, so the unconfigured state reads:
@@ -265,7 +265,7 @@ observability:
 
 ```bash
 helm upgrade ainsel ./chart -n <namespace> -f values.yaml
-kubectl rollout status -n <namespace> deploy/hub-backend
+kubectl rollout status -n <namespace> deploy/hub
 ```
 
 The hub reads `HUB_PROMETHEUS_URL` once, while wiring itself up, so a pod that started
@@ -275,8 +275,8 @@ it finished. If the panels are still empty after that, force fresh pods and re-r
 log:
 
 ```bash
-kubectl rollout restart -n <namespace> deploy/hub-backend
-kubectl -n <namespace> logs deploy/hub-backend | grep -i prometheus
+kubectl rollout restart -n <namespace> deploy/hub
+kubectl -n <namespace> logs deploy/hub | grep -i prometheus
 ```
 
 The last command is the ground truth: `prometheus client configured` means the hub has
@@ -291,7 +291,7 @@ metrics response repeats it in `source`:
 ```
 
 ```bash
-kubectl -n <namespace> get deploy hub-backend -o json \
+kubectl -n <namespace> get deploy hub -o json \
   | jq -r '.spec.template.spec.containers[].env[]?
       | select(.name=="HUB_METRICS_SOURCE") | .value'
 ```
@@ -316,7 +316,7 @@ Anything other than `postgres` or `prometheus` is ignored with a
   intermittent across reloads. Ask each running pod what it actually has:
 
   ```bash
-  kubectl -n <namespace> get pods -l app.kubernetes.io/component=hub-backend -o json \
+  kubectl -n <namespace> get pods -l app.kubernetes.io/component=hub -o json \
     | jq -r '.items[] | .metadata.name + "  " + ( [.spec.containers[].env[]?
         | select(.name=="HUB_PROMETHEUS_URL") | .value]
         | if length == 0 then "(unset)" else join(",") end )'
@@ -365,7 +365,7 @@ kubectl describe trigger <name> -n <namespace>
 # Recent logs from all platform components
 kubectl logs -n <namespace> deploy/ainsel-hub --tail=100
 kubectl logs -n <namespace> deploy/ainsel-agent-operator --tail=100
-kubectl logs -n <namespace> deploy/k8s-event-source-gateway-operator --tail=100
+kubectl logs -n <namespace> deploy/event-gateway-operator --tail=100
 
 # Events in the namespace (often the fastest way to find the root cause)
 kubectl get events -n <namespace> --sort-by='.lastTimestamp'
