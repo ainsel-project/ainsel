@@ -44,6 +44,7 @@ global:
   # wins over the prefix. Neither applies to `postgres.image`, which is an
   # upstream image and is never prefixed.
   imageRegistry: ghcr.io/ainsel-project
+
 namespace: ainsel
 # Whether the chart should create the target namespace itself.
 # Leave false (recommended) and use `helm install --create-namespace` or

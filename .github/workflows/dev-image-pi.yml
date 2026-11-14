@@ -113,6 +113,13 @@ jobs:
           # FROM there, not from the runner's image store, so a build-only run (a PR,
           # or a dispatch without publish) has no :<sha> of its own to build on and
           # falls back to :dev.
+          #
+          # That :dev is read from the same namespace as everything else here, which
+          # means a fork's variant builds need its own base published once first - a
+          # merge to its main, or one `publish` dispatch. Before, they silently read
+          # the upstream account's :dev, which is the coupling this namespace removes.
+          # A fork that wants PR builds sooner points vars.IMAGE_NAMESPACE at a
+          # namespace where a base already exists.
           if [ "$publish" = "true" ]; then
             echo "base_tag=${short_sha}" >> "$GITHUB_OUTPUT"
           else
