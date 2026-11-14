@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from './client'
 import { listErrors } from './errors'
 
 const mockFetch = () => globalThis.fetch as ReturnType<typeof vi.fn>
@@ -36,5 +37,16 @@ describe('api/errors', () => {
     )
     const out = await listErrors({ limit: 200 })
     expect(out).toEqual(errors)
+  })
+
+  it('rejects a paginated envelope instead of returning a silently empty list (issue #283)', async () => {
+    mockFetch().mockResolvedValue(
+      new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }), {
+        status: 200,
+      }),
+    )
+    const err = await listErrors({ limit: 200 }).catch((e) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toContain('GET /errors')
   })
 })

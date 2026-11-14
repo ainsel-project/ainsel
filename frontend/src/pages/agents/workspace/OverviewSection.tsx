@@ -24,6 +24,7 @@ import { ConfirmModal } from '../../../primitives/ConfirmModal'
 import { Dot } from '../../../primitives/Dot'
 import { Field } from '../../../primitives/Field'
 import { Input } from '../../../primitives/Input'
+import { Notice } from '../../../primitives/Notice'
 import { Panel } from '../../../primitives/Panel'
 import { Tag } from '../../../primitives/Tag'
 import { Textarea } from '../../../primitives/Textarea'
@@ -255,11 +256,7 @@ export function OverviewSection() {
                     onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                   />
                 </Field>
-                {editError ? (
-                  <p className="field-error" role="alert">
-                    {editError}
-                  </p>
-                ) : null}
+                {editError ? <Notice variant="err">{editError}</Notice> : null}
                 <div style={{ display: 'flex', gap: 8 }}>
                   <Button
                     variant="primary"

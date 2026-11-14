@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { request, ServiceUnavailableError } from './client'
+import { expectArray, request, ServiceUnavailableError } from './client'
 
 // Which backend answered a metrics query. The hub serves its event panels from
 // its own Postgres records by default and from Prometheus only when pinned (or
@@ -336,7 +336,9 @@ function normalizeLogEntry(entry: LogEntry): LogEntry {
 
 export async function getObservabilityLogs(params: LogsParams = {}): Promise<LogEntry[]> {
   const env = await request<LogsEnvelope>('/observability/logs', { query: params })
-  return (env.logs ?? []).map(normalizeLogEntry)
+  // Validate the envelope's array (issue #283) rather than defaulting it away:
+  // a wrong shape belongs in the error state, not in an empty log list.
+  return expectArray<LogEntry>(env?.logs, 'GET /observability/logs').map(normalizeLogEntry)
 }
 
 export function useObservabilityLogs(

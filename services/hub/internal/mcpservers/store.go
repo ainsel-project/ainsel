@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,8 +38,7 @@ func (s *Store) Create(ctx context.Context, m *MCPServer) error {
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`, m.Name, m.DisplayName, m.Description, m.URL, m.TokenFromEnv, managedBy)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrAlreadyExists
 		}
 		return fmt.Errorf("insert: %w", err)
@@ -51,11 +49,8 @@ func (s *Store) Create(ctx context.Context, m *MCPServer) error {
 func (s *Store) Get(ctx context.Context, name string) (*MCPServer, error) {
 	row := s.pool.QueryRow(ctx, `SELECT `+selectColumns+` FROM mcp_servers WHERE name = $1`, name)
 	m, err := scanRow(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("mcpservers.Get: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "mcpservers.Get")
 	}
 	return m, nil
 }

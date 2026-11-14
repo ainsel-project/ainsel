@@ -1,3 +1,5 @@
+import type { Paginated } from './types'
+
 // API base URL. Defaults to `${BASE_URL}api/v1` so the app calls relative to
 // its mount point — `/api/v1` at root, `/ainsel-dev/api/v1` when mounted at
 // /ainsel-dev/. The ingress strips the prefix and forwards to hub-backend.
@@ -201,4 +203,49 @@ export async function request<T = unknown>(path: string, options: RequestOptions
   }
   if (res.status === 503) throw new ServiceUnavailableError(parsed, message)
   throw new ApiError(res.status, message, parsed)
+}
+
+// --- response shape validation (issue #283) ---------------------------------
+//
+// The hub has changed response shapes before (see the `legacy` compat
+// comments server-side), a plugin proxy can hand back a malformed body, and a
+// 502 HTML page from the ingress parses as neither array nor envelope. A
+// component that assumes `data.map(...)` then blanks the whole route with a
+// TypeError. API modules use these validators at the boundary instead: a
+// wrong shape becomes an ApiError the route-level boundary (or a page's own
+// error state) can show. The 401 / forced-password-change recovery paths
+// above are untouched by anything here.
+
+export function expectArray<T>(value: unknown, what: string): T[] {
+  if (!Array.isArray(value)) {
+    throw new ApiError(
+      500,
+      `${what}: expected an array response, got ${describeShape(value)}`,
+      value,
+    )
+  }
+  return value as T[]
+}
+
+export function expectItems<T>(value: unknown, what: string): Paginated<T> {
+  const items = (value as { items?: unknown } | null | undefined)?.items
+  if (!isRecord(value) || !Array.isArray(items)) {
+    throw new ApiError(
+      500,
+      `${what}: expected a paginated { items } envelope, got ${describeShape(value)}`,
+      value,
+    )
+  }
+  return value as Paginated<T>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function describeShape(value: unknown): string {
+  if (value === null || value === undefined) return String(value)
+  if (Array.isArray(value)) return 'an array'
+  if (typeof value === 'object') return 'an object'
+  return `a ${typeof value}`
 }

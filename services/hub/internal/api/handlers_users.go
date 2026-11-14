@@ -408,14 +408,13 @@ func (s *Server) handleMyResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	includePublic := r.URL.Query().Get("includePublic") == "true"
-	all, err := s.authzStore.ListResourcesByGroups(r.Context(), resourceType, groupIDs, includePublic)
+	// Page bounds go into the query; the store reports the scoped total,
+	// so only the page's names are read.
+	names, total, err := s.authzStore.ListResourcesByGroupsPage(r.Context(), resourceType, groupIDs, includePublic, page.PageSize, (page.Page-1)*page.PageSize)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	total := len(all)
-	lo, hi := page.Slice(total)
-	names := all[lo:hi]
 	if names == nil {
 		names = []string{}
 	}

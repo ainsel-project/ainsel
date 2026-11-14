@@ -2385,6 +2385,10 @@ All non-WebSocket error responses return:
 {"error": "descriptive error message"}
 ```
 
+This includes the answers the router itself generates — a path no route matches
+(`404`) and a registered path requested with the wrong method (`405`, with the
+allowed methods in `Allow`). A `405` carries `"error": "method not allowed"`.
+
 | HTTP Status | Meaning |
 |-------------|---------|
 | `400` | Bad request (invalid JSON, missing required fields, unsupported query parameter values). |

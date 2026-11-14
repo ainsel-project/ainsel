@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -36,10 +35,44 @@ type UpdateRequest struct {
 	Tags        *[]string
 }
 
-// ListFilter holds optional search/tag filters for List.
+// ListFilter holds optional filters and pagination for List.
 type ListFilter struct {
 	Search string
 	Tags   []string
+
+	// AllowedIDs is the authorization allow-list resolved by the handler
+	// (see accessibleSet in handlers_skills.go). It is applied in SQL as
+	// `id = ANY($n)`, never as a post-filter. The nil-vs-empty distinction
+	// is load-bearing and pinned by list_authz_parity_test.go:
+	//   - nil   → unrestricted (access control off, or the caller is an admin)
+	//   - empty → the caller may see nothing; List returns no rows and total 0
+	//   - non-empty → restricts to exactly the listed ids
+	AllowedIDs []string
+
+	// OrderBy is a key of SortColumns, already validated by the handler.
+	// Empty keeps the default order (created_at DESC, id). Desc reverses
+	// the primary expression; the id tiebreaker stays ascending so pages
+	// stay deterministic.
+	OrderBy string
+	Desc    bool
+
+	// Limit/Offset paginate the query. Limit <= 0 means no LIMIT (fetch
+	// the full match set); Offset rows are skipped.
+	Limit  int
+	Offset int
+}
+
+// SortColumns maps the (lowercase) orderBy values accepted by the skills
+// list endpoint to their SQL ORDER BY expressions. The expressions mirror
+// the case-insensitive comparisons the old in-memory sort applied to
+// name/id, so pushing the sort into SQL keeps the same page contents.
+// usedBy is deliberately absent: it is computed from Agent CRs, not from
+// a column, so sorting by it stays in the handler.
+var SortColumns = map[string]string{
+	"name":      "lower(name)",
+	"id":        "lower(id)",
+	"createdat": "created_at",
+	"updatedat": "updated_at",
 }
 
 // Create inserts a new skill. Populates s.CreatedAt, s.UpdatedAt.
@@ -56,7 +89,7 @@ func (s *Store) Create(ctx context.Context, sk *Skill) error {
 		 VALUES ($1, $2, $3, $4, $5, 'user', $6, $6)`,
 		sk.ID, sk.Name, sk.Description, sk.Body, sk.Tags, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrIDTaken
 		}
 		return fmt.Errorf("insert skill: %w", err)
@@ -74,11 +107,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Skill, error) {
 		SELECT id, name, description, body, tags, managed_by, created_at, updated_at
 		FROM skills WHERE id = $1
 	`, id).Scan(&sk.ID, &sk.Name, &sk.Description, &sk.Body, &sk.Tags, &sk.ManagedBy, &sk.CreatedAt, &sk.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("skills.Get: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "skills.Get")
 	}
 	if sk.Tags == nil {
 		sk.Tags = []string{}
@@ -86,10 +116,17 @@ func (s *Store) Get(ctx context.Context, id string) (*Skill, error) {
 	return &sk, nil
 }
 
-// List returns skills as summaries (no body), newest first,
-// optionally filtered by search term and/or tags.
-func (s *Store) List(ctx context.Context, filter ListFilter) ([]SkillSummary, error) {
-	query := `SELECT id, name, description, tags, managed_by, created_at, updated_at FROM skills`
+// List returns one page of skills as summaries (no body) plus the total
+// number of rows matching the filter, before pagination. Search, tags, the
+// authorization allow-list, the sort and the page bounds are all applied in
+// SQL, so the rows read are proportional to the page, not to the table.
+func (s *Store) List(ctx context.Context, filter ListFilter) ([]SkillSummary, int, error) {
+	// Empty allow-list: the caller may see nothing. Short-circuit before
+	// touching the table — and never treat empty as "no restriction".
+	if filter.AllowedIDs != nil && len(filter.AllowedIDs) == 0 {
+		return nil, 0, nil
+	}
+
 	var conditions []string
 	var args []any
 	argIdx := 1
@@ -103,32 +140,69 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]SkillSummary, er
 	if len(filter.Tags) > 0 {
 		conditions = append(conditions, fmt.Sprintf("tags && $%d::text[]", argIdx))
 		args = append(args, filter.Tags)
+		argIdx++
 	}
+	if filter.AllowedIDs != nil {
+		conditions = append(conditions, fmt.Sprintf("id = ANY($%d)", argIdx))
+		args = append(args, filter.AllowedIDs)
+		argIdx++
+	}
+	whereSQL := ""
 	if len(conditions) > 0 {
-		query += " WHERE " + conditions[0]
-		for _, c := range conditions[1:] {
-			query += " AND " + c
-		}
+		whereSQL = " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY created_at DESC"
+
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM skills`+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("skills.List count: %w", err)
+	}
+
+	orderBy := "created_at DESC, id"
+	if filter.OrderBy != "" {
+		col, ok := SortColumns[filter.OrderBy]
+		if !ok {
+			return nil, 0, fmt.Errorf("skills.List: unknown sort column %q", filter.OrderBy)
+		}
+		dir := "ASC"
+		if filter.Desc {
+			dir = "DESC"
+		}
+		// id tiebreaker keeps equal-key rows in a stable order across pages.
+		orderBy = col + " " + dir + ", id"
+	}
+
+	query := `SELECT id, name, description, tags, managed_by, created_at, updated_at FROM skills` +
+		whereSQL + " ORDER BY " + orderBy
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argIdx)
+		args = append(args, filter.Limit)
+		argIdx++
+	}
+	if filter.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", argIdx)
+		args = append(args, filter.Offset)
+	}
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("skills.List: %w", err)
+		return nil, 0, fmt.Errorf("skills.List: %w", err)
 	}
 	defer rows.Close()
 	var out []SkillSummary
 	for rows.Next() {
 		var ss SkillSummary
 		if err := rows.Scan(&ss.ID, &ss.Name, &ss.Description, &ss.Tags, &ss.ManagedBy, &ss.CreatedAt, &ss.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("skills.List: %w", err)
+			return nil, 0, fmt.Errorf("skills.List: %w", err)
 		}
 		if ss.Tags == nil {
 			ss.Tags = []string{}
 		}
 		out = append(out, ss)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("skills.List: %w", err)
+	}
+	return out, total, nil
 }
 
 // Update applies a partial update.
@@ -143,11 +217,8 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Skil
 		FROM skills WHERE id = $1
 		FOR UPDATE
 	`, id).Scan(&name, &description, &body, &tags, &managedBy, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("skills.Update: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "skills.Update")
 	}
 
 	if req.Name != nil {
@@ -226,12 +297,10 @@ func (s *Store) UpsertManaged(ctx context.Context, sk *Skill) error {
 		 RETURNING created_at, updated_at`,
 		sk.ID, sk.Name, sk.Description, sk.Body, sk.Tags, now,
 	).Scan(&sk.CreatedAt, &sk.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// The conflict target exists but a user owns it: never take it over.
-		return ErrIDTakenByUser
-	}
 	if err != nil {
-		return fmt.Errorf("skills.UpsertManaged: %w", err)
+		// No updated rows means the conflict target exists but a user owns
+		// the skill: never take it over.
+		return pgutil.MapNoRows(err, ErrIDTakenByUser, "skills.UpsertManaged")
 	}
 	sk.ManagedBy = ManagedByPlugin
 	return nil
@@ -280,12 +349,4 @@ func escapeILIKE(s string) string {
 	s = strings.ReplaceAll(s, `%`, `\%`)
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	return s
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
 }

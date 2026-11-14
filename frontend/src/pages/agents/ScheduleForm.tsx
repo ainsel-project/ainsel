@@ -15,6 +15,7 @@ import { Field } from '../../primitives/Field'
 import { Input } from '../../primitives/Input'
 import { Textarea } from '../../primitives/Textarea'
 import { GroupField } from '../../components/GroupField'
+import { Notice } from '../../primitives/Notice'
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -149,22 +150,7 @@ export function ScheduleForm({ agentId, trigger, onClose, onSaved }: ScheduleFor
         </h4>
       </header>
 
-      {submitError ? (
-        <div
-          role="alert"
-          style={{
-            padding: '10px 12px',
-            border: '1.5px solid var(--signal)',
-            background: 'var(--signal-haze)',
-            color: 'var(--signal)',
-            fontFamily: 'var(--mono)',
-            fontSize: 11,
-            marginBottom: 16,
-          }}
-        >
-          {submitError}
-        </div>
-      ) : null}
+      {submitError ? <Notice variant="err">{submitError}</Notice> : null}
 
       <div className="form-grid cols-2">
         <Field label="Name" htmlFor="sf-name" error={errors.name?.message}>

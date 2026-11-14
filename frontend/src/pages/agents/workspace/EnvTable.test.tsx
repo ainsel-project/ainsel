@@ -199,3 +199,91 @@ describe('EnvTable', () => {
     expect(rowNames()).toEqual(['Z', 'B', 'A', 'C'])
   })
 })
+
+describe('EnvTable plain variant', () => {
+  /** Keeps the list in state, the way the image form's adapter does. */
+  function PlainHarness({
+    env,
+    readOnly = false,
+    onChange = () => {},
+  }: {
+    env: AgentEnvVar[]
+    readOnly?: boolean
+    onChange?: (next: DraftEnvVar[]) => void
+  }) {
+    const [draft, setDraft] = useState<DraftEnvVar[]>(() => withDraftIds(env))
+    return (
+      <EnvTable
+        variant="plain"
+        agentEnv={draft}
+        readOnly={readOnly}
+        onChange={(next) => {
+          onChange(next)
+          setDraft(next)
+        }}
+      />
+    )
+  }
+
+  it('has three columns — name, value, actions — and no Source column', () => {
+    render(<PlainHarness env={[{ name: 'A', value: '1' }]} />)
+
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.trim())
+    expect(headers).toEqual(['Name', 'Value', ''])
+  })
+
+  it('keeps entry order and offers only Remove as an action', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <PlainHarness
+        env={[
+          { name: 'Z', value: '1' },
+          { name: 'A', value: '2' },
+        ]}
+        onChange={onChange}
+      />,
+    )
+
+    // Entry order, not mergeEnv's alphabetical order.
+    const names = () =>
+      screen.getAllByLabelText('Variable name').map((i) => (i as HTMLInputElement).value)
+    expect(names()).toEqual(['Z', 'A'])
+    expect(screen.queryByRole('button', { name: /override/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /reset to image/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: 'Remove variable' })[0])
+    expect(payload(onChange.mock.lastCall?.[0] as DraftEnvVar[])).toEqual([
+      { name: 'A', value: '2', secret: undefined },
+    ])
+  })
+
+  it('appends an empty row on add', async () => {
+    const user = userEvent.setup()
+    render(<PlainHarness env={[{ name: 'A', value: '1' }]} />)
+
+    await user.click(screen.getByRole('button', { name: /add variable/i }))
+    expect(
+      screen.getAllByLabelText('Variable name').map((i) => (i as HTMLInputElement).value),
+    ).toEqual(['A', ''])
+  })
+
+  it('masks a secret value behind a password field', () => {
+    render(<PlainHarness env={[{ name: 'S', value: 'hunter2', secret: true }]} />)
+
+    // Same rule as the old image env editor: the field is a password input and
+    // an existing secret arrives empty from the hub — submitting it unchanged
+    // keeps the stored value.
+    const value = screen.getByLabelText('Variable value')
+    expect(value).toHaveAttribute('type', 'password')
+    expect(value).toHaveAttribute('placeholder', '••••••••')
+  })
+
+  it('offers no controls when read-only', () => {
+    render(<PlainHarness env={[{ name: 'A', value: '1' }]} readOnly />)
+
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Variable name')).toBeDisabled()
+    expect(screen.getByLabelText('Variable value')).toBeDisabled()
+  })
+})

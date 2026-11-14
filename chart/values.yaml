@@ -87,6 +87,13 @@ agentOperator:
   credentialVolume:
     storageClass: "" # empty = the cluster default
     size: 1Gi # the data is a few KiB; raise only for a storage class minimum
+  # How long a ChatGPT sign-in may go unverified before the operator checks
+  # (and refreshes) it on an idle agent. Every task already does this; the
+  # keep-alive covers agents that run nothing for a while, because OpenAI does
+  # not document how long an unused refresh token lives. The check forces a
+  # refresh, so the refresh token is really used. "0" disables it; otherwise
+  # at least 1h (it runs at most once per hour).
+  signInKeepAliveInterval: 24h
   resources:
     requests:
       cpu: 50m

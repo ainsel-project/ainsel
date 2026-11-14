@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,6 +33,15 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // Trigger CRUD
 // ---------------------------------------------------------------------------
 
+// Column lists for the two tables, shared by the single-row lookups and the
+// paginated lists so the two can never drift apart.
+const (
+	triggerColumns     = `SELECT id, display_name, agent_ref, connector_ref, filters, agent_valid, connector_valid, created_at, updated_at`
+	fromTriggers       = ` FROM triggers`
+	cronTriggerColumns = `SELECT id, display_name, agent_ref, schedule, prompt, enabled, agent_valid, schedule_valid, last_run, next_run, created_at, updated_at`
+	fromCronTriggers   = ` FROM cron_triggers`
+)
+
 // CreateTrigger inserts a new trigger.
 func (s *Store) CreateTrigger(ctx context.Context, t *Trigger) error {
 	now := time.Now().UTC()
@@ -46,7 +54,7 @@ func (s *Store) CreateTrigger(ctx context.Context, t *Trigger) error {
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
 		t.ID, t.DisplayName, t.AgentRef, t.ConnectorRef, filtersJSON, t.AgentValid, t.ConnectorValid, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrIDTaken
 		}
 		return fmt.Errorf("insert trigger: %w", err)
@@ -64,11 +72,8 @@ func (s *Store) GetTrigger(ctx context.Context, id string) (*Trigger, error) {
 		SELECT id, display_name, agent_ref, connector_ref, filters, agent_valid, connector_valid, created_at, updated_at
 		FROM triggers WHERE id = $1
 	`, id).Scan(&t.ID, &t.DisplayName, &t.AgentRef, &t.ConnectorRef, &filtersJSON, &t.AgentValid, &t.ConnectorValid, &t.CreatedAt, &t.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.GetTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.GetTrigger")
 	}
 	if len(filtersJSON) > 0 {
 		if err := json.Unmarshal(filtersJSON, &t.Filters); err != nil {
@@ -78,26 +83,92 @@ func (s *Store) GetTrigger(ctx context.Context, id string) (*Trigger, error) {
 	return &t, nil
 }
 
-// ListTriggers returns all triggers, optionally filtered by agentRef and connectorRef.
-func (s *Store) ListTriggers(ctx context.Context, agentRef, connectorRef string) ([]Trigger, error) {
-	q := `SELECT id, display_name, agent_ref, connector_ref, filters, agent_valid, connector_valid, created_at, updated_at FROM triggers`
-	args := []any{}
-	conds := []string{}
-	if agentRef != "" {
-		args = append(args, agentRef)
-		conds = append(conds, fmt.Sprintf("agent_ref = $%d", len(args)))
+// TriggerListOptions holds the filters and page bounds for ListTriggers.
+type TriggerListOptions struct {
+	// AgentRef and ConnectorRef narrow the set as before; empty means "any".
+	AgentRef     string
+	ConnectorRef string
+
+	// AllowedIDs is the authorization allow-list resolved by the handler
+	// (see accessibleIDs in server.go). It is applied in SQL as
+	// `id = ANY($n)`, never as a post-filter. The nil-vs-empty distinction
+	// is load-bearing and pinned by list_authz_parity_test.go:
+	//   - nil   → unrestricted (access control off, or the caller is an admin)
+	//   - empty → the caller may see nothing; the call returns no rows and total 0
+	//   - non-empty → restricts to exactly the listed ids
+	AllowedIDs []string
+
+	// Limit/Offset paginate the query. Limit <= 0 means no LIMIT (fetch
+	// the full match set); Offset rows are skipped.
+	Limit  int
+	Offset int
+}
+
+// CronTriggerListOptions holds the filters and page bounds for
+// ListCronTriggers. AllowedIDs carries the same contract as in
+// TriggerListOptions.
+type CronTriggerListOptions struct {
+	AgentRef   string
+	AllowedIDs []string
+	Limit      int
+	Offset     int
+}
+
+// ListTriggers returns one page of triggers plus the total number of rows
+// matching the options, before pagination. The agent/connector filters, the
+// authorization allow-list and the page bounds are all applied in SQL, so the
+// rows read are proportional to the page, not to the table. Order is by id,
+// which is unique, so pages are stable.
+func (s *Store) ListTriggers(ctx context.Context, opts TriggerListOptions) ([]Trigger, int, error) {
+	// Empty allow-list: the caller may see nothing. Short-circuit before
+	// touching the table — and never treat empty as "no restriction".
+	if opts.AllowedIDs != nil && len(opts.AllowedIDs) == 0 {
+		return nil, 0, nil
 	}
-	if connectorRef != "" {
-		args = append(args, connectorRef)
-		conds = append(conds, fmt.Sprintf("connector_ref = $%d", len(args)))
+
+	var conditions []string
+	var args []any
+	argIdx := 1
+
+	if opts.AgentRef != "" {
+		conditions = append(conditions, fmt.Sprintf("agent_ref = $%d", argIdx))
+		args = append(args, opts.AgentRef)
+		argIdx++
 	}
-	if len(conds) > 0 {
-		q += " WHERE " + strings.Join(conds, " AND ")
+	if opts.ConnectorRef != "" {
+		conditions = append(conditions, fmt.Sprintf("connector_ref = $%d", argIdx))
+		args = append(args, opts.ConnectorRef)
+		argIdx++
 	}
-	q += " ORDER BY id"
-	rows, err := s.pool.Query(ctx, q, args...)
+	if opts.AllowedIDs != nil {
+		conditions = append(conditions, fmt.Sprintf("id = ANY($%d)", argIdx))
+		args = append(args, opts.AllowedIDs)
+		argIdx++
+	}
+	whereSQL := ""
+	if len(conditions) > 0 {
+		whereSQL = " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM triggers`+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("triggers.ListTriggers count: %w", err)
+	}
+
+	query := triggerColumns + fromTriggers + whereSQL + " ORDER BY id"
+	if opts.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argIdx)
+		args = append(args, opts.Limit)
+		argIdx++
+	}
+	if opts.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", argIdx)
+		args = append(args, opts.Offset)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("triggers.ListTriggers: %w", err)
+		return nil, 0, fmt.Errorf("triggers.ListTriggers: %w", err)
 	}
 	defer rows.Close()
 	var out []Trigger
@@ -105,16 +176,19 @@ func (s *Store) ListTriggers(ctx context.Context, agentRef, connectorRef string)
 		var t Trigger
 		var filtersJSON []byte
 		if err := rows.Scan(&t.ID, &t.DisplayName, &t.AgentRef, &t.ConnectorRef, &filtersJSON, &t.AgentValid, &t.ConnectorValid, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("triggers.ListTriggers: %w", err)
+			return nil, 0, fmt.Errorf("triggers.ListTriggers: %w", err)
 		}
 		if len(filtersJSON) > 0 {
 			if err := json.Unmarshal(filtersJSON, &t.Filters); err != nil {
-				return nil, fmt.Errorf("triggers.ListTriggers: unmarshal filters: %w", err)
+				return nil, 0, fmt.Errorf("triggers.ListTriggers: unmarshal filters: %w", err)
 			}
 		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("triggers.ListTriggers: %w", err)
+	}
+	return out, total, nil
 }
 
 // UpdateTrigger applies a partial update to a trigger.
@@ -129,11 +203,8 @@ func (s *Store) UpdateTrigger(ctx context.Context, id string, displayName, agent
 		SELECT display_name, agent_ref, connector_ref, filters, agent_valid, connector_valid, created_at
 		FROM triggers WHERE id = $1 FOR UPDATE
 	`, id).Scan(&curName, &curAgent, &curConnector, &curFilters, &agentValid, &connectorValid, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.UpdateTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.UpdateTrigger")
 	}
 
 	name := curName
@@ -225,7 +296,7 @@ func (s *Store) CreateCronTrigger(ctx context.Context, ct *CronTrigger) error {
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
 		ct.ID, ct.DisplayName, ct.AgentRef, ct.Schedule, ct.Prompt, ct.Enabled, ct.AgentValid, ct.ScheduleValid, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrIDTaken
 		}
 		return fmt.Errorf("insert cron trigger: %w", err)
@@ -243,29 +314,63 @@ func (s *Store) GetCronTrigger(ctx context.Context, id string) (*CronTrigger, er
 		SELECT id, display_name, agent_ref, schedule, prompt, enabled, agent_valid, schedule_valid, last_run, next_run, created_at, updated_at
 		FROM cron_triggers WHERE id = $1
 	`, id).Scan(&ct.ID, &ct.DisplayName, &ct.AgentRef, &ct.Schedule, &ct.Prompt, &ct.Enabled, &ct.AgentValid, &ct.ScheduleValid, &lastRun, &nextRun, &ct.CreatedAt, &ct.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.GetCronTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.GetCronTrigger")
 	}
 	ct.LastRun = lastRun
 	ct.NextRun = nextRun
 	return &ct, nil
 }
 
-// ListCronTriggers returns all cron triggers, optionally filtered by agentRef.
-func (s *Store) ListCronTriggers(ctx context.Context, agentRef string) ([]CronTrigger, error) {
-	q := `SELECT id, display_name, agent_ref, schedule, prompt, enabled, agent_valid, schedule_valid, last_run, next_run, created_at, updated_at FROM cron_triggers`
-	args := []any{}
-	if agentRef != "" {
-		q += " WHERE agent_ref = $1"
-		args = append(args, agentRef)
+// ListCronTriggers returns one page of cron triggers plus the total number of
+// rows matching the options, before pagination — same contract as
+// ListTriggers: the agent filter, the authorization allow-list and the page
+// bounds are applied in SQL, and the order is by the unique id.
+func (s *Store) ListCronTriggers(ctx context.Context, opts CronTriggerListOptions) ([]CronTrigger, int, error) {
+	// Empty allow-list: the caller may see nothing. Never treat empty as
+	// "no restriction".
+	if opts.AllowedIDs != nil && len(opts.AllowedIDs) == 0 {
+		return nil, 0, nil
 	}
-	q += " ORDER BY id"
-	rows, err := s.pool.Query(ctx, q, args...)
+
+	var conditions []string
+	var args []any
+	argIdx := 1
+
+	if opts.AgentRef != "" {
+		conditions = append(conditions, fmt.Sprintf("agent_ref = $%d", argIdx))
+		args = append(args, opts.AgentRef)
+		argIdx++
+	}
+	if opts.AllowedIDs != nil {
+		conditions = append(conditions, fmt.Sprintf("id = ANY($%d)", argIdx))
+		args = append(args, opts.AllowedIDs)
+		argIdx++
+	}
+	whereSQL := ""
+	if len(conditions) > 0 {
+		whereSQL = " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM cron_triggers`+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("triggers.ListCronTriggers count: %w", err)
+	}
+
+	query := cronTriggerColumns + fromCronTriggers + whereSQL + " ORDER BY id"
+	if opts.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argIdx)
+		args = append(args, opts.Limit)
+		argIdx++
+	}
+	if opts.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", argIdx)
+		args = append(args, opts.Offset)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("triggers.ListCronTriggers: %w", err)
+		return nil, 0, fmt.Errorf("triggers.ListCronTriggers: %w", err)
 	}
 	defer rows.Close()
 	var out []CronTrigger
@@ -273,13 +378,16 @@ func (s *Store) ListCronTriggers(ctx context.Context, agentRef string) ([]CronTr
 		var ct CronTrigger
 		var lastRun, nextRun *time.Time
 		if err := rows.Scan(&ct.ID, &ct.DisplayName, &ct.AgentRef, &ct.Schedule, &ct.Prompt, &ct.Enabled, &ct.AgentValid, &ct.ScheduleValid, &lastRun, &nextRun, &ct.CreatedAt, &ct.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("triggers.ListCronTriggers: %w", err)
+			return nil, 0, fmt.Errorf("triggers.ListCronTriggers: %w", err)
 		}
 		ct.LastRun = lastRun
 		ct.NextRun = nextRun
 		out = append(out, ct)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("triggers.ListCronTriggers: %w", err)
+	}
+	return out, total, nil
 }
 
 // UpdateCronTrigger applies a partial update to a cron trigger.
@@ -294,11 +402,8 @@ func (s *Store) UpdateCronTrigger(ctx context.Context, id string, displayName, a
 		SELECT display_name, agent_ref, schedule, prompt, enabled, agent_valid, schedule_valid, created_at
 		FROM cron_triggers WHERE id = $1 FOR UPDATE
 	`, id).Scan(&curName, &curAgent, &curSchedule, &curPrompt, &curEnabled, &agentValid, &scheduleValid, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.UpdateCronTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.UpdateCronTrigger")
 	}
 
 	name := curName
@@ -386,11 +491,3 @@ func (s *Store) UpdateCronTriggerRunTimes(ctx context.Context, id string, lastRu
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
-}

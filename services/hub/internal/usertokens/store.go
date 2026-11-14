@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 )
@@ -121,11 +121,8 @@ func (s *Store) Validate(ctx context.Context, plaintext string) (*Token, error) 
 		  AND EXISTS (SELECT 1 FROM users u WHERE u.id = user_tokens.user_id AND NOT u.disabled)
 		RETURNING id, user_id, name, expires_at, last_used_at, created_at, revoked_at
 	`, hash).Scan(&t.ID, &t.UserID, &t.Name, &t.ExpiresAt, &t.LastUsedAt, &t.CreatedAt, &t.RevokedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, err
+		return nil, pgutil.MapNoRows(err, ErrNotFound)
 	}
 	return &t, nil
 }

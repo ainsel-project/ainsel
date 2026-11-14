@@ -126,8 +126,8 @@ describe('AgentWorkspace', () => {
   it('renders the runtime section on /agents/:id/runtime', async () => {
     renderWorkspace('/agents/a1/runtime')
     expect(await screen.findByRole('heading', { name: 'Runtime & env' })).toBeInTheDocument()
-    // a1 has no image linked: the merged Environment card is absent and the
-    // image picker's no-image hint is the single prompt (issue #215).
+    // a1 has no image linked: the overrides panel is absent and the image
+    // picker's no-image hint is the single prompt.
     expect(screen.queryByRole('heading', { name: 'Environment' })).not.toBeInTheDocument()
     expect(await screen.findAllByText(/No image linked yet/i)).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'Runtime & env' })).toHaveAttribute(
@@ -203,17 +203,23 @@ describe('AgentWorkspace', () => {
     await screen.findAllByText('doc-writer')
     await userEvent.click(screen.getByRole('link', { name: /^runtime & env$/i }))
 
-    // The embedded editor loads the referenced image's identity and env.
-    const urlInput = await screen.findByLabelText('Image URL')
-    await waitFor(() => expect(urlInput).toHaveValue('ghcr.io/ainsel/claude-tooling:1.4'))
-    // One merged Environment card with two labelled zones (issue #215):
-    // the image env (saved with the image) and the agent overrides.
-    expect(screen.getAllByRole('heading', { name: 'Environment' })).toHaveLength(1)
-    expect(screen.getByText('Image environment')).toBeInTheDocument()
-    expect(screen.getByText('Agent overrides')).toBeInTheDocument()
-    // Runtime settings and the image editor each carry a Save.
+    // The image is shown read-only, with a link to the image page: no image
+    // fields and no image-side save on this page — the shared image is only
+    // edited on /agent-images/:id.
+    await screen.findByText('ghcr.io/ainsel/claude-tooling:1.4')
+    expect(screen.getByRole('link', { name: /edit image/i })).toHaveAttribute(
+      'href',
+      '/agent-images/claude-tooling-base%3A1.4',
+    )
+    expect(screen.queryByLabelText('Display Name')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
+    // Environment overrides is its own panel with its own save.
+    expect(screen.getByRole('heading', { name: 'Environment overrides' })).toBeInTheDocument()
+    // Runtime settings is the only plain Save on the page; the overrides panel
+    // saves under its own distinct label.
     expect(screen.getByLabelText('Model')).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /^save$/i }).length).toBeGreaterThan(1)
+    expect(screen.getAllByRole('button', { name: /^save$/i })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: /save overrides/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument()
 
     // No tools-side or skills sections leak onto this section.
@@ -292,7 +298,7 @@ describe('AgentWorkspace', () => {
     expect(within(mcp).getByRole('option', { name: /github/i })).toBeInTheDocument()
     expect(screen.getByText(/inherited from the runtime image/i)).toBeInTheDocument()
 
-    // No image form is embedded here: no image fields, no image-side save.
+    // No image form on this page: no image fields, no image-side save.
     expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Skills' })).not.toBeInTheDocument()
@@ -399,7 +405,7 @@ describe('AgentWorkspace', () => {
     expect(within(skills).getByRole('option', { name: /issue triage/i })).toBeInTheDocument()
     expect(screen.queryByText(/inherited from the runtime image/i)).not.toBeInTheDocument()
 
-    // No image-side sections leak into this section, and no embedded form save:
+    // No image-side sections leak into this section, and no image-side save:
     // the picker PUTs the agent directly.
     expect(screen.queryByLabelText('Image URL')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()

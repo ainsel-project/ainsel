@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -52,7 +52,7 @@ func (s *Store) Create(ctx context.Context, p *Persona) error {
 		 VALUES ($1, $2, $3, 0, NULLIF($4, ''), $5, $5)`,
 		p.ID, p.Name, p.Description, p.OwnerAgent, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrNameTaken
 		}
 		return fmt.Errorf("insert persona: %w", err)
@@ -97,11 +97,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Persona, error) {
 		WHERE p.id = $1
 	`, id).Scan(&p.ID, &p.Name, &p.Description, &p.CurrentVersion, &p.Text,
 		&p.OwnerAgent, &p.ManagedBy, &p.CreatedAt, &p.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.Get: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Get")
 	}
 	return &p, nil
 }
@@ -119,39 +116,83 @@ func (s *Store) GetByOwner(ctx context.Context, agentName string) (*Persona, err
 		WHERE p.owner_agent = $1
 	`, agentName).Scan(&p.ID, &p.Name, &p.Description, &p.CurrentVersion, &p.Text,
 		&p.OwnerAgent, &p.ManagedBy, &p.CreatedAt, &p.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.GetByOwner: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.GetByOwner")
 	}
 	return &p, nil
 }
 
-// List returns shared template personas as summaries (no text), newest
-// first. Agent-owned personas are excluded — they are addressed through
-// their owning agent, never through the library.
-func (s *Store) List(ctx context.Context) ([]PersonaSummary, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT p.id, p.name, p.description, pv.version_number, COALESCE(p.managed_by, 'user'), p.created_at, p.updated_at
+// ListFilter holds the authorization allow-list and page bounds for List.
+type ListFilter struct {
+	// AllowedIDs is the authorization allow-list resolved by the handler.
+	// Applied in SQL as id = ANY($n), never as a post-filter. The nil-vs-
+	// empty distinction is load-bearing and pinned by
+	// list_authz_parity_test.go: nil = unrestricted (authz off or admin),
+	// empty = the caller may see nothing, non-empty = exactly these ids.
+	AllowedIDs []string
+
+	// Limit/Offset paginate the query. Limit <= 0 means no LIMIT.
+	Limit  int
+	Offset int
+}
+
+// List returns one page of shared template personas as summaries (no text)
+// plus the total number of matching rows, before pagination. Agent-owned
+// personas are excluded — they are addressed through their owning agent,
+// never through the library. The authz allow-list and the page bounds are
+// applied in SQL, so the rows read are proportional to the page, not to
+// the table.
+func (s *Store) List(ctx context.Context, filter ListFilter) ([]PersonaSummary, int, error) {
+	// Empty allow-list: the caller may see nothing. Never treat empty as
+	// "no restriction".
+	if filter.AllowedIDs != nil && len(filter.AllowedIDs) == 0 {
+		return nil, 0, nil
+	}
+
+	base := `
 		FROM personas p
 		JOIN persona_versions pv ON pv.id = p.current_version_id
-		WHERE p.owner_agent IS NULL
-		ORDER BY p.created_at DESC
-	`)
+		WHERE p.owner_agent IS NULL`
+	args := []any{}
+	if filter.AllowedIDs != nil {
+		args = append(args, filter.AllowedIDs)
+		base += fmt.Sprintf(" AND p.id = ANY($%d)", len(args))
+	}
+
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*)`+base, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("personas.List count: %w", err)
+	}
+
+	// id tiebreaker keeps equal-created_at rows in a stable order across pages.
+	query := `SELECT p.id, p.name, p.description, pv.version_number, COALESCE(p.managed_by, 'user'), p.created_at, p.updated_at` +
+		base + " ORDER BY p.created_at DESC, p.id"
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", len(args)+1)
+		args = append(args, filter.Limit)
+	}
+	if filter.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", len(args)+1)
+		args = append(args, filter.Offset)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("personas.List: %w", err)
+		return nil, 0, fmt.Errorf("personas.List: %w", err)
 	}
 	defer rows.Close()
 	var out []PersonaSummary
 	for rows.Next() {
 		var ps PersonaSummary
 		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.CurrentVersion, &ps.ManagedBy, &ps.CreatedAt, &ps.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("personas.List: %w", err)
+			return nil, 0, fmt.Errorf("personas.List: %w", err)
 		}
 		out = append(out, ps)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("personas.List: %w", err)
+	}
+	return out, total, nil
 }
 
 // Update applies a partial update. If req.Text differs from the current
@@ -176,11 +217,8 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 		WHERE p.id = $1
 		FOR UPDATE
 	`, id).Scan(&name, &description, &currentText, &currentVersion, &managedBy, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.Update: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Update")
 	}
 
 	if req.Name != nil {
@@ -211,7 +249,7 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 			`UPDATE personas SET name=$1, description=$2, current_version_id=$3, updated_at=$4 WHERE id=$5`,
 			name, description, newVersionID, now, id,
 		); err != nil {
-			if isUniqueViolation(err) {
+			if pgutil.IsUniqueViolation(err) {
 				return nil, ErrNameTaken
 			}
 			return nil, fmt.Errorf("personas.Update: %w", err)
@@ -222,7 +260,7 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 			`UPDATE personas SET name=$1, description=$2, updated_at=$3 WHERE id=$4`,
 			name, description, now, id,
 		); err != nil {
-			if isUniqueViolation(err) {
+			if pgutil.IsUniqueViolation(err) {
 				return nil, ErrNameTaken
 			}
 			return nil, fmt.Errorf("personas.Update: %w", err)
@@ -245,28 +283,50 @@ func (s *Store) Update(ctx context.Context, id string, req UpdateRequest) (*Pers
 	}, nil
 }
 
-// ListVersions returns metadata for every version of a persona, newest first.
-// Returns an empty slice if the persona has no versions (or doesn't exist).
-func (s *Store) ListVersions(ctx context.Context, personaID string) ([]VersionSummary, error) {
-	rows, err := s.pool.Query(ctx, `
+// ListVersions returns one page of a persona's version summaries, newest
+// first, plus the total number of versions (before pagination). Returns an
+// empty slice if the persona has no versions (or doesn't exist).
+// limit <= 0 means no LIMIT.
+func (s *Store) ListVersions(ctx context.Context, personaID string, limit, offset int) ([]VersionSummary, int, error) {
+	var total int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM persona_versions WHERE persona_id = $1`, personaID,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("personas.ListVersions count: %w", err)
+	}
+
+	query := `
 		SELECT persona_id, version_number, created_at
 		FROM persona_versions
 		WHERE persona_id = $1
-		ORDER BY version_number DESC
-	`, personaID)
+		ORDER BY version_number DESC`
+	args := []any{personaID}
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", len(args)+1)
+		args = append(args, limit)
+	}
+	if offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", len(args)+1)
+		args = append(args, offset)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("personas.ListVersions: %w", err)
+		return nil, 0, fmt.Errorf("personas.ListVersions: %w", err)
 	}
 	defer rows.Close()
 	var out []VersionSummary
 	for rows.Next() {
 		var v VersionSummary
 		if err := rows.Scan(&v.PersonaID, &v.VersionNumber, &v.CreatedAt); err != nil {
-			return nil, fmt.Errorf("personas.ListVersions: %w", err)
+			return nil, 0, fmt.Errorf("personas.ListVersions: %w", err)
 		}
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("personas.ListVersions: %w", err)
+	}
+	return out, total, nil
 }
 
 // GetVersion returns one specific version with its text.
@@ -277,11 +337,8 @@ func (s *Store) GetVersion(ctx context.Context, personaID string, n int) (*Versi
 		FROM persona_versions
 		WHERE persona_id = $1 AND version_number = $2
 	`, personaID, n).Scan(&v.PersonaID, &v.VersionNumber, &v.Text, &v.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("personas.GetVersion: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.GetVersion")
 	}
 	return &v, nil
 }
@@ -300,10 +357,7 @@ func (s *Store) Rollback(ctx context.Context, personaID string, versionNumber in
 		`SELECT text FROM persona_versions WHERE persona_id=$1 AND version_number=$2`,
 		personaID, versionNumber,
 	).Scan(&sourceText); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, fmt.Errorf("personas.Rollback: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Rollback")
 	}
 
 	var currentVersion int
@@ -314,10 +368,7 @@ func (s *Store) Rollback(ctx context.Context, personaID string, versionNumber in
 		 FOR UPDATE`,
 		personaID,
 	).Scan(&currentVersion); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, fmt.Errorf("personas.Rollback: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "personas.Rollback")
 	}
 
 	now := time.Now().UTC()
@@ -356,12 +407,4 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
 }

@@ -18,6 +18,7 @@ import { Titleblock } from '../../layout/Titleblock'
 import { copy } from '../../utils/clipboard'
 import { Tag } from '../../primitives/Tag'
 import { GroupField } from '../../components/GroupField'
+import { Notice } from '../../primitives/Notice'
 
 const PRESET_OPTIONS = [
   { value: 'X-Hub-Signature-256', label: 'GitHub (X-Hub-Signature-256)' },
@@ -161,19 +162,9 @@ export function ConnectorForm() {
               Connector created — save these values now
             </div>
 
-            <div
-              role="alert"
-              style={{
-                padding: '10px 12px',
-                border: '1.5px solid var(--signal)',
-                background: 'var(--signal-haze)',
-                color: 'var(--signal)',
-                fontFamily: 'var(--mono)',
-                fontSize: 11,
-              }}
-            >
+            <Notice variant="err">
               This secret will not be shown again. Copy it before leaving this page.
-            </div>
+            </Notice>
 
             {created.webhookEndpoint ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -257,22 +248,7 @@ export function ConnectorForm() {
         className="page"
         style={{ maxWidth: 760 }}
       >
-        {submitError ? (
-          <div
-            role="alert"
-            style={{
-              padding: '10px 12px',
-              border: '1.5px solid var(--signal)',
-              background: 'var(--signal-haze)',
-              color: 'var(--signal)',
-              fontFamily: 'var(--mono)',
-              fontSize: 11,
-              marginBottom: 20,
-            }}
-          >
-            {submitError}
-          </div>
-        ) : null}
+        {submitError ? <Notice variant="err">{submitError}</Notice> : null}
 
         <section className="form-section">
           <header>

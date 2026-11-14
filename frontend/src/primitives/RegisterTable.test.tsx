@@ -35,6 +35,21 @@ describe('RegisterTable', () => {
     expect(screen.getByText('No connectors configured.')).toBeInTheDocument()
   })
 
+  it('renders the empty state instead of throwing when rows is not an array (issue #283)', () => {
+    // The observed failure: a paginated envelope handed to a list page that
+    // expects a bare array used to throw `rows.map is not a function`.
+    const envelope = { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 }
+    render(
+      <RegisterTable
+        rows={envelope as unknown as Row[]}
+        columns={columns}
+        rowKey={(r) => r.id}
+        emptyLabel="No users yet."
+      />,
+    )
+    expect(screen.getByText('No users yet.')).toBeInTheDocument()
+  })
+
   it('applies row-err class when rowClassName returns it', () => {
     const rows: Row[] = [{ id: 'x', name: 'broken', status: 'err' }]
     const { container } = render(

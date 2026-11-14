@@ -1,37 +1,21 @@
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAgentImages } from '../../api/agentImages'
 import type { AgentImageSummary } from '../../api/agentImages'
+import { useListParams } from '../../hooks/useListParams'
 import { Button } from '../../primitives/Button'
+import { ListPanel } from '../../primitives/ListPanel'
 import { Pager } from '../../primitives/Pager'
-import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { EntityLink } from '../../components/EntityLink'
+import { agentImagePath } from '../../components/entityPaths'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
-
 export function ImageList() {
   const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
-  const page = Math.max(1, Number(params.get('page')) || 1)
-  const pageSizeParam = Number(params.get('pageSize'))
-  const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeParam)
-    ? pageSizeParam
-    : 20
+  const { page, pageSize, pageSizes, setPage, setPageSize } = useListParams()
 
-  const { data, isLoading, error } = useAgentImages({ page, pageSize })
-
-  const setPage = (p: number) => {
-    const next = new URLSearchParams(params)
-    next.set('page', String(p))
-    setParams(next, { replace: true })
-  }
-  const setPageSize = (n: number) => {
-    const next = new URLSearchParams(params)
-    next.set('pageSize', String(n))
-    next.set('page', '1')
-    setParams(next, { replace: true })
-  }
+  const { data, isLoading, error, refetch } = useAgentImages({ page, pageSize })
 
   const columns: readonly Column<AgentImageSummary>[] = [
     {
@@ -39,12 +23,12 @@ export function ImageList() {
       header: 'Name',
       cell: (i) => (
         <>
-          <b
-            style={{ cursor: 'pointer', color: 'var(--accent)' }}
-            onClick={() => navigate(`/agent-images/${encodeURIComponent(i.id)}`)}
-          >
-            {i.displayName ?? i.id}
-          </b>{' '}
+          <EntityLink
+            id={i.id}
+            label={i.displayName ?? i.id}
+            path={agentImagePath}
+            className="rowlink"
+          />{' '}
           <ManagedBadge managedBy={i.managedBy} />
         </>
       ),
@@ -83,34 +67,26 @@ export function ImageList() {
         }
       />
       <div className="page">
-        <Panel className="cropped">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : error ? (
-            <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
-              Failed to load agent images.
-            </div>
-          ) : data ? (
+        <ListPanel
+          className="cropped"
+          query={{ data, isLoading, error, refetch }}
+          errorTitle="Failed to load agent images."
+          empty="No agent images yet."
+        >
+          {data ? (
             <>
-              <RegisterTable
-                rows={data.items}
-                columns={columns}
-                rowKey={(i) => i.id}
-                emptyLabel="No agent images yet."
-              />
+              <RegisterTable rows={data.items} columns={columns} rowKey={(i) => i.id} />
               <Pager
                 page={page}
                 pageSize={pageSize}
                 total={data.total}
-                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                pageSizeOptions={pageSizes}
                 onPageChange={setPage}
                 onPageSizeChange={setPageSize}
               />
             </>
           ) : null}
-        </Panel>
+        </ListPanel>
       </div>
     </>
   )

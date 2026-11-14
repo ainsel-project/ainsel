@@ -84,6 +84,11 @@ type AgentReconciler struct {
 	// CredentialVolumeSize is the requested size of that volume. The data is
 	// a few KiB; the size only has to satisfy the storage class's minimum.
 	CredentialVolumeSize resource.Quantity
+
+	// SignInKeepAliveInterval is how long a ChatGPT sign-in may go
+	// unverified before the operator checks (and refreshes) it on an idle
+	// agent. Zero turns the keep-alive off.
+	SignInKeepAliveInterval time.Duration
 }
 
 //+kubebuilder:rbac:groups=ainsel.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete

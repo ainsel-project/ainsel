@@ -48,8 +48,8 @@ func (m *mockSkillService) Get(_ context.Context, id string) (*skills.Skill, err
 	return sk, nil
 }
 
-func (m *mockSkillService) List(_ context.Context, _ skills.ListFilter) ([]skills.SkillSummary, error) {
-	return nil, nil
+func (m *mockSkillService) List(_ context.Context, _ skills.ListFilter) ([]skills.SkillSummary, int, error) {
+	return nil, 0, nil
 }
 
 func (m *mockSkillService) Update(_ context.Context, _ string, _ skills.UpdateRequest) (*skills.Skill, error) {

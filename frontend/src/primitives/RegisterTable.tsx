@@ -48,7 +48,7 @@ const sortableHeaderStyle: CSSProperties = {
 }
 
 export function RegisterTable<T>({
-  rows,
+  rows: rowsProp,
   columns,
   rowKey,
   emptyLabel,
@@ -59,6 +59,13 @@ export function RegisterTable<T>({
   renderDetail,
 }: RegisterTableProps<T>) {
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>())
+
+  // Defensive normalisation (issue #283): a list endpoint that answers with a
+  // paginated envelope or an HTML error page must render the empty state here,
+  // not throw `rows.map is not a function` and blank the route. The API layer
+  // validates shapes too (see expectArray/expectItems in api/client.ts); this
+  // is the last guard before the render.
+  const rows = Array.isArray(rowsProp) ? rowsProp : []
 
   if (rows.length === 0 && emptyLabel) {
     return (

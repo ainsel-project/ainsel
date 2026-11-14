@@ -18,6 +18,7 @@ import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Field } from '../../primitives/Field'
 import { Input } from '../../primitives/Input'
+import { ListPanel } from '../../primitives/ListPanel'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Titleblock } from '../../layout/Titleblock'
@@ -33,7 +34,7 @@ function errorMessage(err: unknown): string {
 }
 
 export function UserList() {
-  const { data, isLoading, error } = useUsers()
+  const { data, isLoading, error, refetch } = useUsers()
   const { data: currentUser } = useCurrentUser()
   const { mode } = useAuth()
   const update = useUpdateUser()
@@ -340,25 +341,21 @@ export function UserList() {
           </div>
         )}
 
-        <Panel className="cropped">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : error ? (
-            <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
-              Failed to load users.
-            </div>
-          ) : data ? (
+        <ListPanel
+          className="cropped"
+          query={{ data, isLoading, error, refetch }}
+          errorTitle="Failed to load users."
+          empty="No users found."
+        >
+          {data ? (
             <RegisterTable
               rows={data}
               columns={columns}
               rowKey={(u) => u.id}
               rowClassName={(u) => (u.disabled ? 'row-disabled' : undefined)}
-              emptyLabel="No users found."
             />
           ) : null}
-        </Panel>
+        </ListPanel>
       </div>
 
       <ConfirmModal

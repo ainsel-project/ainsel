@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
@@ -128,36 +127,37 @@ func (s *Server) listCronTriggers(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	agentRef := q.Get("agent")
-	all, err := s.triggerStore.ListCronTriggers(ctx, agentRef)
+
+	// Authz: the accessible-id set goes into the query as id = ANY(...).
+	// nil means unrestricted (authz off or admin); an empty non-nil set
+	// means the caller sees nothing — answer without querying.
+	allowed := s.accessibleIDs(r, cronTriggerResourceType)
+	if allowed != nil && len(allowed) == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"items":      []CronTriggerResponse{},
+			"total":      0,
+			"page":       page.Page,
+			"pageSize":   page.PageSize,
+			"totalPages": 0,
+		})
+		return
+	}
+
+	// Sort and page bounds are pushed into the query (ORDER BY id, unique
+	// ids, plus LIMIT/OFFSET), so only the page's rows are loaded.
+	all, total, err := s.triggerStore.ListCronTriggers(ctx, triggers.CronTriggerListOptions{
+		AgentRef:   agentRef,
+		AllowedIDs: allowed,
+		Limit:      page.PageSize,
+		Offset:     (page.Page - 1) * page.PageSize,
+	})
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].ID < all[j].ID
-	})
-
-	// Filter to resources the caller can access.
-	if s.authzStore != nil && !s.callerIsAdmin(r) {
-		names := make([]string, len(all))
-		for i := range all {
-			names[i] = all[i].ID
-		}
-		set := toAccessSet(s.filterByAccess(r, cronTriggerResourceType, names))
-		filtered := all[:0]
-		for i := range all {
-			if set[all[i].ID] {
-				filtered = append(filtered, all[i])
-			}
-		}
-		all = filtered
-	}
-
-	total := len(all)
-	lo, hi := page.Slice(total)
-	items := make([]CronTriggerResponse, 0, hi-lo)
-	for i := lo; i < hi; i++ {
+	items := make([]CronTriggerResponse, 0, len(all))
+	for i := range all {
 		items = append(items, toCronTriggerResponse(&all[i]))
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
