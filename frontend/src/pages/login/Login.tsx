@@ -4,6 +4,7 @@ import { useAuth } from '../../auth/AuthProvider'
 import { Button } from '../../primitives/Button'
 import { Field } from '../../primitives/Field'
 import { Input } from '../../primitives/Input'
+import { Notice } from '../../primitives/Notice'
 
 // Login renders per auth mode:
 //   - local:      username/password form against /api/v1/auth/login,
@@ -95,11 +96,7 @@ export function Login() {
     </form>
   )
 
-  const errorLine = displayError && (
-    <p style={{ color: 'var(--signal, #b00)', marginTop: 16 }} role="alert">
-      Sign-in failed: {displayError}
-    </p>
-  )
+  const errorLine = displayError && <Notice variant="err">Sign-in failed: {displayError}</Notice>
 
   return (
     <div style={{ padding: 32, maxWidth: 480, margin: '0 auto' }}>

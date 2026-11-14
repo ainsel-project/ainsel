@@ -19,6 +19,7 @@ import { Input } from '../../primitives/Input'
 import { Panel } from '../../primitives/Panel'
 import { Titleblock } from '../../layout/Titleblock'
 import { GroupField } from '../../components/GroupField'
+import { Notice } from '../../primitives/Notice'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { isManaged } from '../../utils/managed'
 
@@ -192,22 +193,7 @@ export function MCPServerForm() {
         className="page"
         style={{ maxWidth: 700 }}
       >
-        {submitError ? (
-          <div
-            role="alert"
-            style={{
-              padding: '10px 12px',
-              border: '1.5px solid var(--signal)',
-              background: 'var(--signal-haze)',
-              color: 'var(--signal)',
-              fontFamily: 'var(--mono)',
-              fontSize: 11,
-              marginBottom: 20,
-            }}
-          >
-            {submitError}
-          </div>
-        ) : null}
+        {submitError ? <Notice variant="err">{submitError}</Notice> : null}
 
         <Panel title="Server">
           <div style={{ display: 'grid', gap: 14 }}>
