@@ -2,7 +2,7 @@
 
 React + Vite + TypeScript operations console for the AInsel platform.
 
-Built with React 18, React Router 6, TanStack Query 5, and React Hook
+Built with React 19, React Router 7, TanStack Query 5, and React Hook
 Form + Zod. The console lists and edits `Agent`, `Trigger`, and
 `WebhookConnector` resources, streams agent invocations, and surfaces
 the hub's observability endpoints.
@@ -13,8 +13,10 @@ See [`../docs/architecture.md`](../docs/architecture.md).
 
 Talks to [`../services/hub/`](../services/hub/) over its REST API
 (`/api/v1/*`) for all data access. The Vite dev server proxies `/api`
-to the configured hub URL; in-cluster the `Ingress` serves the SPA at
-`/ainsel` and the API at `/ainsel/api`.
+to the configured hub URL (`VITE_API_TARGET`, default
+`http://localhost:8080`); in-cluster the `Ingress` serves the SPA at
+`/ainsel` and the API at `/ainsel/api`, and nginx forwards `/api/` to
+the hub.
 
 ## Local development
 
@@ -26,16 +28,26 @@ pnpm --filter frontend dev    # Vite dev server on :5173
 Pointing at a local hub backend:
 
 ```bash
-# Proxy /api requests through Vite to a local hub
+# Proxy /api requests through Vite to a local hub (this is the default)
+pnpm --filter frontend dev
+
+# Same thing, with an explicit proxy target
 VITE_API_TARGET=http://localhost:8080 pnpm --filter frontend dev
 
-# Or override the API base URL the SPA fetches directly
+# Or bypass the proxy and have the SPA fetch an absolute API base directly
 VITE_API_URL=http://localhost:8080/api/v1 pnpm --filter frontend dev
 ```
 
-`VITE_API_URL` defaults to `/api/v1` (served through the Vite proxy in
-dev, through the `Ingress` rewrite in cluster). `VITE_API_TARGET`
-controls the dev-only proxy target (default `http://localhost:8080`).
+`VITE_API_URL` defaults to `/api/v1` — relative to the dev server root,
+so it is served through the Vite proxy in dev and through the `Ingress`
+rewrite in cluster. Use the absolute override only when the hub is not
+reachable through the dev proxy (it then needs to send CORS headers).
+`VITE_API_TARGET` controls the dev-only proxy target (default
+`http://localhost:8080`).
+
+The dev server serves the app at `http://localhost:5173/` and proxies
+`/api/*` to `VITE_API_TARGET`. The `/__BASE_PATH__/` mount placeholder
+(see `Build` below) applies to build output only, never to dev URLs.
 
 ## Testing
 
@@ -76,7 +88,10 @@ an exit code. See issue #23.
 pnpm --filter frontend build        # tsc -b && vite build
 ```
 
-Output goes to `frontend/dist/`. Production serving is done by the
+Output goes to `frontend/dist/`. The build bakes in the `/__BASE_PATH__/`
+placeholder, which the container entrypoint
+(`docker-entrypoint-base-path.sh`) rewrites to the real mount prefix at
+startup — see `vite.config.ts`. Production serving is done by the
 nginx image in `Dockerfile`, which substitutes runtime config from
 `docker-entrypoint-resolver.envsh` into `nginx.conf.template`.
 
