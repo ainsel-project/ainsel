@@ -9,9 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -1478,26 +1476,7 @@ func TestAgentImages_CreateHasNoDefaultMCPServers(t *testing.T) {
 
 func skillsServiceForTest(t *testing.T) *skills.Service {
 	t.Helper()
-	ctx := t.Context()
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(ctx) })
-	dsn, _ := c.ConnectionString(ctx, "sslmode=disable")
-	if err := db.Migrate(ctx, dsn); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := dbtest.Open(t)
 	return skills.NewService(skills.NewStore(pool), nil, nil)
 }
 

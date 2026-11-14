@@ -1,45 +1,21 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"regexp"
-	"strings"
 	"testing"
 
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
 )
 
 func triggerTestServer(t *testing.T) *Server {
 	t.Helper()
-	ctx := t.Context()
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(ctx) })
-	dsn, _ := c.ConnectionString(ctx, "sslmode=disable")
-	if err := db.Migrate(ctx, dsn); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := dbtest.Open(t)
 	s := testServer(t)
 	s.triggerStore = triggers.NewStore(pool)
 	s.mux.HandleFunc("/api/v1/triggers", s.handleTriggers)
@@ -70,20 +46,13 @@ func TestTriggers_CreateAndList(t *testing.T) {
 		AgentRef:     "agent-abc",
 		ConnectorRef: "connector-xyz",
 	}
-	body, _ := json.Marshal(createReq)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
+	status, body := do(t, srv, http.MethodPost, "/api/v1/triggers", createReq)
 
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", status, string(body))
 	}
 
-	var created SimpleTriggerResponse
-	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	created := decode[SimpleTriggerResponse](t, body)
 
 	// Verify ID format: t-XXXXXXXX (10 chars total)
 	idPattern := regexp.MustCompile(`^t-[0-9a-f]{8}$`)
@@ -103,24 +72,19 @@ func TestTriggers_CreateAndList(t *testing.T) {
 	}
 
 	// List and verify count
-	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/triggers", nil)
-	listRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(listRec, listReq)
+	listReqStatus, listReqBody := do(t, srv, http.MethodGet, "/api/v1/triggers", nil)
 
-	if listRec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", listRec.Code, listRec.Body.String())
+	if listReqStatus != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", listReqStatus, string(listReqBody))
 	}
 
-	var page struct {
+	page := decode[struct {
 		Items      []SimpleTriggerResponse `json:"items"`
 		Total      int                     `json:"total"`
 		Page       int                     `json:"page"`
 		PageSize   int                     `json:"pageSize"`
 		TotalPages int                     `json:"totalPages"`
-	}
-	if err := json.NewDecoder(listRec.Body).Decode(&page); err != nil {
-		t.Fatalf("failed to decode list response: %v", err)
-	}
+	}](t, listReqBody)
 	if page.Total != 1 || len(page.Items) != 1 {
 		t.Fatalf("expected 1 trigger, got total=%d items=%d", page.Total, len(page.Items))
 	}
@@ -141,40 +105,26 @@ func TestTriggers_UpdateRename(t *testing.T) {
 		AgentRef:     "agent-abc",
 		ConnectorRef: "connector-xyz",
 	}
-	body, _ := json.Marshal(createReq)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
+	status, body := do(t, srv, http.MethodPost, "/api/v1/triggers", createReq)
 
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", status, string(body))
 	}
 
-	var created SimpleTriggerResponse
-	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
-		t.Fatalf("failed to decode create response: %v", err)
-	}
+	created := decode[SimpleTriggerResponse](t, body)
 	originalID := created.ID
 
 	// Update with a new name
 	updateReq := SimpleTriggerUpdateRequest{
 		Name: "renamed-trigger",
 	}
-	updateBody, _ := json.Marshal(updateReq)
-	updateHTTPReq := httptest.NewRequest(http.MethodPut, "/api/v1/triggers/"+originalID, bytes.NewReader(updateBody))
-	updateHTTPReq.Header.Set("Content-Type", "application/json")
-	updateRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(updateRec, updateHTTPReq)
+	updateHTTPReqStatus, updateHTTPReqBody := do(t, srv, http.MethodPut, "/api/v1/triggers/"+originalID, updateReq)
 
-	if updateRec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", updateRec.Code, updateRec.Body.String())
+	if updateHTTPReqStatus != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", updateHTTPReqStatus, string(updateHTTPReqBody))
 	}
 
-	var updated SimpleTriggerResponse
-	if err := json.NewDecoder(updateRec.Body).Decode(&updated); err != nil {
-		t.Fatalf("failed to decode update response: %v", err)
-	}
+	updated := decode[SimpleTriggerResponse](t, updateHTTPReqBody)
 
 	// Verify name changed
 	if updated.Name != "renamed-trigger" {
@@ -192,18 +142,13 @@ func TestTriggers_UpdateRename(t *testing.T) {
 	}
 
 	// GET should also return the new name
-	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/triggers/"+originalID, nil)
-	getRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(getRec, getReq)
+	getReqStatus, getReqBody := do(t, srv, http.MethodGet, "/api/v1/triggers/"+originalID, nil)
 
-	if getRec.Code != http.StatusOK {
-		t.Fatalf("GET after update: expected 200, got %d: %s", getRec.Code, getRec.Body.String())
+	if getReqStatus != http.StatusOK {
+		t.Fatalf("GET after update: expected 200, got %d: %s", getReqStatus, string(getReqBody))
 	}
 
-	var fetched SimpleTriggerResponse
-	if err := json.NewDecoder(getRec.Body).Decode(&fetched); err != nil {
-		t.Fatalf("failed to decode GET response: %v", err)
-	}
+	fetched := decode[SimpleTriggerResponse](t, getReqBody)
 	if fetched.Name != "renamed-trigger" {
 		t.Errorf("GET after update: expected name renamed-trigger, got %q", fetched.Name)
 	}
@@ -219,18 +164,13 @@ func TestTriggers_UpdateNameOnPreExistingTrigger(t *testing.T) {
 	seedTrigger(t, srv, "develop-on-assign", "", "dev-agent", "forgejo-dev", nil)
 
 	// GET should return empty name and id=develop-on-assign
-	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/triggers/develop-on-assign", nil)
-	getRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(getRec, getReq)
+	getReqStatus, getReqBody := do(t, srv, http.MethodGet, "/api/v1/triggers/develop-on-assign", nil)
 
-	if getRec.Code != http.StatusOK {
-		t.Fatalf("GET: expected 200, got %d: %s", getRec.Code, getRec.Body.String())
+	if getReqStatus != http.StatusOK {
+		t.Fatalf("GET: expected 200, got %d: %s", getReqStatus, string(getReqBody))
 	}
 
-	var fetched SimpleTriggerResponse
-	if err := json.NewDecoder(getRec.Body).Decode(&fetched); err != nil {
-		t.Fatalf("failed to decode GET response: %v", err)
-	}
+	fetched := decode[SimpleTriggerResponse](t, getReqBody)
 	if fetched.ID != "develop-on-assign" {
 		t.Errorf("expected id develop-on-assign, got %s", fetched.ID)
 	}
@@ -242,20 +182,13 @@ func TestTriggers_UpdateNameOnPreExistingTrigger(t *testing.T) {
 	updateReq := SimpleTriggerUpdateRequest{
 		Name: "Developer Assigned",
 	}
-	updateBody, _ := json.Marshal(updateReq)
-	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/triggers/develop-on-assign", bytes.NewReader(updateBody))
-	putReq.Header.Set("Content-Type", "application/json")
-	putRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(putRec, putReq)
+	putReqStatus, putReqBody := do(t, srv, http.MethodPut, "/api/v1/triggers/develop-on-assign", updateReq)
 
-	if putRec.Code != http.StatusOK {
-		t.Fatalf("PUT: expected 200, got %d: %s", putRec.Code, putRec.Body.String())
+	if putReqStatus != http.StatusOK {
+		t.Fatalf("PUT: expected 200, got %d: %s", putReqStatus, string(putReqBody))
 	}
 
-	var updated SimpleTriggerResponse
-	if err := json.NewDecoder(putRec.Body).Decode(&updated); err != nil {
-		t.Fatalf("failed to decode PUT response: %v", err)
-	}
+	updated := decode[SimpleTriggerResponse](t, putReqBody)
 
 	// The response should reflect the new name
 	if updated.Name != "Developer Assigned" {
@@ -269,18 +202,13 @@ func TestTriggers_UpdateNameOnPreExistingTrigger(t *testing.T) {
 	}
 
 	// GET again — the name should be persisted
-	getReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/triggers/develop-on-assign", nil)
-	getRec2 := httptest.NewRecorder()
-	srv.mux.ServeHTTP(getRec2, getReq2)
+	getReq2Status, getReq2Body := do(t, srv, http.MethodGet, "/api/v1/triggers/develop-on-assign", nil)
 
-	if getRec2.Code != http.StatusOK {
-		t.Fatalf("GET after PUT: expected 200, got %d: %s", getRec2.Code, getRec2.Body.String())
+	if getReq2Status != http.StatusOK {
+		t.Fatalf("GET after PUT: expected 200, got %d: %s", getReq2Status, string(getReq2Body))
 	}
 
-	var refetched SimpleTriggerResponse
-	if err := json.NewDecoder(getRec2.Body).Decode(&refetched); err != nil {
-		t.Fatalf("failed to decode second GET response: %v", err)
-	}
+	refetched := decode[SimpleTriggerResponse](t, getReq2Body)
 	if refetched.Name != "Developer Assigned" {
 		t.Errorf("GET after PUT: expected name %q persisted, got %q", "Developer Assigned", refetched.Name)
 	}
@@ -305,18 +233,13 @@ func TestTriggers_ListFilters(t *testing.T) {
 		if qs != "" {
 			url += "?" + qs
 		}
-		req := httptest.NewRequest(http.MethodGet, url, nil)
-		rec := httptest.NewRecorder()
-		srv.mux.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET %s: expected 200, got %d: %s", url, rec.Code, rec.Body.String())
+		status, body := do(t, srv, http.MethodGet, url, nil)
+		if status != http.StatusOK {
+			t.Fatalf("GET %s: expected 200, got %d: %s", url, status, string(body))
 		}
-		var page struct {
+		page := decode[struct {
 			Items []SimpleTriggerResponse `json:"items"`
-		}
-		if err := json.NewDecoder(rec.Body).Decode(&page); err != nil {
-			t.Fatalf("GET %s: failed to decode response: %v", url, err)
-		}
+		}](t, body)
 		return page.Items
 	}
 
@@ -440,14 +363,11 @@ func TestTriggers_FilterValuesArePreserved(t *testing.T) {
 		]
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", strings.NewReader(createBody))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	status, body := do(t, srv, http.MethodPost, "/api/v1/triggers", createBody)
+	if status != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", status, string(body))
 	}
-	created := decodeWireTrigger(t, rec.Body.Bytes())
+	created := decodeWireTrigger(t, body)
 	if created.ID == "" {
 		t.Fatal("create: empty id in response")
 	}
@@ -501,23 +421,19 @@ func TestTriggers_FilterValuesArePreserved(t *testing.T) {
 	}
 
 	// 4. GET and LIST must expose the values too.
-	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/triggers/"+created.ID, nil)
-	getRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(getRec, getReq)
-	if getRec.Code != http.StatusOK {
-		t.Fatalf("get: expected 200, got %d: %s", getRec.Code, getRec.Body.String())
+	getReqStatus, getReqBody := do(t, srv, http.MethodGet, "/api/v1/triggers/"+created.ID, nil)
+	if getReqStatus != http.StatusOK {
+		t.Fatalf("get: expected 200, got %d: %s", getReqStatus, string(getReqBody))
 	}
-	if got := filterValuesByName(decodeWireTrigger(t, getRec.Body.Bytes()).Filters); !reflect.DeepEqual(want, got) {
+	if got := filterValuesByName(decodeWireTrigger(t, getReqBody).Filters); !reflect.DeepEqual(want, got) {
 		t.Errorf("GET dropped values:\n want %v\n  got %v", want, got)
 	}
 
-	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/triggers", nil)
-	listRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(listRec, listReq)
+	_, listReqBody := do(t, srv, http.MethodGet, "/api/v1/triggers", nil)
 	var page struct {
 		Items []json.RawMessage `json:"items"`
 	}
-	if err := json.Unmarshal(listRec.Body.Bytes(), &page); err != nil {
+	if err := json.Unmarshal(listReqBody, &page); err != nil {
 		t.Fatalf("list: failed to decode: %v", err)
 	}
 	if len(page.Items) != 1 {
@@ -529,14 +445,11 @@ func TestTriggers_FilterValuesArePreserved(t *testing.T) {
 
 	// 5. PUT must replace the values, not discard them.
 	const updateBody = `{"filters": [{"field": "action", "op": "in", "values": ["reopened"]}]}`
-	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/triggers/"+created.ID, strings.NewReader(updateBody))
-	putReq.Header.Set("Content-Type", "application/json")
-	putRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(putRec, putReq)
-	if putRec.Code != http.StatusOK {
-		t.Fatalf("update: expected 200, got %d: %s", putRec.Code, putRec.Body.String())
+	putReqStatus, putReqBody := do(t, srv, http.MethodPut, "/api/v1/triggers/"+created.ID, updateBody)
+	if putReqStatus != http.StatusOK {
+		t.Fatalf("update: expected 200, got %d: %s", putReqStatus, string(putReqBody))
 	}
-	updated := decodeWireTrigger(t, putRec.Body.Bytes())
+	updated := decodeWireTrigger(t, putReqBody)
 	if got := filterValuesByName(updated.Filters); !reflect.DeepEqual(got["action"], []string{"reopened"}) {
 		t.Errorf("update response dropped values: got %v", got["action"])
 	}

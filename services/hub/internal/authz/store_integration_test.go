@@ -5,10 +5,8 @@ import (
 	"testing"
 	"time"
 
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 )
 
 // testEnv bundles a live store, checker, and cache backed by a Postgres
@@ -20,40 +18,15 @@ type testEnv struct {
 	cleanup func()
 }
 
-// newTestAuthZ boots a Postgres testcontainer, applies migrations, and wires a
-// Store + GroupCache + Checker exactly as production does (see wireAuthZ).
-// Skips the test if Docker is unavailable.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func newTestAuthZ(t *testing.T) *testEnv {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
+	pool := dbtest.Open(t)
 
 	store := authz.NewStore(pool)
 	cache := authz.NewGroupCache(func(uid string) (map[string]authz.GroupRole, error) {
-		return store.UserGroupRoles(ctx, uid)
+		return store.UserGroupRoles(context.Background(), uid)
 	}, time.Minute)
 	checker := authz.NewChecker(store, cache)
 
@@ -61,10 +34,7 @@ func newTestAuthZ(t *testing.T) *testEnv {
 		store:   store,
 		checker: checker,
 		cache:   cache,
-		cleanup: func() {
-			pool.Close()
-			_ = c.Terminate(context.Background())
-		},
+		cleanup: func() {},
 	}
 }
 
@@ -214,7 +184,7 @@ func TestStoreUserGroupRoles(t *testing.T) {
 	e.mustMember(t, g1, uid, authz.RoleOwner)
 	e.mustMember(t, g2, uid, authz.RoleReader)
 
-	roles, err := e.store.UserGroupRoles(ctx, uid)
+	roles, err := e.store.UserGroupRoles(context.Background(), uid)
 	if err != nil {
 		t.Fatalf("user group roles: %v", err)
 	}
