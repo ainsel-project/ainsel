@@ -164,20 +164,69 @@ describe('Spine', () => {
   it('keeps the Agents entry highlighted on agent detail paths', async () => {
     renderAt('/agents/a-1')
 
-    const agents = screen.getByRole('link', { name: /^\s*02\s*Agents/i })
+    const agents = screen.getByRole('link', { name: 'Agents' })
     expect(agents).toHaveAttribute('aria-current', 'page')
     expect(agents).toHaveClass('active')
   })
 
+  it('numbers the entries sequentially and marks the numbers decorative', () => {
+    renderAt('/dashboard')
+    const numbers = Array.from(document.querySelectorAll('.nav-link .idx'))
+    expect(numbers.map((el) => el.textContent)).toEqual([
+      '01',
+      '02',
+      '03',
+      '04',
+      '05',
+      '06',
+      '07',
+      '08',
+      '09',
+      '10',
+      '11',
+      '12',
+      '13',
+      '14',
+      '15',
+    ])
+    // The number is decoration, never a label.
+    for (const el of numbers) {
+      expect(el).toHaveAttribute('aria-hidden', 'true')
+    }
+  })
+
+  it('gives every nav entry an icon', () => {
+    renderAt('/dashboard')
+    const links = Array.from(document.querySelectorAll('.nav-link'))
+    expect(links).toHaveLength(15)
+    for (const link of links) {
+      const icon = link.querySelector('svg.nav-icon')
+      expect(icon).not.toBeNull()
+      // Decorative: the link is named by its text, not by the glyph.
+      expect(icon).toHaveAttribute('aria-hidden', 'true')
+    }
+  })
+
+  it('keeps the number out of the accessible name', () => {
+    // The idx is aria-hidden, so the expanded link is named by its text alone —
+    // "Dashboard", not "01Dashboard".
+    renderAt('/dashboard')
+    expect(screen.getByRole('link', { name: /^Dashboard$/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Users$/ })).toBeInTheDocument()
+  })
+
   describe('rail mode', () => {
-    it('shows only the idx and exposes the name as title and aria-label', () => {
+    it('shows the icon and exposes the name as title and aria-label', () => {
       renderAt('/dashboard', { rail: true })
       const agents = screen.getByRole('link', { name: 'Agents' })
       expect(agents).toHaveAttribute('aria-label', 'Agents')
       expect(agents).toHaveAttribute('title', 'Agents')
       expect(agents).toHaveClass('nav-link')
-      expect(agents).toHaveTextContent('02')
-      // The name text is not rendered in the rail: the idx is the only label.
+      const icon = agents.querySelector('svg.nav-icon')
+      expect(icon).not.toBeNull()
+      expect(icon).toHaveAttribute('aria-hidden', 'true')
+      // The name text is not rendered in the rail: the icon is the only visible
+      // mark (the idx stays in the DOM but `.spine.rail .nav-link .idx` hides it).
       expect(agents.querySelector('.name')).toBeNull()
     })
 
