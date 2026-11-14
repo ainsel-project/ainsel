@@ -1,7 +1,7 @@
 import { useNavigate, Link } from 'react-router-dom'
 import { useMCPServers, type MCPServerSummary } from '../../api/mcpServers'
 import { Button } from '../../primitives/Button'
-import { Panel } from '../../primitives/Panel'
+import { ListPanel } from '../../primitives/ListPanel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
@@ -9,7 +9,7 @@ import { formatRelative } from '../../utils/time'
 
 export function MCPServerList() {
   const navigate = useNavigate()
-  const { data, isLoading, error } = useMCPServers()
+  const { data, isLoading, error, refetch } = useMCPServers()
 
   const columns: readonly Column<MCPServerSummary>[] = [
     {
@@ -76,25 +76,19 @@ export function MCPServerList() {
         }
       />
       <div className="page">
-        <Panel className="cropped">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : error ? (
-            <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
-              Failed to load MCP servers.
-            </div>
-          ) : (
-            <RegisterTable
-              rows={data ?? []}
-              columns={columns}
-              rowKey={(m) => m.name}
-              rowClassName={() => 'clickable'}
-              emptyLabel="No MCP servers registered. Add one to make its tools available to agent images."
-            />
-          )}
-        </Panel>
+        <ListPanel
+          className="cropped"
+          query={{ data: data ?? [], isLoading, error, refetch }}
+          errorTitle="Failed to load MCP servers."
+          empty="No MCP servers registered. Add one to make its tools available to agent images."
+        >
+          <RegisterTable
+            rows={data ?? []}
+            columns={columns}
+            rowKey={(m) => m.name}
+            rowClassName={() => 'clickable'}
+          />
+        </ListPanel>
       </div>
     </>
   )

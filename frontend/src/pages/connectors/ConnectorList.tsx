@@ -1,38 +1,20 @@
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useConnectors } from '../../api/connectors'
 import type { ConnectorResponse } from '../../api/connectors'
+import { useListParams } from '../../hooks/useListParams'
 import { Button } from '../../primitives/Button'
 import { Dot } from '../../primitives/Dot'
+import { ListPanel } from '../../primitives/ListPanel'
 import { Pager } from '../../primitives/Pager'
-import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
-
 export function ConnectorList() {
   const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
-  const page = Math.max(1, Number(params.get('page')) || 1)
-  const pageSizeParam = Number(params.get('pageSize'))
-  const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeParam)
-    ? pageSizeParam
-    : 20
+  const { page, pageSize, pageSizes, setPage, setPageSize } = useListParams()
 
-  const { data, isLoading, error } = useConnectors({ page, pageSize })
-
-  const setPage = (p: number) => {
-    const next = new URLSearchParams(params)
-    next.set('page', String(p))
-    setParams(next, { replace: true })
-  }
-  const setPageSize = (n: number) => {
-    const next = new URLSearchParams(params)
-    next.set('pageSize', String(n))
-    next.set('page', '1')
-    setParams(next, { replace: true })
-  }
+  const { data, isLoading, error, refetch } = useConnectors({ page, pageSize })
 
   const columns: readonly Column<ConnectorResponse>[] = [
     {
@@ -113,16 +95,13 @@ export function ConnectorList() {
         }
       />
       <div className="page">
-        <Panel className="cropped">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : error ? (
-            <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
-              Failed to load connectors.
-            </div>
-          ) : data ? (
+        <ListPanel
+          className="cropped"
+          query={{ data, isLoading, error, refetch }}
+          errorTitle="Failed to load connectors."
+          empty="No connectors yet."
+        >
+          {data ? (
             <>
               <RegisterTable
                 rows={data.items}
@@ -131,19 +110,18 @@ export function ConnectorList() {
                 rowClassName={(c) =>
                   c.disabled ? 'row-stale' : c.status?.ready === false ? 'row-err' : undefined
                 }
-                emptyLabel="No connectors yet."
               />
               <Pager
                 page={page}
                 pageSize={pageSize}
                 total={data.total}
-                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                pageSizeOptions={pageSizes}
                 onPageChange={setPage}
                 onPageSizeChange={setPageSize}
               />
             </>
           ) : null}
-        </Panel>
+        </ListPanel>
       </div>
     </>
   )

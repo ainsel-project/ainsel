@@ -4,13 +4,13 @@ import { useGroups, useDeleteGroup } from '../../api/groups'
 import type { Group } from '../../api/groups'
 import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
-import { Panel } from '../../primitives/Panel'
+import { ListPanel } from '../../primitives/ListPanel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Titleblock } from '../../layout/Titleblock'
 
 export function GroupList() {
   const navigate = useNavigate()
-  const { data, isLoading, error } = useGroups()
+  const { data, isLoading, error, refetch } = useGroups()
   const remove = useDeleteGroup()
   const [confirmId, setConfirmId] = useState<string | null>(null)
 
@@ -81,24 +81,14 @@ export function GroupList() {
         }
       />
       <div className="page">
-        <Panel className="cropped">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : error ? (
-            <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
-              Failed to load groups.
-            </div>
-          ) : data ? (
-            <RegisterTable
-              rows={data}
-              columns={columns}
-              rowKey={(g) => g.id}
-              emptyLabel="No groups yet."
-            />
-          ) : null}
-        </Panel>
+        <ListPanel
+          className="cropped"
+          query={{ data, isLoading, error, refetch }}
+          errorTitle="Failed to load groups."
+          empty="No groups yet."
+        >
+          {data ? <RegisterTable rows={data} columns={columns} rowKey={(g) => g.id} /> : null}
+        </ListPanel>
       </div>
 
       <ConfirmModal

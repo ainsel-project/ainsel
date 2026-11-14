@@ -1,102 +1,48 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { isIdle, useAgents } from '../../api/agents'
 import type { AgentSummary } from '../../api/agents'
 import { useGroups } from '../../api/groups'
+import { useListParams } from '../../hooks/useListParams'
 import { Input } from '../../primitives/Input'
 import { Select } from '../../primitives/Select'
 import { Button } from '../../primitives/Button'
 import { Dot } from '../../primitives/Dot'
+import { ListPanel } from '../../primitives/ListPanel'
 import { Pager } from '../../primitives/Pager'
-import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { llmProviderLabel } from './agentFormModel'
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
+// URL keys the roster filters on, beyond page, page size and search.
+const EXTRA_KEYS = ['groupId'] as const
 
 export function AgentList() {
   const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
-  const page = Math.max(1, Number(params.get('page')) || 1)
-  const pageSizeParam = Number(params.get('pageSize'))
-  const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeParam)
-    ? pageSizeParam
-    : 20
-  const searchParam = params.get('search') ?? ''
-  const groupParam = params.get('groupId') ?? ''
-
-  const [searchInput, setSearchInput] = useState(searchParam)
-
-  // Sync local input when the URL changes externally (e.g. back/forward).
-  useEffect(() => {
-    setSearchInput(searchParam)
-  }, [searchParam])
-
-  // Debounce search input → URL param. Filters drop `page` so the view
-  // returns to page 1 of the filtered set instead of stranding the caller
-  // on a page that may no longer exist.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput !== searchParam) {
-        setParams(
-          (prev) => {
-            const next = new URLSearchParams(prev)
-            if (searchInput) {
-              next.set('search', searchInput)
-            } else {
-              next.delete('search')
-            }
-            next.delete('page')
-            return next
-          },
-          { replace: true },
-        )
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchInput])
-
-  const setGroup = (v: string) => {
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        if (v) {
-          next.set('groupId', v)
-        } else {
-          next.delete('groupId')
-        }
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }
+  const {
+    page,
+    pageSize,
+    pageSizes,
+    search,
+    searchDraft,
+    setSearch,
+    setPage,
+    setPageSize,
+    filters,
+    setFilters,
+  } = useListParams({ extraKeys: EXTRA_KEYS })
+  const groupParam = filters.groupId ?? ''
 
   const { data: groups = [] } = useGroups()
   const groupOptions = groups.map((g) => ({ value: g.id, label: g.name }))
 
-  const { data, isLoading, error } = useAgents({
+  const { data, isLoading, error, refetch } = useAgents({
     page,
     pageSize,
-    search: searchParam || undefined,
+    search: search || undefined,
     groupId: groupParam || undefined,
   })
-
-  const setPage = (p: number) => {
-    const next = new URLSearchParams(params)
-    next.set('page', String(p))
-    setParams(next, { replace: true })
-  }
-  const setPageSize = (n: number) => {
-    const next = new URLSearchParams(params)
-    next.set('pageSize', String(n))
-    next.set('page', '1')
-    setParams(next, { replace: true })
-  }
 
   const columns: readonly Column<AgentSummary>[] = [
     {
@@ -224,8 +170,8 @@ export function AgentList() {
             <span className="label">Search</span>
             <Input
               placeholder="Search agents…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              value={searchDraft}
+              onChange={(e) => setSearch(e.target.value)}
               aria-label="Search agents"
             />
           </div>
@@ -234,40 +180,32 @@ export function AgentList() {
             <Select
               aria-label="Filter by group"
               value={groupParam}
-              onChange={setGroup}
+              onChange={(v) => setFilters({ groupId: v })}
               options={groupOptions}
               emptyLabel="All groups"
             />
           </div>
         </div>
-        <Panel className="cropped">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : error ? (
-            <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
-              Failed to load agents.
-            </div>
-          ) : data ? (
+        <ListPanel
+          className="cropped"
+          query={{ data, isLoading, error, refetch }}
+          errorTitle="Failed to load agents."
+          empty="No agents yet."
+        >
+          {data ? (
             <>
-              <RegisterTable
-                rows={data.items}
-                columns={columns}
-                rowKey={(a) => a.id}
-                emptyLabel="No agents yet."
-              />
+              <RegisterTable rows={data.items} columns={columns} rowKey={(a) => a.id} />
               <Pager
                 page={page}
                 pageSize={pageSize}
                 total={data.total}
-                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                pageSizeOptions={pageSizes}
                 onPageChange={setPage}
                 onPageSizeChange={setPageSize}
               />
             </>
           ) : null}
-        </Panel>
+        </ListPanel>
       </div>
     </>
   )

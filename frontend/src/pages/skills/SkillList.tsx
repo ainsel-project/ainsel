@@ -1,17 +1,15 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useSkills, type SkillSummary } from '../../api/skills'
+import { useListParams } from '../../hooks/useListParams'
 import { Button } from '../../primitives/Button'
 import { Input } from '../../primitives/Input'
+import { ListPanel } from '../../primitives/ListPanel'
 import { Pager } from '../../primitives/Pager'
-import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column, type SortState } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { formatRelative } from '../../utils/time'
-
-const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 
 // Maps column keys to the API orderBy values.
 const SORTABLE_COLUMNS: Record<string, string> = {
@@ -34,43 +32,26 @@ const DEFAULT_DIRECTIONS: Record<string, 'asc' | 'desc'> = {
   updated: 'desc',
 }
 
+// URL keys the library filters on, beyond page, page size and search.
+const EXTRA_KEYS = ['tags', 'orderBy', 'orderDir'] as const
+
 export function SkillList() {
   const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
-  const page = Math.max(1, Number(params.get('page')) || 1)
-  const pageSizeParam = Number(params.get('pageSize'))
-  const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeParam)
-    ? pageSizeParam
-    : 20
-  const searchParam = params.get('search') ?? ''
-  const tagsParam = params.get('tags') ?? ''
-  const orderByParam = params.get('orderBy') ?? ''
-  const orderDirParam = params.get('orderDir') ?? ''
-
-  const [searchInput, setSearchInput] = useState(searchParam)
-
-  // Sync local input when URL changes externally (e.g. back/forward)
-  useEffect(() => {
-    setSearchInput(searchParam)
-  }, [searchParam])
-
-  // Debounce search input → URL param
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput !== searchParam) {
-        const next = new URLSearchParams(params)
-        if (searchInput) {
-          next.set('search', searchInput)
-        } else {
-          next.delete('search')
-        }
-        next.set('page', '1')
-        setParams(next, { replace: true })
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchInput])
+  const {
+    page,
+    pageSize,
+    pageSizes,
+    search,
+    searchDraft,
+    setSearch,
+    setPage,
+    setPageSize,
+    filters,
+    setFilters,
+  } = useListParams({ extraKeys: EXTRA_KEYS })
+  const tagsParam = filters.tags ?? ''
+  const orderByParam = filters.orderBy ?? ''
+  const orderDirParam = filters.orderDir ?? ''
 
   const activeTags = tagsParam ? tagsParam.split(',').filter(Boolean) : []
 
@@ -82,10 +63,10 @@ export function SkillList() {
         }
       : undefined
 
-  const { data, isLoading, error } = useSkills({
+  const { data, isLoading, error, refetch } = useSkills({
     page,
     pageSize,
-    search: searchParam || undefined,
+    search: search || undefined,
     tags: tagsParam || undefined,
     orderBy: sortState ? SORTABLE_COLUMNS[sortState.orderBy] : undefined,
     orderDir: sortState?.orderDir,
@@ -94,51 +75,24 @@ export function SkillList() {
   // Collect all unique tags from current results for filter chips
   const availableTags = data ? [...new Set(data.items.flatMap((s) => s.tags ?? []))].sort() : []
 
-  const setPage = (p: number) => {
-    const next = new URLSearchParams(params)
-    next.set('page', String(p))
-    setParams(next, { replace: true })
-  }
-  const setPageSize = (n: number) => {
-    const next = new URLSearchParams(params)
-    next.set('pageSize', String(n))
-    next.set('page', '1')
-    setParams(next, { replace: true })
-  }
-
   const toggleTag = (tag: string) => {
-    const next = new URLSearchParams(params)
-    const current = activeTags.includes(tag)
+    const next = activeTags.includes(tag)
       ? activeTags.filter((t) => t !== tag)
       : [...activeTags, tag]
-    if (current.length > 0) {
-      next.set('tags', current.join(','))
-    } else {
-      next.delete('tags')
-    }
-    next.set('page', '1')
-    setParams(next, { replace: true })
+    setFilters({ tags: next.join(',') })
   }
 
   const handleSort = (columnKey: string) => {
-    const next = new URLSearchParams(params)
     const apiColumn = SORTABLE_COLUMNS[columnKey]
     if (!apiColumn) return
-
-    const currentOrderBy = next.get('orderBy')
-    const currentOrderDir = next.get('orderDir')
-
-    if (currentOrderBy === apiColumn) {
-      // Toggle direction.
-      const newDir = currentOrderDir === 'desc' ? 'asc' : 'desc'
-      next.set('orderDir', newDir)
+    // Same column: flip the direction. New column: its default direction.
+    let orderDir: string
+    if (orderByParam === apiColumn) {
+      orderDir = orderDirParam === 'desc' ? 'asc' : 'desc'
     } else {
-      // New column: set orderBy and use default direction.
-      next.set('orderBy', apiColumn)
-      next.set('orderDir', DEFAULT_DIRECTIONS[columnKey] || 'asc')
+      orderDir = DEFAULT_DIRECTIONS[columnKey] || 'asc'
     }
-    next.set('page', '1')
-    setParams(next, { replace: true })
+    setFilters({ orderBy: apiColumn, orderDir })
   }
 
   const columns: readonly Column<SkillSummary>[] = [
@@ -252,8 +206,8 @@ export function SkillList() {
         >
           <Input
             placeholder="Search skills…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            value={searchDraft}
+            onChange={(e) => setSearch(e.target.value)}
             style={{ maxWidth: 320 }}
             aria-label="Search skills"
           />
@@ -285,16 +239,17 @@ export function SkillList() {
             </div>
           )}
         </div>
-        <Panel className="cropped">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : error ? (
-            <div className="label" style={{ padding: 14, color: 'var(--signal)' }}>
-              Failed to load skills.
-            </div>
-          ) : data ? (
+        <ListPanel
+          className="cropped"
+          query={{ data, isLoading, error, refetch }}
+          errorTitle="Failed to load skills."
+          empty={
+            search || tagsParam
+              ? 'No skills match the current filters.'
+              : 'No skills yet. Create one to define reusable agent capabilities.'
+          }
+        >
+          {data ? (
             <>
               <RegisterTable
                 rows={data.items}
@@ -303,23 +258,18 @@ export function SkillList() {
                 rowClassName={() => 'clickable'}
                 sort={sortState}
                 onSort={handleSort}
-                emptyLabel={
-                  searchParam || tagsParam
-                    ? 'No skills match the current filters.'
-                    : 'No skills yet. Create one to define reusable agent capabilities.'
-                }
               />
               <Pager
                 page={page}
                 pageSize={pageSize}
                 total={data.total}
-                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                pageSizeOptions={pageSizes}
                 onPageChange={setPage}
                 onPageSizeChange={setPageSize}
               />
             </>
           ) : null}
-        </Panel>
+        </ListPanel>
       </div>
     </>
   )
