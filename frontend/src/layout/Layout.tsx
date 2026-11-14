@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Spine } from './Spine'
+import { RouteErrorBoundary } from './RouteErrorBoundary'
 import { useAuth } from '../auth/AuthProvider'
 import './Layout.css'
 
@@ -70,7 +71,12 @@ export function Layout() {
         rail={rail}
       />
       <main id="content" className="canvas">
-        <Outlet />
+        {/* Keyed on the pathname so navigating to any other route resets the
+            boundary (issue #283): a page that throws replaces only the routed
+            content, the spine stays usable. */}
+        <RouteErrorBoundary key={location.pathname}>
+          <Outlet />
+        </RouteErrorBoundary>
       </main>
     </div>
   )

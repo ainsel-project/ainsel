@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { request } from './client'
+import { expectItems, request } from './client'
 import type { Paginated } from './types'
 
 export type AgentLLM = {
@@ -201,8 +201,14 @@ export type ListAgentsParams = {
   groupId?: string
 }
 
-export function listAgents(params: ListAgentsParams = {}) {
-  return request<Paginated<AgentSummary>>('/agents', { query: params })
+// /agents is the one list endpoint that answers with a Paginated<T> envelope;
+// validate it (issue #283) so a bare array or an HTML error page surfaces as an
+// ApiError rather than breaking AgentList's render.
+export async function listAgents(params: ListAgentsParams = {}): Promise<Paginated<AgentSummary>> {
+  return expectItems<AgentSummary>(
+    await request<unknown>('/agents', { query: params }),
+    'GET /agents',
+  )
 }
 
 export function getAgent(id: string) {
