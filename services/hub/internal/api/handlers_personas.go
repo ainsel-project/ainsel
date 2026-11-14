@@ -161,7 +161,7 @@ func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
 // RegisterPersonaRoutes wires the persona endpoints into the given mux.
 // authzStorePtr points to the Server's authzStore field so it picks up
 // the value set later by SetAuthZ.
-func RegisterPersonaRoutes(mux *http.ServeMux, svc PersonaService, authzStorePtr *authzStore, checkerPtr **authz.Checker) {
+func RegisterPersonaRoutes(mux routeRegistrar, svc PersonaService, authzStorePtr *authzStore, checkerPtr **authz.Checker) {
 	h := &personaHandlers{svc: svc, authzStorePtr: authzStorePtr, checkerPtr: checkerPtr}
 	mux.HandleFunc("/api/v1/personas", h.handleCollection)
 	mux.HandleFunc("/api/v1/personas/", h.handleItem)

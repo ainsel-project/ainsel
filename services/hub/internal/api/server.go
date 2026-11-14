@@ -79,8 +79,16 @@ type authEventsStore interface {
 
 // Server provides a REST API for managing Ainsel CRDs.
 type Server struct {
-	client             client.Client
-	mux                *http.ServeMux
+	client client.Client
+	mux    *http.ServeMux
+	// routeLog records every pattern registered on mux, so the route inventory
+	// the tests check can be built without a stdlib API for reading a ServeMux
+	// back. See recordingMux; register routes through s.routes(), never on the
+	// raw mux.
+	routeLog *recordingMux
+	// router is mux behind the JSON router-error wrapper; every request
+	// dispatches through it (see jsonRouterErrors, routerHandler).
+	router             http.Handler
 	ns                 string
 	connectorCfg       ConnectorConfig
 	prom               *prometheus.Client
@@ -108,6 +116,13 @@ type Server struct {
 	pluginProxyTransport   http.RoundTripper
 	pluginProxyOnce        sync.Once
 	pluginMCPOnce          sync.Once
+	// routeLogOnce and routerOnce guard the lazy build of routeLog / router for
+	// a Server that was not built by New (the tests assemble one by hand). They
+	// make the first-use initialisation a happens-before edge for the reads on
+	// the request path, so a hand-built Server served from several goroutines
+	// cannot race on those fields.
+	routeLogOnce sync.Once
+	routerOnce   sync.Once
 	// pluginMCP is the MCP client the plugin tool endpoints use to list and call
 	// tools on a plugin's own MCP server. Wired by SetPluginMCPClient; see
 	// getPluginMCPClient for the default.
@@ -295,87 +310,112 @@ type Config struct {
 }
 
 // New creates a new API server with routes registered.
+//
+// Route table. Conventions (issue #265 — see also docs/conventions.md,
+// "Routing"):
+//
+//   - A route is declared as a Go method + wildcard pattern
+//     ("GET /api/v1/agents/{name}"), so the mux owns method matching; a
+//     handler must not switch on r.Method or re-parse sub-paths. The two
+//     deliberate exceptions are documented at their registration below
+//     (/health, /api/v1/ws).
+//   - The single resource identifier of a path always uses the placeholder
+//     name {name}, including for DB-id resources. ServeMux panics at
+//     registration when the same path position carries two different
+//     wildcard names, so one convention removes that class of startup
+//     failure and lets the guard helpers below read one key.
+//   - Authz guards are attached here at registration (s.read / s.write /
+//     s.internalTask), not inside a branch of a method switch — a guard a
+//     handler has to remember is a guard a new sub-route forgets.
+//   - Deleting a collection's old `collection` + `collection/` pair is part of
+//     converting it: a method-less pattern matches every method, so leaving it
+//     registered stops the mux from answering 405 at all.
+//
+// The route inventory test (router_test.go) reads back every registration and
+// fails when one drifts from the snapshot or from these rules.
 func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promClient *prometheus.Client, invStore invocations.Store, mcp *mcpservers.Service, personaSvc *personas.Service, skillSvc SkillService, cfg *Config) *Server {
 	s := &Server{client: c, mux: http.NewServeMux(), ns: namespace, connectorCfg: connectorCfg, prom: promClient, invocations: invStore, mcp: mcp, skills: skillSvc}
+	mux := s.routes()
+	s.router = jsonRouterErrors(s.mux)
 	s.wsHub = newWsHub()
 	s.observabilityCache = newPromCache(observabilityCacheTTL)
 	s.identityTracker = newIdentityPersistTracker()
 	s.taskStartTimeout = DefaultTaskStartTimeout
 	s.llmCheckTimeout = llmCheckDefaultTimeout
-	s.mux.HandleFunc("/health", s.health)
-	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
-	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
-	s.mux.HandleFunc("/api/v1/llm/check", s.handleLLMCheck)
-	s.mux.HandleFunc("/api/v1/agent-images", s.handleAgentImages)
-	s.mux.HandleFunc("/api/v1/agent-images/", s.handleAgentImagePath)
-	s.mux.HandleFunc("/api/v1/connectors", s.handleConnectors)
-	s.mux.HandleFunc("/api/v1/connectors/", s.handleConnector)
+	mux.HandleFunc("/health", s.health)
+	mux.HandleFunc("/api/v1/agents", s.handleAgents)
+	mux.HandleFunc("/api/v1/agents/", s.handleAgent)
+	mux.HandleFunc("/api/v1/llm/check", s.handleLLMCheck)
+	mux.HandleFunc("/api/v1/agent-images", s.handleAgentImages)
+	mux.HandleFunc("/api/v1/agent-images/", s.handleAgentImagePath)
+	mux.HandleFunc("/api/v1/connectors", s.handleConnectors)
+	mux.HandleFunc("/api/v1/connectors/", s.handleConnector)
 	registerPluginRoutes(s)
-	s.mux.HandleFunc("/api/v1/triggers", s.handleTriggers)
-	s.mux.HandleFunc("/api/v1/triggers/", s.handleTrigger)
-	s.mux.HandleFunc("/api/v1/cron-triggers", s.handleCronTriggers)
-	s.mux.HandleFunc("/api/v1/cron-triggers/", s.handleCronTrigger)
-	s.mux.HandleFunc("/api/v1/errors", s.handleErrors)
-	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
-	s.mux.HandleFunc("/api/v1/events/", s.handleEvent)
-	s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
-	s.mux.HandleFunc("/api/v1/invocations/", s.handleInvocation)
-	s.mux.HandleFunc("/api/v1/mcp-servers", s.handleMCPServers)
-	s.mux.HandleFunc("/api/v1/mcp-servers/", s.handleMCPServer)
-	s.mux.HandleFunc("/api/v1/tokens", s.handleTokens)
-	s.mux.HandleFunc("/api/v1/stats", s.handleStats)
-	s.mux.HandleFunc("/api/v1/ws", s.handleWs)
-	s.mux.HandleFunc("/api/v1/me", s.handleMe)
-	s.mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
-	s.mux.HandleFunc("/api/v1/plugin-context", s.handlePluginContext)
-	s.mux.HandleFunc("/api/v1/plugin-context/visible", s.handlePluginContextVisible)
-	s.mux.HandleFunc("/api/internal/plugins/", s.handleInternalPluginRoutes)
-	s.mux.HandleFunc("/api/internal/plugin-tools", s.handleInternalPluginTools)
-	s.mux.HandleFunc("/api/v1/plugin-tools/call", s.handlePluginToolCall)
-	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
-	s.mux.HandleFunc("/api/v1/observability/metrics/timeseries", s.handleObservability)
-	s.mux.HandleFunc("/api/v1/observability/metrics/agents", s.handleObservability)
-	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/summary", s.handleObservability)
-	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/timeseries", s.handleObservability)
-	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/by-subject", s.handleObservability)
-	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/by-event", s.handleObservability)
-	s.mux.HandleFunc("/api/v1/observability/conversations", s.handleConversations)
-	s.mux.HandleFunc("/api/v1/observability/logs", s.handleObservabilityLogs)
-	s.mux.HandleFunc("/api/v1/observability/metrics/query", s.handleObservabilityMetricsQuery)
-	s.mux.HandleFunc("/api/internal/events", s.handleIngestEvent)
-	s.mux.HandleFunc(skillMCPPath, s.handleSkillMCP)
-	s.mux.HandleFunc("/api/internal/agents/", s.handleInternalAgent)
-	s.mux.HandleFunc("/api/v1/queue/info", s.handleQueueInfo)
-	s.mux.HandleFunc("/api/v1/queue/recent", s.handleQueueRecent)
-	s.mux.HandleFunc("/api/internal/task-logs", s.handleIngestTaskLog)
-	s.mux.HandleFunc("/api/internal/task-messages", s.handleIngestTaskMessage)
-	s.mux.HandleFunc("/api/v1/platform/health", s.handlePlatformHealth)
-	s.mux.HandleFunc("/api/v1/users", s.handleUsers)
-	s.mux.HandleFunc("/api/v1/users/", s.handleUser)
-	s.mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
-	s.mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
-	s.mux.HandleFunc("/api/v1/auth/password", s.handleChangePassword)
-	s.mux.HandleFunc("/api/v1/auth/sign-out-all", s.handleSignOutAll)
-	s.mux.HandleFunc("/api/v1/auth/password-policy", s.handlePasswordPolicy)
-	s.mux.HandleFunc("/api/v1/user-tokens", s.handleUserTokens)
-	s.mux.HandleFunc("/api/v1/user-tokens/", s.handleUserTokenDelete)
-	s.mux.HandleFunc("/api/internal/user-tokens/validate", s.handleUserTokenValidate)
-	s.mux.HandleFunc("/api/internal/chat/sessions", s.handleInternalChatSessions)
-	s.mux.HandleFunc("/api/internal/chat/sessions/", s.handleInternalChatSession)
-	s.mux.HandleFunc("/api/v1/groups", s.handleGroups)
-	s.mux.HandleFunc("/api/v1/groups/", s.handleGroup)
-	s.mux.HandleFunc("/api/v1/me/resources", s.handleMyResources)
-	s.mux.HandleFunc("/api/v1/audit/auth-events", s.handleAuditAuthEvents)
-	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
-	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
+	mux.HandleFunc("/api/v1/triggers", s.handleTriggers)
+	mux.HandleFunc("/api/v1/triggers/", s.handleTrigger)
+	mux.HandleFunc("/api/v1/cron-triggers", s.handleCronTriggers)
+	mux.HandleFunc("/api/v1/cron-triggers/", s.handleCronTrigger)
+	mux.HandleFunc("/api/v1/errors", s.handleErrors)
+	mux.HandleFunc("/api/v1/events", s.handleEvents)
+	mux.HandleFunc("/api/v1/events/", s.handleEvent)
+	mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
+	mux.HandleFunc("/api/v1/invocations/", s.handleInvocation)
+	mux.HandleFunc("/api/v1/mcp-servers", s.handleMCPServers)
+	mux.HandleFunc("/api/v1/mcp-servers/", s.handleMCPServer)
+	mux.HandleFunc("/api/v1/tokens", s.handleTokens)
+	mux.HandleFunc("/api/v1/stats", s.handleStats)
+	mux.HandleFunc("/api/v1/ws", s.handleWs)
+	mux.HandleFunc("/api/v1/me", s.handleMe)
+	mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
+	mux.HandleFunc("/api/v1/plugin-context", s.handlePluginContext)
+	mux.HandleFunc("/api/v1/plugin-context/visible", s.handlePluginContextVisible)
+	mux.HandleFunc("/api/internal/plugins/", s.handleInternalPluginRoutes)
+	mux.HandleFunc("/api/internal/plugin-tools", s.handleInternalPluginTools)
+	mux.HandleFunc("/api/v1/plugin-tools/call", s.handlePluginToolCall)
+	mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
+	mux.HandleFunc("/api/v1/observability/metrics/timeseries", s.handleObservability)
+	mux.HandleFunc("/api/v1/observability/metrics/agents", s.handleObservability)
+	mux.HandleFunc("/api/v1/observability/metrics/tokens/summary", s.handleObservability)
+	mux.HandleFunc("/api/v1/observability/metrics/tokens/timeseries", s.handleObservability)
+	mux.HandleFunc("/api/v1/observability/metrics/tokens/by-subject", s.handleObservability)
+	mux.HandleFunc("/api/v1/observability/metrics/tokens/by-event", s.handleObservability)
+	mux.HandleFunc("/api/v1/observability/conversations", s.handleConversations)
+	mux.HandleFunc("/api/v1/observability/logs", s.handleObservabilityLogs)
+	mux.HandleFunc("/api/v1/observability/metrics/query", s.handleObservabilityMetricsQuery)
+	mux.HandleFunc("/api/internal/events", s.handleIngestEvent)
+	mux.HandleFunc(skillMCPPath, s.handleSkillMCP)
+	mux.HandleFunc("/api/internal/agents/", s.handleInternalAgent)
+	mux.HandleFunc("/api/v1/queue/info", s.handleQueueInfo)
+	mux.HandleFunc("/api/v1/queue/recent", s.handleQueueRecent)
+	mux.HandleFunc("/api/internal/task-logs", s.handleIngestTaskLog)
+	mux.HandleFunc("/api/internal/task-messages", s.handleIngestTaskMessage)
+	mux.HandleFunc("/api/v1/platform/health", s.handlePlatformHealth)
+	mux.HandleFunc("/api/v1/users", s.handleUsers)
+	mux.HandleFunc("/api/v1/users/", s.handleUser)
+	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
+	mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("/api/v1/auth/password", s.handleChangePassword)
+	mux.HandleFunc("/api/v1/auth/sign-out-all", s.handleSignOutAll)
+	mux.HandleFunc("/api/v1/auth/password-policy", s.handlePasswordPolicy)
+	mux.HandleFunc("/api/v1/user-tokens", s.handleUserTokens)
+	mux.HandleFunc("/api/v1/user-tokens/", s.handleUserTokenDelete)
+	mux.HandleFunc("/api/internal/user-tokens/validate", s.handleUserTokenValidate)
+	mux.HandleFunc("/api/internal/chat/sessions", s.handleInternalChatSessions)
+	mux.HandleFunc("/api/internal/chat/sessions/", s.handleInternalChatSession)
+	mux.HandleFunc("/api/v1/groups", s.handleGroups)
+	mux.HandleFunc("/api/v1/groups/", s.handleGroup)
+	mux.HandleFunc("/api/v1/me/resources", s.handleMyResources)
+	mux.HandleFunc("/api/v1/audit/auth-events", s.handleAuditAuthEvents)
+	mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
+	mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
 	if personaSvc != nil {
 		// Assigned only when non-nil: a typed-nil *personas.Service in an
 		// interface field would pass a nil check and panic on use.
 		s.personas = personaSvc
-		RegisterPersonaRoutes(s.mux, personaSvc, &s.authzStore, &s.authzChecker)
+		RegisterPersonaRoutes(mux, personaSvc, &s.authzStore, &s.authzChecker)
 	}
 	if skillSvc != nil {
-		RegisterSkillRoutes(s.mux, skillSvc, &s.authzStore, &s.authzChecker)
+		RegisterSkillRoutes(mux, skillSvc, &s.authzStore, &s.authzChecker)
 	}
 	return s
 }
@@ -402,10 +442,23 @@ func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
 		// The forced-change gate sits inside the auth chain because it decides on
 		// the context user, and in front of the mux because a gate the handlers
 		// have to opt into is a gate new endpoints forget.
-		s.authMW(s.passwordChangeGate(s.mux)).ServeHTTP(w, r)
+		s.authMW(s.passwordChangeGate(s.routerHandler())).ServeHTTP(w, r)
 		return
 	}
-	s.mux.ServeHTTP(w, r)
+	s.routerHandler().ServeHTTP(w, r)
+}
+
+// routerHandler returns the route mux behind the JSON router-error wrapper.
+// New builds it; a Server assembled by hand (the tests do) gets it on first use,
+// so no request path can dispatch to the bare mux and answer a router-generated
+// 404/405 in the mux's own plain text.
+func (s *Server) routerHandler() http.Handler {
+	s.routerOnce.Do(func() {
+		if s.router == nil {
+			s.router = jsonRouterErrors(s.mux)
+		}
+	})
+	return s.router
 }
 
 // isAuthExempt lists /api/v1/* requests that must stay reachable without a
