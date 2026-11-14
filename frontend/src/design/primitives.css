@@ -679,6 +679,13 @@ table.reg tr.reg-detail > td {
   font-family: var(--mono);
   font-size: 11px;
 }
+/* The page-size select needs an intrinsic width: `.select` is width:100%
+   for form use, which would stretch it across the whole flex row here. */
+.pager .select {
+  width: auto;
+  min-width: 5rem;
+  flex-shrink: 0;
+}
 .pager .pager-info {
   color: var(--ink-3);
   margin-right: auto;
