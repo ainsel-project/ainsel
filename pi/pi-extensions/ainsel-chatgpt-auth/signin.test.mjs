@@ -11,10 +11,15 @@ const PASTED = "http://127.0.0.1:1455/auth/callback?code=c&state=s";
 
 // stubHub answers the sign-in pod's three internal calls. redirectAfter is
 // how many polls return 204 before the pasted URL appears; gone makes every
-// redirect poll answer 410.
-async function stubHub({ redirectAfter = 1, gone = false } = {}) {
-	const seen = { authUrl: null, result: null, polls: 0, tokens: [] };
+// redirect poll answer 410; unavailable makes that many first calls answer
+// 503, as a restarting hub behind its Service does.
+async function stubHub({ redirectAfter = 1, gone = false, unavailable = 0 } = {}) {
+	const seen = { authUrl: null, result: null, polls: 0, tokens: [], refused: 0 };
 	const server = createServer(async (req, res) => {
+		if (seen.refused < unavailable) {
+			seen.refused++;
+			return res.writeHead(503).end();
+		}
 		seen.tokens.push(req.headers["x-internal-token"]);
 		seen.podTokens = [...(seen.podTokens ?? []), req.headers["x-sign-in-token"]];
 		let body = "";
@@ -210,6 +215,28 @@ test("a successful login exits 0 even if the hub has closed the session", async 
 		};
 		assert.equal(await runSignIn({ ...opts, hub: closedOnResult }), 0);
 		assert.equal(rt.calls.pasted, PASTED);
+	} finally {
+		await hub.close();
+	}
+});
+
+test("rides out a hub restart instead of failing the sign-in", async () => {
+	const { hub, rt, opts } = await setup({ unavailable: 3 });
+	opts.hub = hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1", sleep: async () => {} });
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.equal(rt.calls.pasted, PASTED);
+		assert.equal(hub.seen.refused, 3);
+	} finally {
+		await hub.close();
+	}
+});
+
+test("gives up on a hub that stays away", async () => {
+	const { hub, opts } = await setup({ unavailable: 1000 });
+	opts.hub = hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1", sleep: async () => {} });
+	try {
+		assert.equal(await runSignIn(opts), 1);
 	} finally {
 		await hub.close();
 	}

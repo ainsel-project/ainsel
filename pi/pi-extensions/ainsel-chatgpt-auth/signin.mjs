@@ -20,6 +20,11 @@ import { CREDENTIALS_DIR, loadPi } from "./lib.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const POLL_MS = 2000;
+// A hub that restarts or is briefly unreachable must not cost the user the
+// sign-in: each call is retried for about a minute, and none hangs.
+const HUB_ATTEMPTS = 20;
+const HUB_RETRY_MS = 3000;
+const HUB_TIMEOUT_MS = 10_000;
 
 // SessionClosed: the hub ended the session (expired or cancelled).
 class SessionClosed extends Error {}
@@ -27,13 +32,34 @@ class SessionClosed extends Error {}
 // hubClient talks to the hub's internal sign-in routes for one session.
 // podToken is this session's own token (AINSEL_SIGN_IN_TOKEN): only the
 // sign-in pod has it, so the hub can tell it from other agent pods.
-export function hubClient({ hubUrl, token, podToken, agent, session }) {
+export function hubClient({ hubUrl, token, podToken, agent, session, sleep = delay }) {
 	const base = `${hubUrl.replace(/\/$/, "")}/api/internal/agents/${encodeURIComponent(agent)}/chatgpt-sign-in/${encodeURIComponent(session)}`;
 	const headers = { "X-Internal-Token": token, "X-Sign-In-Token": podToken, "content-type": "application/json" };
+	// call retries what a restarting hub produces (no connection, a timeout,
+	// a 5xx from the proxy in front of it) and returns any other answer.
 	async function call(method, verb, body) {
-		const res = await fetch(`${base}/${verb}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
-		if (res.status === 410) throw new SessionClosed("the sign-in session ended (expired or cancelled)");
-		return res;
+		for (let attempt = 1; ; attempt++) {
+			let res, error;
+			try {
+				res = await fetch(`${base}/${verb}`, {
+					method,
+					headers,
+					body: body ? JSON.stringify(body) : undefined,
+					signal: AbortSignal.timeout(HUB_TIMEOUT_MS),
+				});
+			} catch (e) {
+				error = e;
+			}
+			if (res && res.status < 500) {
+				if (res.status === 410) throw new SessionClosed("the sign-in session ended (expired or cancelled)");
+				return res;
+			}
+			if (attempt >= HUB_ATTEMPTS) {
+				if (res) return res;
+				throw new Error(`hub unreachable: ${error instanceof Error ? error.message : error}`);
+			}
+			await sleep(HUB_RETRY_MS);
+		}
 	}
 	return {
 		async postAuthURL(url) {
