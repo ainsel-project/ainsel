@@ -6,6 +6,8 @@ import { Button } from '../../primitives/Button'
 import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { EntityLink } from '../../components/EntityLink'
+import { groupPath } from '../../components/entityPaths'
 import { Titleblock } from '../../layout/Titleblock'
 
 export function GroupList() {
@@ -27,14 +29,7 @@ export function GroupList() {
     {
       key: 'name',
       header: 'Name',
-      cell: (g) => (
-        <b
-          style={{ cursor: 'pointer', color: 'var(--accent)' }}
-          onClick={() => navigate(`/groups/${encodeURIComponent(g.id)}`)}
-        >
-          {g.name}
-        </b>
-      ),
+      cell: (g) => <EntityLink id={g.id} label={g.name} path={groupPath} className="rowlink" />,
     },
     {
       key: 'description',

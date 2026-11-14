@@ -11,6 +11,8 @@ import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
+import { EntityLink } from '../../components/EntityLink'
+import { agentPath } from '../../components/entityPaths'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { llmProviderLabel } from './agentFormModel'
@@ -104,12 +106,7 @@ export function AgentList() {
       header: 'Name',
       cell: (a) => (
         <>
-          <b
-            style={{ cursor: 'pointer', color: 'var(--accent)' }}
-            onClick={() => navigate(`/agents/${encodeURIComponent(a.id)}`)}
-          >
-            {a.name}
-          </b>{' '}
+          <EntityLink id={a.id} label={a.name} path={agentPath} className="rowlink" />{' '}
           <ManagedBadge managedBy={a.managedBy} />
         </>
       ),

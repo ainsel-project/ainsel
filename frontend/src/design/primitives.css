@@ -490,6 +490,29 @@ table.reg tr.reg-detail > td {
   padding: 10px 14px 12px 44px;
   background: var(--hover-subtle);
 }
+/* Row title link — the row's one navigation affordance in a list table
+   (EntityLink with className="rowlink"). It used to be a <b onClick>, which
+   no keyboard, middle-click or screen reader can reach and which painted the
+   phantom --accent. Colour is --signal-ink, the same link/accent idiom as
+   .tag.err and SkillsSelector's picker links, and it clears AA on every
+   theme. The underline stays transparent until hover/focus so a table of
+   twelve rows does not become a wall of underlines; :visited is expressed as
+   text-decoration-color because that is one of the few properties a browser
+   will apply to a visited link at all, and it leaves the text colour — and
+   therefore its measured contrast — untouched. */
+.rowlink {
+  color: var(--signal-ink);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+}
+.rowlink:hover,
+.rowlink:focus-visible {
+  text-decoration-color: var(--signal);
+}
+.rowlink:visited {
+  text-decoration-color: var(--rule-soft);
+}
 
 /* ===== Recent activity stream rows ===== */
 .stream-row {
