@@ -1376,6 +1376,17 @@ pre.code code {
   text-transform: uppercase;
   font-weight: 700;
 }
+/* Plain sub-heading inside a panel body (e.g. "Working hours"): the
+   .tool-subhead type treatment without the editor-pane box. */
+h4.subhead {
+  margin: 18px 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-2);
+}
 /* Read-only value rendered where an input would otherwise be. */
 .tool-readonly {
   padding: 8px 10px;

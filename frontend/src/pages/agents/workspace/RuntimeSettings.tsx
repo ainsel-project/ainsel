@@ -243,9 +243,7 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
             </Field>
           </div>
 
-          <header className="tool-subhead">
-            <h4>Working hours</h4>
-          </header>
+          <h4 className="subhead">Working hours</h4>
 
           <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

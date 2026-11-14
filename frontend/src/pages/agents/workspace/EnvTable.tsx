@@ -20,11 +20,18 @@ type EnvTableProps = {
   /** The editor's draft: the agent's own entries, as edited. */
   agentEnv: DraftEnvVar[]
   /** The entries as last saved; the table keeps rows in this order. */
-  savedEnv: DraftEnvVar[]
-  imageEnv: EnvVar[]
-  imageName: string
-  readOnly: boolean
-  onChange: (next: DraftEnvVar[]) => void
+  savedEnv?: DraftEnvVar[]
+  imageEnv?: EnvVar[]
+  imageName?: string
+  readOnly?: boolean
+  onChange?: (next: DraftEnvVar[]) => void
+  /**
+   * 'merged' (default): the agent's entries merged with its image's, read-only
+   * image rows included — the agent overrides editor. 'plain': just the
+   * editable list, no Source column and no image rows — the image page's own
+   * environment editor and the agent page's read-only image card.
+   */
+  variant?: 'merged' | 'plain'
 }
 
 /** Small inline marker (lock, warning) with a tooltip. */
@@ -63,18 +70,35 @@ const LockIcon = () => (
  *
  * Only the image entry's own secret flag masks the image value; an agent
  * entry's secret flag masks the agent's value. Image secrets are never rendered.
+ *
+ * The plain variant drops the image side entirely: one editable list of
+ * name/value/secret rows with a Remove action, used wherever an env list is
+ * edited on its own (the image page) or shown read-only (the agent's image
+ * card). No fixed column widths: the table keeps its natural size and the
+ * `.reg-wrap` scroll takes over when the panel is narrower.
  */
 export function EnvTable({
   agentEnv,
   savedEnv,
   imageEnv,
-  imageName,
-  readOnly,
-  onChange,
+  imageName = '',
+  readOnly = false,
+  onChange = () => {},
+  variant = 'merged',
 }: EnvTableProps) {
+  const plain = variant === 'plain'
+  const imageEntries = imageEnv ?? []
   const errors = envNameErrors(agentEnv)
-  const rows = tableRows(agentEnv, savedEnv, imageEnv)
-  const imageSecret = (name: string) => imageEnv.find((e) => e.name === name)?.secret === true
+  const rows: TableRow[] = plain
+    ? agentEnv.map((e, i) => ({
+        name: e.name,
+        kind: 'agent' as const,
+        agentValue: e.value,
+        secret: !!e.secret,
+        agentIndex: i,
+      }))
+    : tableRows(agentEnv, savedEnv ?? agentEnv, imageEntries)
+  const imageSecret = (name: string) => imageEntries.find((e) => e.name === name)?.secret === true
   const shownImageValue = (row: EnvRow) => (imageSecret(row.name) ? MASK : row.imageValue)
 
   const patchAgent = (index: number, patch: Partial<AgentEnvVar>) =>
@@ -91,11 +115,38 @@ export function EnvTable({
       },
     ])
 
+  const actionsCell = (row: TableRow) => {
+    if (readOnly) return null
+    if (row.kind === 'image') {
+      return (
+        <Button type="button" size="sm" onClick={() => overrideImage(row)}>
+          Override
+        </Button>
+      )
+    }
+    if (row.kind === 'override') {
+      return (
+        <Button type="button" size="sm" onClick={() => removeAgent(row.agentIndex ?? -1)}>
+          Reset to image
+        </Button>
+      )
+    }
+    return (
+      <Button
+        type="button"
+        size="sm"
+        aria-label="Remove variable"
+        onClick={() => removeAgent(row.agentIndex ?? -1)}
+      >
+        Remove
+      </Button>
+    )
+  }
+
   const columns: Column<TableRow>[] = [
     {
       key: 'name',
       header: 'Name',
-      width: '30%',
       cell: (row) => {
         if (row.kind === 'image') {
           const title = `From image ${imageName}${row.secret ? ' · secret' : ''}`
@@ -140,7 +191,6 @@ export function EnvTable({
     {
       key: 'value',
       header: 'Value',
-      width: '44%',
       cell: (row) => {
         if (row.kind === 'image') {
           return (
@@ -161,7 +211,7 @@ export function EnvTable({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Input
                 aria-label="Variable value"
-                placeholder={secret ? 'unchanged' : 'value'}
+                placeholder={secret ? (plain ? MASK : 'unchanged') : 'value'}
                 type={secret ? 'password' : 'text'}
                 value={row.agentValue ?? ''}
                 disabled={readOnly}
@@ -202,44 +252,20 @@ export function EnvTable({
         )
       },
     },
-    {
-      key: 'source',
-      header: 'Source',
-      width: 90,
-      cell: (row) => <Tag>{row.kind === 'image' ? 'image' : 'agent'}</Tag>,
-    },
+    ...(plain
+      ? []
+      : [
+          {
+            key: 'source',
+            header: 'Source',
+            cell: (row: TableRow) => <Tag>{row.kind === 'image' ? 'image' : 'agent'}</Tag>,
+          } as Column<TableRow>,
+        ]),
     {
       key: 'actions',
       header: '',
-      width: 130,
       align: 'right',
-      cell: (row) => {
-        if (readOnly) return null
-        if (row.kind === 'image') {
-          return (
-            <Button type="button" size="sm" onClick={() => overrideImage(row)}>
-              Override
-            </Button>
-          )
-        }
-        if (row.kind === 'override') {
-          return (
-            <Button type="button" size="sm" onClick={() => removeAgent(row.agentIndex ?? -1)}>
-              Reset to image
-            </Button>
-          )
-        }
-        return (
-          <Button
-            type="button"
-            size="sm"
-            aria-label="Remove variable"
-            onClick={() => removeAgent(row.agentIndex ?? -1)}
-          >
-            Remove
-          </Button>
-        )
-      },
+      cell: (row) => <span style={{ whiteSpace: 'nowrap' }}>{actionsCell(row)}</span>,
     },
   ]
 

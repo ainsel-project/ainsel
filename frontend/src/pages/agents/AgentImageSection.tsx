@@ -1,31 +1,95 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useUpdateAgent, type AgentResponse } from '../../api/agents'
-import { useAgentImage, useAgentImages } from '../../api/agentImages'
+import { useAgentImage, useAgentImages, type AgentImageResponse } from '../../api/agentImages'
 import { useMCPServers } from '../../api/mcpServers'
 import { ApiError } from '../../api/client'
 import { DualListPicker } from '../../primitives/DualListPicker'
 import { Panel } from '../../primitives/Panel'
 import { Select } from '../../primitives/Select'
-import { ImageFormContainer } from '../images/ImageFormContainer'
+import { ManagedBadge } from '../../components/ManagedBadge'
+import { agentImagePath } from '../../components/entityPaths'
 import { SkillsSelector } from './SkillsSelector'
 import { AgentEnvSection } from './AgentEnvSection'
+import { EnvTable } from './workspace/EnvTable'
+import { withDraftIds } from './workspace/envRows'
 
 type AgentImageSectionProps = {
   agent: AgentResponse
 }
 
+/** Read-only label/value row of the image card — text where the image page has an input. */
+function ImageFact({ label, value }: { label: string; value?: string }) {
+  return (
+    <div>
+      <div className="label" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+        {label}
+      </div>
+      <div className="tool-readonly">
+        {value ? <code style={{ wordBreak: 'break-all' }}>{value}</code> : <em>—</em>}
+      </div>
+    </div>
+  )
+}
+
 /**
- * Shared image-reference picker shown in the agent's Runtime & env section
- * page: a dropdown that re-points the agent at another image. The referenced
- * image is what carries the runtime (container image, env, tools, skills,
- * MCP servers) — until the backend is streamlined, every section edits the same
- * image object, just different sections of it.
+ * The referenced image, shown read-only: identity (display name, container URL,
+ * description) and its environment with secret values masked. Editing the image
+ * happens on the image page — the "Edit image" link is the only action here —
+ * because an image is shared: an edit updates every agent that references it.
  */
-function ImageRefPicker({ agent }: AgentImageSectionProps) {
+function ImageDetails({
+  image,
+  imageName,
+}: {
+  image: AgentImageResponse | undefined
+  imageName: string
+}) {
+  const env = image?.env ?? []
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <div>
+          <div className="label" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            Display name <ManagedBadge managedBy={image?.managedBy} />
+          </div>
+          <div className="tool-readonly">
+            <code style={{ wordBreak: 'break-all' }}>{image?.displayName ?? imageName}</code>
+          </div>
+        </div>
+        <ImageFact label="Image URL" value={image?.imageURL} />
+        <ImageFact label="Description" value={image?.description} />
+      </div>
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div className="label" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          Environment
+        </div>
+        {/* The image's own env, never editable here; secret values stay masked. */}
+        <EnvTable
+          variant="plain"
+          readOnly
+          agentEnv={withDraftIds(
+            env.map((e) => ({ name: e.name, value: e.secret ? '' : e.value, secret: !!e.secret })),
+          )}
+        />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The image panel of the agent's Runtime & env section: a dropdown that
+ * re-points the agent at another image (agent-scoped: switching writes only
+ * this agent's `imageRef`) plus a read-only view of the referenced image. The
+ * image itself — container URL, env, tools, MCP servers — is edited on its own
+ * page, never here, so no save on this page can touch the shared image.
+ */
+function ImagePanel({ agent }: AgentImageSectionProps) {
   const images = useAgentImages({ pageSize: 200 })
   const updateAgent = useUpdateAgent()
   const [refError, setRefError] = useState<string | null>(null)
   const imageName = agent.imageRef?.name
+  const image = useAgentImage(imageName)
 
   const onSwitchImage = (next: string) => {
     if (!next || next === imageName) return
@@ -40,7 +104,11 @@ function ImageRefPicker({ agent }: AgentImageSectionProps) {
   }
 
   return (
-    <Panel title="Image" className="cropped">
+    <Panel
+      title="Image"
+      className="cropped"
+      right={imageName ? <Link to={agentImagePath(imageName)}>Edit image</Link> : null}
+    >
       <div style={{ display: 'grid', gap: 10 }}>
         <Select
           aria-label="Agent image"
@@ -55,13 +123,23 @@ function ImageRefPicker({ agent }: AgentImageSectionProps) {
         />
         <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
           The image bundles the runtime: container image URL, environment, tools, skills, and MCP
-          servers. Switching re-points this agent; saving in any section updates the shared image
-          for every agent that references it.
+          servers. Switching re-points this agent only; the image itself is edited on its own page,
+          which updates every agent that references it.
         </p>
         {refError ? (
           <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
             {refError}
           </p>
+        ) : null}
+        {imageName ? (
+          image.isError ? (
+            <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
+              Could not load the referenced image — it may have been deleted. Open it on the image
+              page to check.
+            </p>
+          ) : (
+            <ImageDetails image={image.data} imageName={imageName} />
+          )
         ) : null}
       </div>
     </Panel>
@@ -77,30 +155,21 @@ function NoImagePanel({ what, hint }: { what: string; hint: string }) {
 }
 
 /**
- * The Runtime & env section of the agent detail page: image picker plus the image side
- * of the referenced image (identity: display name, container URL,
- * description). The image's environment variables and the agent's own
- * overrides are merged into one Environment card (issue #215): the image env
- * renders inside the embedded image form, and the agent override editor is
- * threaded in as the card's second zone — visually one card, two separate
- * save paths.
+ * The Runtime & env section of the agent detail page: the image picker with a
+ * read-only view of the referenced image, and the agent's own environment
+ * overrides. Every save here writes only this agent — the shared image is
+ * edited on the image page alone (its "Edit image" link leads there), which
+ * removes the shared-write footgun from this page.
  */
 export function AgentImageSection({ agent }: AgentImageSectionProps) {
   const imageName = agent.imageRef?.name
   return (
     <div className="panel-stack">
-      <ImageRefPicker agent={agent} />
-      {imageName ? (
-        <ImageFormContainer
-          key={imageName}
-          id={imageName}
-          embedded
-          sections="image"
-          agentEnvSlot={<AgentEnvSection agent={agent} />}
-        />
-      ) : (
+      <ImagePanel agent={agent} />
+      {imageName ? null : (
         <NoImagePanel what="Image" hint="No image linked yet — pick one above to configure it." />
       )}
+      <AgentEnvSection agent={agent} />
     </div>
   )
 }

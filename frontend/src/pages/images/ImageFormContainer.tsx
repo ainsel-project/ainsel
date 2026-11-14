@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -25,25 +24,9 @@ import { isManaged } from '../../utils/managed'
 
 type ImageFormContainerProps = {
   id: string | undefined
-  /**
-   * Embedded mode: the form is rendered inside another page (e.g. the agent
-   * detail's Tools & MCP / Skills sections) instead of standing alone. Suppresses
-   * post-save navigation and page chrome (see ImageFormView).
-   */
-  embedded?: boolean
-  /** Which form sections to render; see ImageFormViewProps.sections. */
-  sections?: 'all' | 'image' | 'tools'
-  /** Second zone of the merged Environment card in embedded 'image' mode —
-   *  see ImageFormViewProps.agentEnvSlot. */
-  agentEnvSlot?: ReactNode
 }
 
-export function ImageFormContainer({
-  id,
-  embedded = false,
-  sections = 'all',
-  agentEnvSlot,
-}: ImageFormContainerProps) {
+export function ImageFormContainer({ id }: ImageFormContainerProps) {
   const isEdit = id !== undefined
   const navigate = useNavigate()
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -179,9 +162,7 @@ export function ImageFormContainer({
         mcpServers: (saved.mcpServers ?? []).map((m) => m.name),
       })
       setSelectedIndex(nextTools.length > 0 ? 0 : null)
-      if (!embedded) {
-        navigate(`/agent-images/${encodeURIComponent(saved.id)}`, { replace: true })
-      }
+      navigate(`/agent-images/${encodeURIComponent(saved.id)}`, { replace: true })
     } catch (err) {
       if (err instanceof ApiError) setSubmitError(err.message)
       else setSubmitError('Save failed. Please try again.')
@@ -194,9 +175,6 @@ export function ImageFormContainer({
     <ImageFormView
       isEdit={isEdit}
       id={id}
-      embedded={embedded}
-      sections={sections}
-      agentEnvSlot={agentEnvSlot}
       image={image}
       readOnly={isManaged(image?.managedBy)}
       register={register}

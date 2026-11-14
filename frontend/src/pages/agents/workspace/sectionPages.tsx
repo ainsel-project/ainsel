@@ -30,8 +30,9 @@ function RuntimeSection() {
   const agent = useWorkspaceAgent()
   return (
     <SectionPage title="Runtime & env">
-      {/* One grid-gap mechanism for the stacked cards (issue #215); the
-          merged Environment card lives inside AgentImageSection's form. */}
+      {/* One grid-gap mechanism for the stacked cards; each card is a
+          self-contained form with its own save, and none of them edits the
+          shared image — that lives on the image page. */}
       <div className="panel-stack">
         <RuntimeSettings agent={agent} />
         <AgentImageSection agent={agent} />
