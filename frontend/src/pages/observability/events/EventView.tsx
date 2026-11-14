@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { birthChannelPath } from '../../../api/channels'
 import { useConversations } from '../../../api/conversations'
@@ -40,27 +40,6 @@ function formatDuration(ms: number | undefined): string {
 // invocation records are completed by the agent's ack — without polling, a
 // page opened before the run finished would never show them.
 const RUNNING_POLL_MS = 5000
-
-function Kpi({
-  label,
-  children,
-  size = 18,
-}: {
-  label: string
-  children: ReactNode
-  size?: number
-}) {
-  return (
-    <div className="kpi" style={{ cursor: 'default' }}>
-      <div className="hd">
-        <span className="label">{label}</span>
-      </div>
-      <div className="figure" style={{ fontSize: size }}>
-        {children}
-      </div>
-    </div>
-  )
-}
 
 // Explains why a transcript is empty, using the derived run state of the
 // backing agent_tasks row (#195, #422). A queued task means the agent has not
@@ -119,31 +98,45 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
       title={`Invocation ${invocation.id} · ${invocation.agentName ?? invocation.agent}`}
       className="cropped"
     >
-      <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-        <Kpi label="Agent">
-          <EntityLink
-            id={invocation.agentId}
-            known={agentIds}
-            label={invocation.agentName ?? invocation.agent}
-            path={agentPath}
-          />
-        </Kpi>
-        <Kpi label="Trigger">{invocation.triggerName ?? invocation.trigger ?? '—'}</Kpi>
-        <Kpi label="Status">
-          {/* The derived run state: a task with no worker yet reads queued
-              (never running), a live per-task Job run reads running (never
-              queued), and a row with nothing behind it reads unknown. */}
-          <Tag variant={invocationStatusVariant(runState)}>
-            {runState}
-            {queuedDetail}
-          </Tag>
-        </Kpi>
-        <Kpi label="Duration" size={28}>
-          {formatDuration(invocation.durationMs)}
-        </Kpi>
-        <Kpi label="Tokens" size={28}>
-          {tokens > 0 ? tokens : '—'}
-        </Kpi>
+      {/* One compact key/value row, not five full KPI cards — five facts do
+          not need five frames (docs/conventions.md, "Console UI
+          consistency"). */}
+      <div className="info-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+        <div>
+          <div className="k">Agent</div>
+          <div className="v">
+            <EntityLink
+              id={invocation.agentId}
+              known={agentIds}
+              label={invocation.agentName ?? invocation.agent}
+              path={agentPath}
+            />
+          </div>
+        </div>
+        <div>
+          <div className="k">Trigger</div>
+          <div className="v">{invocation.triggerName ?? invocation.trigger ?? '—'}</div>
+        </div>
+        <div>
+          <div className="k">Status</div>
+          <div className="v">
+            {/* The derived run state: a task with no worker yet reads queued
+                (never running), a live per-task Job run reads running (never
+                queued), and a row with nothing behind it reads unknown. */}
+            <Tag variant={invocationStatusVariant(runState)}>
+              {runState}
+              {queuedDetail}
+            </Tag>
+          </div>
+        </div>
+        <div>
+          <div className="k">Duration</div>
+          <div className="v">{formatDuration(invocation.durationMs)}</div>
+        </div>
+        <div>
+          <div className="k">Tokens</div>
+          <div className="v">{tokens > 0 ? tokens : '—'}</div>
+        </div>
       </div>
       <div style={{ marginTop: 16 }}>
         {conversations.isLoading ? (
@@ -268,7 +261,9 @@ export function EventView() {
                 <div className="info-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                   <div>
                     <div className="k">Trigger</div>
-                    <div className="v">Agent</div>
+                  </div>
+                  <div>
+                    <div className="k">Agent</div>
                   </div>
                 </div>
                 {data.matches.map((m, i) => (

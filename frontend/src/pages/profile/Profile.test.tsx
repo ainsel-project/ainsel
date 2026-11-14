@@ -9,7 +9,7 @@ const { authState } = vi.hoisted(() => ({
     mode: 'oidc' as string,
     ready: true,
     token: 'tok',
-    user: { sub: 'user-123', username: 'kim' },
+    user: { sub: 'user-123' as string | undefined, username: 'kim' },
     isAdmin: true,
     login: vi.fn(),
     logout: vi.fn(),
@@ -46,6 +46,7 @@ describe('Profile', () => {
   beforeEach(() => {
     authState.mode = 'oidc'
     authState.token = 'tok'
+    authState.user = { sub: 'user-123', username: 'kim' }
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) => Promise.resolve(defaultFetch(url))),
@@ -209,6 +210,17 @@ describe('Profile', () => {
     expect(screen.getByLabelText('Current password')).toBeInTheDocument()
     expect(screen.getByLabelText('New password')).toBeInTheDocument()
     expect(screen.getByLabelText('Confirm new password')).toBeInTheDocument()
+  })
+
+  it('renders neither the Account nor the Change password panel in no-auth mode', async () => {
+    // Empty panels are not rendered (docs/conventions.md): no identity means
+    // no Account panel, and there is no local password to change.
+    authState.mode = 'none'
+    authState.user = { sub: undefined, username: '' }
+    renderWithProviders(<Profile />, { route: '/profile' })
+    await waitFor(() => expect(screen.getByText('Appearance')).toBeInTheDocument())
+    expect(screen.queryByText('Account')).not.toBeInTheDocument()
+    expect(screen.queryByText('Change password')).not.toBeInTheDocument()
   })
 
   it('shows the server error when the current password is wrong', async () => {

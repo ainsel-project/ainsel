@@ -29,7 +29,6 @@ const SRC = join(__dirname, '..')
 const BASELINE: Record<string, number> = {
   'pages/audit/AuditEvents.tsx': 1,
   'pages/channels/ChannelEditor.tsx': 2,
-  'pages/groups/GroupDetail.tsx': 1,
 }
 
 function walkTsx(dir: string, out: string[] = []): string[] {

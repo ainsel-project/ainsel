@@ -1,4 +1,5 @@
 import { useFieldArray, type Control, type UseFormRegister } from 'react-hook-form'
+import { Button } from '../../primitives/Button'
 import type { ImageFormValues } from './ImageDetail.types'
 
 type ExamplesEditorProps = {
@@ -46,13 +47,9 @@ export function ExamplesEditor({ control, register, toolIndex }: ExamplesEditorP
           </div>
         ))
       )}
-      <button
-        type="button"
-        className="filter-add"
-        onClick={() => append({ title: '', snippet: '' })}
-      >
-        ＋ Add example
-      </button>
+      <Button type="button" size="sm" onClick={() => append({ title: '', snippet: '' })}>
+        + Add example
+      </Button>
     </div>
   )
 }
