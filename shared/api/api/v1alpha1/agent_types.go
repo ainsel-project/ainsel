@@ -312,7 +312,7 @@ func (a *Agent) IsPaused(now time.Time) bool {
 // ChatGPT sign-in rather than an API key. The openAI block only counts when
 // openai is the selected provider.
 func (a *Agent) UsesChatGPTSignIn() bool {
-	return a.Spec.LLM.Provider == "openai" && a.Spec.OpenAI != nil &&
+	return a.Spec.LLM.Provider == AgentLLMProviderOpenAI && a.Spec.OpenAI != nil &&
 		a.Spec.OpenAI.AuthMethod == OpenAIAuthMethodChatGPTSignIn
 }
 
