@@ -4,10 +4,18 @@
 # Use this variant when agents need to build, test, or lint Go code.
 #
 # Build:
-#   docker build --build-arg BASE_TAG=main -t ainsel/ainsel-pi:go -f pi/Dockerfile.go pi/
+#   docker build --build-arg BASE_TAG=main -t ghcr.io/ainsel-project/ainsel-pi-go:go -f pi/Dockerfile.go pi/
+#   docker build --build-arg BASE_IMAGE=<registry>/ainsel-pi --build-arg BASE_TAG=dev \
+#     -t ainsel-pi-go:local -f pi/Dockerfile.go pi/
 
 ARG BASE_TAG=latest
-FROM dpinsel/ainsel-pi:${BASE_TAG}
+# The base image this variant extends. CI always passes it explicitly (derived
+# from the repo owner), so this default only serves a local `docker build` with
+# no arguments. It still points at the Docker Hub mirror because the GHCR
+# packages do not exist until the first release from this pipeline; flip the
+# default to ghcr.io/ainsel-project/ainsel-pi once they do.
+ARG BASE_IMAGE=dpinsel/ainsel-pi
+FROM ${BASE_IMAGE}:${BASE_TAG}
 
 USER root
 

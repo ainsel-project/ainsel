@@ -16,6 +16,14 @@ parsed) across every event/branch combination, and asserts the decision. The
 callers carry no decision of their own, so for them it checks the wiring that
 would bypass it: what they delegate to, and what they forward.
 
+The same runs pin down *where* a published tag goes. Images live in a namespace
+derived from the repo owner (`ghcr.io/<lowercased-owner>/...`), so a fork
+publishes beside its own chart without new variables; `vars.IMAGE_NAMESPACE` and
+the `image_namespace` input override it, and `vars.DOCKERHUB_NAMESPACE` adds a
+Docker Hub mirror of the same build. A hardcoded owner in a workflow would
+silently send a fork's images into the upstream namespace, so every case asserts
+the exact tag set.
+
 Run from the repository root: python3 scripts/test-dev-image-workflows.py
 """
 
@@ -33,7 +41,16 @@ import yaml
 SHA = "0ae751bc1234567890"
 WORKFLOWS = Path(".github/workflows")
 REUSABLE = "dev-image.yml"
-TEST_IMAGE = "dpinsel/ainsel-test"
+# Mixed case on purpose: GHCR namespaces are lowercase, so the derivation has to
+# lowercase the owner and a test that started from a lowercase one would not see
+# it happen.
+REPO_OWNER = "Ainsel-Project"
+DERIVED_NAMESPACE = "ghcr.io/ainsel-project"
+# What the workflows are given as `image_name`: the bare image, no registry.
+TEST_IMAGE_NAME = "ainsel-test"
+TEST_IMAGE = f"{DERIVED_NAMESPACE}/{TEST_IMAGE_NAME}"
+# Repo-level `vars` the metadata steps read, and what they hold when unset.
+REPO_VARS = {"IMAGE_NAMESPACE": "", "DOCKERHUB_NAMESPACE": "", "DOCKERHUB_USERNAME": ""}
 
 # event name, GITHUB_REF, the `publish` dispatch input, expected decision
 CASES = [
@@ -99,12 +116,19 @@ def pr_number(event: str, ref: str) -> str:
 
 
 def run_meta_step(
-    step: dict, event: str, ref: str, publish_input: str, inputs: dict[str, str]
+    step: dict,
+    event: str,
+    ref: str,
+    publish_input: str,
+    inputs: dict[str, str],
+    repo_vars: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Execute a `Compute image metadata` body as the runner would."""
     values = {f"inputs.{k}": v for k, v in inputs.items()}
     values["inputs.publish"] = publish_input
     values["github.event.pull_request.number"] = pr_number(event, ref)
+    for name, value in {**REPO_VARS, **(repo_vars or {})}.items():
+        values[f"vars.{name}"] = value
     script = expand(step["run"], values)
     step_env = {k: expand(str(v), values) for k, v in (step.get("env") or {}).items()}
     ref_name = ref.removeprefix("refs/heads/").removeprefix("refs/pull/")
@@ -116,13 +140,18 @@ def run_meta_step(
             GITHUB_SHA=SHA,
             GITHUB_REF=ref,
             GITHUB_REF_NAME=ref_name,
+            GITHUB_REPOSITORY_OWNER=REPO_OWNER,
             GITHUB_OUTPUT=handle.name,
         )
         subprocess.run(["bash", "-ef", "-c", script], env=env, check=True)
         return parse_github_output(handle.read())
 
 
-def check_workflow(path: Path, inputs: dict[str, str] | None = None) -> list[str]:
+def check_workflow(
+    path: Path,
+    inputs: dict[str, str] | None = None,
+    repo_vars: dict[str, str] | None = None,
+) -> list[str]:
     doc = yaml.safe_load(path.read_text())
     steps = doc["jobs"]["build"]["steps"]
     problems: list[str] = []
@@ -133,8 +162,19 @@ def check_workflow(path: Path, inputs: dict[str, str] | None = None) -> list[str
     login = next((s for s in steps if s.get("name") == "Login to Docker Hub"), None)
     if login is None:
         return [f"{path.name}: no `Login to Docker Hub` step?"]
-    if login.get("if") != "steps.meta.outputs.publish == 'true'":
-        problems.append(f"login is guarded by {login.get('if')!r}, not by the publish output")
+    if "steps.meta.outputs.publish == 'true'" not in str(login.get("if")):
+        problems.append(
+            f"docker hub login is guarded by {login.get('if')!r}, not by the publish output"
+        )
+    # The images go to GHCR now; a run that decides to publish but never logs in
+    # there fails on a 403 that reads like a registry problem.
+    ghcr = next((s for s in steps if s.get("name") == "Login to GHCR"), None)
+    if ghcr is None:
+        problems.append("no `Login to GHCR` step - the derived namespace cannot be pushed to")
+    elif "steps.meta.outputs.publish == 'true'" not in str(ghcr.get("if")):
+        problems.append(
+            f"ghcr login is guarded by {ghcr.get('if')!r}, not by the publish output"
+        )
 
     builds = [s for s in steps if "build-push-action" in str(s.get("uses", ""))]
     if not builds:
@@ -151,33 +191,51 @@ def check_workflow(path: Path, inputs: dict[str, str] | None = None) -> list[str
             problems.append(f"{step.get('name')}: push={push!r} ignores the publish decision")
 
     for event, ref, publish_input, want in CASES:
-        got = run_meta_step(meta, event, ref, publish_input, inputs or {})
+        got = run_meta_step(meta, event, ref, publish_input, inputs or {}, repo_vars)
         if got.get("publish") != want:
             problems.append(
                 f"{event} on {ref} (publish input {publish_input or '(unset)'}) "
                 f"decided publish={got.get('publish')!r}, want {want!r}"
             )
         # :dev is what the dev cluster runs; only the trunk may name it.
-        has_dev = ":dev" in got.get("tags", "")
+        has_dev = any(line.endswith(":dev") for line in got.get("tags", "").splitlines())
         if has_dev != (ref == "refs/heads/main"):
             problems.append(f"{event} on {ref}: :dev in tags = {has_dev}")
         if path.name == "dev-image-pi.yml":
-            problems += check_pi_variants(got, ref, problems)
+            problems += check_pi_variants(got, ref, problems, repo_vars)
             problems += check_pi_base(got, event, ref)
         if path.name == REUSABLE:
-            problems += check_reusable_outputs(got, event, ref, inputs or {})
+            problems += check_reusable_outputs(got, event, ref, inputs or {}, repo_vars)
     return problems
 
 
+def image_namespace(inputs: dict[str, str], repo_vars: dict[str, str] | None) -> str:
+    """The registry/owner a build publishes under, in precedence order."""
+    return (
+        inputs.get("image_namespace")
+        or (repo_vars or {}).get("IMAGE_NAMESPACE")
+        or DERIVED_NAMESPACE
+    )
+
+
 def check_reusable_outputs(
-    got: dict[str, str], event: str, ref: str, inputs: dict[str, str]
+    got: dict[str, str],
+    event: str,
+    ref: str,
+    inputs: dict[str, str],
+    repo_vars: dict[str, str] | None = None,
 ) -> list[str]:
     """The shared workflow names exactly the caller's image, and stamps the build."""
     problems: list[str] = []
     short = SHA[:7]
-    want_tags = {f"{TEST_IMAGE}:{short}"}
+    namespace = image_namespace(inputs, repo_vars)
+    images = [f"{namespace}/{TEST_IMAGE_NAME}"]
+    mirror = (repo_vars or {}).get("DOCKERHUB_NAMESPACE") or ""
+    if mirror:
+        images.append(f"{mirror}/{TEST_IMAGE_NAME}")
+    want_tags = {f"{img}:{short}" for img in images}
     if ref == "refs/heads/main":
-        want_tags.add(f"{TEST_IMAGE}:dev")
+        want_tags |= {f"{img}:dev" for img in images}
     got_tags = set(got.get("tags", "").splitlines())
     if got_tags != want_tags:
         problems.append(f"{event} on {ref}: tags {sorted(got_tags)}, want {sorted(want_tags)}")
@@ -206,7 +264,25 @@ def check_reusable_workflow() -> list[str]:
         return [f"{REUSABLE} is gone - every dev-image caller delegates to it"]
     problems: list[str] = []
     for stamp in ("true", "false"):
-        problems += check_workflow(path, {"image_name": TEST_IMAGE, "stamp_version": stamp})
+        problems += check_workflow(path, {"image_name": TEST_IMAGE_NAME, "image_namespace": "", "stamp_version": stamp})
+
+    # Where the tags land. The derived namespace is what a fork gets for free;
+    # the overrides are what a custom registry and a Docker Hub mirror need, and
+    # each of them has to reach every tag rather than some of them.
+    problems += check_workflow(
+        path,
+        {"image_name": TEST_IMAGE_NAME, "image_namespace": "", "stamp_version": "true"},
+        {"IMAGE_NAMESPACE": "registry.example.com/team"},
+    )
+    problems += check_workflow(
+        path,
+        {"image_name": TEST_IMAGE_NAME, "image_namespace": "ghcr.io/acme", "stamp_version": "true"},
+    )
+    problems += check_workflow(
+        path,
+        {"image_name": TEST_IMAGE_NAME, "image_namespace": "", "stamp_version": "true"},
+        {"DOCKERHUB_NAMESPACE": "dpinsel"},
+    )
 
     doc = yaml.safe_load(path.read_text())
     if set(doc[True]) != {"workflow_call"}:
@@ -250,8 +326,20 @@ def check_caller(path: Path) -> list[str]:
             "`${{ inputs.publish == true }}`, nothing else"
         )
     image = str(with_.get("image_name", ""))
-    if not image.startswith("dpinsel/ainsel-"):
-        problems.append(f"image_name={image!r} is outside the dpinsel/ainsel-* namespace")
+    # The callers name the image, not the registry: the namespace is derived once
+    # in the shared workflow, so a fork (or a rename of this project) cannot be
+    # missed by one of them.
+    if "/" in image or not image.startswith("ainsel-"):
+        problems.append(
+            f"image_name={image!r} - pass the bare image name (e.g. ainsel-hub-backend); "
+            "the registry comes from the namespace the shared workflow derives"
+        )
+    perms = doc.get("permissions") or {}
+    if perms.get("packages") != "write":
+        problems.append(
+            f"permissions packages={perms.get('packages')!r} - a called workflow cannot "
+            "escalate, so pushing to GHCR needs `packages: write` here"
+        )
     dockerfile = str(with_.get("dockerfile", ""))
     if not Path(dockerfile).is_file():
         problems.append(f"dockerfile={dockerfile!r} does not exist")
@@ -291,7 +379,12 @@ def check_pi_base(got: dict[str, str], event: str, ref: str) -> list[str]:
     return []
 
 
-def check_pi_variants(got: dict[str, str], ref: str, seen: list[str]) -> list[str]:
+def check_pi_variants(
+    got: dict[str, str],
+    ref: str,
+    seen: list[str],
+    repo_vars: dict[str, str] | None = None,
+) -> list[str]:
     """The pi variants must never publish a per-build tag, and must build on the
     base produced by this same run."""
     problems: list[str] = []
@@ -302,7 +395,15 @@ def check_pi_variants(got: dict[str, str], ref: str, seen: list[str]) -> list[st
             "~3 GB of provenance nothing pulls, and 88 GB of the registry"
         )
     published = got.get("publish_variants") == "true"
-    floats = {"dpinsel/ainsel-pi-go:1.24", "dpinsel/ainsel-pi-maui:8.0"}
+    namespace = image_namespace({}, repo_vars)
+    images = [namespace]
+    if (repo_vars or {}).get("DOCKERHUB_NAMESPACE"):
+        images.append(repo_vars["DOCKERHUB_NAMESPACE"])
+    floats = {
+        f"{ns}/ainsel-pi-{variant}:{float_tag}"
+        for ns in images
+        for variant, float_tag in (("go", "1.24"), ("maui", "8.0"))
+    }
     if published and set(variants.splitlines()) != floats:
         problems.append(f"{ref}: publish_variants=true but tags are {variants!r}")
     if not published and "local-check" not in variants:
@@ -335,6 +436,12 @@ def check_pi_workflow() -> list[str]:
                 f"{name}: build-args={args!r} - the base must come from the same step "
                 "that decides whether it was published, not a hardcoded tag"
             )
+        if "BASE_IMAGE=${{ steps.meta.outputs.base_image }}" not in args:
+            problems.append(
+                f"{name}: build-args={args!r} - the base image must come from the "
+                "metadata step too, or the variant follows whatever registry the "
+                "Dockerfile defaults to instead of the one this run publishes to"
+            )
     return problems
 
 
@@ -348,6 +455,7 @@ def main() -> int:
     for path in sorted(WORKFLOWS.glob("dev-image-*.yml")):
         if path.name == "dev-image-pi.yml":
             problems = check_workflow(path) + check_pi_workflow()
+            problems += check_workflow(path, {}, {"DOCKERHUB_NAMESPACE": "dpinsel"})
             results.append((path.name, problems, f"publish gate holds for {len(CASES)} event/branch cases"))
         else:
             results.append((path.name, check_caller(path), f"delegates to {REUSABLE}"))
