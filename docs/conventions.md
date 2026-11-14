@@ -269,6 +269,32 @@ one Go method + wildcard pattern per endpoint (issue #265):
   100vh; min-height: 100dvh`). `vh` alone is the *largest* viewport on mobile
   browsers, so the URL bar covers the bottom of the page.
 
+#### Console UI consistency
+
+Five rules. None of them is a bug on its own; together they are what makes
+the console read as one product rather than as one page.
+
+- **One primary action per title block.** A page's main action is a
+  `Button variant="primary"` passed to `Titleblock`'s `actions` — not a plain
+  button somewhere in the page body, and not missing. Pages whose action
+  opens a create form toggle it from there.
+- **Page name = nav label = breadcrumb leaf.** The Spine entry, the
+  `Titleblock` title, and the last breadcrumb crumb are the same string, and
+  they agree with the route: `/settings/mcp-servers` is "MCP Servers" in all
+  three places. A second title block under the page's own is deleted, not
+  renamed.
+- **Hints are sentence-case body text; labels are mono caps.** Explanatory
+  prose uses `className="hint"` (`frontend/src/design/base.css`). `.label` is
+  uppercase, letter-spaced mono — right for short field labels and table
+  headers, unreadable for a paragraph.
+- **No native form controls in pages.** Pages compose the primitives
+  (`Select`, `Input`, `Autocomplete`, …); a raw `<select>` beside a custom
+  control is exactly the inconsistency this rule exists for.
+  `frontend/src/design/controls.guard.test.ts` ratchets the residue.
+- **Empty panels are not rendered.** A panel with nothing to show — no
+  identity in no-auth mode, no data, an action that cannot succeed in this
+  mode — is not rendered at all. An empty frame is worse than no frame.
+
 ### Helm
 
 - `helm lint chart/` must pass.
