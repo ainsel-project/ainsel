@@ -561,24 +561,34 @@ func (s *Server) requireGroupOwner(w http.ResponseWriter, r *http.Request, group
 	return true
 }
 
-// requireGroupWrite checks that the authenticated user can create resources
-// in the given group (writer or owner, or admin).
-func (s *Server) requireGroupWrite(w http.ResponseWriter, r *http.Request, groupID string) bool {
+// checkGroupWrite is the error-returning twin of requireGroupWrite: it reports
+// the same three failures as *apiError values and writes nothing, so it can run
+// inside a validation pipeline that must not touch the response. requireGroupWrite
+// is the wrapper for handlers that respond directly; the remaining guards
+// migrate to this shape the same way.
+func (s *Server) checkGroupWrite(r *http.Request, groupID string) error {
 	if s.authzChecker == nil {
-		return true
+		return nil // authz not configured (dev mode)
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return false
+		return newAPIError(http.StatusUnauthorized, "unauthorized")
 	}
 	ok, err := s.authzChecker.CanWriteGroup(r.Context(), u.Sub, groupID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return false
+		return wrapAPIError(http.StatusInternalServerError, err.Error(), err)
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "writer or owner of the group required")
+		return newAPIError(http.StatusForbidden, "writer or owner of the group required")
+	}
+	return nil
+}
+
+// requireGroupWrite checks that the authenticated user can create resources
+// in the given group (writer or owner, or admin).
+func (s *Server) requireGroupWrite(w http.ResponseWriter, r *http.Request, groupID string) bool {
+	if err := s.checkGroupWrite(r, groupID); err != nil {
+		writeErr(w, err)
 		return false
 	}
 	return true
