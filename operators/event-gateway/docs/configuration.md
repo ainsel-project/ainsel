@@ -6,9 +6,9 @@ The ainsel-k8s-event-source-gateway-operator is configured via the ainsel-chart 
 
 | Helm Value | Description |
 |------------|-------------|
-| `connectorOperator.image.repository` | Container image repository |
-| `connectorOperator.image.tag` | Container image tag |
-| `connectorOperator.resources` | CPU/memory requests and limits |
+| `eventGatewayOperator.image.repository` | Container image repository |
+| `eventGatewayOperator.image.tag` | Container image tag |
+| `eventGatewayOperator.resources` | CPU/memory requests and limits |
 
 ## WebhookConnector CRD Configuration
 

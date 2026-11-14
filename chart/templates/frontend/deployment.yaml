@@ -1,68 +1,68 @@
-{{- if .Values.ui.enabled }}
+{{- if .Values.frontend.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hub-frontend
+  name: frontend
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-frontend
+    app.kubernetes.io/component: frontend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: ainsel-hub-frontend
+      app.kubernetes.io/name: ainsel-frontend
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ainsel-hub-frontend
+        app.kubernetes.io/name: ainsel-frontend
         app.kubernetes.io/instance: {{ .Release.Name }}
-        app.kubernetes.io/component: hub-frontend
-        {{- with .Values.ui.podLabels }}
+        app.kubernetes.io/component: frontend
+        {{- with .Values.frontend.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.ui.podAnnotations }}
+      {{- with .Values.frontend.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      {{- with .Values.ui.imagePullSecrets }}
+      {{- with .Values.frontend.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.ui.podSecurityContext }}
+      {{- with .Values.frontend.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.ui.nodeSelector }}
+      {{- with .Values.frontend.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.ui.affinity }}
+      {{- with .Values.frontend.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.ui.tolerations }}
+      {{- with .Values.frontend.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.ui.priorityClassName }}
-      priorityClassName: {{ .Values.ui.priorityClassName }}
+      {{- if .Values.frontend.priorityClassName }}
+      priorityClassName: {{ .Values.frontend.priorityClassName }}
       {{- end }}
       containers:
-        - name: hub-frontend
-          image: "{{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag }}"
-          imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
-          {{- with .Values.ui.securityContext }}
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          {{- with .Values.frontend.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           env:
             - name: BACKEND_HOST
-              value: hub-backend.{{ .Values.namespace }}.svc.cluster.local
+              value: hub.{{ .Values.namespace }}.svc.cluster.local
             - name: BASE_PATH
-              value: {{ .Values.ui.basePath | default "" | quote }}
+              value: {{ .Values.frontend.basePath | default "" | quote }}
             {{- if .Values.auth.mode }}
             - name: AUTH_MODE
               value: {{ .Values.auth.mode | quote }}
@@ -81,7 +81,7 @@ spec:
             - name: OIDC_PROJECT_ID
               value: {{ .Values.auth.oidcProjectId | quote }}
             {{- end }}
-            {{- with .Values.ui.extraEnv }}
+            {{- with .Values.frontend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           ports:
@@ -89,8 +89,8 @@ spec:
               containerPort: 80
               protocol: TCP
           resources:
-            {{- toYaml .Values.ui.resources | nindent 12 }}
-          {{- with .Values.ui.extraVolumeMounts }}
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          {{- with .Values.frontend.extraVolumeMounts }}
           volumeMounts:
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -106,7 +106,7 @@ spec:
               port: http
             initialDelaySeconds: 3
             periodSeconds: 10
-      {{- with .Values.ui.extraVolumes }}
+      {{- with .Values.frontend.extraVolumes }}
       volumes:
         {{- toYaml . | nindent 8 }}
       {{- end }}

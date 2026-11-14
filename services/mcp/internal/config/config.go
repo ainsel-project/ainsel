@@ -41,7 +41,7 @@ func Load() Config {
 		OIDCScopes:             envStr("OIDC_SCOPES", ""),
 		OIDCSigningAlgs:        oidcCfg.SigningAlgs,
 		MCPResourceURL:         envStr("MCP_RESOURCE_URL", ""),
-		HubURL:                 envStr("HUB_URL", "http://hub-backend.ainsel.svc.cluster.local:8080"),
+		HubURL:                 envStr("HUB_URL", "http://hub.ainsel.svc.cluster.local:8080"),
 		InternalValidateSecret: envStr("INTERNAL_VALIDATE_SECRET", ""),
 		PluginToolsPollInterval: envDuration("PLUGIN_TOOLS_POLL_INTERVAL",
 			tools.DefaultPluginToolsPollInterval),

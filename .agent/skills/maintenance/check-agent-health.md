@@ -51,7 +51,7 @@ kubectl get agents -n <namespace>
 Getting an API session:
 
 ```bash
-kubectl port-forward -n <namespace> svc/hub-backend 8080:8080 &
+kubectl port-forward -n <namespace> svc/hub 8080:8080 &
 # auth.mode: oidc|local → bearer token; the quickstart overlay (auth.mode: none) answers unauthenticated
 ```
 
@@ -139,8 +139,8 @@ triggered the run — treat them as sensitive, redact before pasting into issues
 | Symptom | Likely layer | Go look with |
 |---|---|---|
 | `lastInvocation` old, no tasks, events `unmatched` | not the agent — trigger filters / connector | `GET /api/v1/events?status=unmatched`; `kubectl describe webhookconnector -n <namespace>` |
-| Events arrive, no task for this agent | trigger/bridge/permission scope | hub log (`deploy/hub-backend`) lines for that event id |
-| `pendingTasks > 0`, no Jobs | operator | `kubectl logs deploy/k8s-ai-agent-operator --tail=200`, `describe agent` |
+| Events arrive, no task for this agent | trigger/bridge/permission scope | hub log (`deploy/hub`) lines for that event id |
+| `pendingTasks > 0`, no Jobs | operator | `kubectl logs deploy/agent-operator --tail=200`, `describe agent` |
 | Job exists, pod `Pending` | scheduling / capacity | `kubectl describe pod` events (`Insufficient cpu`) |
 | `ImagePullBackOff` | registry / pull secret | pod events; the `AgentImage`'s image reference |
 | `CrashLoopBackOff` in `agent`, message like `api-key secret not found` | credentials | secret `<agent>-<provider>-key`, key `api-key` |
@@ -158,8 +158,8 @@ triggered the run — treat them as sensitive, redact before pasting into issues
 kubectl delete job -n <namespace> task-<agent>-<taskID>
 
 # Restart a control-plane component after fixing its config
-kubectl rollout restart -n <namespace> deploy/hub-backend
-kubectl rollout status  -n <namespace> deploy/hub-backend
+kubectl rollout restart -n <namespace> deploy/hub
+kubectl rollout status  -n <namespace> deploy/hub
 ```
 
 Never delete a Job as "cleanup" while investigating: it is often the only
@@ -190,8 +190,8 @@ that is what keeps the next reader from re-running the whole skill.
 | "The agent has no pods" treated as an outage | Idle agents are scaled to 0 by design | Check `lastInvocation` / `pendingTasks` first |
 | Reading `kubectl get pods` only | Task pods live and die per task | Read Jobs (`-l ainsel.dev/agent=`) and hub records |
 | Arriving a day late and finding nothing | Job TTL is 1 h, `task_logs` retains 7 days | Capture logs into a file as soon as you find the failing Job |
-| `kubectl exec deploy/hub-backend -- curl ...` | The Go images are distroless — no shell, no curl | `kubectl port-forward svc/hub-backend`, or `kubectl run curl-test --image=curlimages/curl` |
-| Reading stale docs' resource names | Older text uses `deploy/ainsel-hub`, `deploy/ainsel-agent-operator` | The chart ships `hub-backend`, `hub-frontend`, `k8s-ai-agent-operator`, `k8s-event-source-gateway-operator`, `ainsel-mcp` |
+| `kubectl exec deploy/hub -- curl ...` | The Go images are distroless — no shell, no curl | `kubectl port-forward svc/hub`, or `kubectl run curl-test --image=curlimages/curl` |
+| Reading stale docs' resource names | Older text uses `deploy/ainsel-hub`, `deploy/hub-backend`, `deploy/k8s-ai-agent-operator` | The chart ships `hub`, `frontend`, `agent-operator`, `event-gateway-operator`, `ainsel-mcp` |
 | `app=<agent>` in the logs API treated as a Kubernetes label | It filters `task_logs.agent_name` | Pass the agent name |
 | Debugging the agent because it is the thing that errored | `unmatched` events and connector failures surface as "agent did nothing" | Step 1's `events` check before anything else |
 | Pasting raw task logs into an issue | They quote the triggering payload | Redact first |

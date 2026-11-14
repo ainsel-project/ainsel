@@ -64,10 +64,10 @@ only** — the hub ingress publishes `/api/v1/*` and deliberately does not expos
 ```bash
 # From inside the cluster
 kubectl run curl-test -n ainsel --rm -it --image=curlimages/curl --restart=Never -- \
-  curl -s http://hub-backend:8080/health
+  curl -s http://hub:8080/health
 
 # Or via port-forward
-kubectl port-forward -n ainsel svc/hub-backend 8080:8080 &
+kubectl port-forward -n ainsel svc/hub 8080:8080 &
 curl http://localhost:8080/health
 ```
 
@@ -1751,7 +1751,7 @@ spec:
       secret: true
   mcpServers:
     - name: ainsel-skills
-      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/skills/mcp
+      url: http://hub.<namespace>.svc.cluster.local:8080/api/internal/skills/mcp
       tokenFromEnv: SKILLS_MCP_TOKEN
 ```
 

@@ -34,7 +34,7 @@ belongs to, which is what links a log line to an event (see
 
 The hub's own process log — startup, routing decisions, `activity_event` lines —
 goes to stdout as JSON and is yours to collect with whatever the cluster already
-runs (`kubectl logs deploy/hub-backend`, or a log pipeline). It is not served by
+runs (`kubectl logs deploy/hub`, or a log pipeline). It is not served by
 this endpoint.
 
 ## Event detail & conversation transcript

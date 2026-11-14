@@ -23,7 +23,7 @@ out-of-chart deployment has to set them by hand.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CONNECTOR_IMAGE_WEBHOOK` | _(unset)_ | Default image for webhook connectors, accepted as `repository[:tag][@digest]`. **Required for creating webhook connectors** — creating one without it fails with `CONNECTOR_IMAGE_WEBHOOK not configured`. The hub does not pull this image itself: it parses the value into a new connector's `spec.image.{repository,tag,digest}`, and the event-gateway operator composes the container reference from those fields. The chart manages it from `hub.connectorImages.webhook.{repository,tag,digest}` (always set, so the error is only reachable for non-chart deployments). |
-| `PLATFORM_EXTERNAL_URL` | _(unset)_ | Externally-reachable platform base URL. The hub uses it to build the webhook delivery URL it reports for a connector — `<PLATFORM_EXTERNAL_URL>/webhooks/<connector-name>` (one trailing `/` is trimmed) — the URL operators register at the git host. The chart derives it from `hub.platformExternalUrl`, falling back to `https://<hub.ingress.host><ui.basePath>`. |
+| `PLATFORM_EXTERNAL_URL` | _(unset)_ | Externally-reachable platform base URL. The hub uses it to build the webhook delivery URL it reports for a connector — `<PLATFORM_EXTERNAL_URL>/webhooks/<connector-name>` (one trailing `/` is trimmed) — the URL operators register at the git host. The chart derives it from `hub.platformExternalUrl`, falling back to `https://<hub.ingress.host><frontend.basePath>`. |
 
 `CONNECTOR_IMAGE_WEBHOOK` parsing rules:
 
@@ -167,6 +167,6 @@ additionally needs read access to `Trigger` and `CronTrigger` CRDs in
 `hub migrate-skills-shape` (see
 [Migrating the skills wrapper to a list](../../../docs/upgrade-guide.md#migrating-the-skills-wrapper-to-a-list))
 needs `get`/`list`/`patch` on `ainsel.dev/agents` in the namespace it migrates —
-which the `hub-backend` ServiceAccount already has, so the chart's hook Job needs no
+which the `hub` ServiceAccount already has, so the chart's hook Job needs no
 extra grants. It reads `spec.skills` as unstructured JSON, so it works on objects the
 hub itself cannot decode; it needs no database access at all.

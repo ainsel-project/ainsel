@@ -17,7 +17,7 @@ import (
 // skillMCPPath serves a read-only MCP view of the whole skill catalogue.
 //
 // It lives under /api/internal/ on purpose. The hub publishes only
-// /api/v1/* through its ingress (chart/templates/hub-backend/ingress.yaml
+// /api/v1/* through its ingress (chart/templates/hub/ingress.yaml
 // restricts the capture group to `v1` for exactly that reason), and
 // serveHTTPInner runs the user-auth middleware only for /api/v1/* paths.
 // So this endpoint is unreachable from outside the cluster and is not
