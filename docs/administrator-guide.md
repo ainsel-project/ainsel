@@ -605,7 +605,8 @@ Choose **OpenAI** as the provider and **Sign in with ChatGPT** under *How to
 authenticate*, save, then click **Sign in with ChatGPT** on the agent page:
 
 1. AInsel starts a short sign-in pod for the agent (after any running task
-   finishes) and shows OpenAI's sign-in link.
+   finishes) and shows OpenAI's sign-in link. You then have 10 minutes to
+   sign in and paste the address.
 2. Sign in with your ChatGPT account. The browser then lands on a page at
    `http://127.0.0.1:1455/auth/callback?...` that does not load. That is
    expected.
@@ -642,7 +643,8 @@ What to know:
   authorization error.
 - **Revoking.** Each agent signs in as its own app, shown as *AInsel
   &lt;agent name&gt;*, and can be revoked on its own in your ChatGPT settings. Switching the agent
-  back to an API key deletes its credential volume and the sign-in with it.
+  back to an API key deletes its credential volume and the sign-in with it, and
+  stops a sign-in that is still in progress.
 - **Terms.** OpenAI lets open-source, self-hosted apps use Sign in with ChatGPT
   without approval; paid or remotely hosted apps go through OpenAI's
   [interest form](https://openai.com/form/sign-in-with-chatgpt-interest/).
