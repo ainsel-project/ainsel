@@ -11,15 +11,10 @@ const PASTED = "http://127.0.0.1:1455/auth/callback?code=c&state=s";
 
 // stubHub answers the sign-in pod's three internal calls. redirectAfter is
 // how many polls return 204 before the pasted URL appears; gone makes every
-// redirect poll answer 410; unavailable makes that many first calls answer
-// 503, as a restarting hub behind its Service does.
-async function stubHub({ redirectAfter = 1, gone = false, unavailable = 0 } = {}) {
-	const seen = { authUrl: null, result: null, polls: 0, tokens: [], refused: 0 };
+// redirect poll answer 410.
+async function stubHub({ redirectAfter = 1, gone = false } = {}) {
+	const seen = { authUrl: null, result: null, polls: 0, tokens: [] };
 	const server = createServer(async (req, res) => {
-		if (seen.refused < unavailable) {
-			seen.refused++;
-			return res.writeHead(503).end();
-		}
 		seen.tokens.push(req.headers["x-internal-token"]);
 		seen.podTokens = [...(seen.podTokens ?? []), req.headers["x-sign-in-token"]];
 		let body = "";
@@ -220,23 +215,73 @@ test("a successful login exits 0 even if the hub has closed the session", async 
 	}
 });
 
+// refusing wraps fetch so the first n calls fail the way a restarting hub
+// behind its Service does: the connection is refused, nothing was sent.
+function refusing(n) {
+	let left = n;
+	return (url, init) => {
+		if (left-- > 0) return Promise.reject(new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } }));
+		return fetch(url, init);
+	};
+}
+
+function client(hub, extra = {}) {
+	return hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1", sleep: async () => {}, ...extra });
+}
+
 test("rides out a hub restart instead of failing the sign-in", async () => {
-	const { hub, rt, opts } = await setup({ unavailable: 3 });
-	opts.hub = hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1", sleep: async () => {} });
+	const { hub, rt, opts } = await setup();
+	opts.hub = client(hub, { fetch: refusing(3) });
 	try {
 		assert.equal(await runSignIn(opts), 0);
 		assert.equal(rt.calls.pasted, PASTED);
-		assert.equal(hub.seen.refused, 3);
 	} finally {
 		await hub.close();
 	}
 });
 
 test("gives up on a hub that stays away", async () => {
-	const { hub, opts } = await setup({ unavailable: 1000 });
-	opts.hub = hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1", sleep: async () => {} });
+	const { hub, opts } = await setup();
+	opts.hub = client(hub, { fetch: refusing(1000) });
 	try {
 		assert.equal(await runSignIn(opts), 1);
+	} finally {
+		await hub.close();
+	}
+});
+
+test("does not retry a redirect poll whose answer may have been lost", async () => {
+	// The hub hands the address out once. A 5xx (or a timeout) may come
+	// after it did: a retry would see nothing pasted and wait for nothing.
+	const { hub, opts } = await setup({ redirectAfter: 0 });
+	let polls = 0;
+	opts.hub = client(hub, {
+		fetch: (url, init) => {
+			if (String(url).endsWith("/redirect") && polls++ === 0) return Promise.resolve(new Response(null, { status: 502 }));
+			return fetch(url, init);
+		},
+	});
+	try {
+		assert.equal(await runSignIn(opts), 1);
+		assert.equal(polls, 1, "the poll was retried");
+		assert.equal(hub.seen.result?.ok, false, "the failure reaches the console at once");
+	} finally {
+		await hub.close();
+	}
+});
+
+test("retries the result report, which is safe to repeat", async () => {
+	const { hub, opts } = await setup();
+	let failures = 2;
+	opts.hub = client(hub, {
+		fetch: (url, init) => {
+			if (String(url).endsWith("/result") && failures-- > 0) return Promise.resolve(new Response(null, { status: 503 }));
+			return fetch(url, init);
+		},
+	});
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.deepEqual(hub.seen.result, { ok: true });
 	} finally {
 		await hub.close();
 	}

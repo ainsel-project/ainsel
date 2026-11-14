@@ -329,7 +329,8 @@ the internal token):
 `POST /api/internal/agents/{name}/chatgpt-sign-in/{session}/auth-url` (`{"url"}`, must start
 with `https://auth.openai.com/`), `GET …/redirect` (`204` until pasted, then `200` once,
 `410` once the session has ended) and `POST …/result` (`{"ok", "error"}`). The pod retries
-these for about a minute while the hub is unreachable or answers `5xx`. An exchange
+a call for about a minute while the hub refuses connections (a restart); only the result
+post, which is safe to repeat, is also retried on a timeout or `5xx`. An exchange
 that has started is not cancelled and may finish after the session's 10 minutes.
 
 ### GET /api/v1/agents/{name}/persona
