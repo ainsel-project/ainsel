@@ -12,11 +12,24 @@ import { AUTH_PATH, EXIT_SIGN_IN_REQUIRED, classify, describe, loadPi } from "./
 // Waits between the three attempts: a blip should not cost a sign-in.
 const RETRY_WAITS_MS = [2000, 5000];
 
-export async function runCheck({ ModelRuntime, authPath = AUTH_PATH, log = console.error, sleep = delay }) {
+// Forced refresh (the keep-alive): Pi refreshes only a token that expires
+// within minOAuthValidityMs. Asking for more validity than any token has makes
+// it refresh now; it saves the new credential and only then reports that even
+// the new token "expires too soon", which therefore means "refreshed".
+const FORCE_VALIDITY_MS = 10 * 365 * 24 * 3600 * 1000;
+const REFRESHED_TOO_SOON = /refresh returned a token that expires too soon/;
+
+function causeMatches(error, re) {
+	for (let e = error; e; e = e.cause) if (re.test(e instanceof Error ? e.message : String(e))) return true;
+	return false;
+}
+
+export async function runCheck({ ModelRuntime, authPath = AUTH_PATH, forceRefresh = false, log = console.error, sleep = delay }) {
 	const runtime = await ModelRuntime.create({ authPath, allowModelNetwork: false });
+	const overrides = forceRefresh ? { minOAuthValidityMs: FORCE_VALIDITY_MS } : undefined;
 	for (let attempt = 0; ; attempt++) {
 		try {
-			const auth = await runtime.getAuth("openai");
+			const auth = await runtime.getAuth("openai", overrides);
 			if (!auth) {
 				log("chatgpt-auth: no ChatGPT sign-in stored; sign in from the agent page");
 				return EXIT_SIGN_IN_REQUIRED;
@@ -24,6 +37,10 @@ export async function runCheck({ ModelRuntime, authPath = AUTH_PATH, log = conso
 			log("chatgpt-auth: ChatGPT sign-in ok");
 			return 0;
 		} catch (error) {
+			if (forceRefresh && causeMatches(error, REFRESHED_TOO_SOON)) {
+				log("chatgpt-auth: ChatGPT sign-in refreshed");
+				return 0;
+			}
 			if (classify(error) === "signin-required") {
 				log(`chatgpt-auth: ChatGPT sign-in no longer valid: ${describe(error)}`);
 				return EXIT_SIGN_IN_REQUIRED;
@@ -40,5 +57,7 @@ export async function runCheck({ ModelRuntime, authPath = AUTH_PATH, log = conso
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 	const { ModelRuntime } = await loadPi();
-	process.exit(await runCheck({ ModelRuntime }));
+	// The keep-alive Job sets AINSEL_FORCE_REFRESH so the refresh token is
+	// actually used; a task's pre-check refreshes only when needed.
+	process.exit(await runCheck({ ModelRuntime, forceRefresh: process.env.AINSEL_FORCE_REFRESH === "1" }));
 }

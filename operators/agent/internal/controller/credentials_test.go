@@ -775,3 +775,50 @@ func TestCompletedTaskJobUpdatesLastVerified(t *testing.T) {
 		t.Fatalf("lastVerifiedAt = %v, want the task's completion %v", s.LastVerifiedAt, at)
 	}
 }
+
+func TestKeepAliveJobForcesRefresh(t *testing.T) {
+	j := buildKeepAliveJob(signedIn(signInJobModeAgent(), time.Now()), jobModeDeployment(), time.Now())
+	found := false
+	for _, e := range j.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "AINSEL_FORCE_REFRESH" && e.Value == "1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("keep-alive does not force a refresh; it would only read the stored token")
+	}
+}
+
+// A keep-alive tried this hour (and failed for an ordinary reason) is not
+// re-created every pass: no create call, no "checking" message, no 10 s loop.
+func TestFailedKeepAliveDoesNotLoop(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(), time.Now().Add(-25*time.Hour))
+	failed := buildKeepAliveJob(agent, jobModeDeployment(), time.Now())
+	failed.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"}}
+	scheme := jobModeScheme()
+	creates := 0
+	c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(agent, jobModeDeployment(), failed).
+		WithInterceptorFuncs(interceptor.Funcs{Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			creates++
+			return cl.Create(ctx, obj, opts...)
+		}}).Build()
+	r := &AgentReconciler{Client: c, Scheme: scheme, SignInKeepAliveInterval: 24 * time.Hour}
+	decision, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creates != 0 {
+		t.Errorf("create calls = %d, want 0 while this hour's keep-alive already ran", creates)
+	}
+	if strings.Contains(decision.Message, "checking") || decision.RequeueAfter == taskJobDispatchPoll {
+		t.Errorf("decision = %+v, want neither a checking message nor a 10 s requeue", decision)
+	}
+}
+
+func TestKeepAliveIntervalProblem(t *testing.T) {
+	for d, bad := range map[time.Duration]bool{0: false, time.Hour: false, 24 * time.Hour: false, 30 * time.Minute: true, -time.Hour: true} {
+		if got := KeepAliveIntervalProblem(d) != ""; got != bad {
+			t.Errorf("KeepAliveIntervalProblem(%s) problem=%v, want %v", d, got, bad)
+		}
+	}
+}

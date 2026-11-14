@@ -626,8 +626,11 @@ What to know:
 - **Staying signed in.** Every task checks the sign-in before it runs and
   refreshes the token when needed. An agent that runs nothing for a while gets a
   short keep-alive check instead, once its sign-in has gone unverified for
-  `agentOperator.signInKeepAliveInterval` (default `24h`, `0` turns it off). It
-  runs only when nothing else uses the agent's volume and no task is queued.
+  `agentOperator.signInKeepAliveInterval` (default `24h`; at least `1h`, or `0`
+  to turn it off). The check forces a token refresh, so the refresh token is
+  really used. It runs only when nothing else uses the agent's volume and no task
+  is queued, and an attempt that fails for an ordinary reason (network, OpenAI
+  down) is tried again at most once an hour.
   OpenAI does not document how long an unused refresh token lives, which is why
   this exists and why the interval is a setting.
 - **When the sign-in dies.** Each task first checks the sign-in and refreshes

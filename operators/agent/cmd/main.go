@@ -199,6 +199,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if msg := controller.KeepAliveIntervalProblem(signInKeepAlive); msg != "" {
+		setupLog.Error(nil, msg)
+		os.Exit(1)
+	}
+
 	credentialSize, err := resource.ParseQuantity(credentialVolumeSize)
 	if err != nil {
 		setupLog.Error(err, "Invalid --credential-volume-size", "value", credentialVolumeSize)

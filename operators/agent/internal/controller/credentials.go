@@ -432,6 +432,16 @@ func keepAliveDue(agent *ainselv1alpha1.Agent, now time.Time, interval time.Dura
 	return now.Sub(last) >= interval
 }
 
+// KeepAliveIntervalProblem rejects an interval the keep-alive cannot honour:
+// it runs at most once per hour (see keepAliveJobName), so anything shorter
+// would only keep it busy. Zero disables it.
+func KeepAliveIntervalProblem(d time.Duration) string {
+	if d < 0 || (d > 0 && d < time.Hour) {
+		return fmt.Sprintf("sign-in keep-alive interval %s: use 0 (off) or at least 1h", d)
+	}
+	return ""
+}
+
 // keepAliveJobName is fixed per agent and hour, so a keep-alive that failed
 // for an ordinary reason (network, OpenAI down) is tried again at most hourly
 // rather than in a loop.
@@ -447,7 +457,10 @@ func keepAliveJobName(agentName string, now time.Time) string {
 // buildKeepAliveJob renders the keep-alive Job: the check script, no hub
 // access, and the sign-in failure rule so a dead sign-in fails it outright.
 func buildKeepAliveJob(agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, now time.Time) *batchv1.Job {
-	job := credentialPodJob(agent, deploy, keepAliveJobName(agent.Name, now), credentialJobKeepAlive, checkScript, nil, keepAliveDeadline)
+	// Force the refresh: an access token that is still valid would otherwise
+	// be read without ever using (and so keeping alive) the refresh token.
+	env := []corev1.EnvVar{{Name: "AINSEL_FORCE_REFRESH", Value: "1"}}
+	job := credentialPodJob(agent, deploy, keepAliveJobName(agent.Name, now), credentialJobKeepAlive, checkScript, env, keepAliveDeadline)
 	job.Spec.PodFailurePolicy = signInFailurePolicy()
 	return job
 }

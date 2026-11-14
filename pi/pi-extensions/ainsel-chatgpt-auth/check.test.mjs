@@ -111,3 +111,40 @@ test("describe drops a message repeated down the cause chain", async () => {
 	const top = new Error("OAuth refresh failed for openai", { cause: same });
 	assert.equal(describe(top), "OAuth refresh failed for openai: OpenAI OAuth token request failed (400): invalid_client");
 });
+
+test("forced refresh asks Pi for more validity than any token has", async () => {
+	const seen = [];
+	const ModelRuntime = {
+		async create() {
+			return {
+				async getAuth(_p, overrides) {
+					seen.push(overrides);
+					return { auth: { apiKey: SECRET } };
+				},
+			};
+		},
+	};
+	assert.equal(await runCheck({ ModelRuntime, forceRefresh: true, log: () => {}, sleep: async () => {} }), 0);
+	assert.ok(seen[0]?.minOAuthValidityMs > 365 * 24 * 3600 * 1000, "a year or more of validity requested");
+});
+
+test("forced refresh: Pi's 'expires too soon' after the refresh means refreshed", async () => {
+	const h = harness([
+		async () => {
+			throw new Error("OAuth auth derivation failed for openai", {
+				cause: new Error("OAuth refresh returned a token that expires too soon for openai"),
+			});
+		},
+	]);
+	assert.equal(await runCheck({ ...h.opts, forceRefresh: true }), 0);
+	assert.ok(h.lines.some((l) => l.includes("refreshed")));
+});
+
+test("without forced refresh, 'expires too soon' is not success", async () => {
+	const h = harness([
+		async () => {
+			throw new Error("OAuth refresh returned a token that expires too soon for openai");
+		},
+	]);
+	assert.notEqual(await runCheck(h.opts), 0);
+});
