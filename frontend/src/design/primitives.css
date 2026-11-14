@@ -846,6 +846,14 @@ table.reg tr.reg-detail > td {
    The .form-section > .form-grid rules below stay for the numbered sections. */
 .form-grid {
   display: grid;
+  /* Grid items default to `stretch`, so a field sharing a row with a taller one
+     is grown to the row's height — and because `.field` is itself a grid with
+     auto rows and `.input` sets no height, the control grows with it: a
+     Temperature input beside a four-line Context Window hint renders three
+     times as tall. Keep every control at its own height. A control that must
+     fill its cell opts back in per field:
+     `.form-grid > .field.fill { align-self: stretch }`. */
+  align-items: start;
   gap: 14px;
 }
 .form-grid.cols-2 {
