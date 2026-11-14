@@ -19,6 +19,15 @@ compatibility but otherwise carries the same pagination fields. Pages are ordere
 by resource name for Kubernetes-backed endpoints, by start time for invocations — so a given `page`
 returns the same slice across calls.
 
+A few collections deliberately break that shape, and a client should read the per-endpoint
+response rather than assume the envelope: `GET /api/v1/users`, `GET /api/v1/groups` and
+`GET /api/v1/mcp-servers` return a bare JSON array; `GET /api/v1/channel-subscriptions` and
+`GET /api/v1/groups/{id}/resources` carry `items` with no page fields; `GET /api/v1/events` and
+`GET /api/v1/errors` use `events` / `errors` as the collection key with only `total`; the
+observability endpoints use `rows`; `GET /api/v1/queue/recent` returns a bare array. The
+[`openapi/hub.yaml`](../openapi/hub.yaml) spec is the machine-readable contract and is checked
+against the router in CI, so it is authoritative where this prose is general.
+
 Successful mutations return `200 OK` (update) or `201 Created` (create) with a JSON body; a successful
 `DELETE` returns `204 No Content` with an empty body.
 
@@ -1868,6 +1877,69 @@ List recent error-level agent log entries (from the hub's `task_logs` table).
 
 **Status codes:** `200`, `502` (query failed), `503` (the hub has no database to read task logs from).
 
+### GET /api/v1/queue/info
+
+Queue counters, straight off the event queue's own tables — the totals behind the
+dashboard's queue panel.
+
+**Access:** no per-resource scope is applied; these are counts, not rows, so no
+payload is disclosed.
+
+**Response:** `200 OK`
+```json
+{
+  "events_total": 1284,
+  "events_unrouted": 37,
+  "tasks_pending": 2,
+  "tasks_claimed": 1,
+  "tasks_completed": 1240,
+  "tasks_failed": 4,
+  "tasks_expired": 1
+}
+```
+
+`events_unrouted` counts events with no `routed_at`. `tasks_expired` counts tasks
+that reached the terminal `expired` status — never picked up before the pickup
+deadline — kept apart from `tasks_failed` because the task itself never ran.
+
+**Status codes:** `200`, `503` (the event queue is not configured).
+
+### GET /api/v1/queue/recent
+
+The most recent events on the queue, newest first.
+
+**Access:** the same scope as [`GET /api/v1/events`](#get-apiv1events) — these
+events carry the raw webhook payload. A `connector` the caller cannot read returns
+an empty list rather than `403`, so the parameter cannot probe which connectors
+exist.
+
+**Query parameters:** `count` (default `20`, max `100`; a non-positive or
+unparsable value falls back to the default), `connector`, `filter` — a subject
+pattern of the form `<connector>.<eventType>` with `*`/`>` wildcards, e.g.
+`forgejo.push`, `forgejo.*`, `*.push`, `forgejo.>`.
+
+**Response:** `200 OK` — a bare JSON array (not a paginated envelope), each element
+a stored event with its raw payload:
+```json
+[
+  {
+    "id": "evt_c-1a2b3c_1716198000000000000",
+    "connector": "c-1a2b3c",
+    "channelId": "ch-9f3c1a02",
+    "headers": {"X-GitHub-Event": ["issues"]},
+    "data": {"action": "opened"},
+    "raw": "{\"action\":\"opened\"}",
+    "received_at": "2026-05-20T10:00:00Z"
+  }
+]
+```
+
+The array is never `null`; an empty result is `[]`. Note the snake_case field
+names — this is the queue's own record shape, shared with the worker protocol,
+not the camelCase the rest of the API uses.
+
+**Status codes:** `200`, `503` (the event queue is not configured).
+
 ---
 
 ## Observability — Metrics
@@ -2382,8 +2454,15 @@ Semantics and caveats:
 All non-WebSocket error responses return:
 
 ```json
-{"error": "descriptive error message"}
+{"error": "descriptive error message", "code": "optional_machine_readable_code"}
 ```
+
+`error` is always present. `code` is optional and carries a machine-readable
+discriminator for the few answers a client must branch on rather than render —
+today only `password_change_required` (see the `401` / `403` row below). A client
+must treat a missing `code` as "no discriminator" and must not rely on the `error`
+text being stable. The gated-account answer additionally sets `message`, so the
+body is `{"error": "forbidden", "code": "password_change_required", "message": "..."}`.
 
 This includes the answers the router itself generates — a path no route matches
 (`404`) and a registered path requested with the wrong method (`405`, with the

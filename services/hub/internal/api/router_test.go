@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -380,7 +381,7 @@ func TestRouterErrorWrapperLeavesHandlerErrorsAlone(t *testing.T) {
 	})
 	jsonErr := http.NewServeMux()
 	jsonErr.HandleFunc("GET /json404", func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 	})
 
 	cases := []struct {
@@ -541,7 +542,7 @@ func TestReadAndWriteGuards(t *testing.T) {
 			called := ""
 			handler := func(w http.ResponseWriter, _ *http.Request, name string) {
 				called = name
-				writeJSON(w, http.StatusOK, map[string]string{"name": name})
+				httpx.WriteJSON(w, http.StatusOK, map[string]string{"name": name})
 			}
 
 			// No authz configured (dev mode): the guard lets the request through.
@@ -606,7 +607,7 @@ func TestInternalTaskGuard(t *testing.T) {
 	var got string
 	inner := func(w http.ResponseWriter, _ *http.Request, agentName string) {
 		got = agentName
-		writeJSON(w, http.StatusOK, map[string]string{"agent": agentName})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"agent": agentName})
 	}
 
 	s := testServer(t)

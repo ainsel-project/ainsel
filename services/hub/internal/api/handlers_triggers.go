@@ -167,7 +167,7 @@ func (s *Server) listTriggers(ctx context.Context, w http.ResponseWriter, r *htt
 	// means the caller sees nothing — answer without querying.
 	allowed := s.accessibleIDs(r, "trigger")
 	if allowed != nil && len(allowed) == 0 {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"items":      []SimpleTriggerResponse{},
 			"total":      0,
 			"page":       page.Page,

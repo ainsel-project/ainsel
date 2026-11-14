@@ -24,7 +24,8 @@ stays `pending` until the run acks it):
    for tool calls.
 4. Calls `pi.sendUserMessage(...)` with a structured `<event>...</event>`
    block + a "Handle the … on …" nudge.
-5. Awaits `turn_end` so the turn completes.
+5. Awaits `agent_settled` (the whole agent run, not the first `turn_end`) so
+   the turn completes.
 6. ACKs (`POST .../tasks/{id}/ack`) or NACKs (`POST .../tasks/{id}/nack`)
    the task via the hub REST API and exits; the Job owns retries.
 
@@ -82,6 +83,9 @@ from the chart's shared `auth.internalValidateSecret`).
 | `TURN_TIMEOUT_MS` | no | Maximum time in ms to wait for a single LLM turn before aborting and nacking (default `600000`, i.e. 10 minutes) |
 | `TURN_SETTLE_TIMEOUT_MS` | no | Maximum time in ms to wait for an aborted turn to settle before proceeding (default `10000`, i.e. 10 seconds). Backstop only — after `ctx.abort()` the run should settle in milliseconds. |
 | `TOOL_RESULT_MAX_CHARS` | no | Per-text-block character cap for toolResult transcript content (default `16000`). Oversized blocks are truncated with head+tail retention and a `[truncated N chars]` marker. Read lazily at call time. |
+| `EVENT_DATA_MAX_CHARS` | no | Character cap for the raw event payload inlined into the prompt as `<event-data>` (default `16000`). Truncated with the same head+tail marker. Read lazily at call time. |
+| `POST_TIMEOUT_MS` | no | Per-request timeout in ms for the conversation POSTs to the hub (default `10000`, i.e. 10 seconds). Node `fetch` has no default timeout; without this a stalled hub connection could delay the ack indefinitely. |
+| `AINSEL_TASK_DIR` | no | Set by the operator on per-task Jobs: a directory shared with the pod's sidecars. The runner writes its PID to `<dir>/agent.pid` so the sidecars end with the task instead of holding the pod Running. |
 
 ## Metrics
 
@@ -90,6 +94,7 @@ The runner exports Prometheus metrics on `:9090/metrics`:
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `agent_tokens_used_total` | Counter | `agent`, `repo`, `org`, `event_type`, `token_type`, `model` | Total tokens consumed by the agent |
+| `agent_cost_usd_total` | Counter | `agent`, `repo`, `org`, `event_type`, `model` | Total USD cost incurred by the agent, from pi's `usage.cost.total` |
 
 `token_type` is one of `input`, `output`, `cache_read`, `cache_write`. Pi reports
 prompt-cache traffic separately from billable input — `usage.input` excludes it and
@@ -107,6 +112,11 @@ facts the hub distinguishes (issue #75). Use
 `cache_read / (input + cache_read + cache_write)` as the cache hit rate when
 checking whether prompt caching is actually working.
 
+`agent_cost_usd_total` follows the same presence rule (issue #75): a model whose
+`models.json` entry carries no cost block reports no figure and raises nothing —
+"not reported" — while a priced model that costs nothing raises `0`, a measured
+free run. The hub reads the two apart.
+
 Usage is booked from every LLM call pi reports, not only from assistant messages:
 `message_end` (any message that carries `usage`, which pi also types on tool results),
 `session_compact`, and `session_tree`. The last two are one-shot completions — pi
@@ -118,6 +128,43 @@ reads its own rows in preference to these counters (see docs/observability.md); 
 counter-only fix would leave them invisible in the console. They carry no model of their
 own, so they are labelled with `AINSEL_LLM_MODEL` — the model the run summarises with
 (the legacy `OLLAMA_CLOUD_MODEL` alias is accepted while the dual-write window is open).
+
+## Module layout
+
+The runtime is split under `src/`, one concern per module, and the import
+graph is a one-directional DAG. A module may import only rows above it:
+
+| Module | Owns |
+| --- | --- |
+| `pi-types.ts` | Structural `PiUsage` / `PiMessage` / `PiContentBlock` types (no runtime code) |
+| `logging.ts` | `logInfo` / `logError` |
+| `config.ts` | Every env tunable, read lazily through one `envInt` |
+| `redaction.ts` | `redactSecrets` and its memoized secret set |
+| `caps.ts` | `truncateWithMarker` / `capToolResultContent` (calls redaction *before* truncating) |
+| `event-context.ts` | `EventContext` extraction and the subject labels derived from it |
+| `prompt.ts` | The `<event>` user-message body |
+| `usage.ts` | The Prometheus counters, the usage predicates, the metrics server |
+| `conversation.ts` | `toConversationPayloads` (the hub row shape) |
+| `hub-client.ts` | `ackTask` / `nackTask` / `postTaskLog` / `postTaskMessages` / `reportConversation` |
+| `turn-tracker.ts` | Turn generations, captured messages, `evaluateTurnOutcome` |
+| `invocation.ts` | Per-task `AINSEL_EVENT_*` / `AINSEL_INVOCATION_ID` env scoping |
+| `pidfile.ts` | The sidecar PID announcement |
+| `task-loop.ts` | `processTask` / `runOneShot` / `registerUsageEvents` — the only module that exits |
+| `index.ts` | Registers the extension: the `pi.on` handlers and the `started` guard |
+
+Two invariants the split exists to make visible: `tokenCounter` /
+`costCounter` are constructed at module scope in `usage.ts` and nowhere else
+(`prom.Counter` throws on a duplicate registration), and `caps.ts` must call
+`redactSecrets` before truncating so a secret can never straddle the head/tail
+window.
+
+Each module has a matching `src/<module>.test.ts`, so a failure names the
+concern that broke. `npm test` runs them (a `src/**/*.test.ts` glob — Node 24's
+test runner does not accept the bare directory); `npm run
+typecheck` runs `tsc --noEmit` over the modules — pi loads them through jiti,
+which strips types without checking them, so that command is the only thing
+between a type error and a runtime crash. Tests are excluded from typecheck;
+they exercise the runtime contract, not the type surface.
 
 ## Why an extension, not a separate Node process
 
@@ -176,8 +223,10 @@ not a breach).
   process-global; concurrent event handling would race. This is fine
   because pi has only one active conversation per session.
 - **`session_start` runs the loop in the background**, not awaited, so
-  pi can finish startup. Loop errors are logged but don't crash pi —
-  if the hub becomes unreachable, the loop retries with backoff.
+  pi can finish startup. Loop errors are logged but don't crash pi. There is
+  no retry loop in the process: a failed task fetch exits `1` and a task in
+  the hub's nack backoff exits `0`, so the Kubernetes Job — not the runner —
+  decides when the next attempt happens.
 - **Conversation history is stripped between events.** The `context`
   hook trims messages before the latest `<event>` block so each turn
   starts fresh.

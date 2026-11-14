@@ -133,7 +133,7 @@ func (s *Server) listCronTriggers(ctx context.Context, w http.ResponseWriter, r 
 	// means the caller sees nothing — answer without querying.
 	allowed := s.accessibleIDs(r, cronTriggerResourceType)
 	if allowed != nil && len(allowed) == 0 {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"items":      []CronTriggerResponse{},
 			"total":      0,
 			"page":       page.Page,

@@ -1,0 +1,5191 @@
+# Hub HTTP API contract.
+#
+# This file is the machine-readable shape of the hub's HTTP surface: every route
+# the mux serves, including the /api/internal/* surface (tagged `internal`).
+# It is the source the generated TypeScript types, the generated Go types and
+# docs/api-reference.md are meant to come from (issue #271).
+#
+# What keeps it honest:
+#   services/hub/internal/api/openapi_parity_test.go fails when a registered
+#   route is missing here, when this file declares a path the mux does not
+#   serve, when a `$ref` does not resolve, and when a component is defined but
+#   no operation reaches it. Parity is at route-pattern granularity: the mux
+#   registers prefix patterns ("/api/v1/agents/"), so a prefix is satisfied by
+#   any path item below it, and the mux carries no method information for those
+#   patterns.
+#
+#   CI runs it through `go test ./...` in services/hub, and
+#   ci-services-hub.yml lists `openapi/**` in its path filters so an edit to
+#   this file alone still runs the check.
+#
+# Conventions the contract states once, here:
+#   - Pagination: every list endpoint takes `page` (1-indexed, <1 coerced to 1)
+#     and `pageSize` (default 50, clamped to 200; <1 coerced to 1) and returns
+#     `total`/`page`/`pageSize`/`totalPages` next to its collection key.
+#     `/api/v1/invocations` keeps the legacy `invocations` key instead of
+#     `items`; `/api/v1/events` uses `events`; `/api/v1/errors` uses `errors`;
+#     the observability groupings use `rows`; `/api/v1/tokens` uses `tokens`
+#     with a singular `total`.
+#     Not every list is paginated: `/api/v1/users`, `/api/v1/groups` and
+#     `/api/v1/mcp-servers` answer a bare array, and
+#     `/api/v1/channel-subscriptions` and `/api/v1/groups/{id}/resources` answer
+#     `{items, total}` with no page fields. Where an endpoint deviates, its
+#     response schema is the contract — the envelope is not uniform.
+#   - Errors: `Error` = {"error": string, "code"?: string, "message"?: string}.
+#     `code` is a machine-readable discriminator, present today only on the
+#     gated-account answer (403 password_change_required), which is also the only
+#     body that sets `message`.
+#   - `managedBy`: any value other than "" or "user" marks the resource
+#     externally managed, and then *every* mutation answers 409
+#     {"error": "<kind> is managed by <manager>"}. It is never a request field.
+#   - 503 means "a dependency this panel needs is unconfigured" and the `error`
+#     text names it; 502 means an upstream (Prometheus, Forgejo, the database,
+#     an MCP server) failed.
+openapi: 3.1.0
+info:
+  title: AInsel Hub API
+  version: 1.0.0
+  description: |
+    The hub service's REST API. Most endpoints operate on CRDs in the configured
+    Kubernetes namespace; others surface observability data, invocation history
+    and operator state.
+
+    The ingress publishes `/api/v1/*` only: `/health` and `/api/internal/*` are
+    served in-cluster and are not reachable through it.
+  license:
+    name: Apache-2.0
+servers:
+  - url: /
+    description: The hub, in-cluster (http://hub-backend.<namespace>.svc:8080) or behind the ingress rewrite.
+tags:
+  - name: internal
+    description: >-
+      Service-to-service routes (`/api/internal/*`). Authenticated by
+      `X-Internal-Token` (or a dedicated bearer token for the skills MCP),
+      never by a user session, and not published by the ingress.
+# Every /api/v1/* operation inherits this: the auth middleware wraps the whole
+# /api/v1/ subtree, so an operation is authenticated unless it declares its own
+# `security`. The exemptions are the ones the router itself exempts — /health and
+# /api/v1/auth/login (which validates credentials itself) and the plugin UI proxy
+# (GET/HEAD on static assets). /api/internal/* overrides with X-Internal-Token.
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness/readiness probe
+      description: >-
+        Served in-cluster only; the ingress does not publish `/health`. For an
+        externally reachable status check use `/api/v1/platform/health`.
+      security: []
+      responses:
+        '200':
+          description: The hub is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /api/v1/platform/health:
+    get:
+      operationId: getPlatformHealth
+      summary: Externally reachable status check
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Platform status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformHealth'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/agents:
+    get:
+      operationId: listAgents
+      summary: List agents, sorted by resource name
+      description: >-
+        `search` is applied server-side before pagination, so `total` reflects
+        the filtered set. `groupId` is intersected with the caller's authz
+        scope: naming a group the caller cannot read yields an empty result.
+        Both are ignored when authz is disabled. List rows carry `groupId` and
+        `groupName`; both are populated on the list endpoint only.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - name: search
+          in: query
+          description: Case-insensitive substring match on display name, resource name and description.
+          schema: { type: string }
+        - name: groupId
+          in: query
+          description: Restrict to agents whose authz group matches.
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of agents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createAgent
+      summary: Create an agent
+      description: >-
+        The hub generates the resource name (`a-<short id>`); the request
+        supplies the display name. `imageRef.name` is required and must
+        reference an existing AgentImage. `llm.provider` is required and must be
+        one of the provider ids in `LlmProvider`. `persona` takes either `id` or
+        `text`, never both (400); `text` without persona storage is 503.
+        Provider keys are write-only: they are stored in a Secret and never
+        echoed back.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentCreateRequest'
+      responses:
+        '201':
+          description: The created agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/agents/{name}:
+    get:
+      operationId: getAgent
+      summary: Fetch one agent by resource name
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '200':
+          description: The agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateAgent
+      summary: Update an agent (partial; only present fields are applied)
+      description: >-
+        `skills` and `env` replace their list when present (`[]` clears it).
+        `llm.vision` is tri-state: omitted means unchanged, so turning image
+        input off requires an explicit `false`. Re-pointing `persona` away from
+        a persona this agent owns deletes that owned persona (best-effort).
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdateRequest'
+      responses:
+        '200':
+          description: The updated agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '409':
+          description: The agent is externally managed (`managedBy`), or a referenced resource is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteAgent
+      summary: Delete an agent (and reclaim the persona it owned, best-effort)
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/agents/{name}/pause:
+    post:
+      operationId: pauseAgent
+      summary: Record a pause on the agent
+      description: >-
+        Not enforced: the pause was withheld at the legacy next-task claim
+        endpoint, which is gone, so a paused agent keeps working. Use
+        `replicas: 0` to stop dispatch. Slated for removal (#249).
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PauseRequest'
+      responses:
+        '200':
+          description: 'The agent, with `paused: true`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: resumeAgent
+      summary: Lift any pause and nudge the queue
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '200':
+          description: 'The agent, with `paused: false`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/agents/{name}/persona:
+    get:
+      operationId: getAgentPersona
+      summary: The agent's persona as the agent sees it
+      description: >-
+        `ref` is present even when the persona no longer exists, which
+        distinguishes a dangling reference (`ref` set, `persona` absent) from an
+        agent with no persona at all (both empty).
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '200':
+          description: The agent's persona.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPersonaView'
+        '503':
+          description: The hub runs without persona storage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: putAgentPersona
+      summary: Save the agent's persona content (copy-on-write for a shared template)
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentPersonaWriteRequest'
+      responses:
+        '200':
+          description: 'The agent''s persona, with `owned: true`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPersonaView'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/llm/check:
+    post:
+      operationId: checkLLM
+      summary: Ask whether a (provider, model) pair can serve a request
+      description: >-
+        The hub picks a representative agent visible to the caller, preferring
+        an exact (provider, model) match, and sends the cheapest possible
+        completion with an 8s cap. Upstream statuses are never echoed: a bad or
+        revoked key answers 502, not 401. `custom` is rejected — its URL exists
+        only on a specific agent's spec. Plugin credentials need the `llm:check`
+        permission; session/user-token callers must be admins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LLMCheckRequest'
+      responses:
+        '200':
+          description: The pair served.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LLMCheckResponse'
+        '404':
+          description: No visible agent uses this provider with a usable stored key — there is nothing to probe with.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: The probe failed (rejected key, refused connection, error status, or timeout).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/agent-images:
+    get:
+      operationId: listAgentImages
+      summary: List agent images, sorted by name
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: A page of images.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentImageListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createAgentImage
+      summary: Create an agent image
+      description: The new image starts in phase `Pending`; tools are populated after the first successful sync.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentImageWriteRequest'
+      responses:
+        '201':
+          description: The created image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentImage'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/agent-images/{name}:
+    get:
+      operationId: getAgentImage
+      summary: Fetch one agent image by name
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '200':
+          description: The image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentImage'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateAgentImage
+      summary: Update an agent image (partial)
+      description: >-
+        For secret env vars (top-level and sidecar alike) sending `value: ""`
+        preserves the stored value and the `secret` flag; a non-empty value
+        replaces it; an omitted `secret` keeps the stored flag; only an explicit
+        `secret: false` declassifies. Drop the entry to remove it.
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentImageWriteRequest'
+      responses:
+        '200':
+          description: The updated image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentImage'
+        '409':
+          description: A removed tool is still enabled by agents (body lists `affectedAgents`), or the image is externally managed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictWithAgents'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteAgentImage
+      summary: Delete an agent image
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '204': { description: 'Deleted.' }
+        '409':
+          description: An agent still references the image (body lists `affectedAgents`), or the image is externally managed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictWithAgents'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/agent-images/{name}/refresh-mcp:
+    post:
+      operationId: refreshAgentImageMCP
+      summary: Re-discover the image's MCP tools into `spec.tools`
+      description: >-
+        Each server is queried with the credential its registry row names
+        (`tokenFromEnv`). Per-server errors are reported as warnings rather than
+        failing the request.
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '200':
+          description: The refreshed image plus per-server warnings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshMCPResponse'
+        '400':
+          description: The image declares no MCP servers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/connectors:
+    get:
+      operationId: listConnectors
+      summary: List connectors, sorted by id
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: A page of connectors.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectorListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createConnector
+      summary: Create a connector
+      description: >-
+        The hub generates the id (`c-…`), which is also the CR name and the
+        value that routes events. The generated HMAC secret is returned **once**
+        as `webhookSecretValue`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectorCreateRequest'
+      responses:
+        '201':
+          description: The created connector, including the one-time secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Connector'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/connectors/{id}:
+    get:
+      operationId: getConnector
+      summary: Fetch one connector by id (`c-…`, not the display name)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The connector.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Connector'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateConnector
+      summary: Update a connector (partial; `name`, `disabled`)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectorUpdateRequest'
+      responses:
+        '200':
+          description: The updated connector.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Connector'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteConnector
+      summary: Delete a connector (its webhook secret is deleted too)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/connectors/{id}/rotate-secret:
+    post:
+      operationId: rotateConnectorSecret
+      summary: Rotate the connector's webhook HMAC secret
+      description: The new secret is returned once as `webhookSecretValue`.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The connector, including the one-time secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Connector'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/plugins:
+    get:
+      operationId: listPlugins
+      summary: List plugins, sorted by id
+      description: >-
+        Admins get the full record; non-admins see only enabled and Ready
+        plugins, each in the reduced public shape (id, displayName, version,
+        manifest — no permission or group data).
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: A page of plugins.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: installPlugin
+      summary: Register a plugin whose workload is already deployed (admin only)
+      description: >-
+        The CR is created with no approved permissions. `id` must match
+        `^[a-z][a-z0-9-]{0,29}[a-z0-9]$`, `serviceName` is a DNS-1123 label,
+        `servicePort` is 1-65535, and `imageDigest` must match
+        `^sha256:[a-f0-9]{64}$` — a mutable tag would let a compromised registry
+        push new code silently.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginCreateRequest'
+      responses:
+        '201':
+          description: The plugin record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plugin'
+        '409':
+          description: The id is already taken.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}:
+    get:
+      operationId: getPlugin
+      summary: Fetch one plugin
+      description: >-
+        Non-admins get the public shape and only when the plugin is enabled and
+        Ready — otherwise 404, indistinguishable from "does not exist".
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      responses:
+        '200':
+          description: The plugin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plugin'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: uninstallPlugin
+      summary: Unregister a plugin (the plugin's own workload is not touched)
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}/enable:
+    post:
+      operationId: enablePlugin
+      summary: Enable a plugin (admin only)
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      responses:
+        '200':
+          description: The plugin record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plugin'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}/disable:
+    post:
+      operationId: disablePlugin
+      summary: Disable a plugin (admin only)
+      description: A disabled plugin is not routed to and disappears from non-admin listings.
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      responses:
+        '200':
+          description: The plugin record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plugin'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}/approve-permissions:
+    post:
+      operationId: approvePluginPermissions
+      summary: Grant a plugin its declared permissions (admin only)
+      description: >-
+        The request must name exactly the set in `status.declaredPermissions`
+        (order and duplicates ignored); this guards against approving from a
+        stale console view.
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginPermissionsRequest'
+      responses:
+        '200':
+          description: The plugin record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plugin'
+        '409':
+          description: The named set differs from the declared set (the error body names it).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}/group-access:
+    put:
+      operationId: setPluginGroupAccess
+      summary: Set which groups' background identity the plugin may act for (admin only)
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginGroupAccessRequest'
+      responses:
+        '200':
+          description: The plugin record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plugin'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}/ui/{path}:
+    get:
+      operationId: getPluginUI
+      summary: Reverse-proxy a plugin UI asset
+      description: >-
+        No auth; GET and HEAD only (else 405). Forwarded only to a verified
+        endpoint. Paths may contain only `A-Za-z0-9._~-/`; `%`, `\`, `.`/`..`
+        segments and `//` answer 400 invalid plugin path. Responses lose
+        `Set-Cookie` and gain `X-Content-Type-Options: nosniff`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+        - $ref: '#/components/parameters/proxyPath'
+      responses:
+        '200':
+          description: The upstream response body, streamed.
+          content:
+            '*/*':
+              schema: { type: string, format: binary }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}/api/{path}:
+    get:
+      operationId: callPluginAPIGet
+      summary: Reverse-proxy a plugin API request (GET)
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+        - $ref: '#/components/parameters/proxyPath'
+      responses:
+        '200':
+          description: The upstream response body, streamed.
+          content:
+            '*/*':
+              schema: { type: string, format: binary }
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: callPluginAPIPost
+      summary: Reverse-proxy a plugin API request (POST)
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+        - $ref: '#/components/parameters/proxyPath'
+      responses:
+        '200':
+          description: The upstream response body, streamed.
+          content:
+            '*/*':
+              schema: { type: string, format: binary }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugins/{id}/mcp:
+    post:
+      operationId: callPluginMCP
+      summary: Reverse-proxy a plugin MCP streamable-HTTP session
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      responses:
+        '200':
+          description: The upstream MCP session, streamed.
+          content:
+            'application/json':
+              schema: { type: object }
+            'text/event-stream':
+              schema: { type: string }
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/plugin-context:
+    get:
+      operationId: getPluginContext
+      summary: The caller's identity, effective permissions and group memberships
+      description: >-
+        For plugin credentials, groups and permissions are the effective ones
+        after intersection with the plugin's current grants. For regular users
+        `kind` is `user`, `pluginId` is empty and `permissions` is null.
+      responses:
+        '200':
+          description: The caller's context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginContext'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugin-context/visible:
+    post:
+      operationId: listVisibleResources
+      summary: Which resources in a named set are visible to the caller
+      description: >-
+        `names` must contain 1-500 items. Results are deduplicated in input
+        order; unknown resources are not included. A plugin credential without
+        the required permission gets 403.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisibleResourcesRequest'
+      responses:
+        '200':
+          description: The visible names.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisibleResourcesResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/plugin-tools/call:
+    post:
+      operationId: callPluginTool
+      summary: Run one operator-audience tool on a plugin
+      description: >-
+        A logged-in user only — the route is absent from the plugin-credential
+        route table, so an `ainselp_` caller cannot call tools back into the hub.
+        The plugin's CallToolResult is returned unchanged, so a tool-level error
+        stays inside the result as `isError`. A tool the plugin does not serve,
+        or serves to agents only, answers the same 404 either way. Body capped at
+        1 MiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginToolCallRequest'
+      responses:
+        '200':
+          description: The plugin's MCP CallToolResult, unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginToolCallResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/triggers:
+    get:
+      operationId: listTriggers
+      summary: List triggers, sorted by id
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - name: agent
+          in: query
+          description: Exact match against the trigger's agentRef.
+          schema: { type: string }
+        - name: connector
+          in: query
+          description: Exact match against the trigger's connectorRef.
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of triggers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createTrigger
+      summary: Create a trigger
+      description: >-
+        `agentRef` and `connectorRef` are the agent's and connector's ids
+        (`a-…` / `c-…`, their CR names); display names are not valid refs.
+        References are validated at write time and reported in `status`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerWriteRequest'
+      responses:
+        '201':
+          description: The created trigger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trigger'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/triggers/{id}:
+    get:
+      operationId: getTrigger
+      summary: Fetch one trigger
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The trigger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trigger'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateTrigger
+      summary: Update a trigger (partial; references are re-validated)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerWriteRequest'
+      responses:
+        '200':
+          description: The updated trigger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trigger'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteTrigger
+      summary: Delete a trigger
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/cron-triggers:
+    get:
+      operationId: listCronTriggers
+      summary: List cron triggers, sorted by id
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - name: agent
+          in: query
+          description: Exact match against the trigger's agentRef.
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of cron triggers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTriggerListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createCronTrigger
+      summary: Create a cron trigger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CronTriggerWriteRequest'
+      responses:
+        '201':
+          description: The created cron trigger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTrigger'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/cron-triggers/{id}:
+    get:
+      operationId: getCronTrigger
+      summary: Fetch one cron trigger
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The cron trigger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTrigger'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateCronTrigger
+      summary: Update a cron trigger (partial)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CronTriggerWriteRequest'
+      responses:
+        '200':
+          description: The updated cron trigger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTrigger'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteCronTrigger
+      summary: Delete a cron trigger
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/channels:
+    get:
+      operationId: listChannels
+      summary: List channels with their traffic counts, sorted by activity then id
+      description: >-
+        `counts.events` counts births in the window (for an inbox, everything
+        that reached it); `unmatched` those that no subscription transferred
+        onward; `failed` those whose run ended in failure. `window` is the
+        rounded duration the counts cover — the response always names the window
+        it answered for.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - name: kind
+          in: query
+          description: Restrict to one channel kind.
+          schema: { type: string, enum: [connector, agent, custom] }
+        - name: since
+          in: query
+          description: RFC 3339 start of the count window; the end is always now. Defaults to 24h ago.
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: A page of channels plus the count window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createChannel
+      summary: Create a custom grouping channel
+      description: Provisioned kinds (connector, agent) are not creatable here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelCreateRequest'
+      responses:
+        '201':
+          description: The created channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/channels/{id}:
+    get:
+      operationId: getChannel
+      summary: One channel plus its incoming/outgoing subscriptions
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelDetail'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateChannel
+      summary: Rename a custom channel or change its description
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelUpdateRequest'
+      responses:
+        '200':
+          description: The updated channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteChannel
+      summary: Delete a custom channel
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        '409':
+          description: A subscription is still attached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/channels/{id}/events:
+    get:
+      operationId: listChannelEvents
+      summary: The channel's timeline (born in it plus transferred into it)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0 }
+        - $ref: '#/components/parameters/sinceParam'
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: subject
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [matched, unmatched, error] }
+      responses:
+        '200':
+          description: The same envelope as `/api/v1/events`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/channels/{id}/bridges:
+    post:
+      operationId: createBridge
+      summary: Transfer the channel's events into another
+      description: >-
+        400 on a self-edge, when neither end is custom, on a cycle, or when
+        joining two provisioned channels (that pairing is a trigger); 409 when
+        the edge already exists.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BridgeCreateRequest'
+      responses:
+        '201':
+          description: The bridge.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bridge'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/channels/{id}/bridges/{bridgeId}:
+    delete:
+      operationId: deleteBridge
+      summary: Remove a bridge (`{id}` must be the bridge's source channel)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - name: bridgeId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/channel-subscriptions:
+    get:
+      operationId: listChannelSubscriptions
+      summary: Every edge in the graph in one call, both registries merged
+      description: >-
+        An edge is reported only when the caller may see both endpoints. A
+        connector channel is authorized as its connector, an agent channel as its
+        agent, a custom channel as a channel resource.
+      responses:
+        '200':
+          description: The edges.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelSubscriptionListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/invocations:
+    get:
+      operationId: listInvocations
+      summary: List recent invocations, newest first (the `capacity` field is the store's row budget)
+      description: >-
+        Scoped to the caller: results are limited to invocations whose agent the
+        caller can read, and `agent` naming any other agent returns 403. The
+        `event`, `trigger`, `status` and `connector` filters narrow within that
+        scope and cannot widen it. `connector` accepts repeats or a
+        comma-separated list (max 50 unique values, else 400). Rows carry a
+        `task` object when an `agent_tasks` row exists; render `task.runState`,
+        not `task.status`. This collection keeps the legacy `invocations` key.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [running, success, failure, timeout] }
+        - name: trigger
+          in: query
+          schema: { type: string }
+        - name: event
+          in: query
+          schema: { type: string }
+        - name: connector
+          in: query
+          description: Repeat the parameter or comma-separate one; max 50 unique values.
+          schema: { type: string }
+          style: form
+          explode: true
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        '200':
+          description: The invocation list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvocationListResponse'
+        '503':
+          description: The invocation store is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/invocations/{id}:
+    get:
+      operationId: getInvocation
+      summary: Fetch one invocation by id
+      description: >-
+        Requires read access to the invocation's agent; 403 otherwise. An
+        invocation carrying no agent cannot be attributed and is admin-only.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The invocation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invocation'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/chat/sessions:
+    get:
+      operationId: listChatSessions
+      summary: List chat sessions for the authenticated user
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: agent
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: The sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createChatSession
+      summary: Create a chat session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatSessionCreateRequest'
+      responses:
+        '201':
+          description: The session, with an empty `messages` array.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSession'
+        '503':
+          description: Chat is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/chat/sessions/{id}:
+    get:
+      operationId: getChatSession
+      summary: Fetch a chat session with its full message history
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The session and its messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSession'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateChatSession
+      summary: Rename a chat session
+      description: 'Body is `{"name": "..."}`; the name must be non-empty.'
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '204': { description: 'Updated.' }
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteChatSession
+      summary: Delete a chat session and all its messages
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/chat/sessions/{id}/messages:
+    post:
+      operationId: createChatMessage
+      summary: Send a message to the agent in an existing session
+      description: >-
+        The hub forwards the message to the agent runtime via the event queue and
+        returns immediately.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatMessageCreateRequest'
+      responses:
+        '201':
+          description: The created user message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessage'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/mcp-servers:
+    get:
+      operationId: listMCPServers
+      summary: List registered MCP servers
+      description: A bare JSON array — this list is not paginated.
+      responses:
+        '200':
+          description: The registry.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MCPServer'
+        '503':
+          description: The MCP service is not wired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createMCPServer
+      summary: Register a new MCP server
+      description: >-
+        `managedBy` must be empty or `"user"` (the hub forces it to `"user"`);
+        externally managed entries cannot be created here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPServerWriteRequest'
+      responses:
+        '201':
+          description: The registered server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServer'
+        '409':
+          description: The name exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/mcp-servers/{name}:
+    get:
+      operationId: getMCPServer
+      summary: Fetch one MCP server
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '200':
+          description: The server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServer'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateMCPServer
+      summary: Update an MCP server
+      description: >-
+        The stored `managedBy` is preserved and cannot be changed here. Changing
+        `tokenFromEnv` rewrites the row only — existing AgentImages and agents
+        keep the name they were written with.
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPServerWriteRequest'
+      responses:
+        '200':
+          description: The updated server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServer'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteMCPServer
+      summary: Delete an MCP server
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/mcp-servers/{name}/tools:
+    get:
+      operationId: listMCPServerTools
+      summary: List the tools an MCP server offers
+      description: >-
+        The row names the credential (`tokenFromEnv`) but stores no value; the
+        hub lends the value from the first AgentImage that attaches the row and
+        whose reference names the row's current variable. When no image
+        qualifies, the request goes out anonymously and a server that requires a
+        token answers 401, which this endpoint reports as 502.
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+      responses:
+        '200':
+          description: The tool list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MCPServerTool'
+        '502':
+          description: The server refused or was unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/personas:
+    get:
+      operationId: listPersonas
+      summary: List shared template personas (metadata only, no `text`)
+      description: Agent-owned personas are excluded; read them through their agent.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: A page of personas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createPersona
+      summary: Create a persona (the hub generates the ULID and version 1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaWriteRequest'
+      responses:
+        '201':
+          description: 'The persona, including `text` and `currentVersion: 1`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+        '409':
+          description: The name is already in use among templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/personas/{id}:
+    get:
+      operationId: getPersona
+      summary: Fetch one persona including the current `text`
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The persona (`ownerAgent` is set when an agent owns it).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updatePersona
+      summary: Partial update; a changed `text` inserts a new version
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaWriteRequest'
+      responses:
+        '200':
+          description: The updated persona.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deletePersona
+      summary: Delete a persona (cascades to versions and removes the ConfigMap)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        '409':
+          description: Agents still reference it (body lists `referrers`), or it is externally managed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InUseError'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/personas/{id}/versions:
+    get:
+      operationId: listPersonaVersions
+      summary: Every stored version, newest first (metadata only)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: A page of versions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaVersionListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/personas/{id}/versions/{n}:
+    get:
+      operationId: getPersonaVersion
+      summary: One historical version, with its `text`
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - name: n
+          in: path
+          required: true
+          description: Version number.
+          schema: { type: integer }
+      responses:
+        '200':
+          description: The version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaVersion'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/personas/{id}/rollback:
+    post:
+      operationId: rollbackPersona
+      summary: Copy an older version's text into a new current version
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaRollbackRequest'
+      responses:
+        '200':
+          description: The updated persona.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/skills:
+    get:
+      operationId: listSkills
+      summary: List skills (metadata only, no `body`)
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: A page of skills.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createSkill
+      summary: Create a skill
+      description: >-
+        Registers it in the catalogue; it reaches an agent when an agent selects
+        it. `name` is non-empty, unique and <= 200 chars; `description` <= 2000;
+        `body` <= 100000.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillWriteRequest'
+      responses:
+        '201':
+          description: The skill, including `body`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '409':
+          description: A skill with that name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/skills/{id}:
+    get:
+      operationId: getSkill
+      summary: Fetch one skill by id, including the full `body`
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The skill.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateSkill
+      summary: Update a skill (partial)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillWriteRequest'
+      responses:
+        '200':
+          description: The updated skill.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteSkill
+      summary: Delete a skill
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        '409':
+          description: Agents still select it (body lists `referrers`), or it is externally managed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InUseError'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/skills/{id}/assignments:
+    get:
+      operationId: listSkillAssignments
+      summary: List the agents that select this skill
+      description: >-
+        Assignments edit an agent's `spec.skills` one skill at a time; they write
+        the agent CR, never the image.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The assigning agents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillAssignmentListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/skills/{id}/assignments/{agentName}:
+    put:
+      operationId: assignSkill
+      summary: Add the skill to an agent's selection (idempotent)
+      description: >-
+        Authorisation targets the **agent** — an assignment is a write to the
+        agent. `{agentName}` takes the agent's resource name.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - name: agentName
+          in: path
+          required: true
+          description: The agent's resource name (its API id).
+          schema: { type: string }
+      responses:
+        '204': { description: 'Assigned.' }
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unassignSkill
+      summary: Remove the skill from an agent's selection (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - name: agentName
+          in: path
+          required: true
+          description: The agent's resource name (its API id).
+          schema: { type: string }
+      responses:
+        '204': { description: 'Unassigned.' }
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/stats:
+    get:
+      operationId: getStats
+      summary: Aggregate dashboard tile
+      description: >-
+        The tile degrades rather than fails: with no Prometheus the token fields
+        stay at zero, and with no log store the error count stays at zero.
+      responses:
+        '200':
+          description: The tile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      summary: List recent events (the Activity page), newest first
+      description: >-
+        An event is visible when the caller can read the connector that ingested
+        it or any agent it was routed to. `connector` and `agent` naming a
+        resource the caller cannot read return an empty page rather than 403, so
+        the parameters cannot probe which resources exist. `total` counts only
+        rows the caller may see. This collection uses the `events` key.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0 }
+        - name: connector
+          in: query
+          schema: { type: string }
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          description: Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          schema: { type: string, enum: [matched, unmatched, error] }
+        - name: outcome
+          in: query
+          description: Filter on the hub-derived run state, applied in SQL.
+          schema: { type: string, enum: [queued, running, success, failure, timeout] }
+        - $ref: '#/components/parameters/sinceParam'
+      responses:
+        '200':
+          description: The event list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        '503':
+          description: The event queue is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/events/{id}:
+    get:
+      operationId: getEvent
+      summary: One event, same shape as a list entry
+      description: >-
+        An event the caller may not read returns 404 rather than 403, so an event
+        id cannot confirm that another tenant's event exists.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityEntry'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/errors:
+    get:
+      operationId: listErrors
+      summary: Recent error-level agent log entries
+      description: >-
+        Scoped like `/api/v1/observability/logs` — error messages routinely quote
+        the payload that failed — so `agent` naming an agent the caller cannot
+        read returns 403. This collection uses the `errors` key.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: agent
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/sinceParam'
+      responses:
+        '200':
+          description: The error list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorListResponse'
+        '502':
+          description: The task-log query failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The hub has no database to read task logs from.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/queue/info:
+    get:
+      operationId: getQueueInfo
+      summary: Queue statistics (event and task counts by state)
+      description: >-
+        Serves the queue-depth view: totals across `events` and per-state counts
+        over `agent_tasks`. `tasks_expired` counts tasks that reached the
+        terminal `expired` status (never picked up before the pickup deadline,
+        issue #236) and is kept apart from `tasks_failed` because the task itself
+        never ran.
+      responses:
+        '200':
+          description: The queue counters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueInfo'
+        '503':
+          description: The event queue is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/queue/recent:
+    get:
+      operationId: listQueueRecent
+      summary: The most recent events on the queue, newest first
+      description: >-
+        Returns a bare array of the stored events (raw webhook payload included,
+        so the same scope as `/api/v1/events` applies). An explicit `connector`
+        the caller cannot read yields an empty list rather than 403, so the
+        parameter cannot probe which connectors exist. `filter` is a subject
+        pattern of the form `<connector>.<eventType>` with `*`/`>` wildcards.
+      parameters:
+        - name: count
+          in: query
+          description: How many events to return; non-positive or unparsable falls back to the default, values above 100 are clamped.
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: connector
+          in: query
+          schema: { type: string }
+        - name: filter
+          in: query
+          description: Subject pattern, e.g. "forgejo.push", "forgejo.*", "*.push", "forgejo.>".
+          schema: { type: string }
+      responses:
+        '200':
+          description: The recent events (always an array, never null).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QueueEvent'
+        '503':
+          description: The event queue is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/observability/metrics/summary:
+    get:
+      operationId: getMetricsSummary
+      summary: Counts for the four hub metrics
+      description: >-
+        Responses are cached server-side for ~30s, keyed by backend. `source`
+        names the backend that answered. Omit `range` for everything so far — the
+        lifetime counter total under Prometheus, everything still retained under
+        Postgres.
+      parameters:
+        - $ref: '#/components/parameters/rangeParam'
+      responses:
+        '200':
+          description: The summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsSummary'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/metrics/timeseries:
+    get:
+      operationId: getMetricsTimeseries
+      summary: One metric across a window in step-wide, dense points
+      description: >-
+        A Prometheus point is a per-second rate; a Postgres point is a count
+        inside the bucket. Both are dense (every bucket, gaps zero-filled), so a
+        chart can place points by index.
+      parameters:
+        - name: metric
+          in: query
+          schema:
+            type: string
+            enum: [events_consumed, triggers_matched, events_routed, routing_errors]
+            default: events_consumed
+        - $ref: '#/components/parameters/rangeParam'
+      responses:
+        '200':
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSeries'
+        '400':
+          description: Unknown metric or range — including a metric the active backend cannot answer, refused rather than drawn as an empty chart.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/metrics/agents:
+    get:
+      operationId: getMetricsAgents
+      summary: Per-agent token consumption and invocation counts
+      parameters:
+        - $ref: '#/components/parameters/rangeParam'
+      responses:
+        '200':
+          description: The per-agent rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentMetricsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/metrics/tokens/summary:
+    get:
+      operationId: getTokenMetricsSummary
+      summary: 24-hour token totals with previous-period comparison
+      description: >-
+        Fixed window, regardless of any dashboard range selector. See
+        `TokenComponents` for what `cacheReported`/`costReported` mean.
+      responses:
+        '200':
+          description: The token summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenSummary'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/metrics/tokens/timeseries:
+    get:
+      operationId: getTokenMetricsTimeseries
+      summary: 24-hour token-usage sparkline stepped at 30-minute intervals
+      description: >-
+        Each point sums every token component, cache traffic included. The series
+        carries no `cacheReported`/`costReported` flag — a bucket of
+        unreported-cache traffic is indistinguishable from genuine usage.
+      parameters:
+        - name: range
+          in: query
+          description: Only `24h` is accepted; any other value is 400.
+          schema: { type: string, enum: [24h], default: 24h }
+      responses:
+        '200':
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSeries'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/metrics/tokens/by-event:
+    get:
+      operationId: getTokenMetricsByEvent
+      summary: Token totals grouped by originating event id
+      description: >-
+        Reads `task_conversations` grouped by invocation and maps each invocation
+        to its event through the invocation store. Records-only by design — the
+        metrics-source pin does not move it. `totalTokens` follows the same
+        accounting rule as the summary tile (the sum over every component), so the
+        two views are comparable for cache-aware runtimes.
+      parameters:
+        - $ref: '#/components/parameters/rangeParam'
+      responses:
+        '200':
+          description: The rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokensByEventResponse'
+        '400':
+          description: Unsupported range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: No log store to read conversation rows from.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/metrics/tokens/by-subject:
+    get:
+      operationId: getTokenMetricsBySubject
+      summary: One row per (agent, repo, eventType, model) tuple with priced cost
+      description: >-
+        Rows written before migration 0024 carry no subject and group under the
+        empty string.
+      parameters:
+        - $ref: '#/components/parameters/rangeParam'
+      responses:
+        '200':
+          description: The rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokensBySubjectResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/metrics/query:
+    get:
+      operationId: queryPrometheus
+      summary: Raw PromQL passthrough (admin only)
+      description: >-
+        Returns the upstream JSON response unmodified. The handler also rejects a
+        query that does not mention `namespace="<ns>"` or `namespace=~"<ns>"`;
+        that check is a substring heuristic and a backstop against an operator
+        typo, not an access control — the admin requirement is. With no authz
+        backend configured (local development) there is no notion of admin, so the
+        endpoint is open.
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: A PromQL expression.
+          schema: { type: string }
+        - name: time
+          in: query
+          description: Optional evaluation timestamp (RFC3339 or unix seconds).
+          schema: { type: string }
+      responses:
+        '200':
+          description: The upstream Prometheus response, unmodified.
+          content:
+            application/json:
+              schema: { type: object }
+        '503':
+          description: Prometheus is not configured — this is the only endpoint that still requires it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/logs:
+    get:
+      operationId: getObservabilityLogs
+      summary: Tail recent agent log lines from the hub's task_logs table
+      description: >-
+        Scoped to the caller: omitting `app` returns only the agents the caller can
+        read, and `app` naming another agent returns 403.
+      parameters:
+        - name: app
+          in: query
+          description: Agent name to filter by.
+          schema: { type: string }
+        - name: range
+          in: query
+          schema: { type: string, enum: [1h, 6h, 24h], default: 1h }
+        - name: since
+          in: query
+          description: Go duration string (e.g. "90m"); overrides `range`.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 500, maximum: 1000 }
+      responses:
+        '200':
+          description: The log lines.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/observability/conversations:
+    get:
+      operationId: listConversations
+      summary: Agent conversation messages captured from agent turns
+      description: >-
+        `content` is always a JSON-encoded string: for `user`/`assistant` it
+        decodes to an array of `text`/`thinking`/`toolCall` blocks, for
+        `toolResult` to a single `{toolCallId,isError,content}` object.
+        `cacheReadTokens`, `cacheWriteTokens` and `costUsd` are omitted when the
+        runtime reported no figure — absence, never `null`.
+      parameters:
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: invocation
+          in: query
+          schema: { type: string }
+        - name: correlation
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+      responses:
+        '200':
+          description: The messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/tokens:
+    get:
+      operationId: listTokenUsage
+      summary: Per-(agent, repository, issueNumber, model) token consumption
+      description: >-
+        The hub's conversation rows answer by default; set
+        `observability.metricsSource` to `prometheus` to pin the runtime counters.
+        A pinned backend that is not configured returns 503 naming it.
+      parameters:
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: repository
+          in: query
+          schema: { type: string }
+        - name: issueNumber
+          in: query
+          description: Exact match; non-integer is 400.
+          schema: { type: string }
+        - name: since
+          in: query
+          description: RFC3339; bounds the window on the records path (the Prometheus path reads cumulative counters and has no window).
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: The rows and their totals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenUsageResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/ws:
+    get:
+      operationId: streamEvents
+      summary: WebSocket stream of stats, event and error envelopes
+      description: >-
+        Immediately after the upgrade the server writes one `stats` snapshot;
+        subsequent messages are broadcast by hub-internal publishers. Incoming
+        client messages are read solely to detect disconnects. Not part of the
+        JSON error contract — a failed handshake answers 400.
+      responses:
+        '101':
+          description: >-
+            Switching Protocols. After the upgrade the server sends one `stats` snapshot,
+            then broadcasts as its publishers do.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WSMessage'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/me:
+    get:
+      operationId: getMe
+      summary: Echo the authenticated user as forwarded by the ingress middleware
+      description: >-
+        Reads `Remote-User`, `Remote-Name`, `Remote-Email`, `Remote-Groups`; when
+        the user header is missing, `username` defaults to "anonymous".
+      responses:
+        '200':
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/me/resources:
+    get:
+      operationId: getMyResources
+      summary: Every resource of one type the caller owns or may read
+      description: >-
+        `type` is required — this endpoint answers for one resource type per call,
+        not all of them at once. Items are resource names (strings), not objects.
+      parameters:
+        - name: type
+          in: query
+          required: true
+          description: The resource type to list.
+          schema: { type: string, enum: [agent, connector, plugin, group, channel] }
+        - name: includePublic
+          in: query
+          description: Include public resources, which a non-member may read.
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: A page of resource names.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyResourcesResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/audit/auth-events:
+    get:
+      operationId: listAuthEvents
+      summary: Persisted auth events, newest first (admin only)
+      description: >-
+        Rows contain no secrets — the write path never sees a password or token.
+        In `oidc` mode only the three user-management event types appear: OIDC
+        logins complete at the issuer and never reach the hub backend.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - name: user
+          in: query
+          description: Matches actorSub or target.
+          schema: { type: string }
+        - name: type
+          in: query
+          description: Event type, exact match; repeatable, values are OR-ed.
+          schema: { type: string }
+          style: form
+          explode: true
+        - name: from
+          in: query
+          description: RFC3339 inclusive lower bound on occurredAt.
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: RFC3339 exclusive upper bound on occurredAt.
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: A page of auth events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthEventListResponse'
+        '503':
+          description: The audit store is missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      summary: List all registry users (any authenticated user)
+      responses:
+        '200':
+          description: The users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createUser
+      summary: Create a locally-managed user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201':
+          description: The created user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          description: The user already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/users/{id}:
+    get:
+      operationId: getUser
+      summary: Fetch one registry user
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: patchUser
+      summary: Partial update (admin only)
+      description: >-
+        `password` resets a local user's password and invalidates their session
+        JWTs (token versioning). Guards when disabling — an admin cannot disable
+        their own account, and the last admin cannot be disabled or demoted.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPatchRequest'
+      responses:
+        '200':
+          description: The updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          description: cannot disable your own account / cannot disable the last admin / cannot demote the last admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteUser
+      summary: Delete a registry user (admin only; no self-deletion, last admin protected)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/groups:
+    get:
+      operationId: listGroups
+      summary: List authz groups
+      description: A bare JSON array — this list is not paginated.
+      responses:
+        '200':
+          description: The groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createGroup
+      summary: Create an authz group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupWriteRequest'
+      responses:
+        '201':
+          description: The created group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/groups/{id}:
+    get:
+      operationId: getGroup
+      summary: Fetch one group with its members (any authenticated user)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The group and its members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupDetail'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: patchGroup
+      summary: Update a group (owner only)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupWriteRequest'
+      responses:
+        '200':
+          description: The updated group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteGroup
+      summary: Delete a group (owner only)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Deleted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/groups/{id}/members:
+    post:
+      operationId: addGroupMembers
+      summary: Add users to a group with a role (owner only)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupMemberAddRequest'
+      responses:
+        '204': { description: 'Added.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/groups/{id}/members/{userId}:
+    delete:
+      operationId: removeGroupMember
+      summary: Remove a member from a group (owner only)
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 'Removed.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/groups/{id}/resources:
+    get:
+      operationId: listGroupResources
+      summary: Every resource whose group mapping points at this group
+      description: >-
+        Names are resolved server-side, so items always carry a display name.
+        Rows whose object no longer exists are dropped; a type whose store fails
+        is omitted rather than failing the summary. Capped at 200 items per type.
+        Derived channels and agent-owned personas are not listed here.
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+        - name: includePublic
+          in: query
+          description: Include public resources, which a non-member may read.
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: The resources.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResourceListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Exchange credentials for a session token (local auth modes)
+      description: >-
+        Rate-limited per IP and per username. Any failure — unknown user or wrong
+        password — answers the same generic 401.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: The session token and the user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Stateless no-op for API symmetry (204)
+      description: The client discards its token; to actually revoke sessions use sign-out-all or change the password.
+      responses:
+        '204': { description: 'Logged out.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/me:
+    get:
+      operationId: getAuthMe
+      summary: Current identity (sub, email, username, roles, mustChangePassword)
+      responses:
+        '200':
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMe'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password:
+    put:
+      operationId: changePassword
+      summary: Change the caller's own password (local accounts only)
+      description: >-
+        Requires knowledge of the current password; a wrong one answers 401 and
+        does not invalidate existing sessions. Clears `mustChangePassword`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+      responses:
+        '200':
+          description: Changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOK'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/sign-out-all:
+    post:
+      operationId: signOutAll
+      summary: Bump the caller's token version, invalidating every local session JWT
+      description: Includes the one making the call; the next request with any old token gets 401.
+      responses:
+        '200':
+          description: Signed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOK'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password-policy:
+    get:
+      operationId: getPasswordPolicy
+      summary: The effective local-auth password policy
+      description: >-
+        So the console can render matching hints. `requireCharacterClasses` lists
+        the configured classes (`lower`, `upper`, `digit`, `symbol`) and is `[]`
+        when none are required.
+      responses:
+        '200':
+          description: The policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordPolicy'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/user-tokens:
+    get:
+      operationId: listUserTokens
+      summary: List the caller's personal access tokens
+      responses:
+        '200':
+          description: The tokens (never their values).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserToken'
+        '503':
+          description: User tokens are not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createUserToken
+      summary: Create a personal access token (`ainsel_…`)
+      description: A token grants the same permissions as the owning user; the value is returned once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserTokenCreateRequest'
+      responses:
+        '201':
+          description: The created token, with its value shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTokenCreated'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/user-tokens/{id}:
+    delete:
+      operationId: revokeUserToken
+      summary: Revoke one of the caller's tokens
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204': { description: 'Revoked.' }
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/internal/events:
+    post:
+      operationId: ingestEvent
+      summary: Accept one event from a connector (webhook-receiver)
+      description: >-
+        The hub stamps the birth channel from the connector label — never from
+        whatever the body claims — and provisions it on first sight, so an event
+        can never be stored without a home. A channel that cannot be resolved
+        stores the event unstamped rather than rejecting a webhook a connector
+        already accepted.
+      tags: [internal]
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueEvent'
+      responses:
+        '202': { description: 'Stored.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/agents/{name}/tasks/{id}:
+    get:
+      operationId: getAgentTask
+      summary: Fetch one task by id (the per-task Job worker's claim)
+      description: >-
+        A retry whose previous attempt was closed re-points the task at a fresh
+        invocation row before answering, so the worker never runs under a dead
+        invocation id.
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTask'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/agents/{name}/tasks/{id}/ack:
+    post:
+      operationId: ackAgentTask
+      summary: Acknowledge a task (completes it and its invocation)
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204':
+          description: >-
+            Acknowledged. The task is completed and, when it carries an
+            invocation id, that invocation is closed as `success`.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/agents/{name}/tasks/{id}/nack:
+    post:
+      operationId: nackAgentTask
+      summary: Report a failed task (requeues it and closes the invocation)
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - $ref: '#/components/parameters/resourceName'
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskNackRequest'
+      responses:
+        '204':
+          description: >-
+            Reported. The task is requeued behind the hub-computed backoff and its
+            invocation is closed as `failure`.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/task-logs:
+    post:
+      operationId: ingestTaskLogs
+      summary: Accept agent log lines (feeds task_logs, which the logs/errors pages read)
+      tags: [internal]
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskLogIngestRequest'
+      responses:
+        '202': { description: 'Accepted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/task-messages:
+    post:
+      operationId: ingestTaskMessages
+      summary: Accept agent conversation rows (feeds task_conversations)
+      tags: [internal]
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskMessageIngestRequest'
+      responses:
+        '202': { description: 'Accepted.' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/user-tokens/validate:
+    post:
+      operationId: validateUserToken
+      summary: Validate an `ainsel_` token and report its owner (plugin gateway)
+      tags: [internal]
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserTokenValidateRequest'
+      responses:
+        '200':
+          description: The token is valid; the owner is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTokenValidated'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/chat/sessions:
+    get:
+      operationId: listInternalChatSessions
+      summary: List chat sessions for the chat sidecar (every user)
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: agent
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: The sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionListResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/chat/sessions/{id}:
+    get:
+      operationId: getInternalChatSession
+      summary: Fetch one chat session with its history (chat sidecar)
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: The session and its messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSession'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/chat/sessions/{id}/messages:
+    post:
+      operationId: addInternalChatMessage
+      summary: Append a reply/status message to a session (chat sidecar)
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalChatMessageRequest'
+      responses:
+        '201':
+          description: The created message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessage'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/plugin-tools:
+    get:
+      operationId: listPluginTools
+      summary: The operator tool list the hub MCP server aggregates
+      description: >-
+        Only enabled, Ready plugins contribute, and only tools whose manifest
+        audience is `operator` or `both`. A plugin that cannot be reached
+        contributes nothing and never fails the response. Sorted by plugin id then
+        tool name; `name` is the plugin's own tool name — the caller adds the
+        `<pluginId>_` prefix.
+      tags: [internal]
+      security:
+        - internalToken: []
+      responses:
+        '200':
+          description: The tools (`tools` is always an array, never null).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginToolListResponse'
+        '503':
+          description: Internal endpoints disabled (no HUB_INTERNAL_VALIDATE_SECRET).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/plugins/{id}/credentials:
+    post:
+      operationId: issuePluginCredentials
+      summary: Issue a 5-minute background credential for a plugin
+      description: >-
+        The request must originate from an IP listed in the plugin's
+        `status.verifiedEndpoints`; `X-Forwarded-For` and `X-Real-IP` are ignored,
+        only `RemoteAddr` is checked. Allowed only when the plugin is enabled and
+        Ready.
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+      responses:
+        '200':
+          description: The credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginCredentialResponse'
+        '403':
+          description: The request source IP is not verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Plugin credentials are not configured (no HUB_PLUGIN_CREDENTIAL_SECRET).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/plugins/{id}/agent-mcp:
+    post:
+      operationId: servePluginAgentMCP
+      summary: One plugin's agent-audience tools, as a stateless MCP endpoint for agent runtimes
+      description: >-
+        Requires `X-Ainsel-Agent` (required, DNS-label shaped, validated rather
+        than trusted — the name becomes the subject of the credential the plugin
+        sees) and optionally `X-Ainsel-Invocation-Id`
+        (`^[A-Za-z0-9._:-]{1,128}$`). A credential or transport failure on a call
+        is reported as a tool result with `isError`.
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - $ref: '#/components/parameters/pluginId'
+        - name: X-Ainsel-Agent
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Ainsel-Invocation-Id
+          in: header
+          schema: { type: string, pattern: '^[A-Za-z0-9._:-]{1,128}$' }
+      responses:
+        '200':
+          description: The plugin's MCP session for that agent.
+          content:
+            'application/json':
+              schema: { type: object }
+            'text/event-stream':
+              schema: { type: string }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/internal/skills/mcp:
+    post:
+      operationId: serveSkillsMCP
+      summary: Read-only MCP server over the whole skill catalogue
+      description: >-
+        A dedicated bearer token (`HUB_SKILLS_MCP_TOKEN`), deliberately not
+        `HUB_INTERNAL_VALIDATE_SECRET`; unset leaves the endpoint answering 503 —
+        configured-off, never open. Tools: `search_skills` (never bodies) and
+        `get_skill` (the complete SKILL.md, byte-identical to a mounted one).
+        `limit` defaults to 20 and is clamped to 50; `matched` counts the whole
+        result set before the clamp.
+      tags: [internal]
+      security:
+        - skillsMcpToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: The MCP session.
+          content:
+            'application/json':
+              schema: { type: object }
+            'text/event-stream':
+              schema: { type: string }
+        '503':
+          description: The skills MCP token is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        An OIDC id token, a local session JWT (`HS256`, ~12h), a personal access
+        token (`ainsel_…`) or a plugin credential (`ainselp_…`). `/api/v1/*`
+        requires one unless the route is auth-exempt (plugin UI assets).
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+      description: >-
+        The shared `HUB_INTERNAL_VALIDATE_SECRET`, scoped to `/api/internal/*`
+        only. The ingress does not publish that prefix.
+    skillsMcpToken:
+      type: http
+      scheme: bearer
+      description: >-
+        The dedicated `HUB_SKILLS_MCP_TOKEN` for the skills catalogue MCP —
+        deliberately not the internal validate secret, whose name the operator
+        treats as platform-owned.
+  parameters:
+    page:
+      name: page
+      in: query
+      description: 1-indexed page number. Non-numeric is 400; values < 1 are coerced to 1.
+      schema: { type: integer, default: 1, minimum: 1 }
+    pageSize:
+      name: pageSize
+      in: query
+      description: Rows per page. Values above the max are clamped down; values < 1 are coerced to 1.
+      schema: { type: integer, default: 50, maximum: 200, minimum: 1 }
+    resourceName:
+      name: name
+      in: path
+      required: true
+      description: The resource's name — the route key the API addresses it by.
+      schema: { type: string }
+    resourceId:
+      name: id
+      in: path
+      required: true
+      description: The resource's id (CRD-generated `x-…` id or database id, depending on the resource).
+      schema: { type: string }
+    pluginId:
+      name: id
+      in: path
+      required: true
+      description: The plugin id — `^[a-z][a-z0-9-]{0,29}[a-z0-9]$` (a URL segment and a tool-name prefix).
+      schema: { type: string, pattern: '^[a-z][a-z0-9-]{0,29}[a-z0-9]$' }
+    proxyPath:
+      name: path
+      in: path
+      required: true
+      description: >-
+        Upstream path segment(s). Only `A-Za-z0-9._~-/` are allowed; `%`, `\`,
+        `.`/`..` segments and `//` answer 400 invalid plugin path.
+      schema: { type: string }
+    sinceParam:
+      name: since
+      in: query
+      description: RFC 3339 lower bound.
+      schema: { type: string, format: date-time }
+    rangeParam:
+      name: range
+      in: query
+      description: >-
+        Window to read. Omitted means everything still retained (Postgres) or the
+        lifetime counter total (Prometheus).
+      schema: { type: string, enum: [1h, 6h, 24h, 7d] }
+  responses:
+    Error:
+      description: Error (see `Error`; the status carries the class).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      description: >-
+        Every non-WebSocket error body, including the router's own 404 and 405
+        answers. `code` is a machine-readable discriminator; today only the
+        gated-account answer sets it (`password_change_required`).
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            A human-readable sentence. For 503 it names the unconfigured
+            dependency, which is the text the console renders under the panel
+            heading.
+        code:
+          type: string
+          description: >-
+            Optional machine-readable discriminator. Today only the gated-account
+            answer sets it (`password_change_required`); a client must branch on
+            this rather than on the `error` sentence, whose text is not a contract.
+          examples: [password_change_required]
+        message:
+          type: string
+          description: >-
+            Optional. Present only on the gated-account answer, where it repeats
+            the change that is due; absent on every other error.
+          examples: ['password change required']
+    StatusOK:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, examples: [ok] }
+    PlatformHealth:
+      type: object
+      description: Externally reachable platform status.
+      properties:
+        status: { type: string }
+        checks:
+          type: array
+          items: { type: object }
+    PageMeta:
+      type: object
+      description: The pagination fields every list response carries.
+      required: [total, page, pageSize, totalPages]
+      properties:
+        total: { type: integer, description: 'Rows matching the filter, after the caller''s scope is applied.' }
+        page: { type: integer }
+        pageSize: { type: integer }
+        totalPages: { type: integer }
+    ManagedBy:
+      type: string
+      description: >-
+        The external system that authors this resource ("gitops", "helm",
+        "plugin"). Empty or "user" means console-managed; any other value makes
+        every mutation answer 409. Never a request field.
+    Referrer:
+      type: object
+      description: One agent blocking a delete.
+      properties:
+        agentName: { type: string }
+        agentId: { type: string, description: 'The agent''s API id — the route key for GET /api/v1/agents/{id}.' }
+    InUseError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            referrers:
+              type: array
+              items:
+                $ref: '#/components/schemas/Referrer'
+    ConflictWithAgents:
+      type: object
+      description: >-
+        409 from an AgentImage write: a removed tool is still enabled by these
+        agents, or the image is still referenced.
+      required: [error]
+      properties:
+        error: { type: string }
+        affectedAgents:
+          type: array
+          items: { type: string }
+        removedTools:
+          type: array
+          items: { type: string }
+    EnvVar:
+      type: object
+      description: >-
+        An environment variable. A `secret: true` value is never returned — it
+        reads back as `""`. Sending `value: ""` for a secret on update keeps the
+        stored value; an omitted `secret` keeps the stored flag; only an explicit
+        `secret: false` declassifies; dropping the entry removes it.
+      required: [name]
+      properties:
+        name: { type: string }
+        value: { type: string }
+        secret: { type: boolean }
+    LlmProvider:
+      type: string
+      description: >-
+        The provider id. `custom` is accepted on an agent (its URL comes from the
+        agent's spec) and rejected by POST /api/v1/llm/check.
+      enum: [ollama-cloud, opencode, alibaba-cloud, openai, anthropic, google, custom]
+    WorkingHours:
+      type: object
+      description: >-
+        The weekly window an agent's people are around. Outside it the hub
+        publishes no due-task ids, so no task Job is created. Absent means any
+        hour. A window the hub cannot use (unloadable timezone, non-`HH:MM`
+        clock, bounds that leave no window) is a 400.
+      properties:
+        timezone: { type: string, description: 'IANA timezone.' }
+        days:
+          type: array
+          description: Cron-numbered weekdays; 0 and 7 are both Sunday. Empty means every day.
+          items: { type: integer, minimum: 0, maximum: 7 }
+        start: { type: string, description: 'HH:MM on a 24-hour clock.' }
+        end: { type: string, description: 'HH:MM; before `start` means the window closes the next morning.' }
+    MemoryConfig:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        provider: { type: string }
+    AgentStatus:
+      type: object
+      description: >-
+        What the operator is running. `desired` is active task Jobs; `desired: 0`
+        on a ready agent is an idle agent, not a failed one.
+      properties:
+        ready: { type: boolean }
+        desired: { type: integer }
+        reason: { type: string }
+        message: { type: string }
+    Agent:
+      type: object
+      description: >-
+        The hub's simplified projection of the Agent CRD (the full CRD shape is
+        in docs/crd-reference.md). `skills` are ids from the skill library
+        (absent or empty = none; unknown ids are 400). `mcp` carries resolved
+        server definitions in responses and registry names in requests. `env`
+        layers on top of the image's variables.
+      properties:
+        id: { type: string, description: 'Resource name, `a-<short id>` — the route key.' }
+        name: { type: string, description: 'Display name.' }
+        description: { type: string }
+        imageRef:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+        runtime:
+          type: object
+          properties:
+            provider: { type: string }
+        llm:
+          type: object
+          properties:
+            model: { type: string }
+            provider:
+              $ref: '#/components/schemas/LlmProvider'
+            maxTurns: { type: integer }
+            temperature: { type: number }
+            vision: { type: boolean, description: 'Tri-state on update: omitted means unchanged.' }
+            baseUrl: { type: string }
+        persona:
+          type: object
+          description: Requests take either `id` or `text`, never both.
+          properties:
+            id: { type: string }
+            text: { type: string }
+            inline: { type: string }
+        enabledTools:
+          type: array
+          items: { type: string }
+        replicas:
+          type: integer
+          description: >-
+            The concurrency cap — at most this many task Jobs in flight. 0 pauses
+            dispatch (work keeps queueing).
+        paused: { type: boolean }
+        pausedUntil: { type: string, format: date-time, description: 'Absent on a running agent and on an indefinite pause.' }
+        memory:
+          $ref: '#/components/schemas/MemoryConfig'
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        workingHours:
+          $ref: '#/components/schemas/WorkingHours'
+        hoursOpen: { type: boolean, description: 'May this agent be handed work right now? True when it has no window.' }
+        hoursClosesAt: { type: string, format: date-time, description: 'When an open window ends.' }
+        hoursNextOpenAt: { type: string, format: date-time, description: 'When a shut window opens again.' }
+        skills:
+          type: array
+          items: { type: string }
+        mcp:
+          type: object
+          description: >-
+            Absent inherits the referenced image's `mcpServers`; `{"servers": []}`
+            explicitly connects to none.
+          properties:
+            servers:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  url: { type: string }
+                  tokenFromEnv: { type: string }
+        env:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnvVar'
+        ollamaCloud: { type: object, description: 'Write-only provider block; responses show that it exists (`{}`), never the key.' }
+        openCode: { type: object }
+        alibabaCloud: { type: object }
+        openAI: { type: object }
+        anthropic: { type: object }
+        google: { type: object }
+        customProvider: { type: object, description: 'Also takes `url`.' }
+        groupId: { type: string, description: 'Populated on the list endpoint only.' }
+        groupName: { type: string, description: 'Absent when the group cannot be resolved — render the id then.' }
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+        updatedAt: { type: string, format: date-time, description: 'Stamped from the ainsel.dev/updated-at annotation, falling back to creation time.' }
+    AgentListResponse:
+      type: object
+      required: [items]
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Agent'
+    AgentCreateRequest:
+      type: object
+      required: [name, imageRef, llm]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        imageRef:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string, description: 'Must reference an existing AgentImage.' }
+        llm:
+          type: object
+          required: [model, provider]
+          properties:
+            model: { type: string }
+            provider:
+              $ref: '#/components/schemas/LlmProvider'
+            maxTurns: { type: integer }
+            temperature: { type: number }
+            vision: { type: boolean }
+        persona:
+          type: object
+          description: Either `id` (a shared template) or `text` (stored as a persona owned by the new agent). Both is 400.
+          properties:
+            id: { type: string }
+            text: { type: string }
+        enabledTools:
+          type: array
+          items: { type: string }
+        replicas: { type: integer }
+        memory:
+          $ref: '#/components/schemas/MemoryConfig'
+        workingHours:
+          $ref: '#/components/schemas/WorkingHours'
+        skills:
+          type: array
+          items: { type: string }
+        mcp:
+          type: object
+          properties:
+            servers:
+              type: array
+              items: { type: string }
+              description: Registry names, resolved by the hub on write.
+        env:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnvVar'
+        ollamaCloud: { type: object }
+        openCode: { type: object }
+        alibabaCloud: { type: object }
+        openAI: { type: object }
+        anthropic: { type: object }
+        google: { type: object }
+        customProvider: { type: object }
+    AgentUpdateRequest:
+      type: object
+      description: All fields optional; only present fields are applied. `managedBy` is never accepted.
+      properties:
+        name: { type: string }
+        description: { type: string }
+        imageRef:
+          type: object
+          properties:
+            name: { type: string }
+        llm:
+          type: object
+          properties:
+            model: { type: string }
+            provider:
+              $ref: '#/components/schemas/LlmProvider'
+              description: Empty or absent leaves the stored provider unchanged; unknown is 400.
+            maxTurns: { type: integer }
+            temperature: { type: number }
+            vision: { type: boolean }
+        persona:
+          type: object
+          properties:
+            id: { type: string }
+            text: { type: string }
+        enabledTools:
+          type: array
+          items: { type: string }
+        replicas: { type: integer }
+        memory:
+          $ref: '#/components/schemas/MemoryConfig'
+        workingHours:
+          $ref: '#/components/schemas/WorkingHours'
+          description: Absent leaves the schedule alone; `{}` removes it.
+        skills:
+          type: array
+          items: { type: string }
+          description: Replaces the selection when present; `[]` gives the agent none.
+        mcp:
+          type: object
+          properties:
+            servers:
+              type: array
+              items: { type: string }
+        env:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnvVar'
+            description: A secret entry with an empty `value` keeps its stored value.
+          description: Replaces the override list when present; `[]` clears it.
+        ollamaCloud: { type: object }
+        openCode: { type: object }
+        alibabaCloud: { type: object }
+        openAI: { type: object }
+        anthropic: { type: object }
+        google: { type: object }
+        customProvider: { type: object }
+    PauseRequest:
+      type: object
+      description: An absent body means an indefinite pause. `duration` and `until` together is 400.
+      properties:
+        duration: { type: string, description: 'Go duration string from now (`30m`, `8h`, `168h`).' }
+        until: { type: string, format: date-time, description: 'Must be in the future.' }
+    AgentPersonaView:
+      type: object
+      properties:
+        owned: { type: boolean, description: 'True when the persona belongs to this agent, so edits stay private to it.' }
+        ref: { type: string, description: 'The persona id the Agent CR references — present even when the persona no longer exists.' }
+        persona:
+          $ref: '#/components/schemas/Persona'
+    AgentPersonaWriteRequest:
+      type: object
+      required: [text]
+      properties:
+        name: { type: string, description: 'Defaults to `<agent display name> (own)`.' }
+        description: { type: string, description: 'An empty description clears it.' }
+        text: { type: string }
+    LLMCheckRequest:
+      type: object
+      required: [provider, model]
+      properties:
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+        model: { type: string }
+    LLMCheckResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+    ImageStatus:
+      type: object
+      properties:
+        ready: { type: boolean }
+        reason: { type: string }
+        message: { type: string }
+    ToolExample:
+      type: object
+      properties:
+        description: { type: string }
+        input: { type: object }
+        output: { type: object }
+    Signature:
+      type: object
+      description: >-
+        The image's signing identity. `subject` is the signing identity, not the
+        image reference. `issuer` is empty for keyless signatures.
+      properties:
+        subject: { type: string }
+        issuer: { type: string }
+    ToolDef:
+      type: object
+      description: >-
+        A tool the image declares. `name` is unique within the image and matches
+        `^[a-zA-Z][a-zA-Z0-9_]{0,63}$`; `description` <= 2000 chars; `inputSchema`
+        and `outputSchema` are JSON Schema.
+      required: [name, description]
+      properties:
+        name: { type: string, pattern: '^[a-zA-Z][a-zA-Z0-9_]{0,63}$' }
+        description: { type: string, maxLength: 2000 }
+        inputSchema: { type: object }
+        outputSchema: { type: object }
+        examples:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolExample'
+    AgentImage:
+      type: object
+      description: >-
+        The tool catalogue an agent selects from. `mcpServers` are registry names
+        resolved against the MCP registry at read time; a name with no row keeps
+        only the name, so a typo is visible instead of silently dropped.
+      properties:
+        id: { type: string, description: 'Resource name, `ai-<short id>` — the route key.' }
+        name: { type: string }
+        description: { type: string }
+        image: { type: string, description: 'Full reference including tag or digest; no whitespace.' }
+        runtime:
+          type: object
+          properties:
+            provider: { type: string }
+        llm:
+          type: object
+          properties:
+            model: { type: string }
+            provider:
+              $ref: '#/components/schemas/LlmProvider'
+        env:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnvVar'
+        mcpServers:
+          type: array
+          items: { type: string }
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolDef'
+        status:
+          $ref: '#/components/schemas/ImageStatus'
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+        signature:
+          $ref: '#/components/schemas/Signature'
+        referencedBy:
+          type: array
+          description: Populated on the list endpoint only.
+          items: { type: string }
+    AgentImageListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentImage'
+    AgentImageWriteRequest:
+      type: object
+      description: >-
+        POST requires `name` and `image`; PUT accepts any subset. `managedBy` is
+        never accepted.
+      properties:
+        name: { type: string }
+        description: { type: string }
+        image: { type: string }
+        runtime:
+          type: object
+          properties:
+            provider: { type: string }
+        llm:
+          type: object
+          properties:
+            model: { type: string }
+            provider:
+              $ref: '#/components/schemas/LlmProvider'
+        env:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnvVar'
+        mcpServers:
+          type: array
+          items: { type: string }
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolDef'
+    RefreshMCPResponse:
+      type: object
+      description: >-
+        A failed refresh leaves the stored list untouched, so a row can still
+        carry names the registry has since dropped.
+      required: [image, refreshed]
+      properties:
+        image:
+          $ref: '#/components/schemas/AgentImage'
+        refreshed: { type: boolean }
+        message: { type: string, description: 'Why nothing was refreshed.' }
+    ConnectorStatus:
+      type: object
+      properties:
+        ready: { type: boolean }
+        reason: { type: string }
+        message: { type: string }
+    Connector:
+      type: object
+      description: >-
+        `secretName`/`secretKey` name where the token lives; the value is never
+        returned. `eventTypeFilter` is `[]` when absent, so a connector with no
+        filter reads as "forwards everything".
+      properties:
+        id: { type: string, description: 'Resource name, `c-<short id>` — the route key.' }
+        name: { type: string }
+        description: { type: string }
+        type: { type: string, description: 'Connector kind, e.g. `forgejo`, `github`, `slack`, `email`, `rss`, `webhook`, `s3`.' }
+        url: { type: string }
+        webhookPath: { type: string }
+        webhookUrl: { type: string, description: 'Derived: `<publicURL><webhookPath>`.' }
+        webhookId: { type: string }
+        eventTypeFilter:
+          type: array
+          items: { type: string }
+        secretName: { type: string }
+        secretKey: { type: string }
+        status:
+          $ref: '#/components/schemas/ConnectorStatus'
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+    ConnectorListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Connector'
+    ConnectorCreateRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        type: { type: string }
+        url: { type: string }
+        webhookPath: { type: string }
+        webhookId: { type: string }
+        eventTypeFilter:
+          type: array
+          items: { type: string }
+        secretName: { type: string }
+        secretKey: { type: string }
+    ConnectorUpdateRequest:
+      type: object
+      description: >-
+        All fields optional. `secretName`/`secretKey` are pointers — omitted
+        leaves the stored reference alone, an empty string clears it.
+      properties:
+        name: { type: string }
+        description: { type: string }
+        url: { type: string }
+        webhookPath: { type: string }
+        webhookId: { type: string }
+        eventTypeFilter:
+          type: array
+          items: { type: string }
+        secretName: { type: string, nullable: true }
+        secretKey: { type: string, nullable: true }
+    ToolManifest:
+      type: object
+      description: >-
+        A plugin tool. `audience` is `operator`, `agent` or `both`; `agent` tools
+        are never offered to a browser. `permissions` are the permission strings
+        the tool needs.
+      properties:
+        name: { type: string }
+        description: { type: string }
+        audience: { type: string, enum: [operator, agent, both] }
+        permissions:
+          type: array
+          items: { type: string }
+        inputSchema: { type: object }
+    PluginManifest:
+      type: object
+      description: >-
+        The manifest the plugin's `/ui/manifest.json` serves. `ui.url` and
+        `api.baseUrl` are same-origin paths (`/plugins/<id>/…`), never absolute
+        URLs. `mcp.enabled` is meaningful only for a plugin whose `kind` is `mcp`.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        version: { type: string }
+        description: { type: string }
+        author: { type: string }
+        kind: { type: string, enum: [ui, mcp] }
+        entrypoint: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+        ui:
+          type: object
+          properties:
+            url: { type: string }
+            icon: { type: string }
+        api:
+          type: object
+          properties:
+            baseUrl: { type: string }
+        mcp:
+          type: object
+          properties:
+            enabled: { type: boolean }
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolManifest'
+    Plugin:
+      type: object
+      description: >-
+        The admin view of a plugin. Non-admin callers get the public view instead —
+        `id`, `displayName`, `version` and `manifest` only — because who may use a
+        plugin and what it is trusted with is not public information. A plugin that
+        is disabled or not ready reads as 404 to a non-admin.
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        version: { type: string }
+        serviceName: { type: string }
+        servicePort: { type: integer, format: int32 }
+        imageRepository: { type: string }
+        imageDigest: { type: string }
+        disabled: { type: boolean }
+        ready: { type: boolean }
+        reason: { type: string }
+        message: { type: string }
+        declaredPermissions:
+          type: array
+          items: { type: string }
+        approvedPermissions:
+          type: array
+          items: { type: string }
+        groupAccess:
+          type: array
+          items: { type: string }
+        verifiedEndpoints:
+          type: array
+          items: { type: string }
+        signature:
+          $ref: '#/components/schemas/PluginSignature'
+        manifest:
+          $ref: '#/components/schemas/PluginManifest'
+    PluginListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Plugin'
+    PluginCreateRequest:
+      type: object
+      description: >-
+        Installs a plugin by pointing the hub at an already-published image — there
+        is no build step. `id` must match the hub's plugin-name pattern.
+      required: [id, serviceName, servicePort, imageRepository, imageDigest]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        serviceName: { type: string }
+        servicePort: { type: integer, format: int32 }
+        imageRepository: { type: string }
+        imageDigest: { type: string }
+    PluginPermissionsRequest:
+      type: object
+      description: >-
+        Replaces the whole set; `[]` revokes everything. Unknown permission names
+        are 400.
+      required: [permissions]
+      properties:
+        permissions:
+          type: array
+          items: { type: string }
+    PluginGroupAccessRequest:
+      type: object
+      description: >-
+        Replaces the whole set; `[]` leaves the plugin visible to no group. A
+        group id that does not exist is 400.
+      required: [groupIds]
+      properties:
+        groupIds:
+          type: array
+          items: { type: string }
+    PluginContext:
+      type: object
+      description: >-
+        Who the caller is, as the hub sees it. Flat, not nested. `permissions` is
+        null for callers that are not plugin credentials; `isAdmin` is only set for
+        the user kind.
+      properties:
+        pluginId: { type: string }
+        kind: { type: string, description: 'The credential kind, e.g. `plugin` or `user`.' }
+        sub: { type: string }
+        username: { type: string }
+        isAdmin: { type: boolean }
+        permissions:
+          type: array
+          nullable: true
+          items: { type: string }
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              role: { type: string }
+        invocationId: { type: string }
+
+    VisibleResourcesRequest:
+      type: object
+      description: >-
+        A batch of names of one resource type. `names` must hold 1-500 entries and the
+        body is capped at 1 MiB. The type picks the permission the caller must hold —
+        an unknown `resourceType` is a 400, not an empty answer.
+      required: [resourceType, names]
+      properties:
+        resourceType:
+          type: string
+          enum: [agent, agent-image, connector, trigger, mcp-server, persona, skill]
+        names:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { type: string }
+    VisibleResourcesResponse:
+      type: object
+      description: >-
+        Which of the posted names the caller may read. The key is `visible`, not
+        `resources`, and the entries are the names themselves.
+      required: [visible]
+      properties:
+        visible:
+          type: array
+          items: { type: string }
+    PluginToolCallRequest:
+      type: object
+      required: [pluginId, tool]
+      properties:
+        pluginId: { type: string }
+        tool: { type: string, description: 'The plugin''s own tool name, unprefixed.' }
+        arguments: { type: object }
+    TriggerStatus:
+      type: object
+      properties:
+        ready: { type: boolean }
+        reason: { type: string }
+        message: { type: string }
+    Filter:
+      type: object
+      description: >-
+        `subjectPatterns` are required and non-empty. A pattern is
+        `<connector>.<eventType>`; `*` matches one segment, `>` matches one or
+        more.
+      required: [subjectPatterns]
+      properties:
+        subjectPatterns:
+          type: array
+          minItems: 1
+          items: { type: string }
+        filters:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              operator: { type: string }
+              value: {}
+    Trigger:
+      type: object
+      description: >-
+        `agentName` is the agent's resource name (`a-…`) and the route key for
+        `/api/v1/agents/{name}`.
+      properties:
+        id: { type: string, description: 'Resource name, `t-<short id>` — the route key.' }
+        name: { type: string }
+        connectorName: { type: string }
+        agentName: { type: string }
+        filter:
+          $ref: '#/components/schemas/Filter'
+        status:
+          $ref: '#/components/schemas/TriggerStatus'
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+    TriggerListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Trigger'
+    TriggerWriteRequest:
+      type: object
+      description: >-
+        POST requires `name`, `connectorName`, `agentName` and `filter`; PUT
+        accepts any subset. The hub validates the filter and that both referenced
+        resources exist.
+      properties:
+        name: { type: string }
+        connectorName: { type: string }
+        agentName: { type: string }
+        filter:
+          $ref: '#/components/schemas/Filter'
+    CronTriggerStatus:
+      type: object
+      properties:
+        ready: { type: boolean }
+        reason: { type: string }
+        message: { type: string }
+    CronTrigger:
+      type: object
+      description: >-
+        `schedule` is standard 5-field cron. `payload` is the JSON object handed
+        to the agent as the task body.
+      properties:
+        id: { type: string, description: 'Resource name, `ct-<short id>` — the route key.' }
+        name: { type: string }
+        agentName: { type: string }
+        schedule: { type: string }
+        payload: { type: object }
+        enabled: { type: boolean }
+        status:
+          $ref: '#/components/schemas/CronTriggerStatus'
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+    CronTriggerListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CronTrigger'
+    CronTriggerWriteRequest:
+      type: object
+      description: >-
+        POST requires `name`, `agentName` and `schedule`; PUT accepts any subset.
+        `enabled` defaults to true.
+      properties:
+        name: { type: string }
+        agentName: { type: string }
+        schedule: { type: string }
+        payload: { type: object }
+        enabled: { type: boolean }
+    ChannelCounts:
+      type: object
+      description: Traffic figures for one channel within the response's window.
+      properties:
+        events: { type: integer, description: 'What entered the channel in the window — births for connector channels, everything that flowed through for custom channels, deliveries for agent channels.' }
+        unmatched: { type: integer, description: 'The share of `events` no subscription transferred on; only connector channels can have any.' }
+        failed: { type: integer, description: 'Deliveries that ended in a failed task.' }
+    Channel:
+      type: object
+      description: >-
+        A named stream events live in. Identity is always the channel id, never
+        the name — a connector and an agent may both be labelled "forgejo" and
+        remain two distinct channels.
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [connector, agent, custom] }
+        name: { type: string, description: 'Rename-able display label; not unique.' }
+        description: { type: string }
+        entityRef: { type: string, description: 'The WebhookConnector or Agent CR name this channel was provisioned for; empty for custom.' }
+        orphaned: { type: boolean, description: 'Its registry entity is gone; rows survive on purpose because event history points at them.' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ChannelView:
+      allOf:
+        - $ref: '#/components/schemas/Channel'
+        - type: object
+          properties:
+            counts:
+              $ref: '#/components/schemas/ChannelCounts'
+            bridges: { type: integer, description: 'Bridges stored on this channel (outgoing for a connector, incoming for a custom channel).' }
+            subscriptions: { type: integer, description: 'Trigger edges plus bridges; outgoing for a connector, incoming for a custom channel.' }
+    ChannelListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items, window]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChannelView'
+            window:
+              type: string
+              description: >-
+                The count window the response answered for, as a Go duration
+                string rounded to the minute (the default `since` of 24h yields
+                `24h0m0s`). The list always names its window so a caller cannot
+                read a count as a lifetime total.
+              examples: ['24h0m0s', '1h0m0s']
+    ChannelCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: 'Display label; non-empty, <= 200 chars.' }
+        description: { type: string, description: '<= 500 chars.' }
+    ChannelUpdateRequest:
+      type: object
+      description: >-
+        At least one of `name`/`description` is required; only the fields present
+        are changed.
+      properties:
+        name: { type: string }
+        description: { type: string }
+    Bridge:
+      type: object
+      description: >-
+        A stored channel→channel transfer. At least one endpoint is always a
+        custom channel — a plain connector→agent edge is a trigger.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        fromChannel: { type: string }
+        toChannel: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    BridgeCreateRequest:
+      type: object
+      required: [toChannel]
+      properties:
+        toChannel: { type: string, description: 'Destination channel id; must not equal the source.' }
+        name: { type: string }
+    ChannelDetail:
+      allOf:
+        - $ref: '#/components/schemas/ChannelView'
+        - type: object
+          properties:
+            incoming:
+              type: array
+              items:
+                $ref: '#/components/schemas/Subscription'
+            outgoing:
+              type: array
+              items:
+                $ref: '#/components/schemas/Subscription'
+    Subscription:
+      type: object
+      description: >-
+        One channel→channel edge, whatever registry owns it. `fromChannel`/
+        `toChannel` are empty when the edge points at a stream that was never
+        provisioned; the raw refs survive so a caller can label the dangling end.
+      properties:
+        source: { type: string, enum: [trigger, bridge] }
+        refId: { type: string, description: 'The Trigger or Bridge record id.' }
+        name: { type: string }
+        fromChannel: { type: string }
+        toChannel: { type: string }
+        fromRef: { type: string }
+        toRef: { type: string }
+    ChannelSubscriptionListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscription'
+        total: { type: integer }
+    TaskState:
+      type: object
+      description: >-
+        The queue/dispatch state of the `agent_tasks` row behind an invocation.
+        `status` is the raw `agent_tasks` status; `runState` is the value to
+        render, because in per-task-Job mode `pending` covers both queued and
+        mid-run.
+      properties:
+        status: { type: string, enum: [pending, claimed, completed, failed, expired] }
+        attempts: { type: integer }
+        error: { type: string }
+        startedAt: { type: string, format: date-time, description: 'First evidence of work (claim or first conversation row); nil while the task is queued. Distinct from the invocation''s `startTime`, which is the dispatch time.' }
+        runState: { type: string, enum: [queued, running, success, failure, timeout] }
+        stuck: { type: boolean, description: 'A queued task that has waited past the start deadline; never applies to a started task.' }
+    Invocation:
+      type: object
+      description: >-
+        One agent run. Created as `running` when the router publishes an event to
+        an agent's task queue, and moved to a terminal status when the agent
+        reports completion. `task` is present when an `agent_tasks` row exists.
+      properties:
+        id: { type: string, description: '`inv-<8 hex>`.' }
+        agentName: { type: string }
+        agentId: { type: string, description: 'The agent''s API id — the route key for `/api/v1/agents/{name}`. Filled from `agentName` when empty, so older records still carry it.' }
+        triggerName: { type: string }
+        eventId: { type: string }
+        connector: { type: string }
+        startTime: { type: string, format: date-time }
+        endTime: { type: string, format: date-time }
+        durationMs: { type: integer, format: int64, description: 'Absent while running.' }
+        status: { type: string, enum: [running, success, failure, timeout] }
+        error: { type: string, description: 'Set when `status` is `failure` or `timeout`.' }
+        task:
+          $ref: '#/components/schemas/TaskState'
+    InvocationListResponse:
+      type: object
+      description: >-
+        This collection keeps the legacy `invocations` key rather than `items`.
+        `capacity` is the store's row budget, so a caller can tell a full history
+        from a truncated one.
+      required: [invocations, total, page, pageSize, totalPages]
+      properties:
+        invocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invocation'
+        total: { type: integer }
+        capacity: { type: integer, description: 'Rows the invocation store holds before it starts evicting.' }
+        page: { type: integer }
+        pageSize: { type: integer }
+        totalPages: { type: integer }
+    EventMatch:
+      type: object
+      description: >-
+        One agent a matched event was routed to. Views should prefer `runState`
+        over `runStatus`: `runStatus` is the raw invocation status kept for
+        compatibility, while `runState` is derived from the task and distinguishes
+        queued from running.
+      properties:
+        trigger: { type: string }
+        agent: { type: string, description: 'The agent''s display name.' }
+        agentId: { type: string, description: 'The agent''s API id — the route key for `/api/v1/agents/{id}`. Empty on hubs that predate the field.' }
+        runStatus: { type: string, description: 'Raw invocation status, within retention.' }
+        runState: { type: string, enum: [queued, running, success, failure, timeout, unknown], description: 'Derived from the task row, the start evidence and the invocation record, so every view agrees on one value.' }
+        taskStatus: { type: string, description: 'Raw `agent_tasks` status when a task row exists.' }
+        startedAt: { type: string, format: date-time, description: 'First evidence of work; absent while the task is queued.' }
+        durationMs: { type: integer, format: int64 }
+        error: { type: string }
+        stuck: { type: boolean, description: 'A queued task waiting for a worker past the hub''s start deadline.' }
+    ActivityEntry:
+      type: object
+      description: >-
+        One event with its routing outcome. `status` is derived from the event's
+        tasks — no tasks is `unmatched`, any failed task is `error`.
+      properties:
+        id: { type: string }
+        timestamp: { type: string, description: 'RFC 3339.' }
+        connector: { type: string }
+        channelId: { type: string, description: 'The stream the event was born in — the stable handle the UI links a producer label onto. Empty for events recorded before the channel registry existed and for direct births.' }
+        status: { type: string, enum: [matched, unmatched, error] }
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventMatch'
+        payload: { type: object }
+    EventListResponse:
+      type: object
+      description: >-
+        This collection uses the `events` key rather than `items`, and carries only
+        `total` — the pager derives its page count from `total` and the requested
+        `limit`/`offset` rather than from echoed page fields.
+      required: [events, total]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityEntry'
+        total: { type: integer, description: 'All events matching the filters, after the caller''s scope is applied — not just this page.' }
+    ErrorEntry:
+      type: object
+      description: >-
+        One error-level agent log entry. Shaped like a log line so the console can
+        share helpers between the Errors and Logs views.
+      properties:
+        id: { type: string, description: '`err-<task_logs row id>`.' }
+        timestamp: { type: string, description: 'RFC 3339 Nano.' }
+        severity: { type: string, description: 'The stored level.' }
+        source: { type: string, description: 'Always `agent` for this endpoint.' }
+        agent: { type: string }
+        message: { type: string }
+        details: { type: object, description: 'Structured fields carried with the entry; omitted when empty.' }
+    ErrorListResponse:
+      type: object
+      description: 'This collection uses the `errors` key rather than `items`.'
+      required: [errors, total]
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorEntry'
+        total: { type: integer }
+    QueueInfo:
+      type: object
+      description: >-
+        Queue counters — totals over `events` and per-state counts over
+        `agent_tasks`.
+      properties:
+        events_total: { type: integer, format: int64 }
+        events_unrouted: { type: integer, format: int64, description: 'Events with no `routed_at`.' }
+        tasks_pending: { type: integer, format: int64 }
+        tasks_claimed: { type: integer, format: int64 }
+        tasks_completed: { type: integer, format: int64 }
+        tasks_failed: { type: integer, format: int64 }
+        tasks_expired: { type: integer, format: int64, description: 'Tasks that reached the terminal `expired` status (never picked up before the pickup deadline, issue #236); kept apart from `tasks_failed` because the task itself never ran.' }
+    QueueEvent:
+      type: object
+      description: >-
+        A stored event, raw webhook payload included — the same scope as
+        `/api/v1/events` applies. This is also the body a connector posts to
+        `/api/internal/events`.
+      required: [id, connector]
+      properties:
+        id: { type: string }
+        connector: { type: string, description: 'The source label: the WebhookConnector CR name for webhook events, or a hub-published pseudo-source (`cron`, `chat`).' }
+        channelId: { type: string, description: 'The channel the event was born in; empty for pre-channel events and for labels with no provisioned channel. On ingest the hub overwrites whatever the body claims.' }
+        headers: { type: object, description: 'Transport headers as JSON.' }
+        data: { type: object, description: 'The parsed payload.' }
+        raw: { type: string, description: 'The unparsed body, kept for replay.' }
+        received_at: { type: string, format: date-time }
+    ResourceStats:
+      type: object
+      description: 'Total and healthy counts for one resource type.'
+      properties:
+        total: { type: integer }
+        healthy: { type: integer }
+    Stats:
+      type: object
+      description: >-
+        The dashboard tile, grouped per resource type. Degrades rather than fails —
+        with no Prometheus the token block stays at zero, and with no log store the
+        error count stays at zero.
+      properties:
+        agents:
+          $ref: '#/components/schemas/ResourceStats'
+        connectors:
+          $ref: '#/components/schemas/ResourceStats'
+        triggers:
+          $ref: '#/components/schemas/ResourceStats'
+        cronTriggers:
+          $ref: '#/components/schemas/ResourceStats'
+        errors:
+          type: object
+          properties:
+            lastHour: { type: integer }
+        tokens:
+          $ref: '#/components/schemas/TokenComponents'
+    TimeSeriesPoint:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        value: { type: number }
+    TimeSeries:
+      type: object
+      properties:
+        metric: { type: string }
+        range: { type: string }
+        step: { type: string }
+        source: { type: string }
+        points:
+          type: array
+          description: Dense — every bucket in the window, gaps zero-filled.
+          items:
+            $ref: '#/components/schemas/TimeSeriesPoint'
+    MetricsSummary:
+      type: object
+      description: 'Counts for the four hub metrics.'
+      properties:
+        eventsConsumed: { type: number }
+        triggersMatched: { type: number, description: 'One per agent an event matched to.' }
+        eventsRouted: { type: number, description: 'Events delivered to at least one agent.' }
+        routingErrors: { type: number, description: 'Error-level task logs in the window — the same entries the Errors page lists.' }
+        updatedAt: { type: string, format: date-time }
+        source: { type: string, description: 'The backend that answered (`postgres` or `prometheus`); omitted when unset.' }
+    AgentMetricRow:
+      type: object
+      properties:
+        agent: { type: string, description: 'The agent''s resource name.' }
+        agentName: { type: string, description: 'The display name.' }
+        inputTokens: { type: number }
+        outputTokens: { type: number }
+        cacheReadTokens: { type: number }
+        cacheWriteTokens: { type: number }
+        totalTokens: { type: number }
+        invocations: { type: number }
+        failures: { type: number }
+        avgDurationMs: { type: number }
+    AgentMetricsResponse:
+      type: object
+      required: [agents]
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentMetricRow'
+        updatedAt: { type: string, format: date-time }
+        source: { type: string }
+    TokenComponents:
+      type: object
+      description: >-
+        A token total, split into its components. `cacheReported` /
+        `costReported` say whether the window held any *reported* figure — when
+        false, the matching numbers sum rows that never carried the figure, so a
+        reader renders them as "not reported", never as a measured 0.
+      properties:
+        inputTokens: { type: number }
+        outputTokens: { type: number }
+        cacheReadTokens: { type: number }
+        cacheWriteTokens: { type: number }
+        totalTokens: { type: number }
+        costUsd: { type: number, description: 'Priced consumption from the model cost table; meaningful only when `costReported` is true.' }
+        cacheReported: { type: boolean }
+        costReported: { type: boolean }
+    TokenSummary:
+      type: object
+      description: 'Token totals for a window, with the previous window for comparison.'
+      properties:
+        source: { type: string }
+        inputTokens: { type: number }
+        outputTokens: { type: number }
+        cacheReadTokens: { type: number }
+        cacheWriteTokens: { type: number }
+        totalTokens: { type: number }
+        previousTotalTokens: { type: number }
+        costUsd: { type: number }
+        cacheReported: { type: boolean }
+        costReported: { type: boolean }
+        updatedAt: { type: string, format: date-time }
+    TokenSubjectRow:
+      type: object
+      description: >-
+        One subject. `agent` is the agent's resource name and `agentName` its
+        display name; `agentId` is present only on the records path.
+      properties:
+        agent: { type: string }
+        agentName: { type: string }
+        agentId: { type: string }
+        repo: { type: string }
+        eventType: { type: string }
+        model: { type: string }
+        inputTokens: { type: number }
+        outputTokens: { type: number }
+        cacheReadTokens: { type: number }
+        cacheWriteTokens: { type: number }
+        totalTokens: { type: number }
+    TokenEventRow:
+      type: object
+      description: 'One event type''s token totals over the window.'
+      properties:
+        event: { type: string }
+        inputTokens: { type: number }
+        outputTokens: { type: number }
+        cacheReadTokens: { type: number }
+        cacheWriteTokens: { type: number }
+        totalTokens: { type: number }
+        costUsd: { type: number }
+        cacheReported: { type: boolean }
+        costReported: { type: boolean }
+    TokensByEventResponse:
+      type: object
+      description: >-
+        Token totals grouped by event type. The collection key is `rows`.
+      required: [rows]
+      properties:
+        range: { type: string }
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenEventRow'
+        updatedAt: { type: string, format: date-time }
+    TokensBySubjectResponse:
+      type: object
+      description: >-
+        Token totals grouped by subject. The collection key is `rows` — the
+        observability endpoints use `rows`, not `items`.
+      required: [rows]
+      properties:
+        range: { type: string }
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenSubjectRow'
+        updatedAt: { type: string, format: date-time }
+        source: { type: string }
+    LogEntry:
+      type: object
+      properties:
+        timestamp: { type: string, description: 'RFC 3339.' }
+        message: { type: string }
+        agentName: { type: string, description: 'Omitted when the line carries no agent.' }
+        labels: { type: object, additionalProperties: { type: string }, description: 'Prometheus labels, present on the Prometheus path only.' }
+    LogsResponse:
+      type: object
+      description: >-
+        The collection key is `logs`. `total` is the row count of the returned page,
+        not a filtered total.
+      required: [logs]
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+        total: { type: integer }
+        query: { type: string, description: 'The PromQL the hub ran, for debugging.' }
+    ConversationMessage:
+      type: object
+      description: >-
+        One LLM turn. `costUsd` is absent when the model is unpriced or the runtime
+        predates cost reporting — a present zero is a measured free run, which is a
+        different fact. `repo` / `org` / `eventType` / `issueNumber` label the token
+        tables group by; rows written before those columns existed carry the zero
+        values, which readers must render as "unknown".
+      properties:
+        id: { type: integer, format: int64 }
+        invocationId: { type: string }
+        correlationId: { type: string }
+        agentName: { type: string }
+        role: { type: string }
+        content: { type: string }
+        model: { type: string }
+        inputTokens: { type: integer }
+        outputTokens: { type: integer }
+        cacheReadTokens: { type: integer }
+        cacheWriteTokens: { type: integer }
+        costUsd: { type: number }
+        stopReason: { type: string }
+        repo: { type: string }
+        org: { type: string }
+        eventType: { type: string }
+        issueNumber: { type: integer }
+        createdAt: { type: string, format: date-time }
+    ConversationListResponse:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationMessage'
+    TokenUsageRow:
+      type: object
+      description: 'One row of the token table.'
+      properties:
+        agent: { type: string }
+        repository: { type: string }
+        issueNumber: { type: string }
+        model: { type: string }
+        inputTokens: { type: number }
+        outputTokens: { type: number }
+        cacheReadTokens: { type: number }
+        cacheWriteTokens: { type: number }
+        totalTokens: { type: number }
+        costUsd: { type: number }
+        cacheReported: { type: boolean }
+        costReported: { type: boolean }
+    TokenUsageResponse:
+      type: object
+      description: >-
+        The token table plus its totals. The collection key is `tokens` and the
+        totals key is `total` (singular) — neither follows the `items` / `total`
+        convention used elsewhere.
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenUsageRow'
+        total:
+          $ref: '#/components/schemas/TokenComponents'
+        source: { type: string }
+    WSMessage:
+      type: object
+      description: >-
+        One WebSocket envelope. The first frame after the upgrade is always a
+        `stats` snapshot.
+      required: [type]
+      properties:
+        type: { type: string, enum: [stats, event, error] }
+        data: { type: object }
+    MeResponse:
+      type: object
+      description: 'The caller''s identity. `groups` is a comma-joined string, not an array.'
+      properties:
+        username: { type: string }
+        name: { type: string }
+        email: { type: string }
+        groups: { type: string }
+    MCPServer:
+      type: object
+      description: >-
+        A registry entry for an external MCP endpoint. `tokenFromEnv` names the
+        env var on the agent pod whose value is sent as the bearer token; empty
+        means the server is anonymous.
+      properties:
+        name: { type: string }
+        displayName: { type: string }
+        description: { type: string }
+        url: { type: string }
+        tokenFromEnv: { type: string }
+        managedBy: { type: string, description: '"user" for console-managed; any other value makes the row read-only.' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    MCPServerWriteRequest:
+      type: object
+      required: [name, url]
+      properties:
+        name: { type: string }
+        groupId: { type: string }
+        displayName: { type: string }
+        description: { type: string }
+        url: { type: string }
+        tokenFromEnv: { type: string, maxLength: 64, description: 'Env-var name shape; empty means anonymous.' }
+    MCPServerTool:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+    Persona:
+      type: object
+      description: >-
+        The canonical persona record with the current version's text inlined.
+        Listings omit `text` and `ownerAgent`.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        currentVersion: { type: integer }
+        text: { type: string }
+        ownerAgent: { type: string, description: 'The Agent CR that owns this persona; empty for a shared template. Owned personas are hidden from the library.' }
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PersonaSummary:
+      type: object
+      description: 'The listing projection — a Persona without the (potentially large) text body.'
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        currentVersion: { type: integer }
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PersonaListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PersonaSummary'
+    PersonaWriteRequest:
+      type: object
+      description: >-
+        POST requires `name` and `text`; PUT accepts any subset. `text` <= 100000
+        chars, `name` <= 200, `description` <= 2000.
+      properties:
+        name: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        text: { type: string, maxLength: 100000 }
+    PersonaVersion:
+      type: object
+      properties:
+        personaId: { type: string }
+        versionNumber: { type: integer }
+        text: { type: string }
+        createdAt: { type: string, format: date-time }
+    PersonaVersionSummary:
+      type: object
+      properties:
+        personaId: { type: string }
+        versionNumber: { type: integer }
+        createdAt: { type: string, format: date-time }
+    PersonaVersionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PersonaVersionSummary'
+    PersonaRollbackRequest:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer, description: 'The version whose text to copy forward.' }
+    Skill:
+      type: object
+      description: 'The canonical skill record; only the detail and write responses carry `body`.'
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        body: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SkillSummary:
+      type: object
+      description: 'The listing projection — a Skill without `body`.'
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        managedBy:
+          $ref: '#/components/schemas/ManagedBy'
+        usedBy: { type: integer, description: 'How many agents select it via `spec.skills`; derived at list time, 0 when no lister is configured.' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SkillListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/SkillSummary'
+    SkillWriteRequest:
+      type: object
+      description: >-
+        POST requires `name` and `body`; PUT accepts any subset. `name` non-empty
+        and <= 200, `description` <= 2000, `body` <= 100000.
+      properties:
+        name: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        body: { type: string, maxLength: 100000 }
+        tags:
+          type: array
+          items: { type: string }
+    SkillAssignmentListResponse:
+      type: object
+      description: >-
+        Which agents a skill is assigned to. The collection key is `items`; each
+        entry is a skill reference, the same shape the per-agent list returns.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Referrer'
+    ChatSession:
+      type: object
+      description: 'A conversation between a user and one agent. `messages` is populated only when fetching a single session; list responses leave it out.'
+      properties:
+        id: { type: string, description: '`sess-<8 hex>`.' }
+        name: { type: string, description: 'Display name; defaults to the id at creation.' }
+        agentName: { type: string }
+        userId: { type: string, description: 'The human identity (OIDC sub).' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time, description: 'Timestamp of the last message.' }
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+    ChatMessage:
+      type: object
+      properties:
+        id: { type: integer, format: int64, description: 'Database row id.' }
+        sessionId: { type: string }
+        role: { type: string, enum: [user, assistant, status] }
+        content: { type: string, description: 'Markdown for assistant messages.' }
+        tokens: { type: integer, description: 'LLM token count; 0 for user and status messages.' }
+        createdAt: { type: string, format: date-time }
+    ChatSessionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChatSession'
+    ChatSessionCreateRequest:
+      type: object
+      required: [agentName]
+      properties:
+        agentName: { type: string, description: 'The agent to chat with.' }
+    ChatMessageCreateRequest:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [user, assistant, status] }
+        content: { type: string }
+        tokens: { type: integer, description: 'Optional; defaults to 0.' }
+    InternalChatMessageRequest:
+      type: object
+      description: >-
+        Same body as the user-facing message request; the sidecar posts on behalf of
+        whichever user the message belongs to.
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [user, assistant, status] }
+        content: { type: string }
+        tokens: { type: integer }
+    User:
+      type: object
+      description: >-
+        A registry user. `managedBy` marks a user an external identity provider
+        owns; the hub refuses local mutations for those.
+      properties:
+        sub: { type: string }
+        username: { type: string }
+        email: { type: string }
+        displayName: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+        enabled: { type: boolean }
+        mustChangePassword: { type: boolean }
+        managedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    UserCreateRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        email: { type: string }
+        displayName: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+    UserPatchRequest:
+      type: object
+      description: 'All fields optional; `password` resets a local password and invalidates that user''s session JWTs.'
+      properties:
+        email: { type: string }
+        displayName: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+        enabled: { type: boolean }
+        password: { type: string }
+    Group:
+      type: object
+      description: 'An authz group. There is no owner field — ownership is a role on a member row.'
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    GroupMember:
+      type: object
+      description: 'A resolved group member: the user plus this member''s role.'
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        role: { type: string, enum: [admin, member] }
+    GroupDetail:
+      type: object
+      description: 'A group with its resolved members. This is the shape of `GET /api/v1/groups/{id}`; the group endpoints otherwise return a bare `Group`.'
+      required: [group, members]
+      properties:
+        group:
+          $ref: '#/components/schemas/Group'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupMember'
+    GroupWriteRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+    GroupMemberAddRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: string }
+        role: { type: string, enum: [owner, member] }
+    GroupResourceItem:
+      type: object
+      description: 'One resource belonging to (or publicly visible to) a group.'
+      properties:
+        resourceType: { type: string }
+        resourceName: { type: string }
+        groupId: { type: string }
+        visibility: { type: string, enum: [private, public] }
+
+    MyResourcesResponse:
+      type: object
+      description: >-
+        A page of resource names for one resource type. Items are plain strings,
+        unlike the group endpoint which returns objects.
+      required: [items, total, page, pageSize, totalPages]
+      properties:
+        items:
+          type: array
+          items: { type: string }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+        totalPages: { type: integer }
+    GroupResourceListResponse:
+      type: object
+      description: >-
+        A group's resources. This endpoint is not paginated — there is no `total`
+        and no page metadata.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupResourceItem'
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+    LoginResponse:
+      type: object
+      required: [token, expiresAt, user]
+      properties:
+        token: { type: string, description: 'Session JWT.' }
+        expiresAt: { type: string, description: 'RFC 3339, UTC.' }
+        user:
+          type: object
+          description: >-
+            A short user summary, not the full `User` record. `mustChangePassword`
+            lets the client route to the forced-change screen without a second
+            round-trip to `/auth/me`.
+          properties:
+            sub: { type: string }
+            username: { type: string }
+            isAdmin: { type: boolean }
+            mustChangePassword: { type: boolean }
+    AuthMe:
+      type: object
+      properties:
+        sub: { type: string }
+        email: { type: string }
+        username: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+        mustChangePassword: { type: boolean }
+    PasswordChangeRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string }
+        newPassword: { type: string }
+    PasswordPolicy:
+      type: object
+      properties:
+        minLength: { type: integer }
+        maxLength: { type: integer, description: 'The hub-wide cap, not a configured value.' }
+        requireCharacterClasses:
+          type: array
+          description: 'The configured classes (`lower`, `upper`, `digit`, `symbol`); `[]` when none are required.'
+          items: { type: string }
+    UserToken:
+      type: object
+      description: 'One personal API token. The secret itself is never listed — only at creation.'
+      properties:
+        id: { type: string }
+        name: { type: string }
+        expiresAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: string, format: date-time, nullable: true }
+    UserTokenCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: 'A label to recognise the token by.' }
+        expiresInDays: { type: integer, description: 'Lifetime in days; the hub applies its default when unset.' }
+    UserTokenCreated:
+      type: object
+      description: 'The only response that carries the token secret. It cannot be retrieved again.'
+      required: [token]
+      properties:
+        token: { type: string }
+    AgentTask:
+      type: object
+      description: >-
+        A unit of work an agent runtime claims from the queue. Field names are
+        snake_case here, unlike most of the API — this is the queue's own record
+        shape, shared with the worker protocol.
+      properties:
+        id: { type: integer, format: int64 }
+        event_id: { type: string }
+        agent_name: { type: string }
+        trigger_name: { type: string }
+        invocation_id: { type: string }
+        headers: { type: object }
+        payload: { type: object }
+        attempts: { type: integer, description: 'How many times the task has been claimed.' }
+        status: { type: string, enum: [pending, claimed, completed, failed, expired] }
+        error: { type: string, description: 'Last failure message; empty when none.' }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        retryAfter: { type: string, format: date-time, description: 'When a nacked task becomes runnable again; a per-task Job fetch refuses one still inside this window.' }
+        startedAt: { type: string, format: date-time, description: 'First evidence of work. Only the enrichment queries populate it, so a plain fetch leaves it nil even for a running task.' }
+    TaskNackRequest:
+      type: object
+      description: >-
+        `delay_ms` is the worker's base, not the final wait — the hub owns retry
+        pacing, and only the hub can see how many attempts the row has already
+        spent. The wait doubles per attempt and stops at the hub's ceiling.
+      properties:
+        error: { type: string, description: 'Why the attempt failed; recorded on the task before it is requeued.' }
+        delay_ms: { type: integer, format: int64, description: 'Base backoff in milliseconds.' }
+    TaskLogIngestRequest:
+      type: object
+      description: >-
+        One task log line, posted straight into the row. `level` is agent-supplied
+        free text and is validated on ingest — a value outside the four accepted
+        levels is a 400 here rather than a database rejection.
+      required: [agentName, level, message]
+      properties:
+        invocationId: { type: string }
+        correlationId: { type: string }
+        agentName: { type: string }
+        level: { type: string, enum: [debug, info, warn, error] }
+        message: { type: string }
+        fields: { type: object }
+        createdAt: { type: string, format: date-time }
+    TaskMessageIngestRequest:
+      type: object
+      description: >-
+        One conversation turn, posted straight into the row. Same fields as the
+        `ConversationMessage` the read endpoints return, minus the server-assigned
+        `id`.
+      required: [agentName, role, content]
+      properties:
+        invocationId: { type: string }
+        correlationId: { type: string }
+        agentName: { type: string }
+        role: { type: string }
+        content: { type: string }
+        model: { type: string }
+        inputTokens: { type: integer }
+        outputTokens: { type: integer }
+        cacheReadTokens: { type: integer }
+        cacheWriteTokens: { type: integer }
+        costUsd: { type: number }
+        stopReason: { type: string }
+        repo: { type: string }
+        org: { type: string }
+        eventType: { type: string }
+        issueNumber: { type: integer }
+        createdAt: { type: string, format: date-time }
+    UserTokenValidateRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, description: 'The `ainsel_...` secret to check.' }
+    UserTokenValidated:
+      type: object
+      description: >-
+        Returned when the token is valid. An unknown or expired token is a 401, not
+        a body with a false flag.
+      required: [userId, username]
+      properties:
+        userId: { type: string }
+        username: { type: string }
+    PluginTool:
+      type: object
+      description: >-
+        One operator-audience tool. `name` is the plugin's own tool name — the hub
+        does not rewrite it, so the caller prefixes the plugin id when registering.
+      properties:
+        pluginId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        inputSchema: { type: object }
+    PluginToolListResponse:
+      type: object
+      description: >-
+        Every operator-audience tool of the usable plugins. `tools` is never null —
+        an empty result is an empty array. A plugin that cannot be reached
+        contributes nothing rather than failing the whole response.
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/PluginTool'
+    PluginCredentialResponse:
+      type: object
+      description: >-
+        A background credential for the calling plugin's own use. Issued only when
+        the request's source IP matches one of the plugin's verified endpoints — a
+        recycled pod IP is accepted residual risk.
+      required: [token, expiresAt]
+      properties:
+        token: { type: string }
+        expiresAt: { type: string, format: date-time }
+    AuthEvent:
+      type: object
+      description: 'One authz audit row. `occurredAt` is an RFC 3339 Nano string here, not a timestamp object.'
+      properties:
+        id: { type: string }
+        occurredAt: { type: string }
+        actorSub: { type: string }
+        eventType: { type: string }
+        target: { type: string }
+        sourceIP: { type: string }
+        outcome: { type: string }
+    AuthEventListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuthEvent'
+    PluginSignature:
+      type: object
+      description: 'Signature verification state for the plugin image.'
+      properties:
+        verified: { type: boolean }
+        signer: { type: string }
+        checkedAt: { type: string, format: date-time }
+        message: { type: string }
+    PluginToolCallResponse:
+      type: object
+      description: >-
+        The plugin's MCP `tools/call` result, passed through unchanged. An unknown
+        tool, a tool the plugin serves only to agents, and a plugin with no MCP
+        endpoint are all the same 404 — the endpoint does not disclose which tools a
+        plugin keeps private.
+      additionalProperties: true

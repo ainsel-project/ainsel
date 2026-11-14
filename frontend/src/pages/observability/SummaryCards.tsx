@@ -37,9 +37,21 @@ type SummaryCardsProps = {
   summary?: ObservabilitySummary
   tokens?: TokensSummary
   range?: Range
+  /** Point values from the timeseries queries the page already runs for the
+   *  same metric and range (issue #275). A card sparks only when its own
+   *  series is present: a failed query omits that card's spark, never a
+   *  fabricated trend. Errors and Tokens carry no spark at all — the
+   *  `routing_errors` series is not the same quantity as the Errors figure on
+   *  a Prometheus-pinned hub, and the tokens timeseries is 24h-only while the
+   *  card is labelled with the page range. */
+  series?: {
+    eventsConsumed?: number[]
+    triggersMatched?: number[]
+    eventsRouted?: number[]
+  }
 }
 
-export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
+export function SummaryCards({ summary, tokens, range, series }: SummaryCardsProps) {
   const rangeSuffix = range ? ` · ${range}` : ''
   // Presence flags (issue #75). A missing flag is a hub older than the
   // flags: unknown, so keep the legacy rendering rather than claiming
@@ -57,7 +69,7 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
       formatter: (n) => abbreviateNumber(n),
       sub: '',
       to: eventsLink({ range }),
-      spark: [4, 5, 6, 7, 8, 9],
+      spark: series?.eventsConsumed,
     },
     {
       key: 'matched',
@@ -67,7 +79,7 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
       formatter: (n) => abbreviateNumber(n),
       sub: '',
       to: routingLink({ range }),
-      spark: [3, 4, 5, 5, 6, 7],
+      spark: series?.triggersMatched,
     },
     {
       key: 'routed',
@@ -77,7 +89,7 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
       formatter: (n) => abbreviateNumber(n),
       sub: '',
       to: routingLink({ range }),
-      spark: [3, 4, 4, 5, 6, 7],
+      spark: series?.eventsRouted,
     },
     {
       key: 'errors',
@@ -88,7 +100,6 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
       sub: '',
       to: errorsLink({ range }),
       alert: (summary?.routingErrors ?? 0) > 0,
-      spark: [0, 1, 0, 2, 1, summary?.routingErrors ?? 0],
     },
     {
       key: 'tokens',
@@ -98,7 +109,6 @@ export function SummaryCards({ summary, tokens, range }: SummaryCardsProps) {
       formatter: (n) => abbreviateNumber(n),
       sub: '',
       to: tokensLink({ range }),
-      spark: [3, 4, 5, 4, 6, 7],
     },
     {
       key: 'cache-hit',

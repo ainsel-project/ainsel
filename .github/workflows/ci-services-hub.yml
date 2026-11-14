@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'services/hub/**'
+      - 'openapi/**'
       - 'shared/api/**'
       - 'shared/auth/**'
       - 'go.work'
@@ -16,6 +17,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'services/hub/**'
+      - 'openapi/**'
       - 'shared/api/**'
       - 'shared/auth/**'
       - 'go.work'

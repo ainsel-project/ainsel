@@ -9,8 +9,7 @@ import (
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 )
 
 func TestChatSessions_NotConfigured(t *testing.T) {
@@ -103,42 +102,12 @@ func TestChatSession_PatchNotConfiguredEmptyName(t *testing.T) {
 	}
 }
 
-// newTestChatStore boots a Postgres testcontainer, applies migrations, and
-// returns a chat.Store wired to a fresh pool. Skips the test if Docker is
-// unavailable.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func newTestChatStore(t *testing.T) (*chat.Store, func()) {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-
-	cleanup := func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	}
-	return chat.NewStore(pool), cleanup
+	pool := dbtest.Open(t)
+	return chat.NewStore(pool), func() {}
 }
 
 func TestChatSession_PatchSuccess(t *testing.T) {

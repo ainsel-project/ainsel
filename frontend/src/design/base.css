@@ -70,3 +70,13 @@ body {
   color: var(--ink-3);
   font-weight: 600;
 }
+
+/* Sentence-case body text for explanatory hints — the counterpart to
+   `.label`, which is uppercase mono and only ever fits a short label.
+   See "Console UI consistency" in docs/conventions.md. */
+.hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}

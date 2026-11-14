@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
@@ -26,42 +25,11 @@ import (
 func iptr(v int) *int         { return &v }
 func fptr(v float64) *float64 { return &v }
 
-// obsDBServer boots a Postgres testcontainer, migrates it, and returns a server
-// wired with the hub's own telemetry and task-log stores but **no Prometheus** —
-// the shape a standalone install actually runs in. The pool is returned so a
-// test can seed raw rows. Skips when Docker is unavailable, like the other
-// integration suites here.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func obsDBServer(t *testing.T, paths ...string) (*Server, *pgxpool.Pool) {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	})
+	pool := dbtest.Open(t)
 
 	s := testServer(t)
 	s.SetTelemetryStore(telemetry.NewStore(pool))

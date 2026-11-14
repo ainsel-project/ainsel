@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 )
 
 // TestMigrateRecordsAppliedMigrationHistory checks that a migrated database
 // carries a per-version checksum row for every applied migration, so later
 // renumbering can be detected. Skips if Docker is unavailable.
 func TestMigrateRecordsAppliedMigrationHistory(t *testing.T) {
-	dsn, stop := startPostgres(t)
-	defer stop()
+	dsn := dbtest.EmptyDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -58,8 +58,7 @@ func TestMigrateRecordsAppliedMigrationHistory(t *testing.T) {
 // already stamped at the highest version, so the new 0026 was skipped in silence
 // and every request that read the missing column failed with a 500.
 func TestMigrateDetectsRenumberedMigration(t *testing.T) {
-	dsn, stop := startPostgres(t)
-	defer stop()
+	dsn := dbtest.EmptyDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

@@ -243,12 +243,57 @@ one Go method + wildcard pattern per endpoint (issue #265):
 - A page's outer container uses `className="page"`, never an inline padding.
   Inline styles cannot match a media query, so an inline `padding: '28px 32px'`
   keeps desktop gutters on a phone; the guard spec ratchets the residue.
+- The same applies one level down: a collapsing grid takes its column count from
+  a class (`.info-grid.cols-5`, `.cols-7`, `.form-grid.cols-3`), never from an
+  inline `style={{ gridTemplateColumns: … }}`. An inline declaration beats every
+  rule in `responsive.css` whatever the media query, so the grid keeps its
+  desktop column count at 360px and overflows its panel.
 - Tables are not made responsive. `.reg-wrap` scrolls horizontally and
   `table.reg { min-width: 960px }` stays — reading a register on a phone is a
-  scroll, not a reflow.
+  scroll, not a reflow. The phone tier only makes that scroll findable
+  (`scrollbar-width`/`scrollbar-color`) and lets long mono strings break
+  (`overflow-wrap: anywhere` on `table.reg .num`).
+- The agent workspace's section nav is a 170px column down to the phone tier,
+  where it becomes a full-width wrapping strip under the title: below 900px the
+  workspace stacks, and a column of eight-plus links would be the whole first
+  screen. The group captions (`Configure` / `Wiring` / `Plugins`) are hidden at
+  that tier — the grouping stays in the DOM, only the caption goes. Those
+  overrides live in `responsive.css` and are qualified `nav.section-nav`:
+  component CSS is bundled after `responsive.css`, so an equal-specificity
+  selector there would never win.
+- `.canvas` clips horizontal overflow with `overflow-x: clip` (`hidden` as the
+  fallback). A bare `hidden` computes `overflow-y` to `auto`, which makes the
+  canvas the nearest scrolling ancestor of the sticky title block — a box that
+  grows with its content and never scrolls, so the title block stops sticking.
 - Viewport-sized chrome declares `vh` and `dvh` in that order (`min-height:
   100vh; min-height: 100dvh`). `vh` alone is the *largest* viewport on mobile
   browsers, so the URL bar covers the bottom of the page.
+
+#### Console UI consistency
+
+Five rules. None of them is a bug on its own; together they are what makes
+the console read as one product rather than as one page.
+
+- **One primary action per title block.** A page's main action is a
+  `Button variant="primary"` passed to `Titleblock`'s `actions` — not a plain
+  button somewhere in the page body, and not missing. Pages whose action
+  opens a create form toggle it from there.
+- **Page name = nav label = breadcrumb leaf.** The Spine entry, the
+  `Titleblock` title, and the last breadcrumb crumb are the same string, and
+  they agree with the route: `/settings/mcp-servers` is "MCP Servers" in all
+  three places. A second title block under the page's own is deleted, not
+  renamed.
+- **Hints are sentence-case body text; labels are mono caps.** Explanatory
+  prose uses `className="hint"` (`frontend/src/design/base.css`). `.label` is
+  uppercase, letter-spaced mono — right for short field labels and table
+  headers, unreadable for a paragraph.
+- **No native form controls in pages.** Pages compose the primitives
+  (`Select`, `Input`, `Autocomplete`, …); a raw `<select>` beside a custom
+  control is exactly the inconsistency this rule exists for.
+  `frontend/src/design/controls.guard.test.ts` ratchets the residue.
+- **Empty panels are not rendered.** A panel with nothing to show — no
+  identity in no-auth mode, no data, an action that cannot succeed in this
+  mode — is not rendered at all. An empty frame is worse than no frame.
 
 ### Helm
 

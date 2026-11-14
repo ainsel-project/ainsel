@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 )
 
 func TestMigrateUpCreatesMcpServersTable(t *testing.T) {
-	dsn, stop := startPostgres(t)
-	defer stop()
+	dsn := dbtest.EmptyDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -35,8 +35,7 @@ func TestMigrateUpCreatesMcpServersTable(t *testing.T) {
 }
 
 func TestMigrateIsIdempotent(t *testing.T) {
-	dsn, stop := startPostgres(t)
-	defer stop()
+	dsn := dbtest.EmptyDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -59,8 +58,7 @@ func TestMigrateRejectsKeyValueDSN(t *testing.T) {
 // gains a managed_by that defaults to "user", so pre-existing console skills
 // keep reading as user-owned without a backfill.
 func TestMigrateUpAddsSkillsManagedBy(t *testing.T) {
-	dsn, stop := startPostgres(t)
-	defer stop()
+	dsn := dbtest.EmptyDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -92,8 +90,7 @@ func TestMigrateUpAddsSkillsManagedBy(t *testing.T) {
 // personas row gains a managed_by defaulting to "user", so pre-existing
 // console personas keep reading as user-owned without a backfill.
 func TestMigrateUpAddsPersonasManagedBy(t *testing.T) {
-	dsn, stop := startPostgres(t)
-	defer stop()
+	dsn := dbtest.EmptyDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

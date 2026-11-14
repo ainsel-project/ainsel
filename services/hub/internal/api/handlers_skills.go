@@ -189,7 +189,7 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 		// alone, without querying.
 		if set := h.accessibleSet(r); set != nil {
 			if len(set) == 0 {
-				writeJSON(w, http.StatusOK, map[string]any{
+				httpx.WriteJSON(w, http.StatusOK, map[string]any{
 					"items":      []skills.SkillSummary{},
 					"total":      0,
 					"page":       page.Page,
@@ -218,7 +218,7 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 			if items == nil {
 				items = []skills.SkillSummary{}
 			}
-			writeJSON(w, http.StatusOK, map[string]any{
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{
 				"items":      items,
 				"total":      total,
 				"page":       page.Page,

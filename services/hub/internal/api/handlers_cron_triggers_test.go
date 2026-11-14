@@ -1,41 +1,17 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"testing"
 
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 )
 
 func cronTriggerTestServer(t *testing.T) *Server {
 	t.Helper()
-	ctx := t.Context()
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(ctx) })
-	dsn, _ := c.ConnectionString(ctx, "sslmode=disable")
-	if err := db.Migrate(ctx, dsn); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := dbtest.Open(t)
 	s := testServer(t)
 	s.triggerStore = triggers.NewStore(pool)
 	s.mux.HandleFunc("/api/v1/cron-triggers", s.handleCronTriggers)
@@ -46,26 +22,16 @@ func cronTriggerTestServer(t *testing.T) *Server {
 func TestCronTriggers_CreateAndList(t *testing.T) {
 	srv := cronTriggerTestServer(t)
 
-	createReq := CronTriggerCreateRequest{
+	code, raw := do(t, srv, http.MethodPost, "/api/v1/cron-triggers", CronTriggerCreateRequest{
 		Name:     "daily-standup",
 		AgentRef: "standup-bot",
 		Schedule: "0 9 * * 1-5",
 		Prompt:   "Summarize open PRs and stale issues.",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", code, raw)
 	}
-	body, _ := json.Marshal(createReq)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/cron-triggers", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var created CronTriggerResponse
-	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	created := decode[CronTriggerResponse](t, raw)
 	if !regexp.MustCompile(`^c-[0-9a-f]{8}$`).MatchString(created.ID) {
 		t.Errorf("expected id c-XXXXXXXX, got %s", created.ID)
 	}
@@ -86,19 +52,14 @@ func TestCronTriggers_CreateAndList(t *testing.T) {
 	}
 
 	// List and verify.
-	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/cron-triggers", nil)
-	listRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(listRec, listReq)
-	if listRec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", listRec.Code, listRec.Body.String())
+	code, raw = do(t, srv, http.MethodGet, "/api/v1/cron-triggers", nil)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", code, raw)
 	}
-	var page struct {
+	page := decode[struct {
 		Items []CronTriggerResponse `json:"items"`
 		Total int                   `json:"total"`
-	}
-	if err := json.NewDecoder(listRec.Body).Decode(&page); err != nil {
-		t.Fatalf("decode list: %v", err)
-	}
+	}](t, raw)
 	if page.Total != 1 || len(page.Items) != 1 {
 		t.Fatalf("expected 1 item, got total=%d items=%d", page.Total, len(page.Items))
 	}
@@ -111,13 +72,10 @@ func TestCronTriggers_CreateRejectsMissingFields(t *testing.T) {
 	srv := cronTriggerTestServer(t)
 
 	// Missing schedule and prompt.
-	body, _ := json.Marshal(CronTriggerCreateRequest{Name: "x", AgentRef: "a"})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/cron-triggers", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing fields, got %d: %s", rec.Code, rec.Body.String())
+	code, raw := do(t, srv, http.MethodPost, "/api/v1/cron-triggers",
+		CronTriggerCreateRequest{Name: "x", AgentRef: "a"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing fields, got %d: %s", code, raw)
 	}
 }
 
@@ -125,35 +83,24 @@ func TestCronTriggers_GetUpdateDelete(t *testing.T) {
 	srv := cronTriggerTestServer(t)
 
 	// Create.
-	body, _ := json.Marshal(CronTriggerCreateRequest{
+	_, raw := do(t, srv, http.MethodPost, "/api/v1/cron-triggers", CronTriggerCreateRequest{
 		Name: "nightly", AgentRef: "bot", Schedule: "0 0 * * *", Prompt: "p",
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/cron-triggers", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
-	var created CronTriggerResponse
-	_ = json.NewDecoder(rec.Body).Decode(&created)
+	created := decode[CronTriggerResponse](t, raw)
 
 	// Get.
-	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/cron-triggers/"+created.ID, nil)
-	getRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(getRec, getReq)
-	if getRec.Code != http.StatusOK {
-		t.Fatalf("GET expected 200, got %d: %s", getRec.Code, getRec.Body.String())
+	code, raw := do(t, srv, http.MethodGet, "/api/v1/cron-triggers/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET expected 200, got %d: %s", code, raw)
 	}
 
 	// Update prompt + disable.
-	upd, _ := json.Marshal(CronTriggerUpdateRequest{Prompt: "new prompt", Enabled: ptr(false)})
-	updReq := httptest.NewRequest(http.MethodPut, "/api/v1/cron-triggers/"+created.ID, bytes.NewReader(upd))
-	updReq.Header.Set("Content-Type", "application/json")
-	updRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(updRec, updReq)
-	if updRec.Code != http.StatusOK {
-		t.Fatalf("PUT expected 200, got %d: %s", updRec.Code, updRec.Body.String())
+	code, raw = do(t, srv, http.MethodPut, "/api/v1/cron-triggers/"+created.ID,
+		CronTriggerUpdateRequest{Prompt: "new prompt", Enabled: ptr(false)})
+	if code != http.StatusOK {
+		t.Fatalf("PUT expected 200, got %d: %s", code, raw)
 	}
-	var updated CronTriggerResponse
-	_ = json.NewDecoder(updRec.Body).Decode(&updated)
+	updated := decode[CronTriggerResponse](t, raw)
 	if updated.Prompt != "new prompt" {
 		t.Errorf("updated prompt = %q, want new prompt", updated.Prompt)
 	}
@@ -162,19 +109,15 @@ func TestCronTriggers_GetUpdateDelete(t *testing.T) {
 	}
 
 	// Delete.
-	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/cron-triggers/"+created.ID, nil)
-	delRec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(delRec, delReq)
-	if delRec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE expected 204, got %d: %s", delRec.Code, delRec.Body.String())
+	code, raw = do(t, srv, http.MethodDelete, "/api/v1/cron-triggers/"+created.ID, nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("DELETE expected 204, got %d: %s", code, raw)
 	}
 
 	// Get again -> 404.
-	getReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/cron-triggers/"+created.ID, nil)
-	getRec2 := httptest.NewRecorder()
-	srv.mux.ServeHTTP(getRec2, getReq2)
-	if getRec2.Code != http.StatusNotFound {
-		t.Errorf("GET after delete expected 404, got %d", getRec2.Code)
+	code, _ = do(t, srv, http.MethodGet, "/api/v1/cron-triggers/"+created.ID, nil)
+	if code != http.StatusNotFound {
+		t.Errorf("GET after delete expected 404, got %d", code)
 	}
 }
 

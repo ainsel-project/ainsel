@@ -10,49 +10,18 @@ import (
 	"testing"
 	"time"
 
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 )
 
-// channelTestServer boots a Postgres testcontainer, wires the channel registry
-// over it, and returns the server plus the stores a test needs to seed. It skips
-// when Docker is unavailable, matching the other integration suites.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func channelTestServer(t *testing.T) (*Server, *channels.Store, *eventqueue.Store, *triggers.Store) {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	})
+	pool := dbtest.Open(t)
 
 	eq := eventqueue.NewStore(pool)
 	ts := triggers.NewStore(pool)

@@ -423,7 +423,9 @@ helm lint chart/              # only if you touched the chart
 
 Tests live next to source:
 
-- Go: `*_test.go` files in the same package.
+- Go: `*_test.go` files in the same package. Hub tests that need Postgres go
+  through `services/hub/internal/dbtest` (one shared testcontainer per
+  package) — never `pgcontainer.Run` directly.
 - TypeScript: `*.test.ts` or `*.test.tsx` next to source, or in a `__tests__/`
   directory.
 

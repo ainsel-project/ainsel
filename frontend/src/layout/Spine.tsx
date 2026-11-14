@@ -1,50 +1,62 @@
 import { useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { activeNavPath } from '../plugins/registry'
+import { NavIcon, type NavIconName } from './SpineIcons'
 import './Spine.css'
 
-type NavItem = { idx: string; name: string; to: string; tag?: string }
+type NavItem = { name: string; to: string; tag?: string; icon: NavIconName }
 
 const SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Operations',
     items: [
-      { idx: '01', name: 'Dashboard', to: '/dashboard' },
-      { idx: '12', name: 'Channels', to: '/channels' },
-      { idx: '13', name: 'Activity', to: '/activity' },
-      { idx: '14', name: 'Observability', to: '/observability' },
+      { name: 'Dashboard', to: '/dashboard', icon: 'dashboard' },
+      { name: 'Channels', to: '/channels', icon: 'channels' },
+      { name: 'Activity', to: '/activity', icon: 'activity' },
+      { name: 'Observability', to: '/observability', icon: 'observability' },
     ],
   },
   {
     label: 'Fleet',
-    items: [{ idx: '02', name: 'Agents', to: '/agents' }],
+    items: [{ name: 'Agents', to: '/agents', icon: 'agents' }],
   },
   {
     // Shared catalogs an agent draws from. Agent-scoped configuration lives on
     // the agent itself; these pages manage the reusable building blocks.
     label: 'Library',
     items: [
-      { idx: '15', name: 'Images', to: '/agent-images' },
-      { idx: '16', name: 'Personas', to: '/personas' },
-      { idx: '17', name: 'Skills', to: '/skills' },
-      { idx: '18', name: 'MCPs', to: '/settings' },
+      { name: 'Images', to: '/agent-images', icon: 'images' },
+      { name: 'Personas', to: '/personas', icon: 'personas' },
+      { name: 'Skills', to: '/skills', icon: 'skills' },
+      { name: 'MCPs', to: '/settings', icon: 'mcps' },
     ],
   },
   {
     label: 'Docs',
-    items: [{ idx: '10', name: 'Docs', to: '/docs' }],
+    items: [{ name: 'Docs', to: '/docs', icon: 'docs' }],
   },
   {
     label: 'Admin',
     items: [
-      { idx: '20', name: 'Users', to: '/users' },
-      { idx: '21', name: 'Groups', to: '/groups' },
-      { idx: '22', name: 'Connectors', to: '/connectors' },
-      { idx: '23', name: 'Audit', to: '/audit' },
-      { idx: '24', name: 'Plugins', to: '/plugins' },
+      { name: 'Users', to: '/users', icon: 'users' },
+      { name: 'Groups', to: '/groups', icon: 'groups' },
+      { name: 'Connectors', to: '/connectors', icon: 'connectors' },
+      { name: 'Audit', to: '/audit', icon: 'audit' },
+      { name: 'Plugins', to: '/plugins', icon: 'plugins' },
     ],
   },
 ]
+
+// The ledger numbers are decoration (issue #279): they are aria-hidden, and the
+// rail hides them in favour of the icon. They used to be hand-written per entry
+// and went stale every time an entry moved, so they are derived from the
+// flattened order instead — the numbering cannot drift again.
+const INDEX_BY_PATH = new Map<string, string>()
+for (const section of SECTIONS) {
+  for (const item of section.items) {
+    INDEX_BY_PATH.set(item.to, String(INDEX_BY_PATH.size + 1).padStart(2, '0'))
+  }
+}
 
 type SpineProps = {
   operator: string
@@ -53,7 +65,7 @@ type SpineProps = {
   onClose?: () => void
   /**
    * Collapse the spine to a ~48px icon rail (used in the agent workspace):
-   * each entry shows only its idx, with the name carried by `title` and
+   * each entry shows only its icon, with the name carried by `title` and
    * `aria-label`; section labels are dropped.
    * Ignored while the mobile drawer is open — the drawer always shows the
    * full navigation.
@@ -62,25 +74,29 @@ type SpineProps = {
 }
 
 /**
- * One top-level nav entry. In rail mode the visible text collapses to the
- * idx alone, so the name moves to `title` + `aria-label` to keep the link
- * nameable.
+ * One top-level nav entry. Both the icon and the idx are always in the DOM and
+ * CSS decides which one is visible: the expanded spine shows the number, the
+ * rail shows the icon (see Spine.css). Neither is a label — the idx is
+ * aria-hidden and the icon is a decorative SVG — so the accessible name is the
+ * entry name, read from `.name` when expanded and from `title` + `aria-label`
+ * in the rail, where no name text is rendered.
  */
 function EntryLink({
   to,
-  idx,
   name,
   tag,
+  icon,
   active,
   collapsed,
 }: {
   to: string
-  idx: string
   name: string
   tag?: string
+  icon: NavIconName
   active: boolean
   collapsed: boolean
 }) {
+  const idx = INDEX_BY_PATH.get(to) ?? ''
   return (
     <Link
       to={to}
@@ -89,7 +105,10 @@ function EntryLink({
       aria-label={collapsed ? name : undefined}
       title={collapsed ? name : undefined}
     >
-      <span className="idx">{idx}</span>
+      <NavIcon name={icon} />
+      <span className="idx" aria-hidden="true">
+        {idx}
+      </span>
       {collapsed ? null : (
         <>
           <span className="name">{name}</span>
@@ -136,9 +155,9 @@ export function Spine({ operator, open = false, onClose, rail = false }: SpinePr
               <div key={item.to}>
                 <EntryLink
                   to={item.to}
-                  idx={item.idx}
                   name={item.name}
                   tag={item.tag}
+                  icon={item.icon}
                   active={active}
                   collapsed={collapsed}
                 />

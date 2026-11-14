@@ -182,7 +182,7 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 		// alone, without querying.
 		set := h.accessibleSet(r)
 		if set != nil && len(set) == 0 {
-			writeJSON(w, http.StatusOK, map[string]any{
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{
 				"items":      []personas.PersonaSummary{},
 				"total":      0,
 				"page":       page.Page,

@@ -180,6 +180,53 @@ describe('Observability', () => {
     expect(screen.getByText('1.2M')).toBeInTheDocument() // token total
   })
 
+  // #275: the card sparks used to be hardcoded arrays. The three event cards
+  // now plot the same metric, range and backend as the figure above them —
+  // the timeseries series the throughput chart already fetches (mocked here as
+  // values 10..33, so the first bar is round(10/33*100) = 30%). Errors and
+  // Tokens carry no spark: their series would not be the same quantity
+  // (routing_errors vs the task-log count) or the same window (the tokens
+  // timeseries is 24h-only while the card is labelled with the page range).
+  it('feeds the event card sparklines from the timeseries the page already fetches', async () => {
+    const { container } = renderWithProviders(<Observability />, { route: '/observability' })
+    await waitFor(() => expect(screen.getByText('Events Consumed · 24h')).toBeInTheDocument())
+    const sparks = container.querySelectorAll('.kpi .spark')
+    expect(sparks).toHaveLength(3)
+    expect(sparks[0].children).toHaveLength(24)
+    expect((sparks[0].children[0] as HTMLElement).style.height).toBe('30%')
+    expect((sparks[0].children[23] as HTMLElement).style.height).toBe('100%')
+    const errorsCard = screen.getByText('Errors · 24h').closest('.kpi')
+    expect(errorsCard!.querySelector('.spark')).toBeNull()
+    const tokensCard = screen.getByText('Tokens · 24h').closest('.kpi')
+    expect(tokensCard!.querySelector('.spark')).toBeNull()
+  })
+
+  // Per-card failure isolation: a 503 on one metric omits that card's spark
+  // and must not blank the card row — the figures come from the summary, and
+  // a sparkline error must never enter summaryState.
+  it("omits only the failed metric's sparkline", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (
+          url.includes('/observability/metrics/timeseries') &&
+          url.includes('metric=events_consumed')
+        ) {
+          return Promise.resolve(new Response('{"error":"no metrics source"}', { status: 503 }))
+        }
+        return Promise.resolve(defaultFetch(url))
+      }),
+    )
+    const { container } = renderWithProviders(<Observability />, { route: '/observability' })
+    await waitFor(() => expect(screen.getByText('Events Consumed · 24h')).toBeInTheDocument())
+    const consumedCard = screen.getByText('Events Consumed · 24h').closest('.kpi')
+    expect(consumedCard!.querySelector('.spark')).toBeNull()
+    // The card still shows its figure from the summary, and the other two
+    // event cards keep their sparks.
+    expect(consumedCard).toHaveTextContent('1.2K')
+    expect(container.querySelectorAll('.kpi .spark')).toHaveLength(2)
+  })
+
   it('renders the cache hit rate and cost tiles from the token summary', async () => {
     // Cache hit rate = cacheRead / (input + cacheRead + cacheWrite) =
     // 8M / (820k + 8M + 1M) ≈ 81%. A drop means the prompt prefix is being
