@@ -6,10 +6,10 @@ package api
 //	status, body := do(t, s, http.MethodGet, "/api/v1/agents", nil)
 //	agents := decode[[]types.SimpleAgentResponse](t, body)
 //
-// doAs is the same but carries an OIDC identity (sub == "" means anonymous),
-// for the authz tests. A nil body sends no body; a string body is sent
-// verbatim (for tests that assert handlers reject invalid JSON); anything
-// else is marshalled as JSON.
+// A nil body sends no body; a string body is sent verbatim (for tests that
+// assert handlers reject invalid JSON); anything else is marshalled as JSON.
+// Requests that need an OIDC identity go through doJSON with an asUser
+// context function instead.
 
 import (
 	"bytes"
@@ -25,17 +25,6 @@ import (
 func do(t *testing.T, s *Server, method, path string, body any) (int, json.RawMessage) {
 	t.Helper()
 	return doWith(t, s, method, path, body, nil)
-}
-
-// doAs issues a request carrying an OIDC identity; sub == "" produces an
-// unauthenticated request.
-func doAs(t *testing.T, s *Server, method, path, sub string, body any) (int, json.RawMessage) {
-	t.Helper()
-	var ctxFn func(context.Context) context.Context
-	if sub != "" {
-		ctxFn = asUser(sub, sub)
-	}
-	return doWith(t, s, method, path, body, ctxFn)
 }
 
 func doWith(t *testing.T, s *Server, method, path string, body any, ctxFn func(context.Context) context.Context) (int, json.RawMessage) {
