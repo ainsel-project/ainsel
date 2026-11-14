@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 )
@@ -64,11 +64,8 @@ func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 		SELECT id, email, username, is_admin, disabled, must_change_password, created_at, updated_at
 		FROM users WHERE id = $1
 	`, id).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("authz.GetUser: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "authz.GetUser")
 	}
 	return &u, nil
 }
@@ -126,11 +123,8 @@ func (s *Store) SetDisabled(ctx context.Context, userID string, disabled bool) e
 func (s *Store) IsUserDisabled(ctx context.Context, id string) (bool, error) {
 	var disabled bool
 	err := s.pool.QueryRow(ctx, `SELECT disabled FROM users WHERE id = $1`, id).Scan(&disabled)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, ErrNotFound
-	}
 	if err != nil {
-		return false, fmt.Errorf("authz.IsUserDisabled: %w", err)
+		return false, pgutil.MapNoRows(err, ErrNotFound, "authz.IsUserDisabled")
 	}
 	return disabled, nil
 }
@@ -168,7 +162,7 @@ func (s *Store) CreateLocalUser(ctx context.Context, id, email, username, passwo
 		RETURNING id, email, username, is_admin, disabled, must_change_password, created_at, updated_at
 	`, id, email, username, isAdmin, passwordHash, mustChange).Scan(&u.ID, &u.Email, &u.Username, &u.IsAdmin, &u.Disabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return nil, ErrAlreadyExists
 		}
 		return nil, fmt.Errorf("authz.CreateLocalUser: %w", err)
@@ -182,11 +176,8 @@ func (s *Store) CreateLocalUser(ctx context.Context, id, email, username, passwo
 func (s *Store) UserPasswordHash(ctx context.Context, id string) (string, error) {
 	var hash string
 	err := s.pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, id).Scan(&hash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNotFound
-	}
 	if err != nil {
-		return "", fmt.Errorf("authz.UserPasswordHash: %w", err)
+		return "", pgutil.MapNoRows(err, ErrNotFound, "authz.UserPasswordHash")
 	}
 	return hash, nil
 }
@@ -227,11 +218,8 @@ func (s *Store) SetPasswordWithFlag(ctx context.Context, id, hash string, mustCh
 func (s *Store) UserTokenVersion(ctx context.Context, id string) (int64, error) {
 	var v int64
 	err := s.pool.QueryRow(ctx, `SELECT token_version FROM users WHERE id = $1`, id).Scan(&v)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrNotFound
-	}
 	if err != nil {
-		return 0, fmt.Errorf("authz.UserTokenVersion: %w", err)
+		return 0, pgutil.MapNoRows(err, ErrNotFound, "authz.UserTokenVersion")
 	}
 	return v, nil
 }
@@ -265,13 +253,6 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	return nil
 }
 
-// isUniqueViolation reports whether err is a PostgreSQL unique-constraint
-// violation (SQLSTATE 23505).
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
-}
-
 // --- Groups ---
 
 // CreateGroup creates a new group.
@@ -295,11 +276,8 @@ func (s *Store) GetGroup(ctx context.Context, id string) (*Group, error) {
 		SELECT id, name, description, created_at, updated_at
 		FROM groups WHERE id = $1
 	`, id).Scan(&g.ID, &g.Name, &g.Description, &g.CreatedAt, &g.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("authz.GetGroup: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "authz.GetGroup")
 	}
 	return &g, nil
 }
@@ -333,11 +311,8 @@ func (s *Store) UpdateGroup(ctx context.Context, id, name, description string) (
 		WHERE id = $1
 		RETURNING id, name, description, created_at, updated_at
 	`, id, name, description).Scan(&g.ID, &g.Name, &g.Description, &g.CreatedAt, &g.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("authz.UpdateGroup: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "authz.UpdateGroup")
 	}
 	return &g, nil
 }
@@ -499,11 +474,8 @@ func (s *Store) GetResourceGroup(ctx context.Context, resourceType, resourceName
 		SELECT resource_type, resource_name, group_id, public, created_at
 		FROM resource_groups WHERE resource_type = $1 AND resource_name = $2
 	`, resourceType, resourceName).Scan(&rg.ResourceType, &rg.ResourceName, &rg.GroupID, &rg.Public, &rg.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("authz.GetResourceGroup: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "authz.GetResourceGroup")
 	}
 	return &rg, nil
 }

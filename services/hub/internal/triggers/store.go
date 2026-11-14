@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -55,7 +54,7 @@ func (s *Store) CreateTrigger(ctx context.Context, t *Trigger) error {
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
 		t.ID, t.DisplayName, t.AgentRef, t.ConnectorRef, filtersJSON, t.AgentValid, t.ConnectorValid, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrIDTaken
 		}
 		return fmt.Errorf("insert trigger: %w", err)
@@ -73,11 +72,8 @@ func (s *Store) GetTrigger(ctx context.Context, id string) (*Trigger, error) {
 		SELECT id, display_name, agent_ref, connector_ref, filters, agent_valid, connector_valid, created_at, updated_at
 		FROM triggers WHERE id = $1
 	`, id).Scan(&t.ID, &t.DisplayName, &t.AgentRef, &t.ConnectorRef, &filtersJSON, &t.AgentValid, &t.ConnectorValid, &t.CreatedAt, &t.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.GetTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.GetTrigger")
 	}
 	if len(filtersJSON) > 0 {
 		if err := json.Unmarshal(filtersJSON, &t.Filters); err != nil {
@@ -207,11 +203,8 @@ func (s *Store) UpdateTrigger(ctx context.Context, id string, displayName, agent
 		SELECT display_name, agent_ref, connector_ref, filters, agent_valid, connector_valid, created_at
 		FROM triggers WHERE id = $1 FOR UPDATE
 	`, id).Scan(&curName, &curAgent, &curConnector, &curFilters, &agentValid, &connectorValid, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.UpdateTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.UpdateTrigger")
 	}
 
 	name := curName
@@ -303,7 +296,7 @@ func (s *Store) CreateCronTrigger(ctx context.Context, ct *CronTrigger) error {
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
 		ct.ID, ct.DisplayName, ct.AgentRef, ct.Schedule, ct.Prompt, ct.Enabled, ct.AgentValid, ct.ScheduleValid, now,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if pgutil.IsUniqueViolation(err) {
 			return ErrIDTaken
 		}
 		return fmt.Errorf("insert cron trigger: %w", err)
@@ -321,11 +314,8 @@ func (s *Store) GetCronTrigger(ctx context.Context, id string) (*CronTrigger, er
 		SELECT id, display_name, agent_ref, schedule, prompt, enabled, agent_valid, schedule_valid, last_run, next_run, created_at, updated_at
 		FROM cron_triggers WHERE id = $1
 	`, id).Scan(&ct.ID, &ct.DisplayName, &ct.AgentRef, &ct.Schedule, &ct.Prompt, &ct.Enabled, &ct.AgentValid, &ct.ScheduleValid, &lastRun, &nextRun, &ct.CreatedAt, &ct.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.GetCronTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.GetCronTrigger")
 	}
 	ct.LastRun = lastRun
 	ct.NextRun = nextRun
@@ -412,11 +402,8 @@ func (s *Store) UpdateCronTrigger(ctx context.Context, id string, displayName, a
 		SELECT display_name, agent_ref, schedule, prompt, enabled, agent_valid, schedule_valid, created_at
 		FROM cron_triggers WHERE id = $1 FOR UPDATE
 	`, id).Scan(&curName, &curAgent, &curSchedule, &curPrompt, &curEnabled, &agentValid, &scheduleValid, &createdAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("triggers.UpdateCronTrigger: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrNotFound, "triggers.UpdateCronTrigger")
 	}
 
 	name := curName
@@ -504,11 +491,3 @@ func (s *Store) UpdateCronTriggerRunTimes(ctx context.Context, id string, lastRu
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
-}

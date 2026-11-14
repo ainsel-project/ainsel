@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/ainsel-project/ainsel/services/hub/internal/pgutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -62,11 +62,8 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {
 		`SELECT id, name, agent_name, user_id, created_at, updated_at
 		 FROM chat_sessions WHERE id = $1`, id,
 	).Scan(&sess.ID, &sess.Name, &sess.AgentName, &sess.UserID, &sess.CreatedAt, &sess.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrSessionNotFound
-	}
 	if err != nil {
-		return nil, fmt.Errorf("get chat session: %w", err)
+		return nil, pgutil.MapNoRows(err, ErrSessionNotFound, "get chat session")
 	}
 
 	messages, err := s.getMessages(ctx, id, 0)
