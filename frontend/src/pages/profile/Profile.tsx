@@ -19,7 +19,7 @@ const THEME_OPTIONS: { value: Theme; label: string }[] = [
 
 export function Profile() {
   const { signoutRedirect, mode } = useAuth()
-  const { data: user, isLoading } = useCurrentUser()
+  const { data: user } = useCurrentUser()
   const [theme, setTheme] = useState<Theme>(() => getStoredTheme() ?? 'light')
   const syncMe = useSyncMe()
 
@@ -40,12 +40,11 @@ export function Profile() {
         }
       />
       <div className="page" style={{ display: 'grid', gap: 24, maxWidth: 700 }}>
-        <Panel title="Account">
-          {isLoading ? (
-            <div className="label" style={{ padding: 14 }}>
-              Loading…
-            </div>
-          ) : user ? (
+        {/* Empty panels are not rendered (docs/conventions.md): in no-auth
+         *  mode there is no identity to show, so the Account panel is simply
+         *  absent rather than an empty frame. */}
+        {user ? (
+          <Panel title="Account">
             <div style={{ padding: '14px 16px', display: 'grid', gap: 12 }}>
               <Row
                 label="Username"
@@ -73,8 +72,8 @@ export function Profile() {
               <Row label="Role" value={user.isAdmin ? 'Admin' : 'Member'} />
               <Row label="Member since" value={new Date(user.createdAt).toLocaleDateString()} />
             </div>
-          ) : null}
-        </Panel>
+          </Panel>
+        ) : null}
 
         <Panel title="Appearance">
           <div style={{ padding: '14px 16px' }}>
@@ -93,7 +92,7 @@ export function Profile() {
 
         <TokenManager />
 
-        {mode !== 'oidc' && <ChangePasswordPanel />}
+        {mode === 'local' || mode === 'oidc+local' ? <ChangePasswordPanel /> : null}
 
         <Panel title="Session">
           <div style={{ padding: '14px 16px' }}>
@@ -107,10 +106,12 @@ export function Profile() {
   )
 }
 
-/** Local-auth only: the hub's PUT /auth/password requires proving the
- *  current password and rejects non-local accounts, so this panel is hidden
- *  in OIDC mode where the identity provider owns the password. The form itself
- *  lives in auth/ChangePasswordForm, shared with the forced change screen. */
+/** Local-auth only — and only where a local password exists: the hub's
+ *  PUT /auth/password requires proving the current password and rejects
+ *  non-local accounts, so this panel is hidden in OIDC mode (the identity
+ *  provider owns the password) and in no-auth mode (there is no account to
+ *  change). The form itself lives in auth/ChangePasswordForm, shared with the
+ *  forced change screen. */
 function ChangePasswordPanel() {
   return (
     <Panel title="Change password">

@@ -268,76 +268,73 @@ export function UserList() {
             Admin / <b>Users</b>
           </>
         }
-        title={
-          <>
-            User <em>Registry</em>
-          </>
+        title={<>Users</>}
+        actions={
+          isAdmin && !showCreate ? (
+            <Button variant="primary" onClick={() => setShowCreate(true)}>
+              New user
+            </Button>
+          ) : undefined
         }
       />
       <div className="page" style={{ display: 'grid', gap: 16 }}>
-        {isAdmin && (
+        {isAdmin && showCreate && (
           <div>
-            {!showCreate ? (
-              <Button variant="primary" onClick={() => setShowCreate(true)}>
-                New user
-              </Button>
-            ) : (
-              <Panel title="New local user">
-                <form
-                  onSubmit={submitCreate}
-                  style={{ padding: 16, display: 'grid', gap: 14, maxWidth: 480 }}
-                >
-                  <Field label="Username" htmlFor="new-username">
-                    <Input
-                      id="new-username"
-                      value={newUsername}
-                      onChange={(e) => setNewUsername(e.target.value)}
-                      autoComplete="off"
-                      required
-                    />
-                  </Field>
-                  <Field label="Email (optional)" htmlFor="new-email">
-                    <Input
-                      id="new-email"
-                      type="email"
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                      autoComplete="off"
-                    />
-                  </Field>
-                  <Field label="Password" htmlFor="new-password" hint={passwordHint}>
-                    <Input
-                      id="new-password"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      autoComplete="new-password"
-                      required
-                    />
-                  </Field>
-                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={newIsAdmin}
-                      onChange={(e) => setNewIsAdmin(e.target.checked)}
-                      style={{ accentColor: 'var(--accent)' }}
-                    />
-                    Administrator
-                  </label>
-                  {create.isError && (
-                    <div style={{ color: 'var(--signal)' }}>{errorMessage(create.error)}</div>
-                  )}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Button type="submit" variant="primary" disabled={create.isPending}>
-                      {create.isPending ? 'Creating…' : 'Create user'}
-                    </Button>
-                    <Button variant="ghost" onClick={() => setShowCreate(false)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              </Panel>
-            )}
+            <Panel title="New local user">
+              <form
+                onSubmit={submitCreate}
+                style={{ padding: 16, display: 'grid', gap: 14, maxWidth: 480 }}
+              >
+                <Field label="Username" htmlFor="new-username">
+                  <Input
+                    id="new-username"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    autoComplete="off"
+                    required
+                  />
+                </Field>
+                <Field label="Email (optional)" htmlFor="new-email">
+                  <Input
+                    id="new-email"
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field label="Password" htmlFor="new-password" hint={passwordHint}>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    required
+                  />
+                </Field>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={newIsAdmin}
+                    onChange={(e) => setNewIsAdmin(e.target.checked)}
+                    style={{ accentColor: 'var(--accent)' }}
+                  />
+                  Administrator
+                </label>
+                {create.isError && (
+                  <div style={{ color: 'var(--signal)' }}>{errorMessage(create.error)}</div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button type="submit" variant="primary" disabled={create.isPending}>
+                    {create.isPending ? 'Creating…' : 'Create user'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setShowCreate(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </Panel>
           </div>
         )}
 

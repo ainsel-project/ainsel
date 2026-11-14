@@ -99,7 +99,7 @@ describe('Spine', () => {
       'Personas',
       'Connectors',
       'Docs',
-      'MCPs',
+      'MCP Servers',
       'Skills',
     ]
     for (const name of expected) {
@@ -118,7 +118,7 @@ describe('Spine', () => {
 
     const section = screen.getByText('Library').closest('div')?.parentElement
     expect(section).not.toBeNull()
-    for (const name of ['Images', 'Personas', 'Skills', 'MCPs']) {
+    for (const name of ['Images', 'Personas', 'Skills', 'MCP Servers']) {
       expect(
         within(section as HTMLElement).getByRole('link', { name: new RegExp(name, 'i') }),
       ).toBeInTheDocument()

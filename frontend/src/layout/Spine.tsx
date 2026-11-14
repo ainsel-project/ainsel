@@ -28,7 +28,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
       { name: 'Images', to: '/agent-images', icon: 'images' },
       { name: 'Personas', to: '/personas', icon: 'personas' },
       { name: 'Skills', to: '/skills', icon: 'skills' },
-      { name: 'MCPs', to: '/settings', icon: 'mcps' },
+      { name: 'MCP Servers', to: '/settings', icon: 'mcps' },
     ],
   },
   {

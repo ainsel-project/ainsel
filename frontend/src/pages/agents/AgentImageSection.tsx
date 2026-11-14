@@ -121,7 +121,7 @@ function ImagePanel({ agent }: AgentImageSectionProps) {
           emptyLabel="Select an image…"
           disabled={updateAgent.isPending}
         />
-        <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
+        <p className="hint">
           The image bundles the runtime: container image URL, environment, tools, skills, and MCP
           servers. Switching re-points this agent only; the image itself is edited on its own page,
           which updates every agent that references it.

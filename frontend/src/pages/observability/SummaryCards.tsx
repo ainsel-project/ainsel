@@ -116,7 +116,9 @@ export function SummaryCards({ summary, tokens, range, series }: SummaryCardsPro
       code: 'TK·06',
       value: cacheHitRate(tokens),
       formatter: (n) => formatPercent(n, 0),
-      sub: cacheNotReported ? 'not reported by the provider' : 'a drop re-bills the prompt prefix',
+      sub: cacheNotReported
+        ? 'not reported by the provider'
+        : 'share of prompt tokens served from cache',
     },
     {
       key: 'cost',
@@ -124,7 +126,7 @@ export function SummaryCards({ summary, tokens, range, series }: SummaryCardsPro
       code: 'TK·07',
       value: costNotReported ? undefined : tokens?.costUsd,
       formatter: (n) => formatUSD(n),
-      sub: costNotReported ? 'not reported — model unpriced' : 'needs spec.llm.cost pricing',
+      sub: costNotReported ? 'not reported — model unpriced' : 'across priced models',
       to: tokensLink({ range }),
     },
   ]

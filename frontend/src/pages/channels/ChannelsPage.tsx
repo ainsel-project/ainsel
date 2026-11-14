@@ -13,6 +13,7 @@ import {
   type ChannelView,
 } from '../../api/channels'
 import { Titleblock } from '../../layout/Titleblock'
+import { Button } from '../../primitives/Button'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { SectionStatus } from '../../primitives/SectionStatus'
@@ -258,20 +259,20 @@ export function ChannelsPage() {
         }
         title={<>Channels</>}
         actions={
-          <button onClick={() => setCreating((v) => !v)} disabled={creating}>
+          <Button variant="primary" onClick={() => setCreating((v) => !v)} disabled={creating}>
             New channel
-          </button>
+          </Button>
         }
       />
       <div className="channels-page page">
-        <div className="label" style={{ color: 'var(--ink-3)', marginTop: -8 }}>
+        <p className="hint" style={{ marginTop: -8 }}>
           Three kinds of channels: a <b>connector</b> always publishes into its own channel
           (provisioned, permanent); every event in an <b>agent</b> channel is prompted to that agent
           (provisioned, permanent); <b>custom</b> channels are yours — group subscriptions under one
           name, delete them while nothing is attached. Events move between channels when a{' '}
           <b>subscription</b> on the destination transfers them. Identity is the id — two channels
           may share a label (a connector and an agent both named <b>forgejo</b> are two channels).
-        </div>
+        </p>
 
         {creating && (
           <Panel title="New custom channel">
