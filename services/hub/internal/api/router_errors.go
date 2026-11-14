@@ -36,8 +36,12 @@ const maxRouterErrorBody = 512
 func jsonRouterErrors(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := &routerErrorWriter{ResponseWriter: w}
+		// Deferred, not sequential: a handler that panics after choosing a
+		// router-shaped 404/405 must still get that status on the wire, or
+		// net/http's recovery turns it into a 500. finish() commits nothing when
+		// nothing was written, so the http.ErrAbortHandler case is unaffected.
+		defer rw.finish()
 		h.ServeHTTP(rw, r)
-		rw.finish()
 	})
 }
 
