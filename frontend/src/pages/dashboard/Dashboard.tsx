@@ -21,6 +21,11 @@ export function Dashboard() {
 
   const errorCount = summary.data?.routingErrors ?? 0
 
+  // No plate carries a sparkline (issue #275). Agents, connectors and triggers
+  // are resource counts — the hub keeps no per-bucket history for them — and
+  // the errors plate's figure is the summary's routingErrors, which on a
+  // Prometheus-pinned hub is a task-log count, not the `routing_errors`
+  // timeseries. A plate may show less, but never a trend that was not measured.
   const plates = [
     {
       key: 'agents',
@@ -29,7 +34,6 @@ export function Dashboard() {
       to: '/agents',
       count: agents.data?.total,
       sub: 'Active AI agents',
-      spark: [12, 14, 13, 14, 14, 14],
     },
     {
       key: 'connectors',
@@ -38,16 +42,17 @@ export function Dashboard() {
       to: '/connectors',
       count: connectors.data?.total,
       sub: 'Platform connectors',
-      spark: [6, 6, 6, 6, 6, 6],
     },
     {
       key: 'triggers',
       label: 'Triggers',
       code: 'TR·03',
-      to: '/triggers',
+      // Trigger configuration lives per agent (/agents/:id/triggers); the
+      // agents list is the nearest real destination. There is no /triggers
+      // route — the catch-all used to bounce this click back to /dashboard.
+      to: '/agents',
       count: triggers.data?.total,
       sub: 'Routing rules',
-      spark: [18, 20, 21, 22, 23, 23],
     },
     {
       key: 'errors',
@@ -56,7 +61,6 @@ export function Dashboard() {
       to: '/error-log',
       count: summary.data?.routingErrors,
       sub: errorCount > 0 ? 'Recent errors — investigate' : 'No recent errors',
-      spark: [0, 1, 0, 2, 1, errorCount],
       alert: errorCount > 0,
     },
   ]
