@@ -51,7 +51,7 @@ spec:
       {{- end }}
       containers:
         - name: mcp
-          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag }}"
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.mcp.image.repository "tag" .Values.mcp.image.tag) }}"
           imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
           {{- with .Values.mcp.securityContext }}
           securityContext:

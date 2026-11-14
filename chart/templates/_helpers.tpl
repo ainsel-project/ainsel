@@ -24,6 +24,45 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Image reference for a project-owned component image.
+
+  {{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}
+  {{ include "ainsel.image" (dict "root" . "repo" ... "tag" ... "digest" ...) }}
+
+`global.imageRegistry` is the prefix every project image is pulled from, so a
+mirror or a fork's own registry is one value instead of eight. Two escape
+hatches keep it from getting in the way:
+
+  * A repository whose first path segment looks like a registry host (it
+    contains "." or ":", or is "localhost") is used verbatim — the same rule
+    the agent operator's image-digest resolver uses, so chart and operator
+    agree on what a full reference looks like.
+  * `global.imageRegistry: ""` renders repositories as-is, which is what a
+    plain Docker Hub layout needs.
+
+Never use this for third-party images (postgres): they are not published by
+this project and must keep their own repository. The upstream images render
+`.Values.<comp>.image.repository` directly.
+*/}}
+{{- define "ainsel.image" -}}
+{{- $root := .root -}}
+{{- $repo := .repo | default "" -}}
+{{- $global := $root.Values.global | default dict -}}
+{{- $registry := $global.imageRegistry | default "" -}}
+{{- if and $registry $repo -}}
+{{-   $first := splitList "/" $repo | first -}}
+{{-   $looksLikeRegistry := or (contains "." $first) (contains ":" $first) (eq $first "localhost") -}}
+{{-   if and (not $looksLikeRegistry) (not (hasPrefix (printf "%s/" $registry) $repo)) -}}
+{{-     $repo = printf "%s/%s" $registry $repo -}}
+{{-   end -}}
+{{- end -}}
+{{- $ref := $repo -}}
+{{- with .tag }}{{ $ref = printf "%s:%s" $ref . }}{{ end -}}
+{{- with .digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
+{{- $ref -}}
+{{- end }}
+
+{{/*
 */}}
 
 {{/*

@@ -58,7 +58,7 @@ spec:
       {{- end }}
       containers:
         - name: operator
-          image: "{{ .Values.connectorOperator.image.repository }}:{{ .Values.connectorOperator.image.tag }}"
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.connectorOperator.image.repository "tag" .Values.connectorOperator.image.tag) }}"
           imagePullPolicy: {{ .Values.connectorOperator.image.pullPolicy }}
           {{- with .Values.connectorOperator.securityContext }}
           securityContext:

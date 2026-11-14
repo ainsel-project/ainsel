@@ -2,17 +2,22 @@
 # Copy this file and fill in your own values before deploying.
 # Do NOT commit secrets into version control.
 
+# Where the project images come from. Set to "" to use the repositories below
+# as-is (plain Docker Hub layout), or point it at your own mirror.
+global:
+  imageRegistry: ghcr.io/ainsel-project
+
 namespace: ainsel
 
 agentOperator:
   image:
-    repository: dpinsel/ainsel-k8s-ai-agent-operator
+    repository: ainsel-k8s-ai-agent-operator
     tag: latest
     pullPolicy: IfNotPresent
 
 connectorOperator:
   image:
-    repository: dpinsel/ainsel-k8s-event-source-gateway-operator
+    repository: ainsel-k8s-event-source-gateway-operator
     tag: latest
     pullPolicy: IfNotPresent
   # Pull policy for the webhook-receiver connector pods the operator creates.
@@ -21,14 +26,14 @@ connectorOperator:
 
 hub:
   image:
-    repository: dpinsel/ainsel-hub-backend
+    repository: ainsel-hub-backend
     tag: latest
     pullPolicy: IfNotPresent
   namespace: ainsel
   platformExternalUrl: "https://ainsel.example.com/ainsel"
   connectorImages:
     webhook:
-      repository: dpinsel/ainsel-webhook-receiver
+      repository: ainsel-webhook-receiver
       tag: latest
   ingress:
     enabled: true
@@ -48,7 +53,7 @@ ui:
   enabled: true
   basePath: /ainsel
   image:
-    repository: dpinsel/ainsel-hub-frontend
+    repository: ainsel-hub-frontend
     tag: latest
     pullPolicy: IfNotPresent
   ingress:
@@ -102,7 +107,7 @@ auth:
 mcp:
   enabled: false
   image:
-    repository: dpinsel/ainsel-mcp
+    repository: ainsel-mcp
     tag: latest
     pullPolicy: IfNotPresent
   ingress:
