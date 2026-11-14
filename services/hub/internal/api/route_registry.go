@@ -72,12 +72,12 @@ func (m *recordingMux) registeredPatterns() []string {
 // is mounted through it — New(...), the SetXxx wiring methods, and the
 // self-registering persona and skill route groups.
 func (s *Server) routes() routeRegistrar {
-	if s.routeLog == nil {
+	s.routeLogOnce.Do(func() {
 		if s.mux == nil {
 			s.mux = http.NewServeMux()
 		}
 		s.routeLog = &recordingMux{mux: s.mux}
-	}
+	})
 	return s.routeLog
 }
 

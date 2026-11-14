@@ -113,6 +113,13 @@ type Server struct {
 	pluginProxyTransport   http.RoundTripper
 	pluginProxyOnce        sync.Once
 	pluginMCPOnce          sync.Once
+	// routeLogOnce and routerOnce guard the lazy build of routeLog / router for
+	// a Server that was not built by New (the tests assemble one by hand). They
+	// make the first-use initialisation a happens-before edge for the reads on
+	// the request path, so a hand-built Server served from several goroutines
+	// cannot race on those fields.
+	routeLogOnce sync.Once
+	routerOnce   sync.Once
 	// pluginMCP is the MCP client the plugin tool endpoints use to list and call
 	// tools on a plugin's own MCP server. Wired by SetPluginMCPClient; see
 	// getPluginMCPClient for the default.
@@ -320,9 +327,8 @@ type Config struct {
 // fails when one drifts from the snapshot or from these rules.
 func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promClient *prometheus.Client, invStore invocations.Store, mcp *mcpservers.Service, personaSvc *personas.Service, skillSvc SkillService, cfg *Config) *Server {
 	s := &Server{client: c, mux: http.NewServeMux(), ns: namespace, connectorCfg: connectorCfg, prom: promClient, invocations: invStore, mcp: mcp, skills: skillSvc}
-	s.routeLog = &recordingMux{mux: s.mux}
+	mux := s.routes()
 	s.router = jsonRouterErrors(s.mux)
-	mux := s.routeLog
 	s.wsHub = newWsHub()
 	s.observabilityCache = newPromCache(observabilityCacheTTL)
 	s.identityTracker = newIdentityPersistTracker()
@@ -439,9 +445,11 @@ func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
 // so no request path can dispatch to the bare mux and answer a router-generated
 // 404/405 in the mux's own plain text.
 func (s *Server) routerHandler() http.Handler {
-	if s.router == nil {
-		s.router = jsonRouterErrors(s.mux)
-	}
+	s.routerOnce.Do(func() {
+		if s.router == nil {
+			s.router = jsonRouterErrors(s.mux)
+		}
+	})
 	return s.router
 }
 
