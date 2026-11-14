@@ -101,7 +101,7 @@ to be told when either changes.
 | `lastInvocation` | Time | Last queue activity (hub-written idle clock driving the quiet window). `nil` means the hub has never observed this agent, which is not the same as its queue being empty |
 | `scaling` | AgentScalingStatus | The operator's decision: `desired` count, `mode` (`static` or `queue`), `reason` and `message` explaining it (`ScaledToZero`, `Draining`, `QueueSignalStale`, …) |
 | `paused` | bool | Display mirror of the effective pause state of `spec.pause`, written by the operator each reconcile (requeued at expiry so it self-clears). `kubectl get agents` shows it. The authoritative gate is the hub evaluating `spec.pause` at read time, so this may lag briefly |
-| `chatGPTSignIn` | AgentChatGPTSignInStatus | Only for `openAI.authMethod: ChatGPTSignIn`, written by the operator: `signedInAt` (last successful sign-in), `signInFailedAt` (a task pod last found the sign-in missing or rejected), `lastVerifiedAt`, `handledSession`. Absent for every other agent |
+| `chatGPTSignIn` | AgentChatGPTSignInStatus | Only for `openAI.authMethod: ChatGPTSignIn`, written by the operator: `signedInAt` (last successful sign-in), `signInFailedAt` (a task pod last found the sign-in missing or rejected), `lastVerifiedAt` (a completed task or keep-alive check last confirmed the sign-in), `handledSession`. Absent for every other agent |
 | `observedGeneration` | int64 | Last observed generation |
 
 `SignInRequired` (only on agents with `openAI.authMethod: ChatGPTSignIn`; absent

@@ -230,17 +230,29 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 	active := int32(0)
 	have := make(map[int64]bool, len(jobList.Items))
 	retired := 0
-	signInJobLive := false
+	signInJobLive, keepAliveLive := false, false
+	// Keep-alive Jobs that exist already, by name: one per hour is the
+	// retry bound, so this hour's must not be re-created every pass.
+	keepAliveTried := map[string]bool{}
 	for i := range jobList.Items {
 		j := &jobList.Items[i]
-		// Credential Jobs (sign-in) hold the volume like a task does but
-		// are not task runs: they count against nothing but the volume.
-		if j.Labels[credentialJobLabel] != "" {
-			if jobIsFinished(j) {
-				recordSignInOutcome(agent, j)
-			} else {
-				signInJobLive = true
+		// Credential Jobs (sign-in, keep-alive) hold the volume like a task
+		// does but are not task runs: they count against nothing but the
+		// volume.
+		if kind := j.Labels[credentialJobLabel]; kind != "" {
+			if kind == credentialJobKeepAlive {
+				keepAliveTried[j.Name] = true
+			}
+			switch {
+			case !jobIsFinished(j):
+				signInJobLive = signInJobLive || kind == credentialJobSignIn
+				keepAliveLive = keepAliveLive || kind == credentialJobKeepAlive
 				active++
+			case kind == credentialJobKeepAlive:
+				recordVerified(agent, j)
+				recordSignInFailure(agent, j)
+			default:
+				recordSignInOutcome(agent, j)
 			}
 			continue
 		}
@@ -260,6 +272,7 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 		// delete the only evidence of it.
 		if signIn {
 			recordSignInFailure(agent, j)
+			recordVerified(agent, j) // a completed task passed its pre-check
 		}
 		// A finished Job whose task the hub still lists as due is a dead
 		// attempt: the pod ended without an ack (never started, image pull
@@ -300,6 +313,19 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 	if signIn && deploy != nil {
 		if session := signInWanted(agent); session != "" || signInJobLive {
 			return r.syncSignInJob(ctx, agent, deploy, session, active, signInJobLive, decision)
+		}
+		// Keep-alive: needs no task slot either. It waits for an idle
+		// volume and leaves queued work to the tasks, whose own pre-check
+		// refreshes the sign-in just the same.
+		if keepAliveLive {
+			decision.Message = "checking the ChatGPT sign-in"
+			decision.RequeueAfter = taskJobDispatchPoll
+			return decision, nil
+		}
+		now := time.Now()
+		idle := active == 0 && (len(agent.Status.PendingTaskIDs) == 0 || limit == 0)
+		if idle && !keepAliveTried[keepAliveJobName(agent.Name, now)] && keepAliveDue(agent, now, r.SignInKeepAliveInterval) {
+			return r.startKeepAlive(ctx, agent, deploy, decision)
 		}
 	}
 
@@ -403,5 +429,26 @@ func (r *AgentReconciler) syncSignInJob(ctx context.Context, agent *ainselv1alph
 	logf.FromContext(ctx).Info("started ChatGPT sign-in job", "agent", agent.Name, "job", job.Name)
 	decision.Replicas = 1
 	decision.Message = "ChatGPT sign-in in progress"
+	return decision, nil
+}
+
+// startKeepAlive runs the check pod on the credential volume. Task dispatch
+// waits for it on the next passes, like for a sign-in.
+func (r *AgentReconciler) startKeepAlive(ctx context.Context, agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, decision ScaleDecision) (ScaleDecision, error) {
+	job := buildKeepAliveJob(agent, deploy, time.Now())
+	if err := controllerutil.SetControllerReference(agent, job, r.Scheme); err != nil {
+		return decision, fmt.Errorf("setting owner reference on keep-alive job: %w", err)
+	}
+	if err := r.Create(ctx, job); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return decision, fmt.Errorf("creating keep-alive job: %w", err)
+		}
+		// Not in the cache yet but created by an earlier pass: nothing new
+		// started, so neither log nor poll as if it had.
+		return decision, nil
+	}
+	logf.FromContext(ctx).Info("started ChatGPT sign-in keep-alive", "agent", agent.Name, "job", job.Name)
+	decision.Message = "checking the ChatGPT sign-in"
+	decision.RequeueAfter = taskJobDispatchPoll
 	return decision, nil
 }
