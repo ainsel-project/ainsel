@@ -19,17 +19,36 @@ const RETRY_WAITS_MS = [2000, 5000];
 const FORCE_VALIDITY_MS = 10 * 365 * 24 * 3600 * 1000;
 const REFRESHED_TOO_SOON = /refresh returned a token that expires too soon/;
 
+// Bounds one attempt: Pi's token request has no timeout of its own, and a
+// hung check would hold the task, or the keep-alive, until its deadline.
+const ATTEMPT_TIMEOUT_MS = 20_000;
+
+function withTimeout(promise, ms) {
+	let timer;
+	const timeout = new Promise((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`check timed out after ${ms} ms`)), ms);
+	});
+	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function causeMatches(error, re) {
 	for (let e = error; e; e = e.cause) if (re.test(e instanceof Error ? e.message : String(e))) return true;
 	return false;
 }
 
-export async function runCheck({ ModelRuntime, authPath = AUTH_PATH, forceRefresh = false, log = console.error, sleep = delay }) {
+export async function runCheck({
+	ModelRuntime,
+	authPath = AUTH_PATH,
+	forceRefresh = false,
+	attemptTimeoutMs = ATTEMPT_TIMEOUT_MS,
+	log = console.error,
+	sleep = delay,
+}) {
 	const runtime = await ModelRuntime.create({ authPath, allowModelNetwork: false });
 	const overrides = forceRefresh ? { minOAuthValidityMs: FORCE_VALIDITY_MS } : undefined;
 	for (let attempt = 0; ; attempt++) {
 		try {
-			const auth = await runtime.getAuth("openai", overrides);
+			const auth = await withTimeout(runtime.getAuth("openai", overrides), attemptTimeoutMs);
 			if (!auth) {
 				log("chatgpt-auth: no ChatGPT sign-in stored; sign in from the agent page");
 				return EXIT_SIGN_IN_REQUIRED;
