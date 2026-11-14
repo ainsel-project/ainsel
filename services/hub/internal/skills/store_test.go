@@ -75,7 +75,7 @@ func TestStoreList(t *testing.T) {
 	must(store.Create(ctx, &skills.Skill{ID: "alpha", Name: "Alpha", Body: "long body alpha"}))
 	must(store.Create(ctx, &skills.Skill{ID: "beta", Name: "Beta", Body: "long body beta"}))
 
-	got, err := store.List(ctx, skills.ListFilter{})
+	got, _, err := store.List(ctx, skills.ListFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestStoreListSearchByIDNameDescription(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := store.List(ctx, skills.ListFilter{Search: c.search})
+			got, _, err := store.List(ctx, skills.ListFilter{Search: c.search})
 			if err != nil {
 				t.Fatalf("List: %v", err)
 			}
@@ -217,7 +217,7 @@ func TestStoreListSearchEscapesWildcards(t *testing.T) {
 	ctx := context.Background()
 
 	// A bare "%" must be treated literally, not as a match-everything wildcard.
-	got, err := store.List(ctx, skills.ListFilter{Search: "%"})
+	got, _, err := store.List(ctx, skills.ListFilter{Search: "%"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestStoreListFilterByTags(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("single tag", func(t *testing.T) {
-		got, err := store.List(ctx, skills.ListFilter{Tags: []string{"security"}})
+		got, _, err := store.List(ctx, skills.ListFilter{Tags: []string{"security"}})
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -244,7 +244,7 @@ func TestStoreListFilterByTags(t *testing.T) {
 	})
 
 	t.Run("multiple tags use overlap (OR)", func(t *testing.T) {
-		got, err := store.List(ctx, skills.ListFilter{Tags: []string{"docs", "go"}})
+		got, _, err := store.List(ctx, skills.ListFilter{Tags: []string{"docs", "go"}})
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -255,7 +255,7 @@ func TestStoreListFilterByTags(t *testing.T) {
 	})
 
 	t.Run("unknown tag returns empty", func(t *testing.T) {
-		got, err := store.List(ctx, skills.ListFilter{Tags: []string{"nope"}})
+		got, _, err := store.List(ctx, skills.ListFilter{Tags: []string{"nope"}})
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -273,7 +273,7 @@ func TestStoreListCombinedSearchAndTags(t *testing.T) {
 
 	// Both code-review and security-audit carry the "review" tag, but only
 	// security-audit matches the search term "vulnerabilities".
-	got, err := store.List(ctx, skills.ListFilter{Search: "vulnerabilities", Tags: []string{"review"}})
+	got, _, err := store.List(ctx, skills.ListFilter{Search: "vulnerabilities", Tags: []string{"review"}})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestStoreListEmptyFilterReturnsAll(t *testing.T) {
 	seedSkills(t, store)
 	ctx := context.Background()
 
-	got, err := store.List(ctx, skills.ListFilter{})
+	got, _, err := store.List(ctx, skills.ListFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
