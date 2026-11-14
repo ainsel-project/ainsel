@@ -432,7 +432,7 @@ func TestRouterErrorWrapperForwardsHijack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Write([]byte("GET /ws HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -470,7 +470,7 @@ func TestRouterErrorWrapperForwardsFlush(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	br := bufio.NewReader(resp.Body)
 	line, err := br.ReadString('\n')
@@ -528,6 +528,11 @@ func TestReadAndWriteGuards(t *testing.T) {
 		}, method: http.MethodGet, wantGranted: http.StatusOK},
 		{name: "write", attach: func(s *Server, h namedHandler) http.HandlerFunc {
 			return s.write("thing", h)
+		}, method: http.MethodPut, wantGranted: http.StatusForbidden},
+		// The context-taking variant of the same guard, for the CRUD handlers
+		// built for the pre-route-table shape.
+		{name: "writeCtx", attach: func(s *Server, h namedHandler) http.HandlerFunc {
+			return s.writeCtx("thing", func(_ context.Context, w http.ResponseWriter, name string) { h(w, nil, name) })
 		}, method: http.MethodPut, wantGranted: http.StatusForbidden},
 	}
 
