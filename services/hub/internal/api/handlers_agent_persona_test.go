@@ -39,13 +39,15 @@ func (p *personaStub) Get(ctx context.Context, id string) (*personas.Persona, er
 	}
 	return p.getFn(ctx, id)
 }
-func (p *personaStub) List(ctx context.Context) ([]personas.PersonaSummary, error) { return nil, nil }
+func (p *personaStub) List(ctx context.Context, _ personas.ListFilter) ([]personas.PersonaSummary, int, error) {
+	return nil, 0, nil
+}
 func (p *personaStub) Update(ctx context.Context, id string, req personas.UpdateRequest) (*personas.Persona, error) {
 	return nil, nil
 }
 func (p *personaStub) Delete(ctx context.Context, id string) error { return nil }
-func (p *personaStub) ListVersions(ctx context.Context, id string) ([]personas.VersionSummary, error) {
-	return nil, nil
+func (p *personaStub) ListVersions(ctx context.Context, id string, limit, offset int) ([]personas.VersionSummary, int, error) {
+	return nil, 0, nil
 }
 func (p *personaStub) GetVersion(ctx context.Context, id string, n int) (*personas.Version, error) {
 	return nil, nil

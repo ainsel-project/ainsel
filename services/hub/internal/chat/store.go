@@ -77,16 +77,21 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {
 	return &sess, nil
 }
 
-// ListSessionsOptions filters session list results.
+// ListSessionsOptions filters session list results and bounds the page.
 type ListSessionsOptions struct {
 	AgentName string
 	UserID    string
-	Limit     int
+	// Limit/Offset paginate the query. Limit <= 0 means no LIMIT (fetch
+	// the full match set).
+	Limit  int
+	Offset int
 }
 
-// ListSessions returns sessions matching the given filters, newest first.
-func (s *Store) ListSessions(ctx context.Context, opts ListSessionsOptions) ([]Session, error) {
-	q := `SELECT id, name, agent_name, user_id, created_at, updated_at FROM chat_sessions`
+// ListSessions returns one page of sessions matching the given filters,
+// newest first, plus the total number of matching rows (before pagination).
+// The filters and the page bounds are applied in SQL, so the rows read are
+// proportional to the page, not to the table.
+func (s *Store) ListSessions(ctx context.Context, opts ListSessionsOptions) ([]Session, int, error) {
 	var args []any
 	var where []string
 	if opts.AgentName != "" {
@@ -97,28 +102,43 @@ func (s *Store) ListSessions(ctx context.Context, opts ListSessionsOptions) ([]S
 		args = append(args, opts.UserID)
 		where = append(where, fmt.Sprintf("user_id = $%d", len(args)))
 	}
+	whereSQL := ""
 	if len(where) > 0 {
-		q += " WHERE " + joinStrings(where, " AND ")
+		whereSQL = " WHERE " + joinStrings(where, " AND ")
 	}
-	q += " ORDER BY updated_at DESC"
+
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM chat_sessions`+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count chat sessions: %w", err)
+	}
+
+	// id tiebreaker keeps equal-updated_at rows in a stable order across pages.
+	q := `SELECT id, name, agent_name, user_id, created_at, updated_at FROM chat_sessions` + whereSQL + " ORDER BY updated_at DESC, id"
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit)
 		q += fmt.Sprintf(" LIMIT $%d", len(args))
 	}
+	if opts.Offset > 0 {
+		args = append(args, opts.Offset)
+		q += fmt.Sprintf(" OFFSET $%d", len(args))
+	}
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list chat sessions: %w", err)
+		return nil, 0, fmt.Errorf("list chat sessions: %w", err)
 	}
 	defer rows.Close()
 	var out []Session
 	for rows.Next() {
 		var sess Session
 		if err := rows.Scan(&sess.ID, &sess.Name, &sess.AgentName, &sess.UserID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan chat session: %w", err)
+			return nil, 0, fmt.Errorf("scan chat session: %w", err)
 		}
 		out = append(out, sess)
 	}
-	return out, nil
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("list chat sessions: %w", err)
+	}
+	return out, total, nil
 }
 
 // UpdateSessionName sets the display name of a session. Returns

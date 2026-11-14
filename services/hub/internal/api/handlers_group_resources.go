@@ -9,7 +9,9 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
+	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -192,7 +194,7 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 		if s.personas == nil {
 			return out, nil
 		}
-		list, err := s.personas.List(ctx)
+		list, _, err := s.personas.List(ctx, personas.ListFilter{})
 		if err != nil {
 			return nil, err
 		}
@@ -205,7 +207,7 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 		if s.skills == nil {
 			return out, nil
 		}
-		list, err := s.skills.List(ctx, skills.ListFilter{})
+		list, _, err := s.skills.List(ctx, skills.ListFilter{})
 		if err != nil {
 			return nil, err
 		}
@@ -246,7 +248,7 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 		if s.triggerStore == nil {
 			return out, nil
 		}
-		all, err := s.triggerStore.ListTriggers(ctx, "", "")
+		all, _, err := s.triggerStore.ListTriggers(ctx, triggers.TriggerListOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -259,7 +261,7 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 		if s.triggerStore == nil {
 			return out, nil
 		}
-		all, err := s.triggerStore.ListCronTriggers(ctx, "")
+		all, _, err := s.triggerStore.ListCronTriggers(ctx, triggers.CronTriggerListOptions{})
 		if err != nil {
 			return nil, err
 		}

@@ -65,6 +65,7 @@ type authzStore interface {
 	DeleteResourceGroup(ctx context.Context, resourceType, resourceName string) error
 	SetResourcePublic(ctx context.Context, resourceType, resourceName string, public bool) error
 	ListResourcesByGroups(ctx context.Context, resourceType string, groupIDs []string, includePublic bool) ([]string, error)
+	ListResourcesByGroupsPage(ctx context.Context, resourceType string, groupIDs []string, includePublic bool, limit, offset int) ([]string, int, error)
 	ListResourceGroupsByType(ctx context.Context, resourceType string) (map[string]string, error)
 }
 
@@ -639,6 +640,31 @@ func (s *Server) filterByAccess(r *http.Request, resourceType string, names []st
 	return out
 }
 
+// accessibleIDs returns the resource names the caller may read, for list
+// endpoints that apply the authz filter inside the query (id = ANY($n))
+// instead of post-filtering loaded rows. The result follows the same
+// nil-vs-empty contract as the persona/skill handlers' accessibleSet, and
+// it is pinned by the per-kind list_authz_parity_test.go files:
+//   - nil → unrestricted (authz not configured, or the caller is an admin)
+//   - empty non-nil → the caller may see nothing; lookup errors land here
+//     so the filter stays fail-closed
+//   - non-empty → exactly the accessible resource names
+func (s *Server) accessibleIDs(r *http.Request, resourceType string) []string {
+	if s.authzStore == nil || s.callerIsAdmin(r) {
+		return nil
+	}
+	groupIDs := s.callerGroupIDs(r)
+	includePublic := r.URL.Query().Get("includePublic") == "true"
+	accessible, err := s.authzStore.ListResourcesByGroups(r.Context(), resourceType, groupIDs, includePublic)
+	if err != nil {
+		return []string{}
+	}
+	if accessible == nil {
+		return []string{}
+	}
+	return accessible
+}
+
 // toAccessSet converts a slice of names to a lookup set.
 func toAccessSet(names []string) map[string]bool {
 	set := make(map[string]bool, len(names))
@@ -646,6 +672,16 @@ func toAccessSet(names []string) map[string]bool {
 		set[n] = true
 	}
 	return set
+}
+
+// accessKeys converts an accessible-id set back into a slice for the SQL
+// allow-list (id = ANY($n)). Order is unspecified; queries do not depend on it.
+func accessKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	return out
 }
 
 // intersectNames keeps the entries of names that also appear in subset,

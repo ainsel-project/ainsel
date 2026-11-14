@@ -179,6 +179,21 @@ func (f *fakeAuthzStore) SetResourcePublic(_ context.Context, _, _ string, _ boo
 func (f *fakeAuthzStore) ListResourcesByGroups(_ context.Context, _ string, _ []string, _ bool) ([]string, error) {
 	return nil, nil
 }
+func (f *fakeAuthzStore) ListResourcesByGroupsPage(_ context.Context, resourceType string, groupIDs []string, includePublic bool, limit, offset int) ([]string, int, error) {
+	all, err := f.ListResourcesByGroups(context.Background(), resourceType, groupIDs, includePublic)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := len(all)
+	if offset > total {
+		offset = total
+	}
+	out := all[offset:]
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, total, nil
+}
 func (f *fakeAuthzStore) ListResourceGroupsByType(_ context.Context, resourceType string) (map[string]string, error) {
 	out := make(map[string]string)
 	prefix := resourceType + ":"

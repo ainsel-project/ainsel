@@ -170,10 +170,11 @@ func (s *Service) Get(ctx context.Context, id string) (*Persona, error) {
 	return s.store.Get(ctx, id)
 }
 
-// List returns shared template personas (metadata only). Agent-owned
-// personas are excluded — they are addressed through their owning agent.
-func (s *Service) List(ctx context.Context) ([]PersonaSummary, error) {
-	return s.store.List(ctx)
+// List returns one page of shared template personas (metadata only) plus the
+// total number of matching rows. Agent-owned personas are excluded — they
+// are addressed through their owning agent.
+func (s *Service) List(ctx context.Context, filter ListFilter) ([]PersonaSummary, int, error) {
+	return s.store.List(ctx, filter)
 }
 
 // OwnedBy returns the persona owned by agentName, or nil when the agent has
@@ -307,8 +308,8 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Pe
 }
 
 // ListVersions delegates to the store.
-func (s *Service) ListVersions(ctx context.Context, personaID string) ([]VersionSummary, error) {
-	return s.store.ListVersions(ctx, personaID)
+func (s *Service) ListVersions(ctx context.Context, personaID string, limit, offset int) ([]VersionSummary, int, error) {
+	return s.store.ListVersions(ctx, personaID, limit, offset)
 }
 
 // GetVersion delegates to the store.

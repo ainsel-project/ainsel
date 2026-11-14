@@ -18,7 +18,7 @@ import (
 type SkillService interface {
 	Create(ctx context.Context, req skills.CreateRequest) (*skills.Skill, error)
 	Get(ctx context.Context, id string) (*skills.Skill, error)
-	List(ctx context.Context, filter skills.ListFilter) ([]skills.SkillSummary, error)
+	List(ctx context.Context, filter skills.ListFilter) ([]skills.SkillSummary, int, error)
 	Update(ctx context.Context, id string, req skills.UpdateRequest) (*skills.Skill, error)
 	Delete(ctx context.Context, id string) error
 	ListAssignments(ctx context.Context, skillID string) ([]skills.Referrer, error)
@@ -182,25 +182,57 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 				}
 			}
 		}
-		all, err := h.svc.List(r.Context(), filter)
+		// Authz: the accessible-id set goes into the query as id = ANY(...).
+		// nil means unrestricted (access control off or admin); an empty
+		// non-nil set means the caller sees nothing — answer from the set
+		// alone, without querying.
+		if set := h.accessibleSet(r); set != nil {
+			if len(set) == 0 {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"items":      []skills.SkillSummary{},
+					"total":      0,
+					"page":       page.Page,
+					"pageSize":   page.PageSize,
+					"totalPages": 0,
+				})
+				return
+			}
+			filter.AllowedIDs = accessKeys(set)
+		}
+		// Sort pushdown: every allowed orderBy except usedBy maps to a SQL
+		// expression (skills.SortColumns) and is applied before LIMIT/OFFSET.
+		// usedBy is computed from Agent CRs, so sorting by it — and the
+		// in-memory Slice that goes with it — stays here.
+		_, pushdown := skills.SortColumns[sortParams.OrderBy]
+		if sortParams.OrderBy == "" || pushdown {
+			filter.OrderBy = sortParams.OrderBy
+			filter.Desc = sortParams.OrderDir == "desc"
+			filter.Limit = page.PageSize
+			filter.Offset = (page.Page - 1) * page.PageSize
+			items, total, err := h.svc.List(r.Context(), filter)
+			if err != nil {
+				h.writeSkillError(w, err)
+				return
+			}
+			if items == nil {
+				items = []skills.SkillSummary{}
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"items":      items,
+				"total":      total,
+				"page":       page.Page,
+				"pageSize":   page.PageSize,
+				"totalPages": page.TotalPages(total),
+			})
+			return
+		}
+		// usedBy fallback: fetch the full match set, sort in memory, slice.
+		all, _, err := h.svc.List(r.Context(), filter)
 		if err != nil {
 			h.writeSkillError(w, err)
 			return
 		}
-		if set := h.accessibleSet(r); set != nil {
-			filtered := all[:0]
-			for _, sk := range all {
-				if set[sk.ID] {
-					filtered = append(filtered, sk)
-				}
-			}
-			all = filtered
-		}
-		// Apply sort if requested. Uses SliceStable with id tiebreaker for
-		// deterministic pagination.
-		if sortParams.OrderBy != "" {
-			sortSkillSummaries(all, sortParams)
-		}
+		sortSkillSummaries(all, sortParams)
 		total := len(all)
 		lo, hi := page.Slice(total)
 		items := all[lo:hi]

@@ -113,6 +113,13 @@ func ParsePageParams(q url.Values) (PageParams, error) {
 // length total. The returned bounds are always within [0, total], so callers
 // can slice directly without any out-of-range checks. When the requested page
 // is past the end, lo == hi == total and the caller gets an empty page.
+//
+// This is the in-memory path, for the Kubernetes-cached kinds only (agents,
+// connectors, agent images, plugins, channels): a cached client must read the
+// whole collection anyway, so slicing the loaded list is the right shape.
+// Postgres-backed list endpoints push LIMIT/OFFSET and COUNT(*) into SQL
+// instead (see the per-kind store packages) — their response time must be
+// proportional to the page, not to the table.
 func (p PageParams) Slice(total int) (lo, hi int) {
 	if p.PageSize <= 0 {
 		return 0, 0

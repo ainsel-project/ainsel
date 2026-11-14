@@ -63,8 +63,22 @@ func (s *stubPersonaService) Create(ctx context.Context, req personas.CreateRequ
 func (s *stubPersonaService) Get(ctx context.Context, id string) (*personas.Persona, error) {
 	return s.getFn(ctx, id)
 }
-func (s *stubPersonaService) List(ctx context.Context) ([]personas.PersonaSummary, error) {
-	return s.listFn(ctx)
+func (s *stubPersonaService) List(ctx context.Context, f personas.ListFilter) ([]personas.PersonaSummary, int, error) {
+	all, err := s.listFn(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Emulate the paginating store: the handler hands down Limit/Offset and
+	// the store answers with the page plus the pre-pagination total.
+	total := len(all)
+	if f.Offset > total {
+		f.Offset = total
+	}
+	out := all[f.Offset:]
+	if f.Limit > 0 && f.Limit < len(out) {
+		out = out[:f.Limit]
+	}
+	return out, total, nil
 }
 func (s *stubPersonaService) Update(ctx context.Context, id string, req personas.UpdateRequest) (*personas.Persona, error) {
 	return s.updateFn(ctx, id, req)
@@ -72,8 +86,21 @@ func (s *stubPersonaService) Update(ctx context.Context, id string, req personas
 func (s *stubPersonaService) Delete(ctx context.Context, id string) error {
 	return s.deleteFn(ctx, id)
 }
-func (s *stubPersonaService) ListVersions(ctx context.Context, id string) ([]personas.VersionSummary, error) {
-	return s.listVerFn(ctx, id)
+func (s *stubPersonaService) ListVersions(ctx context.Context, id string, limit, offset int) ([]personas.VersionSummary, int, error) {
+	all, err := s.listVerFn(ctx, id)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Emulate the paginating store (see List).
+	total := len(all)
+	if offset > total {
+		offset = total
+	}
+	out := all[offset:]
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, total, nil
 }
 func (s *stubPersonaService) GetVersion(ctx context.Context, id string, n int) (*personas.Version, error) {
 	return s.getVerFn(ctx, id, n)

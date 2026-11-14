@@ -18,21 +18,21 @@ type fakeTriggers struct {
 	err  error
 }
 
-func (f fakeTriggers) ListTriggers(ctx context.Context, agentRef, connectorRef string) ([]triggers.Trigger, error) {
+func (f fakeTriggers) ListTriggers(ctx context.Context, opts triggers.TriggerListOptions) ([]triggers.Trigger, int, error) {
 	if f.err != nil {
-		return nil, f.err
+		return nil, 0, f.err
 	}
 	var out []triggers.Trigger
 	for _, t := range f.rows {
-		if agentRef != "" && t.AgentRef != agentRef {
+		if opts.AgentRef != "" && t.AgentRef != opts.AgentRef {
 			continue
 		}
-		if connectorRef != "" && t.ConnectorRef != connectorRef {
+		if opts.ConnectorRef != "" && t.ConnectorRef != opts.ConnectorRef {
 			continue
 		}
 		out = append(out, t)
 	}
-	return out, nil
+	return out, len(out), nil
 }
 
 func TestSubscriptionsComposesTriggersAndBridges(t *testing.T) {
