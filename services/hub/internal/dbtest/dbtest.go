@@ -15,7 +15,10 @@
 // TestMain cannot skip, so when Docker is unavailable Main records the error
 // in Unavailable and still runs the suite; Open/OpenEmpty then skip every test
 // with the familiar "docker unavailable" message, keeping `go test ./...`
-// green on machines without Docker.
+// green on machines without Docker. That skip path is only for "no Docker":
+// anything that fails after the container is up (template creation, migration)
+// is a real failure and makes Main return a non-zero exit code, so a broken
+// migration can never turn the whole DB-backed suite into silent skips.
 //
 // This is the only place in the hub that may call pgcontainer.Run directly.
 package dbtest
@@ -46,7 +49,8 @@ const (
 
 // Unavailable is non-nil when Main could not start the container (typically
 // no Docker daemon). Open and OpenEmpty skip the calling test in that case,
-// preserving the per-test "docker unavailable" skip convention.
+// preserving the per-test "docker unavailable" skip convention. It is never
+// set for a failure after the container started — those fail the package.
 var Unavailable error
 
 var (
@@ -58,6 +62,9 @@ var (
 // database, runs m.Run(), and tears everything down. It returns the exit code
 // for os.Exit. A container start-up failure is not fatal: it is recorded in
 // Unavailable, logged once to stderr, and the tests run (and skip) normally.
+// Every later failure is fatal — Main returns 1 instead of setting
+// Unavailable, so a migration that breaks while Docker is available fails the
+// package rather than skipping the whole suite green.
 func Main(m *testing.M) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -77,9 +84,7 @@ func Main(m *testing.M) int {
 
 	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		Unavailable = fmt.Errorf("connection string: %w", err)
-		fmt.Fprintf(os.Stderr, "dbtest: %v, DB-backed tests will skip\n", Unavailable)
-		return m.Run()
+		return fatal("connection string", err)
 	}
 	containerDSN = dsn
 
@@ -87,22 +92,29 @@ func Main(m *testing.M) int {
 	// pointing at the target database, so retarget the container DSN.
 	tplDSN, err := dsnWithDatabase(dsn, templateName)
 	if err != nil {
-		Unavailable = fmt.Errorf("template dsn: %w", err)
-		fmt.Fprintf(os.Stderr, "dbtest: %v, DB-backed tests will skip\n", Unavailable)
-		return m.Run()
+		return fatal("template dsn", err)
 	}
-	if err := createDatabase(ctx, dsn, templateName); err != nil {
-		Unavailable = fmt.Errorf("create template db: %w", err)
-		fmt.Fprintf(os.Stderr, "dbtest: %v, DB-backed tests will skip\n", Unavailable)
-		return m.Run()
+	// The template is cloned from template1 (empty template argument) and must
+	// be free of sessions by the time Open clones it: Postgres refuses to use a
+	// TEMPLATE that still has other connections attached. The pool Migrate
+	// opens on tplDSN is closed before m.Run() — do not introduce a long-lived
+	// connection to ainsel_tpl, or every Open will fail.
+	if err := createDatabase(ctx, dsn, templateName, ""); err != nil {
+		return fatal("create template db", err)
 	}
 	if err := db.Migrate(ctx, tplDSN); err != nil {
-		Unavailable = fmt.Errorf("migrate template: %w", err)
-		fmt.Fprintf(os.Stderr, "dbtest: %v, DB-backed tests will skip\n", Unavailable)
-		return m.Run()
+		return fatal("migrate template", err)
 	}
 
 	return m.Run()
+}
+
+// fatal reports a fixture failure that happened with Docker available and
+// returns the exit code Main should hand to os.Exit. Such a failure is never
+// turned into Unavailable: skipping would hide it as a green run.
+func fatal(what string, err error) int {
+	fmt.Fprintf(os.Stderr, "dbtest: %s: %v\n", what, err)
+	return 1
 }
 
 // Open clones the migrated template database and returns a pool connected to
@@ -110,7 +122,7 @@ func Main(m *testing.M) int {
 // The test is skipped when the package's container could not start.
 func Open(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	return openClone(t, templateName)
+	return openClone(t, templateName, "")
 }
 
 // OpenEmpty clones the unmigrated base database and returns a pool connected
@@ -118,7 +130,7 @@ func Open(t *testing.T) *pgxpool.Pool {
 // when the package's container could not start.
 func OpenEmpty(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	return openClone(t, baseDatabase)
+	return openClone(t, "", "e")
 }
 
 // EmptyDSN returns a URL-form DSN for a fresh unmigrated database that the
@@ -135,25 +147,25 @@ func EmptyDSN(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("dsn: %v", err)
 	}
-	if err := createDatabase(context.Background(), containerDSN, name); err != nil {
+	if err := createDatabase(context.Background(), containerDSN, name, ""); err != nil {
 		t.Fatalf("create %s: %v", name, err)
 	}
 	t.Cleanup(func() { dropDatabase(context.Background(), containerDSN, name) })
 	return dsn
 }
 
-func openClone(t *testing.T, template string) *pgxpool.Pool {
+// openClone creates a fresh clone of template and returns a pool connected to
+// it. An empty template clones Postgres' own template1, i.e. an unmigrated
+// database. prefix only namespaces the clone name (hubtest_NNNN vs
+// hubtest_eNNNN) and has nothing to do with which template is cloned.
+func openClone(t *testing.T, template, prefix string) *pgxpool.Pool {
 	t.Helper()
 	if Unavailable != nil {
 		t.Skipf("docker unavailable: %v", Unavailable)
 	}
-	prefix := ""
-	if template == baseDatabase {
-		prefix = "e"
-	}
 	name := cloneName(prefix)
 	ctx := context.Background()
-	if err := createDatabase(ctx, containerDSN, name); err != nil {
+	if err := createDatabase(ctx, containerDSN, name, template); err != nil {
 		t.Fatalf("create %s: %v", name, err)
 	}
 	dsn, err := dsnWithDatabase(containerDSN, name)
@@ -178,13 +190,21 @@ func cloneName(prefix string) string {
 	return fmt.Sprintf("hubtest_%s%04d", prefix, nextDB.Add(1))
 }
 
-func createDatabase(ctx context.Context, adminDSN, name string) error {
+// createDatabase creates name as a clone of template. An empty template leaves
+// the clause off, so Postgres clones its own template1 (an unmigrated
+// database); a non-empty one must have no sessions attached, or Postgres
+// rejects the statement.
+func createDatabase(ctx context.Context, adminDSN, name, template string) error {
 	pool, err := db.Open(ctx, adminDSN)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	_, err = pool.Exec(ctx, "CREATE DATABASE "+quoteIdent(name))
+	stmt := "CREATE DATABASE " + quoteIdent(name)
+	if template != "" {
+		stmt += " TEMPLATE " + quoteIdent(template)
+	}
+	_, err = pool.Exec(ctx, stmt)
 	return err
 }
 

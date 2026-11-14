@@ -69,7 +69,9 @@ one `postgres:17-alpine` testcontainer and migrates it once, and tests get a
 fresh cloned database from `dbtest.Open(t)` (or `dbtest.OpenEmpty(t)` /
 `dbtest.EmptyDSN(t)` for the migration tests in `internal/db`). Do not call
 `pgcontainer.Run` directly in hub tests — `dbtest` is the only place that
-does. Without Docker the tests skip (`docker unavailable`) rather than fail.
+does. Without Docker the tests skip (`docker unavailable`) rather than fail;
+a failure after the container started (a broken migration, for example) fails
+the package instead of skipping.
 
 ## Reference
 
