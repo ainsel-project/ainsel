@@ -6,6 +6,8 @@ import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
+import { EntityLink } from '../../components/EntityLink'
+import { personaPath } from '../../components/entityPaths'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { formatRelative } from '../../utils/time'
@@ -45,12 +47,7 @@ export function PersonaList() {
       header: 'Name',
       cell: (p) => (
         <>
-          <b
-            style={{ cursor: 'pointer', color: 'var(--accent)' }}
-            onClick={() => navigate(`/personas/${encodeURIComponent(p.id)}`)}
-          >
-            {p.name}
-          </b>{' '}
+          <EntityLink id={p.id} label={p.name} path={personaPath} className="rowlink" />{' '}
           <ManagedBadge managedBy={p.managedBy} />
         </>
       ),

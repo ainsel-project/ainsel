@@ -33,21 +33,14 @@ const SRC = join(__dirname, '..')
 
 /** Files still carrying pre-Fjord phantom tokens. Remove entries as you migrate. */
 const BASELINE: Record<string, string[]> = {
-  'pages/agents/AgentList.tsx': ['--accent'],
   'pages/agents/AgentWizard.tsx': ['--rule'],
   'pages/agents/ScheduleForm.tsx': ['--rule'],
   'pages/agents/TriggerForm.tsx': ['--rule'],
   'pages/chat/Conversation.tsx': ['--font-body'],
   'pages/connectors/ConnectorForm.tsx': ['--rule'],
-  'pages/connectors/ConnectorList.tsx': ['--accent'],
   'pages/groups/GroupDetail.tsx': ['--chrome-1'],
-  'pages/groups/GroupList.tsx': ['--accent'],
-  'pages/images/ImageList.tsx': ['--accent'],
-  'pages/mcp-servers/MCPServerList.tsx': ['--accent'],
   'pages/observability/events/EventView.tsx': ['--border'],
-  'pages/personas/PersonaList.tsx': ['--accent'],
   'pages/profile/TokenManager.tsx': ['--border', '--danger', '--surface-2'],
-  'pages/skills/SkillList.tsx': ['--accent'],
   'pages/users/UserList.tsx': ['--accent', '--muted'],
 }
 

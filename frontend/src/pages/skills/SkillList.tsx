@@ -7,6 +7,8 @@ import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column, type SortState } from '../../primitives/RegisterTable'
 import { Tag } from '../../primitives/Tag'
+import { EntityLink } from '../../components/EntityLink'
+import { skillPath } from '../../components/entityPaths'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 import { formatRelative } from '../../utils/time'
@@ -148,12 +150,7 @@ export function SkillList() {
       sortable: true,
       cell: (s) => (
         <>
-          <b
-            style={{ cursor: 'pointer', color: 'var(--accent)' }}
-            onClick={() => navigate(`/skills/${encodeURIComponent(s.id)}`)}
-          >
-            {s.name}
-          </b>{' '}
+          <EntityLink id={s.id} label={s.name} path={skillPath} className="rowlink" />{' '}
           <ManagedBadge managedBy={s.managedBy} />
         </>
       ),
@@ -207,17 +204,6 @@ export function SkillList() {
       align: 'right',
       sortable: true,
       cell: (s) => <span className="num">{formatRelative(s.updatedAt)}</span>,
-    },
-    {
-      key: 'actions',
-      header: 'Actions',
-      width: 80,
-      align: 'right',
-      cell: (s) => (
-        <Button size="sm" onClick={() => navigate(`/skills/${encodeURIComponent(s.id)}`)}>
-          View
-        </Button>
-      ),
     },
   ]
 

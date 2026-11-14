@@ -6,6 +6,8 @@ import { Dot } from '../../primitives/Dot'
 import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { EntityLink } from '../../components/EntityLink'
+import { connectorPath } from '../../components/entityPaths'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 
@@ -40,12 +42,7 @@ export function ConnectorList() {
       header: 'Name',
       cell: (c) => (
         <>
-          <b
-            style={{ cursor: 'pointer', color: 'var(--accent)' }}
-            onClick={() => navigate(`/connectors/${encodeURIComponent(c.id)}`)}
-          >
-            {c.name}
-          </b>{' '}
+          <EntityLink id={c.id} label={c.name} path={connectorPath} className="rowlink" />{' '}
           <ManagedBadge managedBy={c.managedBy} />
         </>
       ),
@@ -79,17 +76,6 @@ export function ConnectorList() {
           </>
         )
       },
-    },
-    {
-      key: 'actions',
-      header: 'Actions',
-      width: 80,
-      align: 'right',
-      cell: (c) => (
-        <Button size="sm" onClick={() => navigate(`/connectors/${encodeURIComponent(c.id)}`)}>
-          View
-        </Button>
-      ),
     },
   ]
 

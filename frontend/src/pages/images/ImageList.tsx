@@ -5,6 +5,8 @@ import { Button } from '../../primitives/Button'
 import { Pager } from '../../primitives/Pager'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
+import { EntityLink } from '../../components/EntityLink'
+import { agentImagePath } from '../../components/entityPaths'
 import { ManagedBadge } from '../../components/ManagedBadge'
 import { Titleblock } from '../../layout/Titleblock'
 
@@ -39,12 +41,12 @@ export function ImageList() {
       header: 'Name',
       cell: (i) => (
         <>
-          <b
-            style={{ cursor: 'pointer', color: 'var(--accent)' }}
-            onClick={() => navigate(`/agent-images/${encodeURIComponent(i.id)}`)}
-          >
-            {i.displayName ?? i.id}
-          </b>{' '}
+          <EntityLink
+            id={i.id}
+            label={i.displayName ?? i.id}
+            path={agentImagePath}
+            className="rowlink"
+          />{' '}
           <ManagedBadge managedBy={i.managedBy} />
         </>
       ),
