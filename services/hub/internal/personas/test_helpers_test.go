@@ -1,60 +1,28 @@
 package personas_test
 
 import (
-	"context"
 	"testing"
 
 	pgxpool "github.com/jackc/pgx/v5/pgxpool"
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 )
 
-// newTestStore boots a Postgres testcontainer, applies migrations via
-// db.Migrate, and returns a Store wired to a fresh pool. Skips the test
-// if Docker is unavailable, matching the mcpservers test convention.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func newTestStore(t *testing.T) (*personas.Store, func()) {
 	t.Helper()
-	pool, cleanup := newTestPool(t)
-	return personas.NewStore(pool), cleanup
+	pool, _ := newTestPool(t)
+	return personas.NewStore(pool), func() {}
 }
 
-// newTestPool boots a Postgres testcontainer, applies migrations, and returns
-// the raw pool for tests that need direct SQL (e.g. seeding managed_by).
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func newTestPool(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-
-	cleanup := func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	}
-	return pool, cleanup
+	pool := dbtest.Open(t)
+	return pool, func() {}
 }
 
 func ptr[T any](v T) *T { return &v }

@@ -11,8 +11,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 )
 
 // Chat sessions record an owner at creation time. These tests pin down that
@@ -24,40 +23,12 @@ import (
 // sidecar authenticates with X-Internal-Token and legitimately serves every
 // user's conversations.
 
-// newAuthzChatEnv boots Postgres, migrates, and returns chat and authz stores
-// over the same pool. Skips the test if Docker is unavailable.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func newAuthzChatEnv(t *testing.T) (*chat.Store, *authz.Store, func()) {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-	cleanup := func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	}
-	return chat.NewStore(pool), authz.NewStore(pool), cleanup
+	pool := dbtest.Open(t)
+	return chat.NewStore(pool), authz.NewStore(pool), func() {}
 }
 
 // chatAuthzServer wires the v1 chat routes with authentication configured.

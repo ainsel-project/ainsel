@@ -9,48 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// newTestEventStore boots a Postgres testcontainer, applies migrations, and
-// returns an eventqueue.Store wired to a fresh pool. Skips the test if Docker
-// is unavailable.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func newTestEventStore(t *testing.T) (*eventqueue.Store, func()) {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-
-	cleanup := func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	}
-	return eventqueue.NewStore(pool), cleanup
+	pool := dbtest.Open(t)
+	return eventqueue.NewStore(pool), func() {}
 }
 
 // eventsTestServer wires a Server with the given event store and registers the

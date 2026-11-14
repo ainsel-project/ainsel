@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
@@ -19,7 +19,6 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -141,40 +140,11 @@ type telemetryEnv struct {
 	promHits    *int
 }
 
-// newTelemetryEnv boots Postgres, seeds two tenants' worth of telemetry, and
-// wires a Server whose authz graph is the fake above. Skips when Docker is
-// unavailable.
+// Gets a fresh migrated database from the package's shared container
+// (see TestMain / dbtest). Skips the test when Docker is unavailable.
 func newTelemetryEnv(t *testing.T, admins ...string) *telemetryEnv {
 	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	})
+	pool := dbtest.Open(t)
 
 	agents := []runtime.Object{}
 	for _, name := range []string{"a-alice", "a-bob"} {

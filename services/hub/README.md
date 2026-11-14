@@ -64,6 +64,13 @@ make test
 go test ./...
 ```
 
+Postgres-backed tests use `internal/dbtest`: each package's `TestMain` starts
+one `postgres:17-alpine` testcontainer and migrates it once, and tests get a
+fresh cloned database from `dbtest.Open(t)` (or `dbtest.OpenEmpty(t)` /
+`dbtest.EmptyDSN(t)` for the migration tests in `internal/db`). Do not call
+`pgcontainer.Run` directly in hub tests — `dbtest` is the only place that
+does. Without Docker the tests skip (`docker unavailable`) rather than fail.
+
 ## Reference
 
 - [REST API endpoints](../../docs/api-reference.md)
