@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -267,15 +268,7 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 		return
 	}
 
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(ctx, "connector", id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
-	}
+	s.assignGroup(ctx, authz.ResourceConnector, id, req.GroupID)
 
 	resp := toWebhookConnectorResponse(*connector)
 	resp.WebhookSecretValue = webhookHMAC

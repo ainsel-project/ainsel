@@ -7,6 +7,51 @@ package authz
 
 import "time"
 
+// DefaultGroupID is the group ungrouped resources are filed under: the
+// fallback when a create request names no group, and the target of the
+// startup group backfill. It is a real row created by the access-control
+// migration (0016_group_access_control), whose id is this value — renaming
+// or retiring it is a data migration, not just a code change.
+const DefaultGroupID = "legacy"
+
+// ResourceType is the authz type of a resource that can own a
+// resource_groups row. The values are wire-visible: they are stored in
+// resource_groups.resource_type and surfaced as the `type` field of the
+// group-resources API, so they are part of the hub's contract.
+type ResourceType string
+
+const (
+	ResourceAgent       ResourceType = "agent"
+	ResourceAgentImage  ResourceType = "agent-image"
+	ResourceConnector   ResourceType = "connector"
+	ResourcePersona     ResourceType = "persona"
+	ResourceSkill       ResourceType = "skill"
+	ResourceChannel     ResourceType = "channel"
+	ResourceMCPServer   ResourceType = "mcp-server"
+	ResourceTrigger     ResourceType = "trigger"
+	ResourceCronTrigger ResourceType = "cron-trigger"
+)
+
+// AllResourceTypes lists every groupable resource type. Order defines the
+// order items are returned in by the group-resources listing; the frontend
+// groups by type anyway.
+//
+// Note on channels: only standalone (custom) channels have resource-group
+// rows. A connector's or an agent's channel is authorised through the
+// referenced entity (see the api package's channelAuthzTarget), so it
+// belongs to that connector's/agent's group and is never double-counted.
+var AllResourceTypes = []ResourceType{
+	ResourceAgent,
+	ResourceAgentImage,
+	ResourceConnector,
+	ResourcePersona,
+	ResourceSkill,
+	ResourceChannel,
+	ResourceMCPServer,
+	ResourceTrigger,
+	ResourceCronTrigger,
+}
+
 // GroupRole is the permission level a user has within a group.
 type GroupRole string
 

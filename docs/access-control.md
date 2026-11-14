@@ -125,8 +125,12 @@ curl https://ainsel.example.com/api/v1/groups/<group-id> \
 ## Resources and Groups
 
 Every resource (agent, agent-image, connector, trigger, cron-trigger,
-MCP server, persona, skill) belongs to exactly one group. You choose the
-group when creating the resource, from the groups you are a member of.
+MCP server, persona, skill, and standalone custom channel) belongs to exactly
+one group. You choose the group when creating the resource, from the groups
+you are a member of. If you name no group, the resource is filed under the
+`legacy` group — the fallback group the access-control migration creates —
+the same group the startup backfill assigns to resources that predate group
+ownership.
 
 One exception: a persona an **agent owns** is not a group resource of its own.
 The hub creates it on the agent's behalf when that agent's persona is edited

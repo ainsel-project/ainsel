@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	ainselv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,10 +33,6 @@ const (
 		"Grants no tools or MCP servers by itself; select them per agent, or create a custom image."
 	// ManagedBy marks the CR as authored by the installation, not a user.
 	ManagedBy = "ainsel"
-
-	// group is the resource group the image is filed under. It always exists
-	// (migration 0016); the image is public, so every user can read it.
-	group = "legacy"
 )
 
 // GroupSetter files a resource under an authz group. *authz.Store satisfies it.
@@ -106,8 +103,8 @@ func create(ctx context.Context, c client.Client, groups GroupSetter, namespace,
 	if groups == nil {
 		return nil
 	}
-	if err := groups.SetResourceGroup(ctx, "agent-image", Name, group, true); err != nil {
-		return fmt.Errorf("file default agent image under group %q: %w", group, err)
+	if err := groups.SetResourceGroup(ctx, string(authz.ResourceAgentImage), Name, authz.DefaultGroupID, true); err != nil {
+		return fmt.Errorf("file default agent image under group %q: %w", authz.DefaultGroupID, err)
 	}
 	return nil
 }
