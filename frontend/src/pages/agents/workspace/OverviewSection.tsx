@@ -308,7 +308,7 @@ export function OverviewSection() {
             </div>
           )}
 
-          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+          <div className="info-grid cols-5">
             <div>
               <div className="k">Runs today</div>
               <div className="v">
@@ -342,7 +342,7 @@ export function OverviewSection() {
           </div>
 
           <Panel title="Key facts" className="cropped">
-            <dl className="info-grid" style={{ margin: 0, gridTemplateColumns: 'repeat(7, 1fr)' }}>
+            <dl className="info-grid cols-7" style={{ margin: 0 }}>
               <div>
                 <dt className="k">Persona</dt>
                 <dd className="v" style={{ margin: 0 }}>

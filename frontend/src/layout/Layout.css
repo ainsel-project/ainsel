@@ -51,7 +51,19 @@
   padding: 0;
   min-height: 100vh;
   min-height: 100dvh;
+  /* Clip the horizontal overflow (see the header comment in responsive.css),
+     but do it without becoming a scroll container. `overflow-x: hidden` with
+     `overflow-y: visible` computes `overflow-y` to `auto`, which makes .canvas
+     the nearest scrolling ancestor of a sticky descendant — and .canvas sizes to
+     its content and never scrolls, so `.titleblock { top: var(--chrome-top) }`
+     resolves against a box that never moves. The result is sticky positioning
+     that reads as a static block painted over the first card (issue #284).
+     `clip` clips exactly the same overflow, is legal beside `overflow-y: visible`,
+     and leaves the viewport as the sticky containing block. Engines without it
+     keep the declaration above. Any *intended* horizontal scroll already lives in
+     its own wrapper (`.reg-wrap`, `.md-left`). */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* Mobile top bar — hidden on desktop. */

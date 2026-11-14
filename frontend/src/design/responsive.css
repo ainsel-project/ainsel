@@ -18,7 +18,8 @@
 
    Both tiers collapse the *grid*, never the content. A fixed track such as
    `.md-grid`'s 320px sidebar is wider than a 360px viewport minus padding, and
-   because `.canvas` is `overflow-x: hidden` the overflow is clipped rather than
+   because `.canvas` clips its horizontal overflow (`overflow-x: clip`, with
+   `hidden` as the fallback — see Layout.css) the overflow is clipped rather than
    scrolled — the content becomes unreachable, not scrollable. That is the
    failure these rules exist to remove.
 
@@ -38,6 +39,12 @@
      the border only on the last cell, so every odd row keeps a stray rule on its
      right edge. Kill it on the right-hand column instead. */
   .info-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  /* The column-count variants need their own rule: `.info-grid.cols-5` is more
+     specific than `.info-grid`, so the flat primitive would otherwise win. */
+  .info-grid.cols-5,
+  .info-grid.cols-7 {
     grid-template-columns: repeat(2, 1fr);
   }
   .info-grid > div:nth-child(2n) {
@@ -74,6 +81,10 @@
   /* One column: the vertical rules go, the horizontal ones stay (except after
      the last cell, which would double the grid's own bottom border). */
   .info-grid {
+    grid-template-columns: 1fr;
+  }
+  .info-grid.cols-5,
+  .info-grid.cols-7 {
     grid-template-columns: 1fr;
   }
   .info-grid > div {
@@ -124,5 +135,57 @@
   .dual-list-arrows .btn {
     width: 44px;
     height: 44px;
+  }
+
+  /* Register tables stay a scroll, not a reflow (see the header and
+     docs/conventions.md) — but at 390px the scroll window is under half the
+     table, so make it findable and make the long mono strings break. The
+     affordance is the scrollbar itself, thinned and given a token colour; a
+     fade or a "swipe" chip would be a new primitive invented here. */
+  .reg-wrap {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-4) transparent;
+  }
+  table.reg td.num,
+  table.reg .num {
+    /* `qwen3-coder:480b-v1` has no break opportunity a browser will take, so it
+       pushed the cell wider than the window and read as a truncated word. */
+    overflow-wrap: anywhere;
+  }
+
+  /* Agent workspace section nav (issue #284). Below 900px `.agent-workspace`
+     stacks, so the 170px column becomes a stack of eight-plus links above the
+     agent — the whole first screen is navigation. Turn it into the horizontal
+     strip it is on a wide screen: one wrapping row of links under the title.
+
+     `nav.` on every selector: AgentWorkspace.css is component CSS and lands
+     after this file in the bundle, so a plain `.section-nav` here would be a
+     specificity tie lost to the desktop rule — the same dead-rule failure the
+     inline column counts caused. */
+  nav.section-nav {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--paper-deep);
+  }
+  /* Unwrap the group boxes so the links of every group share one row instead of
+     each group forming its own block. */
+  nav.section-nav .section-nav-group {
+    display: contents;
+  }
+  nav.section-nav .section-nav-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+  /* With no column to head, "Configure" / "Wiring" / "Plugins" over eight
+     chips would be three headings for one row of links. The grouping is still
+     in the DOM and in the nav landmark's links; only the caption is dropped. */
+  nav.section-nav .section-nav-heading {
+    display: none;
   }
 }

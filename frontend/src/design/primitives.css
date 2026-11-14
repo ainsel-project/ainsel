@@ -821,6 +821,18 @@ table.reg tr.reg-detail > td {
 .info-grid > div:last-child {
   border-right: 0;
 }
+/* Column-count variants, named like `.form-grid.cols-2`/`.cols-3`. A detail
+   page with more cells than the default four declares them here — never as an
+   inline `style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}`: an inline
+   declaration beats every rule in responsive.css, media query or not, so the
+   grid keeps its desktop column count at 360px and overflows (issue #284).
+   The tiers for these live in responsive.css. */
+.info-grid.cols-5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+.info-grid.cols-7 {
+  grid-template-columns: repeat(7, 1fr);
+}
 .info-grid .k {
   font-size: 9px;
   letter-spacing: 0.16em;
