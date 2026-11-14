@@ -117,6 +117,23 @@ describe('AgentEnvSection', () => {
     expect(lastPutBody(calls)?.env).toEqual([{ name: 'LOG_LEVEL', value: 'debug', secret: false }])
   })
 
+  it('saves nothing when Enter is pressed in a field', async () => {
+    // The overrides editor used to render inside the image editor's <form>, where
+    // Enter submitted that form and rewrote the shared image (issue #278). It is
+    // not inside a foreign form any more, so Enter must not write anything.
+    const calls = stubFetch()
+    const user = userEvent.setup()
+    renderWithProviders(<AgentEnvSection agent={agentWith(undefined)} />)
+
+    await screen.findByText('LOG_LEVEL')
+    await user.click(screen.getByRole('button', { name: /add variable/i }))
+    await user.type(screen.getByLabelText('Variable name'), 'EXTRA_VAR{enter}')
+
+    // The edit is still unsaved: the save is enabled and no PUT went out.
+    expect(screen.getByRole('button', { name: /save overrides/i })).toBeEnabled()
+    expect(lastPutBody(calls)).toBeUndefined()
+  })
+
   it('marks an image default the agent overrides', async () => {
     renderWithProviders(
       <AgentEnvSection agent={agentWith([{ name: 'LOG_LEVEL', value: 'debug' }])} />,
