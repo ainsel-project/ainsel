@@ -25,9 +25,6 @@ spec:
     - jsonPath: .status.replicas
       name: Replicas
       type: integer
-    - jsonPath: .status.paused
-      name: Paused
-      type: boolean
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -556,24 +553,6 @@ spec:
                       (https://opencode.ai/zen/go/v1). The endpoint is never probed.
                     type: string
                 type: object
-              pause:
-                description: |-
-                  Pause temporarily withholds task delivery from this agent: while active,
-                  the hub's claim endpoint hands out no tasks, so pending agent_tasks rows
-                  accumulate as a backlog that drains (in id order) once the pause ends.
-                  Event ingestion and routing are unaffected — nothing is lost while the
-                  agent is paused. Nil means the agent runs normally. This is orthogonal
-                  to Scaling, which governs pod count, not task delivery.
-                properties:
-                  pausedUntil:
-                    description: |-
-                      PausedUntil is when the pause ends. While it is in the future the agent
-                      stays paused; once it has passed the agent is running again without any
-                      further action. Nil means the pause is indefinite and must be lifted
-                      explicitly.
-                    format: date-time
-                    type: string
-                type: object
               persona:
                 description: AgentPersona points the agent runtime at a persona managed
                   by the hub.
@@ -679,7 +658,7 @@ spec:
                     description: |-
                       Replicas caps the number of task Jobs running at once for this agent.
                       Each task runs in its own Job, so this is the agent's concurrency limit.
-                      Defaults to 1. Set to 0 to pause the agent: due tasks stay queued.
+                      Defaults to 1. Set to 0 to stop dispatch: due tasks stay queued.
                     format: int32
                     minimum: 0
                     type: integer
@@ -701,10 +680,6 @@ spec:
                   pending agent_tasks rows accumulate as a backlog that drains (in id order)
                   when the window next opens. Ingestion and routing are unaffected - nothing
                   is lost outside the window. Nil means the agent may run at any hour.
-
-                  Pause and WorkingHours gate the same thing ("may this agent be handed
-                  work?"), Pause as a one-off and WorkingHours as a recurring schedule;
-                  either one holds the queue.
                 properties:
                   days:
                     description: |-
@@ -847,14 +822,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-              paused:
-                description: |-
-                  Paused mirrors the effective pause state of spec.pause (nil, expired or
-                  active) as observed by the operator on its last reconcile, so
-                  `kubectl get agents` shows which agents are withholding task delivery.
-                  The authoritative check always evaluates spec.pause at read time; this
-                  field is display state and may lag until the next reconcile.
-                type: boolean
               pendingTaskIds:
                 description: |-
                   PendingTaskIDs lists the oldest runnable pending task ids (retry

@@ -1,8 +1,6 @@
 package v1alpha1
 
 import (
-	"time"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -46,23 +44,11 @@ type AgentSpec struct {
 	// +optional
 	Env     []AgentEnvVar `json:"env,omitempty"`
 	Scaling *AgentScaling `json:"scaling,omitempty"`
-	// Pause temporarily withholds task delivery from this agent: while active,
-	// the hub's claim endpoint hands out no tasks, so pending agent_tasks rows
-	// accumulate as a backlog that drains (in id order) once the pause ends.
-	// Event ingestion and routing are unaffected — nothing is lost while the
-	// agent is paused. Nil means the agent runs normally. This is orthogonal
-	// to Scaling, which governs pod count, not task delivery.
-	// +optional
-	Pause *AgentPause `json:"pause,omitempty"`
 	// WorkingHours confines task delivery to a recurring weekly window: while
 	// now falls outside it, the hub's delivery paths hand the agent nothing, so
 	// pending agent_tasks rows accumulate as a backlog that drains (in id order)
 	// when the window next opens. Ingestion and routing are unaffected - nothing
 	// is lost outside the window. Nil means the agent may run at any hour.
-	//
-	// Pause and WorkingHours gate the same thing ("may this agent be handed
-	// work?"), Pause as a one-off and WorkingHours as a recurring schedule;
-	// either one holds the queue.
 	// +optional
 	WorkingHours *AgentWorkingHours `json:"workingHours,omitempty"`
 	// ManagedBy names the external system that authors this resource, e.g.
@@ -248,18 +234,6 @@ type AgentPersona struct {
 	ID string `json:"id"`
 }
 
-// AgentPause marks an agent as paused: its tasks stay in the queue until the
-// pause ends. Presence of the block means paused; PausedUntil narrows it to a
-// window that expires on its own.
-type AgentPause struct {
-	// PausedUntil is when the pause ends. While it is in the future the agent
-	// stays paused; once it has passed the agent is running again without any
-	// further action. Nil means the pause is indefinite and must be lifted
-	// explicitly.
-	// +optional
-	PausedUntil *metav1.Time `json:"pausedUntil,omitempty"`
-}
-
 // AgentWorkingHours is a weekly window inside which an agent may be handed
 // work. It is read as wall-clock time in Timezone, so "09:00-18:00, Mon-Fri"
 // means 09:00 where the agent's people are, not 09:00 UTC - which matters
@@ -293,21 +267,6 @@ type AgentWorkingHours struct {
 	End string `json:"end"`
 }
 
-// IsPaused reports whether the agent's task delivery is currently withheld.
-// The answer is evaluated at read time against now, so an expiring pause
-// needs no timers or controllers: the same object reads paused before
-// PausedUntil and running after it.
-func (a *Agent) IsPaused(now time.Time) bool {
-	p := a.Spec.Pause
-	if p == nil {
-		return false
-	}
-	if p.PausedUntil == nil {
-		return true
-	}
-	return p.PausedUntil.After(now)
-}
-
 // UsesChatGPTSignIn reports whether the agent authenticates to OpenAI with a
 // ChatGPT sign-in rather than an API key. The openAI block only counts when
 // openai is the selected provider.
@@ -324,7 +283,7 @@ func (a *Agent) UsesChatGPTSignIn() bool {
 type AgentScaling struct {
 	// Replicas caps the number of task Jobs running at once for this agent.
 	// Each task runs in its own Job, so this is the agent's concurrency limit.
-	// Defaults to 1. Set to 0 to pause the agent: due tasks stay queued.
+	// Defaults to 1. Set to 0 to stop dispatch: due tasks stay queued.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
@@ -482,14 +441,6 @@ type AgentStatus struct {
 	// +optional
 	PendingTaskIDs []int64 `json:"pendingTaskIds,omitempty"`
 
-	// Paused mirrors the effective pause state of spec.pause (nil, expired or
-	// active) as observed by the operator on its last reconcile, so
-	// `kubectl get agents` shows which agents are withholding task delivery.
-	// The authoritative check always evaluates spec.pause at read time; this
-	// field is display state and may lag until the next reconcile.
-	// +optional
-	Paused bool `json:"paused,omitempty"`
-
 	// Scaling explains the pod count the operator is driving toward. It exists
 	// because zero pods is now a valid steady state, and a reader needs to tell
 	// "asleep, waiting for work" from "broken".
@@ -569,7 +520,6 @@ const (
 // +kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.status.replicas`
-// +kubebuilder:printcolumn:name="Paused",type=boolean,JSONPath=`.status.paused`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Agent is the Schema for the agents API.
