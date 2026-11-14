@@ -42,6 +42,40 @@ function repoDocsPlugin(): Plugin {
   }
 }
 
+// Absolute `/__BASE_PATH__/...` URLs in `index.html` (the runtime-config
+// script) and in the plugin import map (public/plugin-shared/*) are build-time
+// placeholders. In dev `base` is `/`, so those paths are not real static files
+// and would fall through to the SPA fallback — arriving as HTML parsed as JS.
+// This middleware strips the placeholder and serves the file from `public/`, so
+// dev resolves the same assets it would under the placeholder base, and both
+// `/runtime-config.js` and `/__BASE_PATH__/runtime-config.js` work.
+//
+//   dev:   GET /__BASE_PATH__/<file> → public/<file>
+function devPlaceholderPublicPlugin(): Plugin {
+  const publicDir = path.resolve(process.cwd(), 'public')
+
+  return {
+    name: 'ainsel-dev-placeholder-public',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url || '').split('?')[0]
+        const m = url.match(/^\/__BASE_PATH__\/(.+)$/)
+        if (!m) return next()
+        const filePath = path.join(publicDir, decodeURIComponent(m[1]))
+        if (!filePath.startsWith(publicDir)) return next()
+        fs.readFile(filePath, (err, data) => {
+          if (err) return next()
+          const type = filePath.endsWith('.js')
+            ? 'text/javascript; charset=utf-8'
+            : 'application/octet-stream'
+          res.setHeader('Content-Type', type)
+          res.end(data)
+        })
+      })
+    },
+  }
+}
+
 // Base path is a placeholder at build time and gets rewritten at container
 // startup by /docker-entrypoint.d/15-inject-base-path.sh based on the
 // BASE_PATH env var. This way a single built image is deployable at any
@@ -54,9 +88,20 @@ function repoDocsPlugin(): Plugin {
 //
 // At runtime the placeholder is sed-replaced everywhere with the real prefix
 // (e.g. `/ainsel-dev/`) or with `/` when no BASE_PATH is set.
-export default defineConfig({
-  base: '/__BASE_PATH__/',
-  plugins: [react(), repoDocsPlugin()],
+//
+// The placeholder belongs to the build output only. In dev there is no
+// entrypoint to substitute it, so applying it there would make the dev server
+// serve the app under `/__BASE_PATH__/` and derive every placeholder-based URL
+// from it — including the API base in `src/api/client.ts`
+// (`${import.meta.env.BASE_URL}api/v1`), which then never matches the `/api`
+// proxy key below and falls through to the SPA fallback. Dev therefore uses
+// `base: '/'`, which mirrors the production topology: the SPA is served at
+// root, `/api/*` is proxied, and any mount prefix is stripped upstream (by the
+// Ingress in cluster, by the proxy key here in dev). Build output is
+// unaffected.
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/__BASE_PATH__/' : '/',
+  plugins: [react(), repoDocsPlugin(), devPlaceholderPublicPlugin()],
   server: {
     port: 5173,
     proxy: {
@@ -66,4 +111,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
