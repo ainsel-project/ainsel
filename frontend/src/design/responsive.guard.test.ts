@@ -25,6 +25,11 @@ import { stripComments } from './cssThemeKit'
  *  3. Page padding goes through `.page`. Inline `padding: '28px 32px'` is
  *     invisible to a media query, which is how 43 containers ended up unable to
  *     shrink. The ratchet below is shrink-only, same shape as the token one.
+ *     Inline `gridTemplateColumns` on a collapsing primitive is the same defect
+ *     one level down (issue #284) and gets the same ratchet.
+ *  4. The two things a phone layout still needs that no primitive covers: the
+ *     register scroll stays scrollable and legible, and the agent workspace's
+ *     section nav becomes a strip instead of a 170px column.
  *
  * The rules themselves live in `design/responsive.css`, not in primitives.css:
  * three specs read primitives.css through `cssThemeKit.parseRules`, which refuses
@@ -140,6 +145,20 @@ function valueAt(blocks: Block[], selector: string, property: string, width: num
   return found
 }
 
+/** Every value a property is given for `selector` at `width`, in source order —
+ *  what a fallback pair looks like from the parser's side. */
+function valuesAt(blocks: Block[], selector: string, property: string, width: number): string[] {
+  const found: string[] = []
+  for (const block of blocks) {
+    if (!block.rule.selectors.includes(selector)) continue
+    if (!appliesAt(block.media, width)) continue
+    for (const [prop, value] of block.rule.declarations) {
+      if (prop === property) found.push(value)
+    }
+  }
+  return found
+}
+
 /** Column count of a `grid-template-columns` value; null when there is none. */
 function columns(value: string): number | null {
   if (!value) return null
@@ -191,6 +210,16 @@ const designBlocks = (): Block[] => [
   ...parseBlocks(read(join('design', 'primitives.css'))),
   ...parseBlocks(read(join('design', 'responsive.css'))),
 ]
+
+/**
+ * Component CSS for the agent workspace. Its `.section-nav` rules are the desktop
+ * shape the phone tier in responsive.css has to beat, so a nav check has to read
+ * both files — and it is the reason the phone selectors are qualified with `nav.`:
+ * component CSS is bundled after responsive.css, so an equal-specificity override
+ * there would be dead on arrival.
+ */
+const workspaceBlocks = (): Block[] =>
+  parseBlocks(read(join('pages', 'agents', 'workspace', 'AgentWorkspace.css')))
 
 // ---------------------------------------------------------------- specs ----
 
@@ -270,6 +299,12 @@ type Collapse = {
 const COLLAPSES: Collapse[] = [
   { selector: '.kpi-row', base: 4, narrow: 2, phone: 1 },
   { selector: '.info-grid', base: 4, narrow: 2, phone: 1 },
+  // The column-count variants a detail page uses instead of an inline
+  // `gridTemplateColumns` (issue #284). They are separate selectors precisely so
+  // that they can be pinned here: a counted value carried by an inline style is
+  // invisible to this table, which is how the phone tier went unnoticed.
+  { selector: '.info-grid.cols-5', base: 5, narrow: 2, phone: 1 },
+  { selector: '.info-grid.cols-7', base: 7, narrow: 2, phone: 1 },
   { selector: '.form-grid.cols-2', base: 2, phone: 1 },
   { selector: '.form-grid.cols-3', base: 3, narrow: 2, phone: 1 },
   { selector: '.form-section > .form-grid.cols-2', base: 2, phone: 1 },
@@ -344,6 +379,47 @@ describe('primitive collapses', () => {
     expect(valueAt(blocks, '.md-grid > .md-left', 'border-right', NARROW)).toBe('0')
   })
 
+  it('keeps the register table scrollable and legible at every tier', () => {
+    // The scroll is the documented answer to a wide table on a narrow screen
+    // (docs/conventions.md: "reading a register on a phone is a scroll, not a
+    // reflow"). It was never pinned, which is why this issue could be filed as
+    // "add overflow-x: auto" — it was already there.
+    const blocks = designBlocks()
+    for (const width of [DESKTOP, NARROW, PHONE]) {
+      expect(valueAt(blocks, '.reg-wrap', 'overflow-x', width), `at ${width}px`).toBe('auto')
+    }
+    // What was missing is an affordance and a break opportunity, both phone-only.
+    expect(valueAt(blocks, '.reg-wrap', 'scrollbar-width', PHONE)).toBe('thin')
+    expect(valueAt(blocks, '.reg-wrap', 'scrollbar-color', PHONE)).toContain('ink-4')
+    expect(valueAt(blocks, '.reg-wrap', 'scrollbar-width', DESKTOP)).toBe('')
+    expect(valueAt(blocks, 'table.reg .num', 'overflow-wrap', PHONE)).toBe('anywhere')
+    expect(valueAt(blocks, 'table.reg td.num', 'overflow-wrap', PHONE)).toBe('anywhere')
+    expect(valueAt(blocks, 'table.reg .num', 'overflow-wrap', DESKTOP)).toBe('')
+  })
+
+  it('lays the agent workspace section nav out as a strip on a phone', () => {
+    const blocks = [...designBlocks(), ...workspaceBlocks()]
+    // Desktop: the 170px column, unchanged.
+    expect(valueAt(blocks, '.section-nav', 'flex-direction', DESKTOP)).toBe('column')
+    expect(valueAt(blocks, '.section-nav', 'width', DESKTOP)).toBe('170px')
+    expect(valueAt(blocks, '.section-nav-heading', 'display', DESKTOP)).toBe('')
+    // Phone: full width, wrapping row, no right-hand rule. Below 900px the
+    // workspace stacks, so a column nav here is the whole first screen.
+    expect(valueAt(blocks, 'nav.section-nav', 'flex-direction', PHONE)).toBe('row')
+    expect(valueAt(blocks, 'nav.section-nav', 'flex-wrap', PHONE)).toBe('wrap')
+    expect(valueAt(blocks, 'nav.section-nav', 'width', PHONE)).toBe('auto')
+    expect(valueAt(blocks, 'nav.section-nav', 'border-right', PHONE)).toBe('0')
+    expect(valueAt(blocks, 'nav.section-nav', 'border-bottom', PHONE)).toContain('paper-deep')
+    // The group boxes unwrap into the row and their captions go with them.
+    expect(valueAt(blocks, 'nav.section-nav .section-nav-group', 'display', PHONE)).toBe('contents')
+    expect(valueAt(blocks, 'nav.section-nav .section-nav-list', 'flex-direction', PHONE)).toBe(
+      'row',
+    )
+    expect(valueAt(blocks, 'nav.section-nav .section-nav-heading', 'display', PHONE)).toBe('none')
+    // Nothing at the narrow tier: 600px still has room for the column.
+    expect(valueAt(blocks, 'nav.section-nav', 'flex-direction', NARROW)).toBe('')
+  })
+
   it('leaves primitives.css flat, which is what its other readers assume', () => {
     // codeSurfaces, scrollCap and themeContrast read primitives.css through
     // cssThemeKit.parseRules, and that function throws on any conditional
@@ -405,6 +481,98 @@ describe('page container', () => {
   })
 })
 
+/**
+ * Inline column counts on a collapsing primitive (issue #284).
+ *
+ * `style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}` beats every rule in
+ * responsive.css — media queries cannot touch an inline declaration — so the
+ * grid keeps its desktop shape at 360px and overflows the panel. The two grids
+ * on the agent overview were the reported symptom; the ratchet keeps the rest of
+ * the console from re-growing the same defect.
+ */
+describe('inline column counts', () => {
+  /** Primitives whose columns responsive.css collapses (see COLLAPSES). */
+  const COLLAPSING = /\b(kpi-row|info-grid|form-grid|md-grid|dual-list)\b/
+
+  /** Index of the `>` closing the tag that starts at `from`, skipping quoted
+   *  strings and counting brackets so an arrow function in an attribute does not
+   *  end the tag early. */
+  function endOfTag(src: string, from: number): number {
+    let depth = 0
+    let quote = ''
+    for (let i = from; i < src.length; i++) {
+      const c = src[i]
+      if (quote) {
+        if (c === quote) quote = ''
+        continue
+      }
+      if (c === '"' || c === "'" || c === '`') quote = c
+      else if (c === '{' || c === '(' || c === '[') depth++
+      else if (c === '}' || c === ')' || c === ']') depth--
+      else if (c === '>' && depth === 0) return i
+    }
+    return src.length
+  }
+
+  /** How many elements in `source` name a collapsing primitive *and* set
+   *  `gridTemplateColumns` in the same opening tag. */
+  function inlineColumnCounts(source: string): number {
+    let hits = 0
+    for (const m of source.matchAll(/className="([^"]*)"/g)) {
+      if (!COLLAPSING.test(m[1])) continue
+      const start = (m.index ?? 0) + m[0].length
+      if (/gridTemplateColumns/.test(source.slice(start, endOfTag(source, start)))) hits++
+    }
+    return hits
+  }
+
+  it('is not used on a collapsing primitive (ratchet)', () => {
+    // Files still carrying an inline column count, and how often. Shrink it,
+    // never grow it — and prefer `.info-grid.cols-5` / `.cols-7` over a new
+    // baseline entry. The observability screens are the known residue: same
+    // defect, filed separately, not fixed here.
+    const BASELINE: Record<string, number> = {
+      'pages/agents/workspace/OverviewSection.tsx': 0,
+      'pages/channels/ChannelEditor.tsx': 1,
+      // A bespoke three-track `.md-grid`; it loses the responsive collapse the
+      // same way, but it is the images editor, not one of the three screens here.
+      'pages/images/ToolFieldArray.tsx': 1,
+      'pages/observability/SummaryCards.tsx': 1,
+      'pages/observability/events/EventView.tsx': 4,
+      'pages/observability/tokens/TokensDetail.tsx': 1,
+    }
+    const introduced: string[] = []
+    for (const file of walkTsx(SRC)) {
+      const rel = relative(SRC, file)
+      const hits = inlineColumnCounts(readFileSync(file, 'utf8'))
+      if (hits > (BASELINE[rel] ?? 0)) introduced.push(`${rel}: ${hits}`)
+    }
+    expect(
+      introduced,
+      'An inline gridTemplateColumns cannot match a media query, so the grid keeps ' +
+        'its desktop column count on a phone and overflows the panel. Use a column ' +
+        'count class from primitives.css (`.info-grid.cols-5`, `.cols-7`).',
+    ).toEqual([])
+
+    const stale: string[] = []
+    for (const [file, count] of Object.entries(BASELINE)) {
+      const now = inlineColumnCounts(read(file))
+      if (now < count) stale.push(`${file}: ${count} -> ${now}`)
+    }
+    expect(stale, 'These baseline entries no longer match the source.').toEqual([])
+  })
+
+  it('counts a primitive and not an unrelated tag (sanity check on the ratchet)', () => {
+    const fixed = `
+      <div className="info-grid cols-5">{x}</div>
+      <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }} />
+      <div className="toolbar" style={{ gridTemplateColumns: '120px 1fr' }} />
+      <div className="kpi-row" style={{ display: 'grid' }} onClick={() => go()} />
+    `
+    expect(inlineColumnCounts(fixed)).toBe(1)
+  })
+})
+
 describe('phone chrome', () => {
   const layout = (): Block[] => parseBlocks(read(join('layout', 'Layout.css')))
   const titleblock = (): Block[] => parseBlocks(read(join('layout', 'Titleblock.css')))
@@ -423,6 +591,25 @@ describe('phone chrome', () => {
     const blocks = layout()
     expect(valueAt(blocks, '.shell', '--chrome-top', DESKTOP)).toBe('0px')
     expect(valueAt(blocks, '.shell', '--chrome-top', PHONE)).toBe('60px')
+  })
+
+  it('clips the canvas without making it a scroll container', () => {
+    // `overflow-x: hidden` with `overflow-y: visible` computes overflow-y to
+    // `auto`, which turns .canvas into the nearest scrolling ancestor of the
+    // sticky title block. .canvas never scrolls (it grows with its content), so
+    // `top: var(--chrome-top)` resolves against a box that does not move and the
+    // title block paints over the first card instead of sticking (issue #284).
+    const blocks = layout()
+    for (const width of [DESKTOP, NARROW, PHONE]) {
+      const value = valueAt(blocks, '.canvas', 'overflow-x', width)
+      expect(
+        value,
+        'a bare `hidden` puts the sticky title block back in a box ' +
+          `that cannot scroll (${width}px)`,
+      ).toBe('clip')
+    }
+    // `hidden` stays as the fallback for engines without `clip` — declared first.
+    expect(valuesAt(blocks, '.canvas', 'overflow-x', DESKTOP)).toEqual(['hidden', 'clip'])
   })
 
   it('pairs every chrome height with a dvh fallback', () => {
