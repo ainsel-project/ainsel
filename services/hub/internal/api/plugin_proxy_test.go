@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	pluginpkg "github.com/ainsel-project/ainsel/shared/api/plugin"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -50,7 +51,7 @@ func TestPluginProxy_UIServedWithoutAuth(t *testing.T) {
 	registerPluginRoutes(s)
 	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, http.StatusUnauthorized, "always rejects")
+			httpx.WriteError(w, http.StatusUnauthorized, "always rejects")
 		})
 	})
 

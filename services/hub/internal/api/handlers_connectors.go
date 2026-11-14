@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -68,7 +69,7 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.createConnector(ctx, w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -76,7 +77,7 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/connectors/")
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "missing connector name")
+		httpx.WriteError(w, http.StatusBadRequest, "missing connector name")
 		return
 	}
 
@@ -89,7 +90,7 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 			s.rotateConnectorSecret(ctx, w, name)
 			return
 		}
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -111,20 +112,20 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 		}
 		s.deleteConnector(ctx, w, name)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) listConnectors(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var list connectorv1alpha1.WebhookConnectorList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -156,7 +157,7 @@ func (s *Server) listConnectors(ctx context.Context, w http.ResponseWriter, r *h
 	if items == nil {
 		items = []WebhookConnectorResponse{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -169,7 +170,7 @@ func (s *Server) getConnector(ctx context.Context, w http.ResponseWriter, name s
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
 	resp := toWebhookConnectorResponse(c)
@@ -182,24 +183,24 @@ func (s *Server) getConnector(ctx context.Context, w http.ResponseWriter, name s
 			resp.GroupID = rg.GroupID
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req WebhookConnectorCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+		httpx.WriteError(w, http.StatusBadRequest, "name is required")
 		return
 	}
 
 	// Validate group membership for resource creation.
 	if s.authzChecker != nil {
 		if req.GroupID == "" {
-			writeError(w, http.StatusBadRequest, "groupId is required")
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
 			return
 		}
 		if !s.requireGroupWrite(w, r, req.GroupID) {
@@ -209,7 +210,7 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 
 	webhookHMAC, err := generateWebhookSecret()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
 		return
 	}
 
@@ -219,14 +220,14 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 		map[string][]byte{"secret": []byte(webhookHMAC)},
 		map[string]string{webhookConnectorLabel: id},
 	); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create webhook secret: "+err.Error())
 		return
 	}
 
 	imageRef, err := s.connectorCfg.WebhookImage()
 	if err != nil {
 		_ = s.deleteSecret(ctx, secretName)
-		writeError(w, http.StatusInternalServerError, "failed to resolve image: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to resolve image: "+err.Error())
 		return
 	}
 
@@ -263,7 +264,7 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 
 	if err := s.client.Create(ctx, connector); err != nil {
 		_ = s.deleteSecret(ctx, secretName)
-		writeError(w, http.StatusInternalServerError, "failed to create connector: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create connector: "+err.Error())
 		return
 	}
 
@@ -279,20 +280,20 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 
 	resp := toWebhookConnectorResponse(*connector)
 	resp.WebhookSecretValue = webhookHMAC
-	writeJSON(w, http.StatusCreated, resp)
+	httpx.WriteJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) updateConnector(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	var req WebhookConnectorUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
 	if isManagedCR(c.Spec.ManagedBy) {
@@ -308,17 +309,17 @@ func (s *Server) updateConnector(ctx context.Context, w http.ResponseWriter, r *
 	}
 
 	if err := s.client.Update(ctx, &c); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toWebhookConnectorResponse(c))
+	httpx.WriteJSON(w, http.StatusOK, toWebhookConnectorResponse(c))
 }
 
 func (s *Server) deleteConnector(ctx context.Context, w http.ResponseWriter, name string) {
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
 	if isManagedCR(c.Spec.ManagedBy) {
@@ -327,7 +328,7 @@ func (s *Server) deleteConnector(ctx context.Context, w http.ResponseWriter, nam
 	}
 
 	if err := s.client.Delete(ctx, &c); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	_ = s.deleteSecret(ctx, webhookSecretName(name))
@@ -365,7 +366,7 @@ func (s *Server) rotateConnectorSecret(ctx context.Context, w http.ResponseWrite
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
 	// Rotating the HMAC key rewrites the Secret an external author wired into
@@ -377,23 +378,23 @@ func (s *Server) rotateConnectorSecret(ctx context.Context, w http.ResponseWrite
 
 	newHMAC, err := generateWebhookSecret()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
 		return
 	}
 
 	var sec corev1.Secret
 	snn := types.NamespacedName{Name: webhookSecretName(name), Namespace: s.ns}
 	if err := s.client.Get(ctx, snn, &sec); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to fetch webhook secret: "+err.Error())
 		return
 	}
 	sec.Data = map[string][]byte{"secret": []byte(newHMAC)}
 	if err := s.client.Update(ctx, &sec); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update webhook secret: "+err.Error())
 		return
 	}
 
 	resp := toWebhookConnectorResponse(c)
 	resp.WebhookSecretValue = newHMAC
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }

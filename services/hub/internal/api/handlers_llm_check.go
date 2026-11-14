@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/api/llmprovider"
 	corev1 "k8s.io/api/core/v1"
@@ -68,7 +69,7 @@ type llmCheckRequest struct {
 // handleLLMCheck serves POST /api/v1/llm/check.
 func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -85,35 +86,35 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, llmCheckMaxBodyBytes)
 	var req llmCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, `request body must be {"provider": "<name>", "model": "<name>"}`)
+		httpx.WriteError(w, http.StatusBadRequest, `request body must be {"provider": "<name>", "model": "<name>"}`)
 		return
 	}
 	req.Provider = strings.TrimSpace(req.Provider)
 	req.Model = strings.TrimSpace(req.Model)
 	if req.Provider == "" || req.Model == "" {
-		writeError(w, http.StatusBadRequest, "provider and model are required")
+		httpx.WriteError(w, http.StatusBadRequest, "provider and model are required")
 		return
 	}
 	p, known := llmprovider.Lookup(req.Provider)
 	if !known {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown provider %q", req.Provider))
+		httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("unknown provider %q", req.Provider))
 		return
 	}
 	if p.CheckBaseURL == "" {
 		// A bare pair cannot resolve a provider without a fixed endpoint
 		// (custom): its URL exists only on a specific agent's spec, so there
 		// is nothing to probe from here.
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("provider %q cannot be checked from a provider/model pair", req.Provider))
+		httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("provider %q cannot be checked from a provider/model pair", req.Provider))
 		return
 	}
 
 	candidates, err := s.llmCheckCandidates(r, req.Provider, req.Model)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if len(candidates) == 0 {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("no agent is configured with provider %q", req.Provider))
+		httpx.WriteError(w, http.StatusNotFound, fmt.Sprintf("no agent is configured with provider %q", req.Provider))
 		return
 	}
 
@@ -133,14 +134,14 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, errLLMCheckKeyMissing) {
 				continue
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		baseURL, key, usable = target, k, true
 		break
 	}
 	if !usable {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("no agent with provider %q has a usable stored API key", req.Provider))
+		httpx.WriteError(w, http.StatusNotFound, fmt.Sprintf("no agent with provider %q has a usable stored API key", req.Provider))
 		return
 	}
 
@@ -153,11 +154,11 @@ func (s *Server) handleLLMCheck(w http.ResponseWriter, r *http.Request) {
 		// "cannot check" and hide a real failure.
 		slog.Warn("llm check probe failed",
 			"provider", req.Provider, "model", req.Model, "error", reason)
-		writeError(w, http.StatusBadGateway, reason)
+		httpx.WriteError(w, http.StatusBadGateway, reason)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // llmCheckCandidates returns the agents that could answer the check for

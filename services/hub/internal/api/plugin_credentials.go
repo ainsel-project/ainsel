@@ -10,6 +10,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -99,13 +100,13 @@ func (s *Server) PluginCredentialMiddleware(disabledGuard, fallback func(http.Ha
 func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, next http.Handler, disabledGuard func(http.Handler) http.Handler, token string) {
 	// Verify token
 	if s.pluginCreds == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	claims, err := s.pluginCreds.Verify(token)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -115,22 +116,22 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 	pluginKey := types.NamespacedName{Name: claims.PluginID, Namespace: s.ns}
 	if err := s.client.Get(ctx, pluginKey, &plugin); err != nil {
 		if apierrors.IsNotFound(err) {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		writeError(w, http.StatusServiceUnavailable, "service unavailable")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "service unavailable")
 		return
 	}
 
 	// Check: disabled
 	if plugin.Spec.Disabled {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	// Check: Ready condition
 	if !meta.IsStatusConditionTrue(plugin.Status.Conditions, connectorv1alpha1.PluginConditionReady) {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -191,13 +192,13 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 	// Route gate: check if this route is available
 	perm, always, ok := RoutePermission(r.Method, r.URL.Path)
 	if !ok {
-		writeError(w, http.StatusForbidden, "route not available to plugin credentials")
+		httpx.WriteError(w, http.StatusForbidden, "route not available to plugin credentials")
 		return
 	}
 
 	// Check permission (unless always allowed)
 	if !always && !contains(effectivePerms, perm) {
-		writeError(w, http.StatusForbidden, fmt.Sprintf("plugin lacks permission %s", perm))
+		httpx.WriteError(w, http.StatusForbidden, fmt.Sprintf("plugin lacks permission %s", perm))
 		return
 	}
 

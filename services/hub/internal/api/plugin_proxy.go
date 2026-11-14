@@ -12,6 +12,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginproxy"
 	pluginpkg "github.com/ainsel-project/ainsel/shared/api/plugin"
@@ -23,7 +24,7 @@ import (
 func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, pluginID string, surface pluginproxy.Surface, escapedRest string) {
 	// UI surfaces only support GET and HEAD
 	if surface == pluginproxy.SurfaceUI && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -32,14 +33,14 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 	// Get the plugin CR
 	plugin, err := s.availablePlugin(ctx, pluginID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 
 	// Unmarshal the manifest
 	var manifest pluginpkg.Manifest
 	if err := json.Unmarshal(plugin.Status.Manifest.Raw, &manifest); err != nil {
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 
@@ -47,11 +48,11 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 	upstreamPath, err := pluginproxy.Resolve(&manifest, surface, escapedRest)
 	if err != nil {
 		if errors.Is(err, pluginproxy.ErrInvalidPath) {
-			writeError(w, http.StatusBadRequest, "invalid plugin path")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid plugin path")
 		} else if errors.Is(err, pluginproxy.ErrNoSurface) {
-			writeError(w, http.StatusNotFound, "plugin not found")
+			httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		} else {
-			writeError(w, http.StatusNotFound, "plugin not found")
+			httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		}
 		return
 	}
@@ -59,7 +60,7 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 	// Pick an endpoint
 	endpoint, ok := pluginproxy.PickEndpoint(plugin.Status.VerifiedEndpoints, nil)
 	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "plugin has no verified endpoints")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "plugin has no verified endpoints")
 		return
 	}
 
@@ -71,16 +72,16 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 		if u, ok := oidc.FromContext(ctx); ok && u != nil && u.Sub != "" {
 			cred, _, err := s.MintUserPluginCredential(ctx, pluginID, u)
 			if errors.Is(err, plugincreds.ErrDisabled) {
-				writeError(w, http.StatusServiceUnavailable, "plugin credentials are not configured")
+				httpx.WriteError(w, http.StatusServiceUnavailable, "plugin credentials are not configured")
 				return
 			}
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error")
+				httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			pc, err := s.userPluginContext(r, u)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error")
+				httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			pc.PluginID = pluginID
@@ -90,7 +91,7 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 			}
 			raw, err := json.Marshal(pc)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error")
+				httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			credential = cred
@@ -139,7 +140,7 @@ func (s *Server) servePluginProxy(w http.ResponseWriter, r *http.Request, plugin
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeError(w, http.StatusBadGateway, "plugin unreachable")
+			httpx.WriteError(w, http.StatusBadGateway, "plugin unreachable")
 		},
 		FlushInterval: -1,
 		Transport:     s.getPluginProxyTransport(),

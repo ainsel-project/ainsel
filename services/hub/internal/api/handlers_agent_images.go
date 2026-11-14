@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,7 +26,7 @@ func (s *Server) handleAgentImages(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.createAgentImage(ctx, w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -35,7 +36,7 @@ func (s *Server) handleAgentImagePath(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rest := extractName(r.URL.Path, "/api/v1/agent-images/")
 	if rest == "" {
-		writeError(w, http.StatusBadRequest, "missing agent image name")
+		httpx.WriteError(w, http.StatusBadRequest, "missing agent image name")
 		return
 	}
 
@@ -66,20 +67,20 @@ func (s *Server) handleAgentImagePath(w http.ResponseWriter, r *http.Request) {
 		}
 		s.deleteAgentImage(ctx, w, name)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) listAgentImages(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var list agentv1alpha1.AgentImageList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -109,7 +110,7 @@ func (s *Server) listAgentImages(ctx context.Context, w http.ResponseWriter, r *
 	for _, img := range list.Items[lo:hi] {
 		items = append(items, toSimpleAgentImageResponse(img))
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -121,31 +122,31 @@ func (s *Server) listAgentImages(ctx context.Context, w http.ResponseWriter, r *
 func (s *Server) getAgentImage(ctx context.Context, w http.ResponseWriter, name string) {
 	var img agentv1alpha1.AgentImage
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &img); err != nil {
-		writeError(w, http.StatusNotFound, "agent image not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent image not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toSimpleAgentImageResponse(img))
+	httpx.WriteJSON(w, http.StatusOK, toSimpleAgentImageResponse(img))
 }
 
 func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req SimpleAgentImageCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if req.DisplayName == "" {
-		writeError(w, http.StatusBadRequest, "displayName is required")
+		httpx.WriteError(w, http.StatusBadRequest, "displayName is required")
 		return
 	}
 	if req.ImageURL == "" {
-		writeError(w, http.StatusBadRequest, "imageURL is required")
+		httpx.WriteError(w, http.StatusBadRequest, "imageURL is required")
 		return
 	}
 
 	// Validate group membership for resource creation.
 	if s.authzChecker != nil {
 		if req.GroupID == "" {
-			writeError(w, http.StatusBadRequest, "groupId is required")
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
 			return
 		}
 		if !s.requireGroupWrite(w, r, req.GroupID) {
@@ -172,17 +173,17 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 	if len(req.MCPServers) > 0 {
 		if s.mcp == nil {
-			writeError(w, http.StatusServiceUnavailable, "mcp service not configured")
+			httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
 			return
 		}
 		for _, name := range req.MCPServers {
 			mcpServer, err := s.mcp.Get(ctx, name)
 			if err != nil {
 				if errors.Is(err, mcpservers.ErrNotFound) {
-					writeError(w, http.StatusBadRequest, "mcp server not found: "+name)
+					httpx.WriteError(w, http.StatusBadRequest, "mcp server not found: "+name)
 					return
 				}
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			img.Spec.MCPServers = append(img.Spec.MCPServers, agentv1alpha1.AgentImageMCPServer{Name: mcpServer.Name, URL: mcpServer.URL, TokenFromEnv: mcpServer.TokenFromEnv})
@@ -203,7 +204,7 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	img.Status.Phase = agentv1alpha1.AgentImagePhaseReady
 
 	if err := s.client.Create(ctx, &img); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -218,5 +219,5 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, toSimpleAgentImageResponse(img))
+	httpx.WriteJSON(w, http.StatusCreated, toSimpleAgentImageResponse(img))
 }

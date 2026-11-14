@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -29,7 +30,7 @@ func gatedTestServer(t *testing.T) (*Server, *fakeAuthzStore) {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { next.ServeHTTP(w, r) })
 	})
 	s.mux.HandleFunc("/api/v1/agents", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
 	})
 	return s, store
 }
@@ -327,7 +328,7 @@ func TestForcedChangeEndToEnd(t *testing.T) {
 		return localauth.NewMiddleware(testLocalSecret, store)(s.IdentityPersistMiddleware(next))
 	})
 	s.mux.HandleFunc("/api/v1/agents", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
 	})
 
 	rec := doJSON(t, s, http.MethodPost, "/api/v1/auth/login", map[string]string{

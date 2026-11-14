@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
@@ -60,34 +61,34 @@ func (s *Server) handleAgentPersona(w http.ResponseWriter, r *http.Request, agen
 		}
 		s.putAgentPersona(ctx, w, r, agentName)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) getAgentPersona(ctx context.Context, w http.ResponseWriter, agentName string) {
 	if s.personas == nil {
-		writeError(w, http.StatusServiceUnavailable, "persona service not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "persona service not configured")
 		return
 	}
 	agent := &agentv1alpha1.Agent{}
 	if err := s.client.Get(ctx, types.NamespacedName{Name: agentName, Namespace: s.ns}, agent); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return
 	}
 
 	ref := agent.Spec.Persona.ID
 	if ref == "" {
-		writeJSON(w, http.StatusOK, AgentPersonaResponse{})
+		httpx.WriteJSON(w, http.StatusOK, AgentPersonaResponse{})
 		return
 	}
 	p, err := s.personas.Get(ctx, ref)
 	if err != nil {
 		// A dangling reference is a normal state to report, not a server
 		// error: the persona was deleted out from under the agent.
-		writeJSON(w, http.StatusOK, AgentPersonaResponse{Ref: ref})
+		httpx.WriteJSON(w, http.StatusOK, AgentPersonaResponse{Ref: ref})
 		return
 	}
-	writeJSON(w, http.StatusOK, AgentPersonaResponse{
+	httpx.WriteJSON(w, http.StatusOK, AgentPersonaResponse{
 		Owned:   p.OwnerAgent == agentName,
 		Ref:     ref,
 		Persona: p,
@@ -96,18 +97,18 @@ func (s *Server) getAgentPersona(ctx context.Context, w http.ResponseWriter, age
 
 func (s *Server) putAgentPersona(ctx context.Context, w http.ResponseWriter, r *http.Request, agentName string) {
 	if s.personas == nil {
-		writeError(w, http.StatusServiceUnavailable, "persona service not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "persona service not configured")
 		return
 	}
 	var req AgentPersonaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
 	agent := &agentv1alpha1.Agent{}
 	if err := s.client.Get(ctx, types.NamespacedName{Name: agentName, Namespace: s.ns}, agent); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return
 	}
 	// Editing an agent's persona writes the agent's persona reference (and an
@@ -140,12 +141,12 @@ func (s *Server) putAgentPersona(ctx context.Context, w http.ResponseWriter, r *
 		}
 		agent.Annotations[AgentUpdatedAtAnnotation] = stampAgentUpdatedAt()
 		if err := s.client.Update(ctx, agent); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to link persona: "+err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to link persona: "+err.Error())
 			return
 		}
 	}
 
-	writeJSON(w, http.StatusOK, AgentPersonaResponse{Owned: true, Ref: p.ID, Persona: p})
+	httpx.WriteJSON(w, http.StatusOK, AgentPersonaResponse{Owned: true, Ref: p.ID, Persona: p})
 }
 
 // defaultOwnedPersonaName derives the name for a freshly forked persona when

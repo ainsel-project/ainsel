@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -12,13 +13,13 @@ import (
 // Returns a summary of all pod statuses in the hub's namespace.
 func (s *Server) handlePlatformHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	var pods corev1.PodList
 	if err := s.client.List(r.Context(), &pods, client.InNamespace(s.ns)); err != nil {
-		writeError(w, http.StatusBadGateway, "failed to list pods: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to list pods: "+err.Error())
 		return
 	}
 
@@ -71,5 +72,5 @@ func (s *Server) handlePlatformHealth(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, summaries)
+	httpx.WriteJSON(w, http.StatusOK, summaries)
 }

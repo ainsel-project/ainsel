@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
@@ -55,7 +56,7 @@ type LogsResponse struct {
 // Returns 503 if the task log store is not configured.
 func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -63,18 +64,18 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 
 	limit, err := parseLogsLimit(q.Get("limit"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	duration, err := parseLogsDuration(q.Get("since"), q.Get("range"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if s.taskLogs == nil {
-		writeError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
 		return
 	}
 
@@ -94,7 +95,7 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 		}
 	} else if scope := s.telemetryScopeFor(r); !scope.unrestricted {
 		if len(scope.agents) == 0 {
-			writeJSON(w, http.StatusOK, LogsResponse{
+			httpx.WriteJSON(w, http.StatusOK, LogsResponse{
 				Logs:  []LogLine{},
 				Total: 0,
 				Query: "task_logs",
@@ -106,7 +107,7 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 
 	entries, err := s.taskLogs.List(r.Context(), opts)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query logs: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query logs: "+err.Error())
 		return
 	}
 
@@ -133,7 +134,7 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 		logs = append(logs, line)
 	}
 
-	writeJSON(w, http.StatusOK, LogsResponse{
+	httpx.WriteJSON(w, http.StatusOK, LogsResponse{
 		Logs:  logs,
 		Total: len(logs),
 		Query: "task_logs",

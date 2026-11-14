@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 )
 
 // agentBodyMaxBytes caps how much of a request body the hub reads. Agent specs
@@ -39,15 +41,15 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, agentBodyMaxBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return false
 	}
 	if msg, ok := wrongShapeField(body); ok {
-		writeError(w, http.StatusBadRequest, msg)
+		httpx.WriteError(w, http.StatusBadRequest, msg)
 		return false
 	}
 	if err := json.Unmarshal(body, dst); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return false
 	}
 	return true

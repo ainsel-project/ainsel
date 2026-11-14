@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -561,7 +562,7 @@ func TestPluginToolsCall_RequiresUser(t *testing.T) {
 	s, _ := pluginToolsTestServer(t, pluginToolsPluginCR(t, "mem0", false, "127.0.0.1:1"))
 	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		})
 	})
 

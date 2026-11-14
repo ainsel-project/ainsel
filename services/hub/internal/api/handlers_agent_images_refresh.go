@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -25,14 +26,14 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 	rest := extractName(r.URL.Path, "/api/v1/agent-images/")
 	name := strings.TrimSuffix(rest, "/refresh-mcp")
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "missing agent image name")
+		httpx.WriteError(w, http.StatusBadRequest, "missing agent image name")
 		return
 	}
 	// Method check is handled by the router before dispatch.
 
 	var img agentv1alpha1.AgentImage
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &img); err != nil {
-		writeError(w, http.StatusNotFound, "agent image not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent image not found")
 		return
 	}
 	// Refresh rewrites spec.tools — a mutation of an externally managed image.
@@ -42,7 +43,7 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 	}
 
 	if len(img.Spec.MCPServers) == 0 {
-		writeError(w, http.StatusBadRequest, "no MCP servers configured on this image")
+		httpx.WriteError(w, http.StatusBadRequest, "no MCP servers configured on this image")
 		return
 	}
 
@@ -65,12 +66,12 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 	img.Spec.Tools = mergeMCPTools(img.Spec.Tools, freshByServer, serverOrder)
 
 	if err := s.client.Update(ctx, &img); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	resp := toSimpleAgentImageResponse(img)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"image":    resp,
 		"warnings": errs,
 	})

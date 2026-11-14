@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -22,7 +23,7 @@ type UsernameResolver func(ctx context.Context, userID string) (string, error)
 func NewMiddleware(store *Store, resolveUsername UsernameResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tok := extractBearer(r.Header.Get("Authorization"))
+			tok := httpx.BearerToken(r.Header.Get("Authorization"))
 			if tok == "" || !strings.HasPrefix(tok, "ainsel_") {
 				next.ServeHTTP(w, r)
 				return
@@ -49,12 +50,4 @@ func NewMiddleware(store *Store, resolveUsername UsernameResolver) func(http.Han
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
-
-func extractBearer(header string) string {
-	const prefix = "Bearer "
-	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
-		return ""
-	}
-	return strings.TrimSpace(header[len(prefix):])
 }

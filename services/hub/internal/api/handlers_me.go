@@ -1,11 +1,15 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
+)
 
 // handleMe returns the authenticated user from Authelia-forwarded headers.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -14,7 +18,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		user = "anonymous"
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"username": user,
 		"name":     r.Header.Get("Remote-Name"),
 		"email":    r.Header.Get("Remote-Email"),
