@@ -127,6 +127,16 @@
   text-align: center;
   flex-shrink: 0;
 }
+/* The rail's glyph (issue #279). Hidden while the spine is expanded — the ledger
+   number is the leading mark there — and swapped in for it in the rail block
+   below. It is stroke-only and inherits the link colour through currentColor,
+   so the hover and active (white on --signal) states come free. */
+.nav-link .nav-icon {
+  display: none;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
 .nav-link .name {
   font: inherit;
   text-transform: none;
@@ -171,10 +181,12 @@
 }
 
 /* Rail mode: in the agent workspace the spine collapses to an icon rail.
-   Entries render their idx only (see EntryLink in Spine.tsx); section labels
-   and recent agents are left out of the DOM. Scoped to the desktop side of
-   the drawer breakpoint below: while the mobile drawer is *closed* it may
-   still carry the class, and there it must keep the drawer's normal width. */
+   The entry's icon replaces its number as the only visible mark (see EntryLink
+   in Spine.tsx: both are in the DOM, CSS picks one), the name is carried by
+   `title` + `aria-label`, and section labels and recent agents are left out of
+   the DOM. Scoped to the desktop side of the drawer breakpoint below: while the
+   mobile drawer is *closed* it may still carry the class, and there it must keep
+   the drawer's normal width. */
 @media (min-width: 1001px) {
   .spine.rail {
     width: 48px;
@@ -196,7 +208,10 @@
     padding: 8px 0;
   }
   .spine.rail .nav-link .idx {
-    width: auto;
+    display: none;
+  }
+  .spine.rail .nav-link .nav-icon {
+    display: block;
   }
   .spine.rail .spine-footer {
     display: none;
