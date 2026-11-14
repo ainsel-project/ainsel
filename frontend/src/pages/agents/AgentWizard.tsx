@@ -282,22 +282,7 @@ export function AgentWizard() {
         </ol>
 
         <form id="agent-wizard" onSubmit={onSubmit} noValidate>
-          {submitError ? (
-            <div
-              role="alert"
-              style={{
-                padding: '10px 12px',
-                border: '1.5px solid var(--signal)',
-                background: 'var(--signal-haze)',
-                color: 'var(--signal)',
-                fontFamily: 'var(--mono)',
-                fontSize: 11,
-                marginBottom: 20,
-              }}
-            >
-              {submitError}
-            </div>
-          ) : null}
+          {submitError ? <Notice variant="err">{submitError}</Notice> : null}
 
           <section
             className="form-section"

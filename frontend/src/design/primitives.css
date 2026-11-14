@@ -117,12 +117,14 @@
   color: var(--ink-3);
   font-weight: 500;
 }
-.field .field-error {
+/* Standalone (not scoped under `.field`): the same hint/error text is used
+   outside form fields — inline edit errors, table-adjacent messages. */
+.field-error {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--signal);
 }
-.field .field-hint {
+.field-hint {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-3);
@@ -1549,6 +1551,30 @@ h4.subhead {
 }
 .notice li {
   margin-top: 2px;
+}
+
+/* ===== State line (status text in register cells, lists, empty panes) ===== */
+/* The canonical status line for register cells, list empties, and timeline
+   rows — the treatment those places previously re-specified by hand as
+   `className="label" style={{…}}`. `padding: 14px` is
+   deliberate and must stay verbatim: `table.reg tbody td` already carries
+   `padding: 11px 14px`, so this padding adds to the cell's — the rendered
+   status row is 25px tall today. `.err` follows the `.tag.err` / `.dot.err`
+   modifier shape and paints the failure colour (`--signal`), nothing else. */
+.state-line {
+  display: block;
+  padding: 14px;
+}
+.state-line.err {
+  color: var(--signal);
+}
+.state-line.tight {
+  padding: 4px 0;
+}
+/* Larger `.label` for sub-headings (13px is the body size, so this only
+   matters where the label look is wanted at reading size). */
+.label.lg {
+  font-size: 13px;
 }
 
 /* ===== Inline-edit cell (TriggerList event-type) ===== */

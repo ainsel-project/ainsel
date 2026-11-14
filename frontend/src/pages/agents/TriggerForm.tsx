@@ -16,6 +16,7 @@ import { Input } from '../../primitives/Input'
 import { Select } from '../../primitives/Select'
 import { Autocomplete } from '../../primitives/Autocomplete'
 import { GroupField } from '../../components/GroupField'
+import { Notice } from '../../primitives/Notice'
 
 const FILTER_OP_OPTIONS = [
   { value: 'eq', label: 'eq' },
@@ -166,22 +167,7 @@ export function TriggerForm({ agentId, trigger, onClose, onSaved }: TriggerFormP
         </h4>
       </header>
 
-      {submitError ? (
-        <div
-          role="alert"
-          style={{
-            padding: '10px 12px',
-            border: '1.5px solid var(--signal)',
-            background: 'var(--signal-haze)',
-            color: 'var(--signal)',
-            fontFamily: 'var(--mono)',
-            fontSize: 11,
-            marginBottom: 16,
-          }}
-        >
-          {submitError}
-        </div>
-      ) : null}
+      {submitError ? <Notice variant="err">{submitError}</Notice> : null}
 
       <div className="form-grid cols-2">
         <Field label="Name" htmlFor="tf-name" error={errors.name?.message}>

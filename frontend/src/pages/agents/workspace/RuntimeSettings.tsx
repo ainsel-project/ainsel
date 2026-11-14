@@ -7,6 +7,7 @@ import { Button } from '../../../primitives/Button'
 import { Check } from '../../../primitives/Check'
 import { Field } from '../../../primitives/Field'
 import { Input } from '../../../primitives/Input'
+import { Notice } from '../../../primitives/Notice'
 import { Panel } from '../../../primitives/Panel'
 import { isManaged } from '../../../utils/managed'
 import {
@@ -347,11 +348,7 @@ export function RuntimeSettings({ agent }: RuntimeSettingsProps) {
           </div>
         </fieldset>
 
-        {saveError ? (
-          <p role="alert" className="label" style={{ margin: 0, color: 'var(--signal)' }}>
-            {saveError}
-          </p>
-        ) : null}
+        {saveError ? <Notice variant="err">{saveError}</Notice> : null}
 
         {readOnly ? null : (
           <div>

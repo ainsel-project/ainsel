@@ -9,6 +9,7 @@ import { Button } from '../../primitives/Button'
 import { Field } from '../../primitives/Field'
 import { Input } from '../../primitives/Input'
 import { Textarea } from '../../primitives/Textarea'
+import { Notice } from '../../primitives/Notice'
 import { Titleblock } from '../../layout/Titleblock'
 
 const schema = z.object({
@@ -102,22 +103,7 @@ export function GroupForm() {
         className="page"
         style={{ maxWidth: 640 }}
       >
-        {submitError ? (
-          <div
-            role="alert"
-            style={{
-              padding: '10px 12px',
-              border: '1.5px solid var(--signal)',
-              background: 'var(--signal-haze)',
-              color: 'var(--signal)',
-              fontFamily: 'var(--mono)',
-              fontSize: 11,
-              marginBottom: 20,
-            }}
-          >
-            {submitError}
-          </div>
-        ) : null}
+        {submitError ? <Notice variant="err">{submitError}</Notice> : null}
 
         <section className="form-section">
           <header>
