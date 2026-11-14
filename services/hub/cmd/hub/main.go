@@ -224,8 +224,8 @@ func main() {
 
 	// Pickup-deadline reaper (every 5m, non-fatal): tasks still pending past
 	// their expires_at become 'expired' and the sender is notified through the
-	// same path a failed task uses, so a queue behind a paused or scaled-to-zero
-	// agent stops growing silently (issue #236).
+	// same path a failed task uses, so a queue behind an agent whose dispatch is
+	// stopped stops growing silently (issue #236).
 	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
 		if cfg.taskExpirySecs <= 0 {
 			slog.Info("task expiry reaper disabled", "TASK_EXPIRY_SECONDS", cfg.taskExpirySecs)

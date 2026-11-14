@@ -153,15 +153,6 @@ type SimpleAgentResponse struct {
 	Env []AgentImageEnvVarInfo `json:"env,omitempty"`
 	// Replicas caps the number of task Jobs running at once for this agent.
 	Replicas *int32 `json:"replicas,omitempty"`
-	// Paused reports whether task delivery is currently withheld: spec.pause
-	// evaluated at read time, so an expiring pause reads false on its own.
-	// Paused agents still accumulate their routed tasks as a backlog; the
-	// queue-depth fields show what has piled up.
-	Paused bool `json:"paused"`
-	// PausedUntil is when an expiring pause ends (RFC3339). Empty for a
-	// running agent and for an indefinite pause, which must be lifted
-	// explicitly.
-	PausedUntil string `json:"pausedUntil,omitempty"`
 	// WorkingHours is the weekly window inside which the hub may hand this agent
 	// work. Absent means it may be handed work at any hour.
 	WorkingHours *AgentWorkingHoursInfo `json:"workingHours,omitempty"`
@@ -338,7 +329,7 @@ type SimpleAgentCreateRequest struct {
 	// Secret, an empty Value means "keep the existing value".
 	Env []AgentImageEnvVarInfo `json:"env,omitempty"`
 	// Replicas caps the number of task Jobs running at once. Defaults to 1;
-	// 0 pauses the agent (due tasks stay queued).
+	// 0 stops dispatch (due tasks stay queued).
 	Replicas *int32 `json:"replicas,omitempty"`
 	// WorkingHours confines delivery to a weekly window in an IANA timezone; work
 	// outside it stays queued until the window opens. Absent means any hour.
@@ -369,8 +360,8 @@ type SimpleAgentUpdateRequest struct {
 	// clears them, so the agent runs on the image defaults again. For an
 	// entry marked Secret, an empty Value means "keep the existing value".
 	Env *[]AgentImageEnvVarInfo `json:"env,omitempty"`
-	// Replicas caps the number of task Jobs running at once; 0 pauses the
-	// agent (due tasks stay queued).
+	// Replicas caps the number of task Jobs running at once; 0 stops dispatch
+	// (due tasks stay queued).
 	Replicas *int32 `json:"replicas,omitempty"`
 	// WorkingHours confines delivery to a weekly window; work outside it stays
 	// queued until the window opens. Absent leaves it unchanged; present-but-empty
@@ -462,13 +453,6 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		resp.Replicas = a.Spec.Scaling.Replicas
 	}
 
-	// Pause state is computed from spec at read time, not mirrored from
-	// status: the CRD is the source of truth and expiry needs no controller.
-	resp.Paused = a.IsPaused(time.Now())
-	if resp.Paused && a.Spec.Pause.PausedUntil != nil {
-		resp.PausedUntil = a.Spec.Pause.PausedUntil.UTC().Format(time.RFC3339)
-	}
-
 	// Working hours, computed the same way: the CRD is the source of truth and a
 	// window that opens or closes needs no controller to be reported honestly. An
 	// unreadable window reads as open, because that is what the delivery path does -
@@ -532,8 +516,8 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 		Replicas: a.Status.Replicas,
 	}
 	// How many task Jobs the operator is keeping in flight, and why. With no
-	// pods running this is the only way a reader can tell a paused agent from
-	// one whose Jobs cannot get scheduled.
+	// pods running this is the only way a reader can tell an agent whose
+	// dispatch is stopped from one whose Jobs cannot get scheduled.
 	if sc := a.Status.Scaling; sc != nil {
 		resp.Status.Desired = sc.Desired
 		resp.Status.Reason = sc.Reason
@@ -638,21 +622,6 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleAgentSignIn(w, r, before, rest == "/redirect")
-		return
-	}
-
-	// Agent-scoped pause: withhold or restore task delivery (see
-	// handlers_agent_pause.go). Write-scoped like any agent config change.
-	if strings.HasSuffix(name, "/pause") {
-		paused := strings.TrimSuffix(name, "/pause")
-		if paused == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "missing agent name")
-			return
-		}
-		if !s.requireWrite(w, r, "agent", paused) {
-			return
-		}
-		s.handleAgentPause(w, r, paused)
 		return
 	}
 
@@ -1355,8 +1324,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 	// Externally managed agents have exactly one author; the hub refuses every
-	// spec mutation, including pause (spec.pause would be reverted by a
-	// GitOps reconciler anyway).
+	// spec mutation, which a GitOps reconciler would revert anyway.
 	if isManagedCR(existing.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent", existing.Spec.ManagedBy)
 		return
