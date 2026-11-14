@@ -6,7 +6,7 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: k8s-ai-agent-operator
+    app.kubernetes.io/component: agent-operator
 rules:
   - apiGroups: ["ainsel.dev"]
     resources: ["agents", "agents/status", "agentimages", "agentimages/status"]

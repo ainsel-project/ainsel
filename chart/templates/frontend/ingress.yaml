@@ -1,31 +1,31 @@
-{{- if and .Values.ui.enabled .Values.ui.ingress.enabled }}
-{{- $isNginx := eq (include "ainsel.isNginx" .Values.ui.ingress.className) "true" -}}
-{{- $annotations := fromYaml (include "ainsel.ingressAnnotations" (dict "isNginx" $isNginx "nginxOnly" (dict "nginx.ingress.kubernetes.io/use-regex" "true") "extra" .Values.ui.ingress.annotations)) -}}
-{{- $path := .Values.ui.ingress.path -}}
+{{- if and .Values.frontend.enabled .Values.frontend.ingress.enabled }}
+{{- $isNginx := eq (include "ainsel.isNginx" .Values.frontend.ingress.className) "true" -}}
+{{- $annotations := fromYaml (include "ainsel.ingressAnnotations" (dict "isNginx" $isNginx "nginxOnly" (dict "nginx.ingress.kubernetes.io/use-regex" "true") "extra" .Values.frontend.ingress.annotations)) -}}
+{{- $path := .Values.frontend.ingress.path -}}
 {{/* On non-nginx renders use a literal path: strip trailing nginx capture groups such as (/|$)(.*). */}}
 {{- if not $isNginx -}}
-{{- $path = regexReplaceAll "\\([^()]*\\)\\([^()]*\\)$" .Values.ui.ingress.path "" -}}
+{{- $path = regexReplaceAll "\\([^()]*\\)\\([^()]*\\)$" .Values.frontend.ingress.path "" -}}
 {{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: hub-frontend
+  name: frontend
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-frontend
+    app.kubernetes.io/component: frontend
   {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  ingressClassName: {{ .Values.ui.ingress.className }}
+  ingressClassName: {{ .Values.frontend.ingress.className }}
   tls:
     - hosts:
-        - {{ .Values.ui.ingress.host }}
-      secretName: {{ .Values.ui.ingress.tlsSecretName | default "ui-tls" }}
+        - {{ .Values.frontend.ingress.host }}
+      secretName: {{ .Values.frontend.ingress.tlsSecretName | default "ui-tls" }}
   rules:
-    - host: {{ .Values.ui.ingress.host }}
+    - host: {{ .Values.frontend.ingress.host }}
       http:
         paths:
           # nginx renders the configured path as a regex (see the
@@ -39,7 +39,7 @@ spec:
             pathType: {{ if $isNginx }}ImplementationSpecific{{ else }}Prefix{{ end }}
             backend:
               service:
-                name: hub-frontend
+                name: frontend
                 port:
                   name: http
 {{- end }}

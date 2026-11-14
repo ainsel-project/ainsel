@@ -103,7 +103,7 @@ agentOperator:
     repository: dpinsel/ainsel-k8s-ai-agent-operator
     tag: latest
 
-connectorOperator:
+eventGatewayOperator:
   image:
     repository: dpinsel/ainsel-k8s-event-source-gateway-operator
     tag: latest
@@ -117,7 +117,7 @@ hub:
     host: your-domain.com
     path: /ainsel/api
 
-ui:
+frontend:
   enabled: true
   image:
     repository: dpinsel/ainsel-hub-frontend
@@ -228,7 +228,7 @@ challenge, chart env wiring) are covered by
 #### Pinning the JWKS / userinfo endpoints
 
 The hub backend resolves the JWKS and userinfo endpoints from the issuer's
-discovery document at startup. Two optional, hub-backend-only escape hatches
+discovery document at startup. Two optional, hub-only escape hatches
 pin them explicitly:
 
 ```yaml
@@ -367,13 +367,13 @@ curl -H "Authorization: Bearer $TOKEN" https://your-domain.com/ainsel/api/v1/age
 # The /health endpoint is in-cluster only (used by the pod probes); the ingress
 # publishes /api/v1/* and nothing else.
 kubectl run curl-test -n ainsel --rm -it --image=curlimages/curl --restart=Never -- \
-  curl -s http://hub-backend:8080/health
+  curl -s http://hub:8080/health
 ```
 
 ## Ingress controllers
 
 The chart's ingress templates render differently depending on the
-`className` set on `hub.ingress`, `ui.ingress`, and `mcp.ingress`:
+`className` set on `hub.ingress`, `frontend.ingress`, and `mcp.ingress`:
 
 - **ingress-nginx** (`className: nginx`, the default): paths are rendered as
   nginx regexes with `nginx.ingress.kubernetes.io/use-regex` and
@@ -394,13 +394,13 @@ the services receive the paths they serve (example paths for Traefik
 
 | Ingress | Published path | Path the service expects |
 |---|---|---|
-| `hub-backend` | `<hub.ingress.path>/v1/*` (default `/ainsel/api/v1/*`) | `/api/v1/*` |
-| `hub-frontend` | `<ui.ingress.path>` with any trailing nginx capture groups stripped (default `/ainsel`) | the frontend serves under `ui.basePath` |
+| `hub` | `<hub.ingress.path>/v1/*` (default `/ainsel/api/v1/*`) | `/api/v1/*` |
+| `frontend` | `<frontend.ingress.path>` with any trailing nginx capture groups stripped (default `/ainsel`) | the frontend serves under `frontend.basePath` |
 | `ainsel-mcp` | `<mcp.ingress.path>` (default `/ainsel/mcp`) | `/mcp` |
 | `ainsel-mcp-oauth-metadata` | `/.well-known/oauth-authorization-server<mcp.ingress.path>` | `/.well-known/oauth-authorization-server` |
 | `ainsel-mcp-oauth-protected-resource` | `/.well-known/oauth-protected-resource<mcp.ingress.path>` | `/.well-known/oauth-protected-resource` |
 
-> **Security:** the hub-backend ingress must publish only
+> **Security:** the hub ingress must publish only
 > `<hub.ingress.path>/v1/*`. The hub also serves `/api/internal/*` on the
 > same port, authenticated solely by the cluster-wide `X-Internal-Token`
 > secret — those routes must never be reachable from outside the cluster.

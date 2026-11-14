@@ -33,10 +33,10 @@ Expected output (all pods `Running`):
 
 ```
 NAME                                              READY   STATUS    RESTARTS   AGE
-hub-backend-xxxxxxxxx-xxxxx                       1/1     Running   0          2m
-hub-frontend-xxxxxxxxx-xxxxx                      1/1     Running   0          2m
-k8s-ai-agent-operator-xxxxxxxx-xxxxx              1/1     Running   0          2m
-k8s-event-source-gateway-operator-xxxxxxxx-xxxxx  1/1     Running   0          2m
+hub-xxxxxxxxx-xxxxx                              1/1     Running   0          2m
+frontend-xxxxxxxxx-xxxxx                           1/1     Running   0          2m
+agent-operator-xxxxxxxx-xxxxx                     1/1     Running   0          2m
+event-gateway-operator-xxxxxxxx-xxxxx               1/1     Running   0          2m
 ainsel-mcp-xxxxxxxxx-xxxxx                        1/1     Running   0          2m
 postgres-0                                        1/1     Running   0          2m
 ```
@@ -44,7 +44,7 @@ postgres-0                                        1/1     Running   0          2
 If a pod is not `Running`, check logs:
 
 ```bash
-kubectl logs -n ainsel deployment/hub-backend
+kubectl logs -n ainsel deployment/hub
 ```
 
 ## 3. Create a Connector

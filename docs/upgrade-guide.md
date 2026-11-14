@@ -131,7 +131,7 @@ the one-time rewrite after applying the new CRDs:
 
 ```bash
 kubectl apply -f chart/templates/crds/
-kubectl exec deploy/hub-backend -n <namespace> -- /hub migrate-skills-shape -n <namespace>
+kubectl exec deploy/hub -n <namespace> -- /hub migrate-skills-shape -n <namespace>
 ```
 
 - The chart runs this for you: the `migrations.skillsShape` hook Job is a
@@ -186,6 +186,39 @@ helm rollback ainsel <revision> -n <namespace>
 > **Important:** Rolling back the Helm release restores the previous Kubernetes resources (Deployments, ConfigMaps, etc.) and the previous image versions. It does **not** reverse any database migrations that have already run. If the migration must be reversed, restore the Postgres database from the backup taken before the upgrade.
 
 ## Version-specific notes
+
+### Unreleased — chart component names aligned with the code
+
+The chart's template directories, resource names and labels now use one
+vocabulary, matching the code layout (`operators/agent`, `operators/event-gateway`,
+`services/hub`, `frontend/`):
+
+| Old name | New name |
+|---|---|
+| `hub-backend` | `hub` |
+| `hub-frontend` | `frontend` |
+| `k8s-ai-agent-operator` | `agent-operator` |
+| `k8s-event-source-gateway-operator` | `event-gateway-operator` |
+
+- **Renamed: Kubernetes resource names.** Deployments, Services, ServiceAccounts,
+  Roles/RoleBindings, Ingresses and the hub ServiceMonitor are created under the new
+  names, and the `app.kubernetes.io/component` / `app.kubernetes.io/name` selector
+  labels change with them. Because selector labels are immutable, `helm upgrade`
+  does not rename in place: it rolls out **new** Deployments under the new names
+  and removes the old ones. Expect a brief cold start of each component during
+  the upgrade.
+- **Renamed: values keys (breaking, no alias).** `connectorOperator` →
+  `eventGatewayOperator` and `ui` → `frontend`. Helm ignores unknown keys, so a
+  stale `ui:` or `connectorOperator:` block silently falls back to defaults —
+  rename the keys in your `values.yaml` before upgrading.
+- **Changed: in-cluster service DNS.** The hub is now reached as
+  `http://hub.<namespace>.svc.cluster.local:8080` (was `hub-backend.…`). Update
+  any custom manifests, scripts or dashboards that hard-coded the old names.
+- **Unchanged:** container image repositories (e.g. `dpinsel/ainsel-hub-backend`),
+  the `ainsel-mcp` and `postgres` resources, secret names (`ainsel-hub-db`,
+  `ainsel-local-admin`, `ainsel-local-jwt`, `ainsel-plugin-credentials`), and the
+  `app.kubernetes.io/managed-by: agent-operator|connector-operator` labels that the
+  operators stamp on resources they create.
 
 ### Unreleased — the agent's LLM provider is required and validated
 

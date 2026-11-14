@@ -37,7 +37,7 @@ keep local mode truly local and do not create connectors on an exposed
 cluster while relying on it.
 */}}
 {{- define "ainsel.localMode" -}}
-{{- $uiExposed := and .Values.ui.enabled .Values.ui.ingress.enabled -}}
+{{- $uiExposed := and .Values.frontend.enabled .Values.frontend.ingress.enabled -}}
 {{- $mcpExposed := and .Values.mcp.enabled .Values.mcp.ingress.enabled -}}
 {{- if and (not .Values.auth.oidcIssuer) (not .Values.hub.ingress.enabled) (not $uiExposed) (not $mcpExposed) -}}
 true

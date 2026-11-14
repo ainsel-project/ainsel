@@ -120,7 +120,7 @@ class DeploymentTests(unittest.TestCase):
         def deployments(rendered):
             return [document for document in rendered.split("\n---\n")
                     if "kind: Deployment\n" in document and
-                    ("  name: hub-backend\n" in document or "  name: ainsel-mcp\n" in document)]
+                    ("  name: hub\n" in document or "  name: ainsel-mcp\n" in document)]
 
         for settings, audience, algorithms, roles, scopes in (
             ([], "app", "RS256", None, "openid profile email offline_access"),

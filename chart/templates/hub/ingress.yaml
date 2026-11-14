@@ -4,11 +4,11 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: hub-backend
+  name: hub
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-backend
+    app.kubernetes.io/component: hub
   {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -42,7 +42,7 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: hub-backend
+                name: hub
                 port:
                   name: http
           {{- else }}
@@ -60,7 +60,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: hub-backend
+                name: hub
                 port:
                   name: http
           {{- end }}

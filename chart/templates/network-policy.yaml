@@ -12,20 +12,20 @@ spec:
   policyTypes:
     - Ingress
 ---
-# Allow hub-backend ingress from frontend, mcp, agents, webhook connectors,
+# Allow hub ingress from frontend, mcp, agents, webhook connectors,
 # and the ingress controller
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: hub-backend
+  name: hub
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-backend
+    app.kubernetes.io/component: hub
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/component: hub-backend
+      app.kubernetes.io/component: hub
   policyTypes:
     - Ingress
   ingress:
@@ -33,7 +33,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: hub-frontend
+              app.kubernetes.io/component: frontend
       ports:
         - port: {{ .Values.hub.port }}
     # From MCP server
@@ -66,7 +66,7 @@ spec:
               ainsel.io/plugin: "true"
       ports:
         - port: {{ .Values.hub.port }}
-    # From the ingress controller (browser API traffic: UI -> ingress -> hub-backend)
+    # From the ingress controller (browser API traffic: UI -> ingress -> hub)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -97,10 +97,10 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: hub-backend
+              app.kubernetes.io/component: hub
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: k8s-event-source-gateway-operator
+              app.kubernetes.io/component: event-gateway-operator
 ---
 # Allow Postgres ingress from hub only
 apiVersion: networking.k8s.io/v1
@@ -121,7 +121,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: hub-backend
+              app.kubernetes.io/component: hub
       ports:
         - port: 5432
 ---
@@ -129,15 +129,15 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: hub-frontend
+  name: frontend
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-frontend
+    app.kubernetes.io/component: frontend
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/component: hub-frontend
+      app.kubernetes.io/component: frontend
   policyTypes:
     - Ingress
   ingress:
@@ -186,7 +186,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: hub-backend
+              app.kubernetes.io/component: hub
       ports:
         - port: 8080
     # DNS
@@ -202,7 +202,7 @@ spec:
           protocol: TCP
 ---
 # Agent metrics ingress: the runner extension serves Prometheus metrics on the
-# pod's named "metrics" port (see chart/templates/k8s-ai-agent-operator/
+# pod's named "metrics" port (see chart/templates/agent-operator/
 # podmonitor-agents.yaml). Without an ingress allow, the default-deny policy
 # silently refuses Prometheus scrapes and every agent metric (notably
 # agent_tokens_used_total) disappears from the observability dashboard.
@@ -223,7 +223,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow metrics scraping (same open posture as the hub-backend metrics rule).
+    # Allow metrics scraping (same open posture as the hub metrics rule).
     - ports:
         - port: metrics
 ---

@@ -4,7 +4,7 @@
 #
 #   helm install ainsel ./chart -n ainsel --create-namespace \
 #     -f chart/values-local.yaml \
-#     --set hub.ingress.host=<your-host> --set ui.ingress.host=<your-host>
+#     --set hub.ingress.host=<your-host> --set frontend.ingress.host=<your-host>
 #
 # On first start the hub bootstraps an 'admin' account. The chart generates
 # its password into a Secret (stable across upgrades):
@@ -38,7 +38,7 @@ hub:
     annotations:
       nginx.ingress.kubernetes.io/rewrite-target: /api/$2
 
-ui:
+frontend:
   basePath: /ainsel
   ingress:
     enabled: true
