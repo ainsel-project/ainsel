@@ -11,6 +11,7 @@ import {
   useTokensSummary,
   type Range,
   type TimeseriesParams,
+  type ObservabilityTimeseries,
 } from '../../api/observability'
 import { Panel } from '../../primitives/Panel'
 import { SectionStatus, type SectionState } from '../../primitives/SectionStatus'
@@ -46,6 +47,16 @@ function deriveState(isLoading: boolean, error: unknown, hasData: boolean): Sect
   if (error) return 'error'
   if (hasData) return 'ready'
   return 'idle'
+}
+
+// Sparkline values for a KPI card (issue #275): the same metric, range and
+// backend as the figure above it, straight from the query the chart already
+// runs. Undefined while the query is missing or failed — dense bucketing means
+// a loaded series is never empty, so no series ⇔ no data, and the card simply
+// renders without a spark.
+function sparkValues(data?: ObservabilityTimeseries): number[] | undefined {
+  const points = data?.points
+  return points && points.length > 0 ? points.map((p) => p.value) : undefined
 }
 
 export function Observability() {
@@ -96,6 +107,14 @@ export function Observability() {
   const matchedData = matched.data
   const routedData = routed.data
   const errorsData = errors.data
+  const cardSeries = useMemo(
+    () => ({
+      eventsConsumed: sparkValues(consumedData),
+      triggersMatched: sparkValues(matchedData),
+      eventsRouted: sparkValues(routedData),
+    }),
+    [consumedData, matchedData, routedData],
+  )
   const chartSeries = useMemo(
     () =>
       METRICS.map((name) => {
@@ -137,7 +156,12 @@ export function Observability() {
         <section>
           {summaryState === 'ready' ? (
             <>
-              <SummaryCards summary={summary.data} tokens={tokensSummary.data} range={range} />
+              <SummaryCards
+                summary={summary.data}
+                tokens={tokensSummary.data}
+                range={range}
+                series={cardSeries}
+              />
               {tokensUnavailable ? (
                 <p className="label" style={{ marginTop: 8 }}>
                   Token usage needs a metrics source — the hub's own conversation rows, or the agent

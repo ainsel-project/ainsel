@@ -8,7 +8,7 @@ type Plate = {
   to: string
   count: number | undefined
   sub: string
-  spark: number[]
+  spark?: number[]
   alert?: boolean
 }
 
@@ -26,7 +26,7 @@ export function KpiRow({ plates }: KpiRowProps) {
             <span className="code">{p.code}</span>
           </div>
           <div className="figure num">{p.count ?? '—'}</div>
-          <Sparkbar values={p.spark} alert={p.alert} />
+          {p.spark ? <Sparkbar values={p.spark} alert={p.alert} /> : null}
           <div className="sub">
             <span>{p.sub}</span>
           </div>

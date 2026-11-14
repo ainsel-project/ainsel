@@ -124,6 +124,25 @@ describe('Dashboard', () => {
     expect(errorsPlate).toHaveClass('alert')
   })
 
+  // #275: the plates used to render hardcoded spark arrays — the same fake
+  // trend on every installation. None of them has a real history endpoint
+  // (agents/connectors/triggers are resource counts; the errors figure is not
+  // the routing_errors timeseries on a pinned hub), so no plate may spark.
+  it('renders no sparklines on the KPI plates', async () => {
+    const { container } = renderWithProviders(<Dashboard />)
+    await waitFor(() => expect(screen.getByText('14')).toBeInTheDocument())
+    expect(container.querySelectorAll('.kpi .spark')).toHaveLength(0)
+  })
+
+  // #275: the Triggers plate linked to /triggers, which no route declares —
+  // the catch-all bounced the click back to /dashboard.
+  it('links the Triggers plate to a route that exists', async () => {
+    renderWithProviders(<Dashboard />)
+    await waitFor(() => expect(screen.getByText('Routing rules')).toBeInTheDocument())
+    const triggersPlate = screen.getByText('Routing rules').closest('a')
+    expect(triggersPlate).toHaveAttribute('href', '/agents')
+  })
+
   // #217: the plate is labelled "Errors · 1h", so the summary request has to
   // carry that window. On the endpoint a range-less call is legitimate — it
   // means "everything still retained" for MCP consumers — so the response body

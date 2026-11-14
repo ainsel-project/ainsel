@@ -143,6 +143,14 @@ either no Prometheus or a Prometheus pinned but not configured — a panel says
 PromQL still names Prometheus specifically: nothing else in the console asks it
 anything.
 
+The three event KPI cards also carry sparklines, and each plots the same metric
+over the same range as the figure above it — the very timeseries query the
+throughput chart runs, answered by the same backend, so a sparkline costs no
+extra request and can never disagree with its own card. The Errors and Tokens
+cards show none: the `routing_errors` timeseries is not the same quantity as the
+Errors figure on a Prometheus-pinned hub, and the token timeseries answers `24h`
+only while the card is labelled with the page range (issue #275).
+
 The event panels read the hub's records rather than its counters because the hub
 wrote those records. `hub_events_consumed_total` and a row in `events` are two views
 of one routing decision, and the row is the better witness of the two:
