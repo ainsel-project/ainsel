@@ -28,7 +28,7 @@ func newUserTokenStub(t *testing.T) *httptest.Server {
 				return
 			}
 			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(map[string]any{"token": "ainsel_secret_value_123"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"token": "ainsel_secret_value_123"}) // #nosec G101 -- test fixture, not a credential
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/user-tokens/ut-1":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/user-tokens/ut-404":
