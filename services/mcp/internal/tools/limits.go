@@ -130,6 +130,45 @@ func capAndAnnotateArray(body []byte, keyName string, maxItems int, hint string)
 	return out
 }
 
+// pageBareArray windows a bare JSON array — the shape the unpaginated hub lists
+// answer, e.g. /api/v1/users — into the PageMeta-style envelope the MCP read
+// tools return: {items, total, page, pageSize, truncated} plus a hint when more
+// rows remain. page is 1-indexed. A body that is not a JSON array is returned
+// unchanged.
+func pageBareArray(body []byte, page, limit int, hint string) []byte {
+	var arr []any
+	if err := json.Unmarshal(body, &arr); err != nil {
+		return body
+	}
+	total := len(arr)
+	start := (page - 1) * limit
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	out := map[string]any{
+		"items":     arr[start:end],
+		"total":     total,
+		"page":      page,
+		"pageSize":  limit,
+		"truncated": end < total,
+	}
+	if end < total {
+		out["hint"] = hint
+	}
+	result, err := json.Marshal(out)
+	if err != nil {
+		return body
+	}
+	return result
+}
+
 // countEvents attempts to count the number of events in a JSON response.
 // The hub's /api/v1/queue/recent endpoint returns a bare JSON array of event
 // objects. If the body is not a JSON array, -1 is returned.

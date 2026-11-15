@@ -60,6 +60,12 @@ registered in [`internal/mcp/server.go`](internal/mcp/server.go):
   separate from deployment — installing registers an already deployed plugin
   and uninstalling leaves the workload running; all writes are admin-only.
 - **Cost / errors:** `get_token_usage`, `get_stats`, `get_recent_errors`.
+- **Users / access:** `list_users`, `get_user`, `create_user`, `update_user`,
+  `delete_user` (the writes are admin-only; the hub enforces that on the
+  forwarded bearer); `list_user_tokens`, `create_user_token`,
+  `revoke_user_token` for the calling user's own `ainsel_…` tokens — a created
+  value is returned once and no read tool can show it again; and
+  `list_auth_events` for the authz audit trail (admin read).
 - **Events (via hub):** `get_stream_info`, `list_recent_events`.
 - **Observability (via hub):** `get_agent_logs`, `query_logs`,
   `get_agent_metrics`, `query_metrics` (Prometheus).

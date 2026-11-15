@@ -143,6 +143,27 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	s.AddTool(usage.GetTokenUsageTool(), usage.GetTokenUsage)
 	s.AddTool(usage.GetStatsTool(), usage.GetStats)
 
+	// The user registry and the caller's own access tokens. Reads are open to any
+	// authenticated caller; the writes are admin-only and the hub enforces that on
+	// the forwarded bearer — the MCP side checks nothing and passes 403 through.
+	userTools := tools.NewUserTools(b.HubURL)
+	s.AddTool(userTools.ListUsersTool(), userTools.ListUsers)
+	s.AddTool(userTools.GetUserTool(), userTools.GetUser)
+	s.AddTool(userTools.CreateUserTool(), userTools.CreateUser)
+	s.AddTool(userTools.UpdateUserTool(), userTools.UpdateUser)
+	s.AddTool(userTools.DeleteUserTool(), userTools.DeleteUser)
+
+	// Personal access tokens: the value appears in exactly one response, and no
+	// read tool can render it.
+	userTokenTools := tools.NewUserTokenTools(b.HubURL)
+	s.AddTool(userTokenTools.ListUserTokensTool(), userTokenTools.ListUserTokens)
+	s.AddTool(userTokenTools.CreateUserTokenTool(), userTokenTools.CreateUserToken)
+	s.AddTool(userTokenTools.RevokeUserTokenTool(), userTokenTools.RevokeUserToken)
+
+	// The authz audit trail (admin-only, secret-free rows).
+	auditTools := tools.NewAuditTools(b.HubURL)
+	s.AddTool(auditTools.ListAuthEventsTool(), auditTools.ListAuthEvents)
+
 	events := tools.NewEventTools(b.HubURL)
 	s.AddTool(events.GetStreamInfoTool(), events.GetStreamInfo)
 	s.AddTool(events.ListRecentEventsTool(), events.ListRecentEvents)
