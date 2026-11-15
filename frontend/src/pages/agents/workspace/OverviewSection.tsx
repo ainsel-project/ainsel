@@ -92,7 +92,7 @@ export function OverviewSection() {
   // numbers must agree with the Activity rows each cell links to (see
   // docs/observability.md "Queued, running, and unknown"). `unknown` items
   // count into neither Running nor Queued. Every cell maps 1:1 to an
-  // Activity `outcome` value, so the linked view shows exactly that state.
+  // Activity `runState` value, so the linked view shows exactly that state.
   const runStates = useMemo(() => items.map((i) => effectiveRunState(i)), [items])
   const countState = (s: RunState) => runStates.filter((r) => r === s).length
   const failuresToday = countState('failure')
@@ -102,9 +102,9 @@ export function OverviewSection() {
   // `since=today` keeps the destination on the same day the numbers count;
   // the counts themselves are directional (invocations vs. events), not a
   // guarantee the linked totals match.
-  const activityLink = (outcome?: RunState) =>
+  const activityLink = (runState?: RunState) =>
     `/activity?agent=${encodeURIComponent(id)}&since=${SINCE_SENTINEL}` +
-    (outcome ? `&outcome=${outcome}` : '')
+    (runState ? `&runState=${runState}` : '')
 
   const triggerCount =
     (triggerData?.items ?? []).filter((t) => t.agentRef === id).length +

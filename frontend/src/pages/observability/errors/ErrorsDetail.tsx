@@ -125,7 +125,7 @@ export function ErrorsDetail() {
       align: 'right',
       cell: (_r) => (
         <Link
-          to={eventsLink({ status: 'error' })}
+          to={eventsLink({ match: 'error' })}
           className="label"
           style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
           onClick={(e) => e.stopPropagation()}
