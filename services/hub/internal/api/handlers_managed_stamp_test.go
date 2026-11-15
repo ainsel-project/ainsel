@@ -47,12 +47,6 @@ func doManaged(t *testing.T, s *Server, caller *plugincreds.Caller, method, path
 	return rec
 }
 
-func managedErr(t *testing.T, rec *httptest.ResponseRecorder) string {
-	t.Helper()
-	got, _ := decodeSingleError(t, rec.Body.Bytes())["error"].(string)
-	return got
-}
-
 func TestResolveCreateManagedBy(t *testing.T) {
 	longID := strings.Repeat("p", 60) // "plugin-" + 60 chars = 67 > the 63-char CRD pattern limit
 
