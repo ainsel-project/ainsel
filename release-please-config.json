@@ -3,6 +3,7 @@
   "release-type": "simple",
   "include-component-in-tag": false,
   "bump-minor-pre-major": true,
+  "include-pull-requests": false,
   "packages": {
     ".": {
       "extra-files": [

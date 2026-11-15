@@ -1,15 +1,16 @@
 name: PR title
 
-# Squash-merge makes the PR title the commit subject on main, where
-# release-please reads it to compute the version and write CHANGELOG.md. A
-# title release-please cannot parse is dropped from the changelog entirely
-# and cannot bump a version - the change still ships, it just becomes
-# invisible in the release.
+# The PR title is not what release-please reads: PRs merge into main as merge
+# commits carrying their branch commits, and release-please-config.json sets
+# include-pull-requests: false, so CHANGELOG.md and the version come from the
+# commits on main. pr-commits.yml is the check that guards those.
 #
-# That is not hypothetical: M1-M6 of the agent-centric rework were merged as
-# "M1: skills move onto the agent (#158)" and friends, and none of them appear
-# in the generated changelog. Checking the title here is the cheapest place to
-# catch it, because the title is exactly what will become the commit.
+# This check still earns its place on the squash path. Squash remains an
+# available merge method, and a squash-merged PR's commit subject is its title:
+# a title release-please cannot parse is dropped from the changelog entirely and
+# cannot bump a version - the change still ships, it just becomes invisible in
+# the release. Everything else is hygiene: the title is the first line a reviewer
+# reads, and it is what `git log --merges` and the PR list show.
 #
 # No checkout and no third-party action: the title arrives in the event payload
 # and the rule is one regex, so there is nothing to install or supply-chain.
@@ -61,12 +62,13 @@ jobs:
           echo ""
           echo "Types:     feat fix docs style refactor perf test build ci chore revert"
           echo "Breaking:  append ! to the type, or add a 'BREAKING CHANGE: <what>' footer"
-          echo "           to the merge commit body."
+          echo "           to the commit that carries the change."
           echo ""
-          echo "Why it matters: this title becomes the commit subject, and release-please"
-          echo "reads those subjects on main to compute the next version and to write"
-          echo "CHANGELOG.md. A title it cannot parse is left out of the changelog and"
-          echo "does not bump the version."
+          echo "Why it matters: a squash-merged PR's commit subject is this title, and"
+          echo "release-please reads commit subjects on main to compute the next version and"
+          echo "to write CHANGELOG.md. A subject it cannot parse is left out of the"
+          echo "changelog and does not bump the version. Branch commits are checked"
+          echo "separately by pr-commits.yml."
           echo ""
           echo "Fix it by editing the PR title - this check re-runs on edit."
           exit 1

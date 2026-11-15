@@ -1,7 +1,8 @@
 name: Dependabot auto-merge
 
 # Dependabot PRs merge themselves: this gate watches every other check on the
-# PR and squash-merges it once they are all green. If any check is red, the
+# PR and merges it (as a merge commit, the merge style this repo documents) once
+# they are all green. If any check is red, the
 # gate fails with it and the PR waits for a human - exactly like any red PR.
 #
 # Why not GitHub's auto-merge flag (the pattern in GitHub's docs)? Because
@@ -37,7 +38,7 @@ name: Dependabot auto-merge
 # is seconds behind. A cancelled run says nothing about the head - the gate
 # skips CANCELLED and waits for the replacement instead.
 #
-# Merge-race caveat: when parallel gates squash-merge into main one after
+# Merge-race caveat: when parallel gates merge into main one after
 # another, the base moves between a poll and the merge attempt and GitHub
 # rejects with "Base branch was modified". The merge is retried: each failed
 # attempt loops back to the poll, which re-reads the PR state/head and
@@ -62,7 +63,7 @@ on:
         required: true
 
 permissions:
-  contents: write # squash-merge the PR, delete the merged branch
+  contents: write # merge the PR, delete the merged branch
   pull-requests: write # read PR metadata
 
 concurrency:
@@ -85,7 +86,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
     steps:
-      - name: Wait for green checks, then squash-merge
+      - name: Wait for green checks, then merge
         run: |
           set -euo pipefail
 
@@ -155,7 +156,7 @@ jobs:
               if [ "$attempts" -eq 0 ]; then
                 echo "All checks green on ${head:0:7}; merging."
               fi
-              if merge_err="$(gh pr merge "$PR_NUMBER" --squash --match-head-commit "$head" 2>&1)"; then
+              if merge_err="$(gh pr merge "$PR_NUMBER" --merge --match-head-commit "$head" 2>&1)"; then
                 echo "PR #$PR_NUMBER merged."
                 exit 0
               fi

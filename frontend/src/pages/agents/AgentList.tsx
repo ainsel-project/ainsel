@@ -97,15 +97,6 @@ export function AgentList() {
       header: 'Status',
       width: 130,
       cell: (a) => {
-        // Paused outranks everything: the agent is healthy, it is just
-        // withholding claims — its queue depth is the backlog, not a fault.
-        if (a.paused) {
-          return (
-            <>
-              <Dot state="stale" aria-label="Paused" /> Paused
-            </>
-          )
-        }
         // A ChatGPT sign-in agent without a working sign-in runs nothing, and
         // idle would hide why: its queue waits for someone to sign in.
         if (a.status?.signInRequired) {

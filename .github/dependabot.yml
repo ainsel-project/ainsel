@@ -2,8 +2,8 @@
 # ci-* and dev-image-* workflows via their pull_request triggers.
 #
 # target-branch is develop for every ecosystem. Without it Dependabot opens
-# against the default branch, which is main - and this repository squash-merges
-# everything, so a bump that lands on main is never an ancestor of develop and
+# against the default branch, which is main - and this repository merges into
+# main, so a bump that lands on main is never an ancestor of develop and
 # has to be re-synced by hand. That is how main accumulated fifteen commits
 # develop did not have: #184 had to absorb twelve of them, and #186 had to
 # chase the mermaid bump that landed the day after. Bumps now flow through

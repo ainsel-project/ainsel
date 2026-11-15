@@ -535,9 +535,9 @@ func (s *Server) channelEvents(w http.ResponseWriter, r *http.Request, id string
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	status := q.Get("status")
-	if status != "" && !validActivityStatuses[status] {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid status: expected matched, unmatched or error")
+	match := queryAlias(q, paramMatch, legacyParamStatus)
+	if match != "" && !validActivityMatches[match] {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid match: expected matched, unmatched or error")
 		return
 	}
 
@@ -546,7 +546,7 @@ func (s *Server) channelEvents(w http.ResponseWriter, r *http.Request, id string
 		Limit:   limit,
 		Offset:  offset,
 		Agent:   q.Get("agent"),
-		Status:  status,
+		Match:   match,
 		Subject: q.Get("subject"),
 	})
 	if err != nil {

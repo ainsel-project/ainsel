@@ -19,3 +19,10 @@ agents.ainsel.dev enabledMCPs
 # PUT /api/v1/skills/{id}/assignments/{agentName}). See docs/upgrade-guide.md,
 # "tools and skills belong to the agent, not the image", for the upgrade order.
 agentimages.ainsel.dev enabledSkills
+
+# Unreleased (#249): the agent pause API is removed — dispatch never read it.
+# `replicas: 0` is the way to stop an agent; tasks stay queued and drain when the
+# cap goes back up. GitOps manifests still setting spec.pause must drop it.
+# See docs/upgrade-guide.md, "agent pause API removed".
+agents.ainsel.dev pause
+agents.ainsel.dev paused
