@@ -58,7 +58,9 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	connectors := tools.NewConnectorTools(b.HubURL)
 	s.AddTool(connectors.ListConnectorsTool(), connectors.ListConnectors)
 	s.AddTool(connectors.GetConnectorTool(), connectors.GetConnector)
+	s.AddTool(connectors.CreateConnectorTool(), connectors.CreateConnector)
 	s.AddTool(connectors.UpdateConnectorTool(), connectors.UpdateConnector)
+	s.AddTool(connectors.DeleteConnectorTool(), connectors.DeleteConnector)
 
 	// Channels are the streams events live in: one per connector, one per agent
 	// inbox, plus custom grouping channels. The subscription list answers
@@ -94,6 +96,9 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	mcpServers := tools.NewMCPServerTools(b.HubURL)
 	s.AddTool(mcpServers.ListMCPServersTool(), mcpServers.ListMCPServers)
 	s.AddTool(mcpServers.GetMCPServerTool(), mcpServers.GetMCPServer)
+	s.AddTool(mcpServers.CreateMCPServerTool(), mcpServers.CreateMCPServer)
+	s.AddTool(mcpServers.UpdateMCPServerTool(), mcpServers.UpdateMCPServer)
+	s.AddTool(mcpServers.DeleteMCPServerTool(), mcpServers.DeleteMCPServer)
 
 	// Plugins are third-party code the platform routes to. Registration is
 	// separate from deployment (the operator ships the workload), and use is
