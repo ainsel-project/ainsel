@@ -744,15 +744,20 @@ misbehaves, scale it to zero (below) while you fix the persona.
 Mostly persona-driven today: refusal patterns ("never close
 issues"), output-format constraints, blast-radius limits.
 
-![The agent detail view for agent-reviewer-gh, showing its model and image, a
-runtime status of Ready with configured replicas and containers, and the
-persona-reviewer shared template rendered alongside its Scope Constraint
-section](images/agent-persona.webp)
+![The Runtime & env section of the agent-reviewer-gh agent workspace in the
+console: the Model & scaling panel with its model and scaling settings, the
+read-only Image panel with an Edit image link to the image page, and the
+Environment overrides panel with the agent's own variables layered over the
+image's environment](images/agent-persona.webp)
 
-*A reviewer agent's guardrails, in the console. The persona's scope
-constraints — review the diff only, never propose rewrites of unchanged code,
-never open issues or apply labels — are the guardrail, and they are versioned
-with the persona rather than living in someone's head.*
+*A reviewer agent's runtime configuration, in the console: Model & scaling
+sets the model and how many tasks may run at once, the Image panel shows the
+referenced image read-only (the Edit image link leads to the image page, where
+an edit updates every agent sharing it), and Environment overrides pin this
+agent's env on top of the image's. The guardrail itself — the persona's scope
+constraints, review the diff only, never propose rewrites of unchanged code,
+never open issues or apply labels — lives on the agent's Persona section,
+versioned with the persona rather than living in someone's head.*
 
 The
 platform supplements this with:
