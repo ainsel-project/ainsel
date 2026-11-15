@@ -114,6 +114,7 @@ CI only runs for a component if its paths are touched:
 | `services/hub/**` | `ci-services-hub.yml` |
 | `services/webhook-receiver/**` | `ci-services-webhook-receiver.yml` |
 | `services/mcp/**` | `ci-services-mcp.yml` |
+| `openapi/**` | `ci-services-hub.yml` + `ci-services-mcp.yml` (route-to-tool parity, issue #326) |
 | `services/chat-mcp/**` | `ci-services-chat-mcp.yml` |
 | `operators/agent/**` | `ci-operators-agent.yml` |
 | `operators/event-gateway/**` | `ci-operators-event-gateway.yml` |

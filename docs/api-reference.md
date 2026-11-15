@@ -28,6 +28,27 @@ observability endpoints use `rows`; `GET /api/v1/queue/recent` returns a bare ar
 [`openapi/hub.yaml`](../openapi/hub.yaml) spec is the machine-readable contract and is checked
 against the router in CI, so it is authoritative where this prose is general.
 
+### MCP exposure annotations (`x-mcp-tool`, `x-mcp-not-exposed`)
+
+Every operation in [`openapi/hub.yaml`](../openapi/hub.yaml) must declare how the
+AInsel MCP server (see [`mcp.md`](mcp.md)) reaches it — one of exactly two keys:
+
+- `x-mcp-tool: <tool_name>` (a name, or a list of names when one route is served
+  by several tools, e.g. `pause_agent` / `resume_agent`) — the route has an MCP
+  tool. The MCP-side check (`services/mcp/internal/mcp/parity_test.go`) fails if
+  a named tool is not registered on `mcp.New(...)`.
+- `x-mcp-not-exposed: "<reason>"` — the route deliberately has no tool. The
+  reason says why: a permanent decision ("browser session surface", "internal
+  X-Internal-Token surface") or a pointer to the issue/PR that will add the tool
+  ("planned in #326 PR-2 (create_connector)"). Flip the row to `x-mcp-tool` in
+  the same PR that lands the tool.
+
+`services/hub/internal/api/openapi_parity_test.go` fails any operation that
+carries neither key, so a new hub route cannot silently miss its tool. Method
+coverage comes from the spec: the hub registers most routes as path-only
+patterns and dispatches methods inside handlers, so the router cannot express
+it. See `.agent/skills/development/add-mcp-tool.md` for the workflow.
+
 Successful mutations return `200 OK` (update) or `201 Created` (create) with a JSON body; a successful
 `DELETE` returns `204 No Content` with an empty body.
 

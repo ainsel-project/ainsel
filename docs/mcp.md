@@ -156,6 +156,11 @@ and **control** it. Below is the full tool surface, grouped by area.
 Read tools are safe to call freely; mutation tools change platform state
 and should be used deliberately.
 
+This table is the tool surface of record, and it is machine-checked: every
+operation in [`openapi/hub.yaml`](../openapi/hub.yaml) names its MCP tool via
+`x-mcp-tool` or records why it has none via `x-mcp-not-exposed`, in CI (see
+[`api-reference.md`](api-reference.md) and `.agent/skills/development/add-mcp-tool.md`).
+
 ### Workflows & agents
 
 | Tool | Mode | What it answers |
