@@ -125,6 +125,14 @@ have a human who looked at a list first.
 
 ## First release after the namespace switch
 
+**Two of these gates come before the merge, not after it.** Every `dev-image-*` run and
+every release stops writing `dpinsel/ainsel-*` the moment this lands, because a mirror
+push happens only while `vars.DOCKERHUB_NAMESPACE` is set — so either set that variable
+first (the mirror never gaps) or make sure users are told the mirror stops, which
+[`docs/upgrade-guide.md`](upgrade-guide.md) does. And no chart release may ship with the
+default `global.imageRegistry` until the ten packages below exist and are publicly
+pullable: that default is exactly what makes a fresh install pull from GHCR.
+
 GHCR packages start **private**, and a private package is pullable by CI (which
 authenticates) and by nobody else — so a green release run does not prove users can
 pull. After the first release published to `ghcr.io/ainsel-project`:

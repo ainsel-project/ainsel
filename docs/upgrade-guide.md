@@ -189,12 +189,20 @@ helm rollback ainsel <revision> -n <namespace>
 
 ### Unreleased — images move to a project-owned registry namespace
 
-- **Breaking: the default image registry is now `ghcr.io/ainsel-project`.** Chart
-  defaults, the operator defaults, and the hub's `HUB_DEFAULT_AGENT_IMAGE` and
-  `CONNECTOR_IMAGE_WEBHOOK` all point there. The `dpinsel/ainsel-*` images on Docker
-  Hub are not deleted and stay pullable, but they are a mirror: new releases are
-  published to GHCR first, and a Docker Hub push happens only while the
-  `DOCKERHUB_NAMESPACE` repository variable is set.
+- **Breaking: the default image registry is now `ghcr.io/ainsel-project`.** The chart
+  defaults point there, and the hub's `HUB_DEFAULT_AGENT_IMAGE` and
+  `CONNECTOR_IMAGE_WEBHOOK` follow them — the operators have no image default of their
+  own, they run whatever image the chart hands them. The `dpinsel/ainsel-*` images on
+  Docker Hub are not deleted and stay pullable, but they are a mirror, and **the mirror
+  stops being written the moment this merges**: a Docker Hub push happens only while the
+  `DOCKERHUB_NAMESPACE` repository variable is set, and it is unset. Anyone tracking
+  `:dev` or `:latest` on the currently released chart therefore keeps getting the old
+  Docker Hub images and silently stops receiving new builds. **Action:** move to the
+  `ghcr.io/ainsel-project/ainsel-*` names (the chart default from this version on), or
+  set `DOCKERHUB_NAMESPACE` on your own fork if you want the mirror to keep up.
+  No chart release ships with the GHCR default before the packages below are published
+  and publicly pullable — see
+  [First release after the namespace switch](maintenance.md#first-release-after-the-namespace-switch).
 - **Breaking: `*.image.repository` is a name, not a full reference.** `global.imageRegistry`
   (default `ghcr.io/ainsel-project`) is prepended to it. A values file that pins
   `repository: dpinsel/ainsel-hub-backend` now renders
