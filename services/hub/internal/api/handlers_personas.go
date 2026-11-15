@@ -242,9 +242,7 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 			h.writePersonaError(w, err)
 			return
 		}
-		if err := h.store.SetResourceGroup(r.Context(), "persona", p.ID, req.GroupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", p.ID)
-		}
+		assignGroup(r.Context(), h.store, authz.ResourcePersona, p.ID, req.GroupID)
 		httpx.WriteJSON(w, http.StatusCreated, p)
 	default:
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")

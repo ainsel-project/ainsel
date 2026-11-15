@@ -141,6 +141,14 @@ type Server struct {
 	// separate from internalValidateSecret on purpose: that one is the
 	// cluster-wide internal credential. See requireCatalogueToken.
 	skillsMCPToken string
+	// skillDiscovery is the catalogue reader Deps.SkillDiscovery resolved to. The
+	// platform agent plane reuses it so the two surfaces that answer the same
+	// question share one implementation; s.skills is deliberately not used
+	// there, because SkillService carries Create/Update/Delete.
+	skillDiscovery SkillDiscovery
+	// agentMCPEnabled gates the platform read plane at AgentMCPPath. Off by
+	// default: see Deps.AgentMCPEnabled.
+	agentMCPEnabled bool
 
 	// wsAllowedOrigins lists Origins permitted to open /api/v1/ws in addition
 	// to same-origin requests. See SetWSAllowedOrigins.
@@ -285,6 +293,11 @@ type Deps struct {
 	// SkillsMCPToken is HUB_SKILLS_MCP_TOKEN. Empty keeps the catalogue MCP
 	// closed rather than open. See requireCatalogueToken.
 	SkillsMCPToken string
+	// AgentMCPEnabled is HUB_AGENT_MCP_ENABLED. It gates the platform read
+	// plane at AgentMCPPath. Off by default: a hub whose operator never opted
+	// in answers 503 there rather than serving platform state to anything in
+	// the namespace that carries the internal secret.
+	AgentMCPEnabled bool
 	// InternalValidateSecret is HUB_INTERNAL_VALIDATE_SECRET. Empty closes the
 	// internal endpoints that authenticate with it.
 	InternalValidateSecret string
@@ -477,6 +490,7 @@ func New(deps Deps) (*Server, error) {
 		pluginMCP:              deps.PluginMCP,
 		internalValidateSecret: deps.InternalValidateSecret,
 		skillsMCPToken:         deps.SkillsMCPToken,
+		agentMCPEnabled:        deps.AgentMCPEnabled,
 		wsAllowedOrigins:       deps.WSAllowedOrigins,
 		metricsSource:          deps.MetricsSource,
 		userInfoURL:            deps.UserInfoURL,
@@ -513,6 +527,7 @@ func New(deps Deps) (*Server, error) {
 		}
 	}
 	if disc != nil {
+		s.skillDiscovery = disc
 		s.skillMCPHandler = s.requireCatalogueToken(skillMCPServer(disc).ServeHTTP)
 	}
 
@@ -566,6 +581,7 @@ func New(deps Deps) (*Server, error) {
 	mux.HandleFunc("/api/v1/observability/metrics/query", s.handleObservabilityMetricsQuery)
 	mux.HandleFunc("/api/internal/events", s.handleIngestEvent)
 	mux.HandleFunc(skillMCPPath, s.handleSkillMCP)
+	mux.HandleFunc(AgentMCPPath, s.handleAgentMCP)
 	mux.HandleFunc("/api/internal/agents/", s.handleInternalAgent)
 	mux.HandleFunc("/api/v1/queue/info", s.handleQueueInfo)
 	mux.HandleFunc("/api/v1/queue/recent", s.handleQueueRecent)

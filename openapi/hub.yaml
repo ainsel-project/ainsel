@@ -18,6 +18,14 @@
 #   ci-services-hub.yml lists `openapi/**` in its path filters so an edit to
 #   this file alone still runs the check.
 #
+#   Every operation also states its MCP surface in the spec: exactly one of
+#   `x-mcp-tool: <name>` (or a list, when several tools read one route) and
+#   `x-mcp-not-exposed: "<reason>"`. services/hub/internal/api/
+#   openapi_mcp_marker_test.go fails when an operation declares neither, or both;
+#   services/mcp/internal/mcp/parity_test.go fails when a marked name is not a
+#   registered MCP tool or a registered tool has no row. A new route therefore
+#   cannot merge as an undocumented gap. See "Spec parity" in docs/mcp.md.
+#
 # Conventions the contract states once, here:
 #   - Pagination: every list endpoint takes `page` (1-indexed, <1 coerced to 1)
 #     and `pageSize` (default 50, clamped to 200; <1 coerced to 1) and returns
@@ -78,7 +86,7 @@ paths:
   /health:
     get:
       operationId: getHealth
-      x-mcp-not-exposed: "hub liveness probe; the operator health tool is get_platform_health"
+      x-mcp-not-exposed: "in-cluster liveness probe; the MCP-facing status tool is get_platform_health"
       summary: Liveness/readiness probe
       description: >-
         Served in-cluster only; the ingress does not publish `/health`. For an
@@ -111,7 +119,9 @@ paths:
   /api/v1/agents:
     get:
       operationId: listAgents
-      x-mcp-tool: list_agents
+      x-mcp-tool:
+        - list_agents
+        - summarize_workflows
       summary: List agents, sorted by resource name
       description: >-
         `search` is applied server-side before pagination, so `total` reflects
@@ -227,7 +237,7 @@ paths:
   /api/v1/agents/{name}/persona:
     get:
       operationId: getAgentPersona
-      x-mcp-not-exposed: "planned in #329 (agent-owned persona text is not reachable through the persona tools)"
+      x-mcp-not-exposed: "planned in #329 (get_agent_persona): the only path to agent-owned persona text"
       summary: The agent's persona as the agent sees it
       description: >-
         `ref` is present even when the persona no longer exists, which
@@ -252,7 +262,7 @@ paths:
           $ref: '#/components/responses/Error'
     put:
       operationId: putAgentPersona
-      x-mcp-not-exposed: "persona writes go through update_agent (persona_id / persona_text)"
+      x-mcp-not-exposed: "agent-owned persona text is written by the agent runtime, not by an MCP caller"
       summary: Save the agent's persona content (copy-on-write for a shared template)
       parameters:
         - $ref: '#/components/parameters/resourceName'
@@ -275,7 +285,7 @@ paths:
   /api/v1/llm/check:
     post:
       operationId: checkLLM
-      x-mcp-not-exposed: "planned in #329 (LLM availability preflight)"
+      x-mcp-not-exposed: "planned in #329 (check_llm_provider)"
       summary: Ask whether a (provider, model) pair can serve a request
       description: >-
         The hub picks a representative agent visible to the caller, preferring
@@ -416,7 +426,7 @@ paths:
   /api/v1/agent-images/{name}/refresh-mcp:
     post:
       operationId: refreshAgentImageMCP
-      x-mcp-not-exposed: "planned in #329 (re-discover an image MCP tools)"
+      x-mcp-not-exposed: "planned in #329 (refresh_agent_image_mcp)"
       summary: Re-discover the image's MCP tools into `spec.tools`
       description: >-
         Each server is queried with the credential its registry row names
@@ -530,7 +540,7 @@ paths:
   /api/v1/connectors/{id}/rotate-secret:
     post:
       operationId: rotateConnectorSecret
-      x-mcp-not-exposed: "planned in #329 (rotate_connector_secret; the new secret is returned once and must never be echoed)"
+      x-mcp-not-exposed: "planned in #329 (rotate_connector_secret)"
       summary: Rotate the connector's webhook HMAC secret
       description: The new secret is returned once as `webhookSecretValue`.
       parameters:
@@ -716,7 +726,7 @@ paths:
   /api/v1/plugins/{id}/ui/{path}:
     get:
       operationId: getPluginUI
-      x-mcp-not-exposed: "plugin browser UI asset surface, not an operator API"
+      x-mcp-not-exposed: "plugin UI/API proxy for browser and agent runtimes; a plugin's operations reach MCP as its own typed tools"
       summary: Reverse-proxy a plugin UI asset
       description: >-
         No auth; GET and HEAD only (else 405). Forwarded only to a verified
@@ -738,7 +748,7 @@ paths:
   /api/v1/plugins/{id}/api/{path}:
     get:
       operationId: callPluginAPIGet
-      x-mcp-not-exposed: "plugin admin APIs surface as plugin-declared operator tools (pluginId_tool), not a generic proxy (#326 Decision 5)"
+      x-mcp-not-exposed: "plugin UI/API proxy for browser and agent runtimes; a plugin's operations reach MCP as its own typed tools"
       summary: Reverse-proxy a plugin API request (GET)
       parameters:
         - $ref: '#/components/parameters/pluginId'
@@ -753,7 +763,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: callPluginAPIPost
-      x-mcp-not-exposed: "plugin admin APIs surface as plugin-declared operator tools (pluginId_tool), not a generic proxy (#326 Decision 5)"
+      x-mcp-not-exposed: "plugin UI/API proxy for browser and agent runtimes; a plugin's operations reach MCP as its own typed tools"
       summary: Reverse-proxy a plugin API request (POST)
       parameters:
         - $ref: '#/components/parameters/pluginId'
@@ -769,7 +779,7 @@ paths:
   /api/v1/plugins/{id}/mcp:
     post:
       operationId: callPluginMCP
-      x-mcp-not-exposed: "plugin MCP endpoint consumed directly by MCP clients and agent runtimes, not via hub tools"
+      x-mcp-not-exposed: "the plugin's own MCP endpoint, proxied for agent runtimes; plugin tools reach MCP through the aggregator"
       summary: Reverse-proxy a plugin MCP streamable-HTTP session
       parameters:
         - $ref: '#/components/parameters/pluginId'
@@ -787,7 +797,7 @@ paths:
   /api/v1/plugin-context:
     get:
       operationId: getPluginContext
-      x-mcp-not-exposed: "plugin-facing context surface consumed by plugin UIs with the plugin own credential"
+      x-mcp-not-exposed: "console read of plugin-owned context; no typed MCP tool yet"
       summary: The caller's identity, effective permissions and group memberships
       description: >-
         For plugin credentials, groups and permissions are the effective ones
@@ -805,7 +815,7 @@ paths:
   /api/v1/plugin-context/visible:
     post:
       operationId: listVisibleResources
-      x-mcp-not-exposed: "plugin-facing context surface consumed by plugin UIs with the plugin own credential"
+      x-mcp-not-exposed: "console read of which plugin contexts the caller may see; no typed MCP tool yet"
       summary: Which resources in a named set are visible to the caller
       description: >-
         `names` must contain 1-500 items. Results are deduplicated in input
@@ -829,7 +839,7 @@ paths:
   /api/v1/plugin-tools/call:
     post:
       operationId: callPluginTool
-      x-mcp-not-exposed: "transport for plugin-declared operator tools; those tools are registered dynamically by StartPluginTools, not built-in"
+      x-mcp-not-exposed: "the MCP plugin-tool aggregator calls this for dynamically registered plugin tools, which have no static spec row"
       summary: Run one operator-audience tool on a plugin
       description: >-
         A logged-in user only — the route is absent from the plugin-credential
@@ -857,7 +867,9 @@ paths:
   /api/v1/triggers:
     get:
       operationId: listTriggers
-      x-mcp-tool: list_triggers
+      x-mcp-tool:
+        - list_triggers
+        - summarize_workflows
       summary: List triggers, sorted by id
       parameters:
         - $ref: '#/components/parameters/page'
@@ -1245,7 +1257,9 @@ paths:
   /api/v1/invocations:
     get:
       operationId: listInvocations
-      x-mcp-tool: list_invocations
+      x-mcp-tool:
+        - list_invocations
+        - summarize_agent_activity
       summary: List recent invocations, newest first (the `capacity` field is the store's row budget)
       description: >-
         Scoped to the caller: results are limited to invocations whose agent the
@@ -1323,7 +1337,7 @@ paths:
   /api/v1/chat/sessions:
     get:
       operationId: listChatSessions
-      x-mcp-not-exposed: "planned in #329 (chat session read/write)"
+      x-mcp-not-exposed: "planned in #329 (list_chat_sessions)"
       summary: List chat sessions for the authenticated user
       parameters:
         - name: page
@@ -1346,7 +1360,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createChatSession
-      x-mcp-not-exposed: "planned in #329 (chat session read/write)"
+      x-mcp-not-exposed: "chat writes need an attribution + run-trigger decision (see #329)"
       summary: Create a chat session
       requestBody:
         required: true
@@ -1372,7 +1386,7 @@ paths:
   /api/v1/chat/sessions/{id}:
     get:
       operationId: getChatSession
-      x-mcp-not-exposed: "planned in #329 (chat session read/write)"
+      x-mcp-not-exposed: "planned in #329 (get_chat_session)"
       summary: Fetch a chat session with its full message history
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1387,7 +1401,7 @@ paths:
           $ref: '#/components/responses/Error'
     patch:
       operationId: updateChatSession
-      x-mcp-not-exposed: "planned in #329 (chat session read/write)"
+      x-mcp-not-exposed: "chat writes need an attribution + run-trigger decision (see #329)"
       summary: Rename a chat session
       description: 'Body is `{"name": "..."}`; the name must be non-empty.'
       parameters:
@@ -1407,7 +1421,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       operationId: deleteChatSession
-      x-mcp-not-exposed: "planned in #329 (chat session read/write)"
+      x-mcp-not-exposed: "chat writes need an attribution + run-trigger decision (see #329)"
       summary: Delete a chat session and all its messages
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1418,7 +1432,7 @@ paths:
   /api/v1/chat/sessions/{id}/messages:
     post:
       operationId: createChatMessage
-      x-mcp-not-exposed: "planned in #329 (chat session read/write)"
+      x-mcp-not-exposed: "chat writes need an attribution + run-trigger decision (see #329)"
       summary: Send a message to the agent in an existing session
       description: >-
         The hub forwards the message to the agent runtime via the event queue and
@@ -1548,7 +1562,7 @@ paths:
   /api/v1/mcp-servers/{name}/tools:
     get:
       operationId: listMCPServerTools
-      x-mcp-not-exposed: "planned in #329 (live tool discovery for a registry row)"
+      x-mcp-not-exposed: "planned in #329 (discover_mcp_server_tools)"
       summary: List the tools an MCP server offers
       description: >-
         The row names the credential (`tokenFromEnv`) but stores no value; the
@@ -1714,7 +1728,7 @@ paths:
   /api/v1/personas/{id}/rollback:
     post:
       operationId: rollbackPersona
-      x-mcp-not-exposed: "planned in #329 (persona version rollback)"
+      x-mcp-not-exposed: "planned in #329 (rollback_persona)"
       summary: Copy an older version's text into a new current version
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1836,7 +1850,7 @@ paths:
   /api/v1/skills/{id}/assignments:
     get:
       operationId: listSkillAssignments
-      x-mcp-not-exposed: "agent selections are readable via list_agents / get_agent (skills field)"
+      x-mcp-not-exposed: "no typed MCP tool yet: skill-to-agent assignment is console-managed (gap noted in #329)"
       summary: List the agents that select this skill
       description: >-
         Assignments edit an agent's `spec.skills` one skill at a time; they write
@@ -1855,7 +1869,7 @@ paths:
   /api/v1/skills/{id}/assignments/{agentName}:
     put:
       operationId: assignSkill
-      x-mcp-not-exposed: "skill selection is expressed as the full skills list on update_agent"
+      x-mcp-not-exposed: "no typed MCP tool yet: skill-to-agent assignment is console-managed (gap noted in #329)"
       summary: Add the skill to an agent's selection (idempotent)
       description: >-
         Authorisation targets the **agent** — an assignment is a write to the
@@ -1873,7 +1887,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       operationId: unassignSkill
-      x-mcp-not-exposed: "skill selection is expressed as the full skills list on update_agent"
+      x-mcp-not-exposed: "no typed MCP tool yet: skill-to-agent assignment is console-managed (gap noted in #329)"
       summary: Remove the skill from an agent's selection (idempotent)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1908,7 +1922,7 @@ paths:
   /api/v1/events:
     get:
       operationId: listEvents
-      x-mcp-not-exposed: "planned in #329 (activity timeline read)"
+      x-mcp-not-exposed: "planned in #329 (list_events)"
       summary: List recent events (the Activity page), newest first
       description: >-
         An event is visible when the caller can read the connector that ingested
@@ -1971,7 +1985,7 @@ paths:
   /api/v1/events/{id}:
     get:
       operationId: getEvent
-      x-mcp-not-exposed: "planned in #329 (activity timeline read)"
+      x-mcp-not-exposed: "planned in #329 (get_event)"
       summary: One event, same shape as a list entry
       description: >-
         An event the caller may not read returns 404 rather than 403, so an event
@@ -2096,7 +2110,7 @@ paths:
   /api/v1/observability/metrics/summary:
     get:
       operationId: getMetricsSummary
-      x-mcp-not-exposed: "dashboard projection of the hub metrics; query_metrics (PromQL passthrough) covers the same data"
+      x-mcp-not-exposed: "the MCP metrics tools use the generic /api/v1/observability/metrics/query endpoint"
       summary: Counts for the four hub metrics
       description: >-
         Responses are cached server-side for ~30s, keyed by backend. `source`
@@ -2117,7 +2131,7 @@ paths:
   /api/v1/observability/metrics/timeseries:
     get:
       operationId: getMetricsTimeseries
-      x-mcp-not-exposed: "dashboard projection; query_metrics (PromQL passthrough) covers the same data"
+      x-mcp-not-exposed: "the MCP metrics tools use the generic /api/v1/observability/metrics/query endpoint"
       summary: One metric across a window in step-wide, dense points
       description: >-
         A Prometheus point is a per-second rate; a Postgres point is a count
@@ -2149,7 +2163,7 @@ paths:
   /api/v1/observability/metrics/agents:
     get:
       operationId: getMetricsAgents
-      x-mcp-not-exposed: "dashboard projection; get_agent_metrics covers per-agent counts"
+      x-mcp-not-exposed: "the MCP metrics tools use the generic /api/v1/observability/metrics/query endpoint"
       summary: Per-agent token consumption and invocation counts
       parameters:
         - $ref: '#/components/parameters/rangeParam'
@@ -2165,7 +2179,7 @@ paths:
   /api/v1/observability/metrics/tokens/summary:
     get:
       operationId: getTokenMetricsSummary
-      x-mcp-not-exposed: "dashboard projection; get_stats and get_token_usage cover the same data"
+      x-mcp-not-exposed: "the MCP metrics tools use the generic /api/v1/observability/metrics/query endpoint"
       summary: 24-hour token totals with previous-period comparison
       description: >-
         Fixed window, regardless of any dashboard range selector. See
@@ -2182,7 +2196,7 @@ paths:
   /api/v1/observability/metrics/tokens/timeseries:
     get:
       operationId: getTokenMetricsTimeseries
-      x-mcp-not-exposed: "dashboard sparkline; query_metrics covers the same data"
+      x-mcp-not-exposed: "the MCP metrics tools use the generic /api/v1/observability/metrics/query endpoint"
       summary: 24-hour token-usage sparkline stepped at 30-minute intervals
       description: >-
         Each point sums every token component, cache traffic included. The series
@@ -2205,7 +2219,7 @@ paths:
   /api/v1/observability/metrics/tokens/by-event:
     get:
       operationId: getTokenMetricsByEvent
-      x-mcp-not-exposed: "grouping projection; get_token_usage and query_metrics cover the same data"
+      x-mcp-not-exposed: "the MCP metrics tools use the generic /api/v1/observability/metrics/query endpoint"
       summary: Token totals grouped by originating event id
       description: >-
         Reads `task_conversations` grouped by invocation and maps each invocation
@@ -2239,7 +2253,7 @@ paths:
   /api/v1/observability/metrics/tokens/by-subject:
     get:
       operationId: getTokenMetricsBySubject
-      x-mcp-not-exposed: "same rows as get_token_usage (GET /api/v1/tokens)"
+      x-mcp-not-exposed: "the MCP metrics tools use the generic /api/v1/observability/metrics/query endpoint"
       summary: One row per (agent, repo, eventType, model) tuple with priced cost
       description: >-
         Rows written before migration 0024 carry no subject and group under the
@@ -2330,7 +2344,7 @@ paths:
   /api/v1/observability/conversations:
     get:
       operationId: listConversations
-      x-mcp-not-exposed: "conversation browser for the hub UI; MCP callers read agent output via invocations and logs"
+      x-mcp-not-exposed: "no typed MCP tool yet: full conversation transcripts are a console read and a payload-size risk (gap noted in #329)"
       summary: Agent conversation messages captured from agent turns
       description: >-
         `content` is always a JSON-encoded string: for `user`/`assistant` it
@@ -2401,7 +2415,7 @@ paths:
   /api/v1/ws:
     get:
       operationId: streamEvents
-      x-mcp-not-exposed: "WebSocket stream; MCP is request/response - poll list_recent_events / get_stream_info"
+      x-mcp-not-exposed: "WebSocket live-event stream; MCP clients poll the read tools instead"
       summary: WebSocket stream of stats, event and error envelopes
       description: >-
         Immediately after the upgrade the server writes one `stats` snapshot;
@@ -2423,7 +2437,7 @@ paths:
   /api/v1/me:
     get:
       operationId: getMe
-      x-mcp-not-exposed: "browser session self-view; MCP identity is the caller forwarded bearer"
+      x-mcp-not-exposed: "console identity echo; an MCP caller's identity is the bearer it forwards"
       summary: Echo the authenticated user as forwarded by the ingress middleware
       description: >-
         Reads `Remote-User`, `Remote-Name`, `Remote-Email`, `Remote-Groups`; when
@@ -2441,7 +2455,7 @@ paths:
   /api/v1/me/resources:
     get:
       operationId: getMyResources
-      x-mcp-not-exposed: "browser self-service listing; the per-resource list tools apply the same visibility"
+      x-mcp-not-exposed: "console resource-access view; the hub applies the same authorization to every MCP tool call"
       summary: Every resource of one type the caller owns or may read
       description: >-
         `type` is required — this endpoint answers for one resource type per call,
@@ -2471,7 +2485,7 @@ paths:
   /api/v1/audit/auth-events:
     get:
       operationId: listAuthEvents
-      x-mcp-not-exposed: "planned in #329 (auth audit read)"
+      x-mcp-tool: list_auth_events
       summary: Persisted auth events, newest first (admin only)
       description: >-
         Rows contain no secrets — the write path never sees a password or token.
@@ -2517,7 +2531,7 @@ paths:
   /api/v1/users:
     get:
       operationId: listUsers
-      x-mcp-not-exposed: "planned in #329 (user registry admin)"
+      x-mcp-tool: list_users
       summary: List all registry users (any authenticated user)
       responses:
         '200':
@@ -2532,7 +2546,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createUser
-      x-mcp-not-exposed: "planned in #329 (user registry admin)"
+      x-mcp-tool: create_user
       summary: Create a locally-managed user (admin only)
       requestBody:
         required: true
@@ -2558,7 +2572,7 @@ paths:
   /api/v1/users/{id}:
     get:
       operationId: getUser
-      x-mcp-not-exposed: "planned in #329 (user registry admin)"
+      x-mcp-tool: get_user
       summary: Fetch one registry user
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -2573,7 +2587,7 @@ paths:
           $ref: '#/components/responses/Error'
     patch:
       operationId: patchUser
-      x-mcp-not-exposed: "planned in #329 (user registry admin)"
+      x-mcp-tool: update_user
       summary: Partial update (admin only)
       description: >-
         `password` resets a local user's password and invalidates their session
@@ -2604,7 +2618,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       operationId: deleteUser
-      x-mcp-not-exposed: "planned in #329 (user registry admin)"
+      x-mcp-tool: delete_user
       summary: Delete a registry user (admin only; no self-deletion, last admin protected)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -2667,7 +2681,7 @@ paths:
           $ref: '#/components/responses/Error'
     patch:
       operationId: patchGroup
-      x-mcp-not-exposed: "out of scope per #326 Decision 6 (groups get read + create only)"
+      x-mcp-not-exposed: "no typed MCP tool yet: group and membership administration is console-managed (gap noted in #329)"
       summary: Update a group (owner only)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -2688,7 +2702,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       operationId: deleteGroup
-      x-mcp-not-exposed: "out of scope per #326 Decision 6 (groups get read + create only)"
+      x-mcp-not-exposed: "no typed MCP tool yet: group and membership administration is console-managed (gap noted in #329)"
       summary: Delete a group (owner only)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -2699,7 +2713,7 @@ paths:
   /api/v1/groups/{id}/members:
     post:
       operationId: addGroupMembers
-      x-mcp-not-exposed: "out of scope per #326 Decision 6 (groups get read + create only)"
+      x-mcp-not-exposed: "no typed MCP tool yet: group and membership administration is console-managed (gap noted in #329)"
       summary: Add users to a group with a role (owner only)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -2716,7 +2730,7 @@ paths:
   /api/v1/groups/{id}/members/{userId}:
     delete:
       operationId: removeGroupMember
-      x-mcp-not-exposed: "out of scope per #326 Decision 6 (groups get read + create only)"
+      x-mcp-not-exposed: "no typed MCP tool yet: group and membership administration is console-managed (gap noted in #329)"
       summary: Remove a member from a group (owner only)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -2731,7 +2745,7 @@ paths:
   /api/v1/groups/{id}/resources:
     get:
       operationId: listGroupResources
-      x-mcp-not-exposed: "out of scope per #326 Decision 6 (groups get read + create only)"
+      x-mcp-not-exposed: "no typed MCP tool yet: group and membership administration is console-managed (gap noted in #329)"
       summary: Every resource whose group mapping points at this group
       description: >-
         Names are resolved server-side, so items always carry a display name.
@@ -2757,7 +2771,7 @@ paths:
   /api/v1/auth/login:
     post:
       operationId: login
-      x-mcp-not-exposed: "browser session surface; MCP callers authenticate with OIDC tokens or user tokens"
+      x-mcp-not-exposed: "console session flow; an MCP caller authenticates with the bearer it forwards to the hub"
       summary: Exchange credentials for a session token (local auth modes)
       description: >-
         Rate-limited per IP and per username. Any failure — unknown user or wrong
@@ -2781,7 +2795,7 @@ paths:
   /api/v1/auth/logout:
     post:
       operationId: logout
-      x-mcp-not-exposed: "browser session surface; MCP callers authenticate with OIDC tokens or user tokens"
+      x-mcp-not-exposed: "console session flow; an MCP caller authenticates with the bearer it forwards to the hub"
       summary: Stateless no-op for API symmetry (204)
       description: The client discards its token; to actually revoke sessions use sign-out-all or change the password.
       responses:
@@ -2791,7 +2805,7 @@ paths:
   /api/v1/auth/me:
     get:
       operationId: getAuthMe
-      x-mcp-not-exposed: "browser session surface; MCP identity is the caller forwarded bearer"
+      x-mcp-not-exposed: "console session flow; an MCP caller authenticates with the bearer it forwards to the hub"
       summary: Current identity (sub, email, username, roles, mustChangePassword)
       responses:
         '200':
@@ -2805,7 +2819,7 @@ paths:
   /api/v1/auth/password:
     put:
       operationId: changePassword
-      x-mcp-not-exposed: "browser session surface; local-account password management is not an operator API"
+      x-mcp-not-exposed: "console session flow; an MCP caller authenticates with the bearer it forwards to the hub"
       summary: Change the caller's own password (local accounts only)
       description: >-
         Requires knowledge of the current password; a wrong one answers 401 and
@@ -2828,7 +2842,7 @@ paths:
   /api/v1/auth/sign-out-all:
     post:
       operationId: signOutAll
-      x-mcp-not-exposed: "browser session surface; revoke access by deleting the user token instead"
+      x-mcp-not-exposed: "console session flow; an MCP caller authenticates with the bearer it forwards to the hub"
       summary: Bump the caller's token version, invalidating every local session JWT
       description: Includes the one making the call; the next request with any old token gets 401.
       responses:
@@ -2843,7 +2857,7 @@ paths:
   /api/v1/auth/password-policy:
     get:
       operationId: getPasswordPolicy
-      x-mcp-not-exposed: "browser session surface; policy is a hub config read, not an operator API"
+      x-mcp-not-exposed: "console session flow; an MCP caller authenticates with the bearer it forwards to the hub"
       summary: The effective local-auth password policy
       description: >-
         So the console can render matching hints. `requireCharacterClasses` lists
@@ -2862,7 +2876,7 @@ paths:
   /api/v1/user-tokens:
     get:
       operationId: listUserTokens
-      x-mcp-not-exposed: "planned in #329 (personal access token admin)"
+      x-mcp-tool: list_user_tokens
       summary: List the caller's personal access tokens
       responses:
         '200':
@@ -2883,7 +2897,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createUserToken
-      x-mcp-not-exposed: "planned in #329 (personal access token admin; the value is returned once and must never be echoed)"
+      x-mcp-tool: create_user_token
       summary: Create a personal access token (`ainsel_…`)
       description: A token grants the same permissions as the owning user; the value is returned once.
       requestBody:
@@ -2904,7 +2918,7 @@ paths:
   /api/v1/user-tokens/{id}:
     delete:
       operationId: revokeUserToken
-      x-mcp-not-exposed: "planned in #329 (personal access token admin)"
+      x-mcp-tool: revoke_user_token
       summary: Revoke one of the caller's tokens
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -2916,7 +2930,7 @@ paths:
   /api/internal/events:
     post:
       operationId: ingestEvent
-      x-mcp-not-exposed: "internal X-Internal-Token surface (connector plumbing), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Accept one event from a connector (webhook-receiver)
       description: >-
         The hub stamps the birth channel from the connector label — never from
@@ -2940,7 +2954,7 @@ paths:
   /api/internal/agents/{name}/tasks/{id}:
     get:
       operationId: getAgentTask
-      x-mcp-not-exposed: "internal X-Internal-Token surface (agent task worker claim), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Fetch one task by id (the per-task Job worker's claim)
       description: >-
         A retry whose previous attempt was closed re-points the task at a fresh
@@ -2967,7 +2981,7 @@ paths:
   /api/internal/agents/{name}/tasks/{id}/ack:
     post:
       operationId: ackAgentTask
-      x-mcp-not-exposed: "internal X-Internal-Token surface (agent task worker), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Acknowledge a task (completes it and its invocation)
       tags: [internal]
       security:
@@ -2988,7 +3002,7 @@ paths:
   /api/internal/agents/{name}/tasks/{id}/nack:
     post:
       operationId: nackAgentTask
-      x-mcp-not-exposed: "internal X-Internal-Token surface (agent task worker), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Report a failed task (requeues it and closes the invocation)
       tags: [internal]
       security:
@@ -3015,7 +3029,7 @@ paths:
   /api/internal/task-logs:
     post:
       operationId: ingestTaskLogs
-      x-mcp-not-exposed: "internal X-Internal-Token surface (agent log shipping), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Accept agent log lines (feeds task_logs, which the logs/errors pages read)
       tags: [internal]
       security:
@@ -3033,7 +3047,7 @@ paths:
   /api/internal/task-messages:
     post:
       operationId: ingestTaskMessages
-      x-mcp-not-exposed: "internal X-Internal-Token surface (agent conversation shipping), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Accept agent conversation rows (feeds task_conversations)
       tags: [internal]
       security:
@@ -3051,7 +3065,7 @@ paths:
   /api/internal/user-tokens/validate:
     post:
       operationId: validateUserToken
-      x-mcp-not-exposed: "internal X-Internal-Token surface (plugin gateway), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Validate an `ainsel_` token and report its owner (plugin gateway)
       tags: [internal]
       security:
@@ -3074,7 +3088,7 @@ paths:
   /api/internal/chat/sessions:
     get:
       operationId: listInternalChatSessions
-      x-mcp-not-exposed: "internal X-Internal-Token surface (chat sidecar), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: List chat sessions for the chat sidecar (every user)
       tags: [internal]
       security:
@@ -3101,7 +3115,7 @@ paths:
   /api/internal/chat/sessions/{id}:
     get:
       operationId: getInternalChatSession
-      x-mcp-not-exposed: "internal X-Internal-Token surface (chat sidecar), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Fetch one chat session with its history (chat sidecar)
       tags: [internal]
       security:
@@ -3120,7 +3134,7 @@ paths:
   /api/internal/chat/sessions/{id}/messages:
     post:
       operationId: addInternalChatMessage
-      x-mcp-not-exposed: "internal X-Internal-Token surface (chat sidecar), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Append a reply/status message to a session (chat sidecar)
       tags: [internal]
       security:
@@ -3145,7 +3159,7 @@ paths:
   /api/internal/plugin-tools:
     get:
       operationId: listPluginTools
-      x-mcp-not-exposed: "polled by the MCP server plugin-tool aggregator over X-Internal-Token; plugin tools surface as pluginId_tool"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: The operator tool list the hub MCP server aggregates
       description: >-
         Only enabled, Ready plugins contribute, and only tools whose manifest
@@ -3174,7 +3188,7 @@ paths:
   /api/internal/plugins/{id}/credentials:
     post:
       operationId: issuePluginCredentials
-      x-mcp-not-exposed: "internal X-Internal-Token surface (plugin credential mint), not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Issue a 5-minute background credential for a plugin
       description: >-
         The request must originate from an IP listed in the plugin's
@@ -3210,7 +3224,7 @@ paths:
   /api/internal/plugins/{id}/agent-mcp:
     post:
       operationId: servePluginAgentMCP
-      x-mcp-not-exposed: "internal surface: one plugin agent-audience MCP endpoint for agent runtimes, not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: One plugin's agent-audience tools, as a stateless MCP endpoint for agent runtimes
       description: >-
         Requires `X-Ainsel-Agent` (required, DNS-label shaped, validated rather
@@ -3240,10 +3254,51 @@ paths:
               schema: { type: string }
         default:
           $ref: '#/components/responses/Error'
+  /api/internal/agent-mcp:
+    post:
+      operationId: servePlatformAgentMCP
+      summary: The platform's read-only tool plane, as a stateless MCP endpoint for agent runtimes
+      description: >-
+        Off unless `HUB_AGENT_MCP_ENABLED=true`, in which case the endpoint
+        answers 503 — configured-off, never open. Same credential as the plugin
+        agent endpoints: the internal secret as a bearer token, plus
+        `X-Ainsel-Agent` (required, DNS-label shaped) and optionally
+        `X-Ainsel-Invocation-Id`. The mounted tool set is the capability
+        allow-list and contains no mutating tool: agents read platform state
+        here (agents, invocations, logs, metrics, token usage, channels, MCP
+        servers, skills) and change nothing. A failure of one call is reported
+        as a tool result with `isError`.
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - name: X-Ainsel-Agent
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Ainsel-Invocation-Id
+          in: header
+          schema: { type: string, pattern: '^[A-Za-z0-9._:-]{1,128}$' }
+      responses:
+        '200':
+          description: The platform MCP session for that agent.
+          content:
+            'application/json':
+              schema: { type: object }
+            'text/event-stream':
+              schema: { type: string }
+        '503':
+          description: The plane is disabled, or no internal secret is configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api/internal/skills/mcp:
     post:
       operationId: serveSkillsMCP
-      x-mcp-not-exposed: "internal surface: read-only skill catalogue MCP endpoint for agent runtimes, not an operator API"
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: Read-only MCP server over the whole skill catalogue
       description: >-
         A dedicated bearer token (`HUB_SKILLS_MCP_TOKEN`), deliberately not

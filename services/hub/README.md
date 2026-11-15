@@ -56,6 +56,15 @@ sync loop, which registers a plugin's agent MCP endpoint as a registry row agent
 can attach. Unset, the loop logs that it is disabled and stays off, because
 there is no address to point those rows at.
 
+`HUB_AGENT_MCP_ENABLED=true` turns on the platform's own read-only MCP plane: the
+hub serves its state (agents, invocations, logs, token usage, metrics, channels,
+the registry, the skill catalogue) at `POST /api/internal/agent-mcp` and registers
+itself as the `ainsel` registry row, so an agent reads platform state through the
+same mechanism it uses for a plugin's tools. The mounted tool set has no write in
+it — that is what makes it safe to hand to an agent, and a golden test keeps it
+that way. See
+[administrator-guide.md](../../docs/administrator-guide.md#plugins).
+
 ## Testing
 
 ```bash

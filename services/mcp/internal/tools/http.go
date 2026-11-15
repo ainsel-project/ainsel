@@ -25,6 +25,10 @@ func hubPut(ctx context.Context, client *http.Client, baseURL, path string, body
 	return hubRequestWithCodes(ctx, client, http.MethodPut, baseURL, path, body, http.StatusOK)
 }
 
+func hubPatch(ctx context.Context, client *http.Client, baseURL, path string, body io.Reader) ([]byte, error) {
+	return hubRequestWithCodes(ctx, client, http.MethodPatch, baseURL, path, body, http.StatusOK)
+}
+
 func hubRequest(ctx context.Context, client *http.Client, method, baseURL, path string, body io.Reader) ([]byte, error) {
 	return hubRequestWithCodes(ctx, client, method, baseURL, path, body, http.StatusOK)
 }
@@ -37,7 +41,7 @@ func hubRequestWithCodes(ctx context.Context, client *http.Client, method, baseU
 	if tok, ok := oidc.TokenFromContext(ctx); ok {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
-	if method == http.MethodPost || method == http.MethodPut {
+	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := client.Do(req)

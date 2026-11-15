@@ -45,7 +45,7 @@ func runBackfill(ctx context.Context, c *container) error {
 		return fmt.Errorf("collect resource refs for backfill: %w", err)
 	}
 
-	created, err := c.authzStore.EnsureResourceGroupsDefault(ctx, refs, "legacy")
+	created, err := c.authzStore.EnsureResourceGroupsDefault(ctx, refs, authz.DefaultGroupID)
 	if err != nil {
 		return fmt.Errorf("ensure resource groups: %w", err)
 	}
@@ -64,7 +64,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
 	for _, a := range agents.Items {
-		refs = append(refs, authz.ResourceRef{Type: "agent", Name: a.Name})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourceAgent), Name: a.Name})
 	}
 
 	// DB-based resources: triggers
@@ -78,7 +78,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		if err := triggerRows.Scan(&id); err != nil {
 			return nil, err
 		}
-		refs = append(refs, authz.ResourceRef{Type: "trigger", Name: id})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourceTrigger), Name: id})
 	}
 	if err := triggerRows.Err(); err != nil {
 		return nil, err
@@ -95,7 +95,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		if err := cronTriggerRows.Scan(&id); err != nil {
 			return nil, err
 		}
-		refs = append(refs, authz.ResourceRef{Type: "cron-trigger", Name: id})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourceCronTrigger), Name: id})
 	}
 	if err := cronTriggerRows.Err(); err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		return nil, fmt.Errorf("list webhook connectors: %w", err)
 	}
 	for _, wc := range wConnectors.Items {
-		refs = append(refs, authz.ResourceRef{Type: "connector", Name: wc.Name})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourceConnector), Name: wc.Name})
 	}
 
 	var images ainselv1alpha1.AgentImageList
@@ -114,7 +114,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		return nil, fmt.Errorf("list agent images: %w", err)
 	}
 	for _, img := range images.Items {
-		refs = append(refs, authz.ResourceRef{Type: "agent-image", Name: img.Name})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourceAgentImage), Name: img.Name})
 	}
 
 	// DB-based resources: personas
@@ -128,7 +128,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		refs = append(refs, authz.ResourceRef{Type: "persona", Name: id})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourcePersona), Name: id})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		if err := skillRows.Scan(&id); err != nil {
 			return nil, err
 		}
-		refs = append(refs, authz.ResourceRef{Type: "skill", Name: id})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourceSkill), Name: id})
 	}
 	if err := skillRows.Err(); err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func collectResourceRefs(ctx context.Context, c client.Client, ns string, pool *
 		if err := mcpRows.Scan(&name); err != nil {
 			return nil, err
 		}
-		refs = append(refs, authz.ResourceRef{Type: "mcp-server", Name: name})
+		refs = append(refs, authz.ResourceRef{Type: string(authz.ResourceMCPServer), Name: name})
 	}
 
 	return refs, mcpRows.Err()

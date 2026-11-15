@@ -19,6 +19,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/selfsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -95,6 +96,49 @@ func wireMCP(pool *pgxpool.Pool) *mcpservers.Service {
 // shows up in the MCP registry within one tick, which is quick enough for an
 // operator and cheap enough to do by listing rather than watching.
 const pluginSyncInterval = 30 * time.Second
+
+// agentMCPEnabledEnv opts a cluster into the platform read plane. One flag
+// gates both halves of the feature on purpose: the endpoint and the registry row
+// that points agents at it. A row for a plane that answers 503 would be worse
+// than no row — an agent would attach a server that refuses it and read that as
+// a broken platform.
+const agentMCPEnabledEnv = "HUB_AGENT_MCP_ENABLED"
+
+// agentMCPEnabled reports whether the platform read plane is opted in.
+func agentMCPEnabled() bool {
+	return os.Getenv(agentMCPEnabledEnv) == "true"
+}
+
+// wireSelfSync builds the syncer that registers the hub's own agent-facing MCP
+// endpoint in the registry, or nil when it cannot do its job. It is the sibling
+// of wirePluginSync and shares its requirements: HUB_SELF_URL, because the row
+// is the hub's own address plus a path, and the plane being enabled, because a
+// registered endpoint that refuses its callers is a trap rather than a feature.
+func wireSelfSync(c *container) *selfsync.Syncer {
+	if !agentMCPEnabled() {
+		return nil
+	}
+	selfURL := os.Getenv("HUB_SELF_URL")
+	if selfURL == "" {
+		slog.Info("platform registry sync disabled: HUB_SELF_URL not set")
+		return nil
+	}
+	s := selfsync.New(c.mcpSvc, selfURL)
+	s.SetResourceVisibility(c.authzStore)
+	slog.Info("platform registry sync enabled", "selfURL", selfURL, "interval", pluginSyncInterval)
+	return s
+}
+
+// runSelfSyncLoop is the background loop main.go starts. A disabled plane is one
+// log line at most and no work, so the loop never has to know why.
+func runSelfSyncLoop(ctx context.Context, c *container) error {
+	s := wireSelfSync(c)
+	if s == nil {
+		return nil
+	}
+	s.Run(ctx, pluginSyncInterval)
+	return nil
+}
 
 // wirePluginSync builds the syncer that keeps plugin MCP servers registered for
 // agents and plugin skills registered in the skill registry, or nil when it

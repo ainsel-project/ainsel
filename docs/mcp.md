@@ -161,6 +161,14 @@ operation in [`openapi/hub.yaml`](../openapi/hub.yaml) names its MCP tool via
 `x-mcp-tool` or records why it has none via `x-mcp-not-exposed`, in CI (see
 [`api-reference.md`](api-reference.md) and `.agent/skills/development/add-mcp-tool.md`).
 
+> This server is for **you** — a human at a laptop or a console operator. AInsel's
+> own agents do not get it. They get a separate, read-only plane served by the hub
+> at `/api/internal/agent-mcp`, which mounts the read half of this list and no
+> mutation at all: an agent may read that a trigger is paused, but cannot pause
+> one. That split is what keeps an agent from changing the platform it runs on —
+> see
+> [`administrator-guide.md`](administrator-guide.md#plugins).
+
 Write tools accept secrets (a provider API key, a secret `env` value) and never
 put them back into a result or an error string — the hub's read shapes mask
 them, and no tool echoes a request body into its error text. The single
@@ -364,6 +372,25 @@ server, whatever is asked for — those tools are served to agent runtimes throu
 a separate hub endpoint. A tool-level failure is not a call failure: it comes
 back inside the result as `isError`, the same as any other MCP tool.
 
+### Users, tokens & audit
+
+| Tool | Mode | What it answers |
+|------|------|-----------------|
+| `list_users` | read | The user registry: username, email, displayName, roles, enabled, `managedBy`. The hub's list is not paginated, so `page`/`limit` are applied MCP-side (default `limit=50`). |
+| `get_user` | read | One registry user by id. Never a password, never a token. |
+| `create_user` | write | Create a locally-managed user (admin-only): `username` + `password` required, `email`/`display_name`/`roles` optional. The password is sent once and no tool returns it. |
+| `update_user` | write | Partial update (admin-only) — only the arguments you pass are sent. `password` resets a local password and invalidates that user's session JWTs; `enabled: false` is refused with 409 for your own account and for the last admin. `roles` replaces the whole set. |
+| `delete_user` | write | Delete a registry user (admin-only). No self-deletion, last admin protected, externally managed users refused. |
+| `list_user_tokens` | read | The **calling user's** personal access tokens: id, label, createdAt, lastUsedAt, expiresAt, revokedAt. Values are never listed — the hub stores only a hash. |
+| `create_user_token` | write | Create an `ainsel_…` token for the calling user (optional `expires_in_days`). The value appears in this one response and cannot be retrieved again — only revoked. |
+| `revoke_user_token` | write | Revoke one of the caller's tokens by id. |
+| `list_auth_events` | read | The authz audit trail, newest first (admin-only): occurredAt, actorSub, eventType, target, sourceIP, outcome. Rows carry no secrets. In OIDC mode only the user-management events appear, because logins complete at the issuer. |
+
+The hub authorizes every one of these on the forwarded bearer: the MCP server
+performs no permission check of its own, so a non-admin session gets the same
+403 over MCP that the same route gives over REST. Secrets follow the same rule
+as connector secrets — accepted on a write, rendered by no read tool.
+
 ### Invocations & activity
 
 | Tool | Mode | What it answers |
@@ -411,13 +438,16 @@ limits** when the caller does not pass an explicit parameter:
 | `list_cron_triggers` | `pageSize=50` | `page`, `pageSize` |
 | `list_connectors` | `pageSize=50` | `page`, `pageSize` |
 | `list_channels` | `pageSize=50` | `page`, `pageSize`, `kind`, `since` |
-| `get_channel_events` | `limit=50` | `limit`, `since`, `status`, `subject` |
+| `get_channel_events` | `limit=50` | `limit`, `since`, `match`, `subject` |
 | `list_agent_images` | `pageSize=50` | `page`, `pageSize` |
 | `list_personas` | `pageSize=50` | `page`, `pageSize` |
 | `list_skills` | `pageSize=50` | `page`, `pageSize` |
 | `list_mcp_servers` | `pageSize=50` | `page`, `pageSize` |
 | `list_groups` | 50 (local cap — the hub endpoint has no pagination) | `limit` |
 | `list_plugins` | `pageSize=50` | `page`, `pageSize` |
+| `list_users` | `limit=50` (MCP-side window over the hub's unpaginated list) | `page`, `limit` |
+| `list_user_tokens` | 50 rows (local cap) | — (revoke what you no longer use) |
+| `list_auth_events` | `pageSize=50` | `page`, `pageSize`, `user`, `type`, `from`/`to` |
 | `list_invocations` | `limit=50` | `limit` |
 | `get_recent_errors` | `limit=50` | `limit` |
 | `get_token_usage` | 50 rows (local cap) | Narrow filters (`agent`, `repository`, `since`/`until`) |
@@ -447,6 +477,42 @@ and `truncated`/`hint` are added alongside them.
 If a hub endpoint returns a bare JSON array (no object wrapper), the
 response is wrapped as `{"items": [...], "truncated": ..., "hint": ...}`
 to provide a place for the truncation metadata.
+
+## Spec parity: which routes are tools, and which are not
+
+Every operation in [`openapi/hub.yaml`](../openapi/hub.yaml) states its MCP
+surface in the spec itself — exactly one of:
+
+```yaml
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      x-mcp-tool: list_users          # this route is the typed surface for this tool
+    post:
+      operationId: createUser
+      x-mcp-tool: create_user
+```
+
+```yaml
+  /api/v1/chat/sessions:
+    post:
+      operationId: createChatSession
+      x-mcp-not-exposed: "chat writes need an attribution + run-trigger decision (see #329)"
+```
+
+Two checks make that honest:
+
+- `services/hub/internal/api/openapi_mcp_marker_test.go` fails when an operation
+  carries neither marker, both, or an empty one — so a new hub route cannot merge
+  as an undocumented gap.
+- `services/mcp/internal/mcp/parity_test.go` fails when a marked tool is not
+  registered by the MCP server, or a registered tool has no row that names it.
+
+An aggregate tool (`summarize_workflows`, `summarize_agent_activity`, the two log
+and the two metrics tools) reads a route another tool already names, so its row
+carries a list: `x-mcp-tool: [list_agents, summarize_workflows]`. A deliberate
+non-exposure is not a bug to fix silently — the reason string says why, and which
+issue picks it up.
 
 ## Example conversations
 
