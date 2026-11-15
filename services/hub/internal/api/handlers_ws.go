@@ -110,13 +110,6 @@ func (h *wsHub) deliver(clients []*wsClient, msg wsMessage) {
 	}
 }
 
-// SetWSAllowedOrigins configures Origins permitted to open the WebSocket in
-// addition to same-origin requests. Entries may be full origins
-// ("https://app.example.com") or bare hosts ("localhost:5173").
-func (s *Server) SetWSAllowedOrigins(origins []string) {
-	s.wsAllowedOrigins = origins
-}
-
 // wsOriginAllowed validates the Origin header on a WebSocket handshake.
 //
 // This replaces a CheckOrigin that returned true unconditionally, which

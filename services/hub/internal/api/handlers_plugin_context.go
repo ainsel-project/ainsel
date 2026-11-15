@@ -79,9 +79,6 @@ type pluginContextGroup struct {
 
 // groupName resolves a group's display name; unknown groups get "".
 func (s *Server) groupName(r *http.Request, id string) string {
-	if s.authzStore == nil {
-		return ""
-	}
 	g, err := s.authzStore.GetGroup(r.Context(), id)
 	if err != nil || g == nil {
 		return ""
@@ -152,27 +149,24 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 		}
 		seen[name] = true
 
-		// Check if the user can read this resource
-		canRead := true
-		if s.authzChecker != nil {
-			var sub string
-			if isPlugin && pc.Kind != "" {
-				sub = pc.Sub
-			} else if u, ok := oidc.FromContext(ctx); ok {
-				sub = u.Sub
-			} else {
-				httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
-
-			ok, err := s.authzChecker.CanRead(ctx, sub, req.ResourceType, name)
-			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			canRead = ok
+		// Check if the user can read this resource. The checker is always wired
+		// (mode "none" installs the permissive one), so there is no "no checker,
+		// allow everything" default left to start from.
+		var sub string
+		if isPlugin && pc.Kind != "" {
+			sub = pc.Sub
+		} else if u, ok := oidc.FromContext(ctx); ok {
+			sub = u.Sub
+		} else {
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+			return
 		}
-		// else: no checker (dev mode) → all visible
+
+		canRead, err := s.authzChecker.CanRead(ctx, sub, req.ResourceType, name)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
 		if canRead {
 			visible = append(visible, name)

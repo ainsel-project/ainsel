@@ -101,8 +101,10 @@ func (s *Server) GetStats(ctx context.Context) Stats {
 		}
 	}
 
-	// Errors in the last hour — query task_logs
-	if s.taskLogs != nil {
+	// Errors in the last hour — query task_logs, when there is a records
+	// backend to ask. The store is always present (issue #264); Ready() is what
+	// says whether it can answer.
+	if s.taskLogs.Ready() {
 		count, err := s.taskLogs.CountByLevelSince(ctx, tasklogs.LevelError, time.Now().Add(-time.Hour))
 		if err == nil {
 			stats.Errors.LastHour = count

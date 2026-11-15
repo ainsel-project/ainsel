@@ -26,7 +26,7 @@ func ingestDBServer(t *testing.T) (*Server, *pgxpool.Pool) {
 	pool := dbtest.Open(t)
 
 	s := testServer(t)
-	s.SetTaskLogStore(tasklogs.NewStore(pool))
+	s.taskLogs = tasklogs.NewStore(pool)
 	s.internalValidateSecret = "sekret"
 	s.mux.HandleFunc("/api/internal/task-logs", s.handleIngestTaskLog)
 	return s, pool
@@ -37,7 +37,7 @@ func ingestPost(t *testing.T, s *Server, body string) *httptest.ResponseRecorder
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/task-logs", strings.NewReader(body))
 	req.Header.Set("X-Internal-Token", "sekret")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 

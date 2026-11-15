@@ -135,7 +135,7 @@ func (s *Server) listConnectors(ctx context.Context, w http.ResponseWriter, r *h
 	}
 
 	// Filter to resources the caller can access.
-	if s.authzStore != nil && !s.callerIsAdmin(r) {
+	if !s.callerIsAdmin(r) {
 		names := make([]string, len(list.Items))
 		for i, c := range list.Items {
 			names[i] = c.Name
@@ -179,14 +179,12 @@ func (s *Server) getConnector(ctx context.Context, w http.ResponseWriter, name s
 		return
 	}
 	resp := toWebhookConnectorResponse(c)
-	if s.authzStore != nil {
-		rg, err := s.authzStore.GetResourceGroup(ctx, "connector", name)
-		if err != nil {
-			// Group row is best-effort enrichment; degrade to no group but keep it diagnosable.
-			slog.Warn("get connector resource group", "error", err, "connector", name)
-		} else if rg != nil {
-			resp.GroupID = rg.GroupID
-		}
+	rg, err := s.authzStore.GetResourceGroup(ctx, "connector", name)
+	if err != nil {
+		// Group row is best-effort enrichment; degrade to no group but keep it diagnosable.
+		slog.Warn("get connector resource group", "error", err, "connector", name)
+	} else if rg != nil {
+		resp.GroupID = rg.GroupID
 	}
 	httpx.WriteJSON(w, http.StatusOK, resp)
 }
@@ -210,14 +208,13 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 	}
 
 	// Validate group membership for resource creation.
-	if s.authzChecker != nil {
-		if req.GroupID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-			return
-		}
-		if !s.requireGroupWrite(w, r, req.GroupID) {
-			return
-		}
+	req.GroupID = s.resolveGroupID(req.GroupID)
+	if req.GroupID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+		return
+	}
+	if !s.requireGroupWrite(w, r, req.GroupID) {
+		return
 	}
 
 	webhookHMAC, err := generateWebhookSecret()
@@ -281,14 +278,12 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 		return
 	}
 
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(ctx, "connector", id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
+	groupID := req.GroupID
+	if groupID == "" {
+		groupID = "legacy"
+	}
+	if err := s.authzStore.SetResourceGroup(ctx, "connector", id, groupID, false); err != nil {
+		slog.Error("set resource group on create", "error", err, "resource", id)
 	}
 
 	resp := toWebhookConnectorResponse(*connector)
@@ -347,10 +342,8 @@ func (s *Server) deleteConnector(r *http.Request, w http.ResponseWriter, name st
 	}
 	_ = s.deleteSecret(ctx, webhookSecretName(name))
 
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "connector", name); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", name)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "connector", name); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", name)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

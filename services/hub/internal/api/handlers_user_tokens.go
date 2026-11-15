@@ -39,10 +39,6 @@ func toTokenResponse(t usertokens.Token) tokenResponse {
 
 // handleUserTokens serves GET (list) and POST (create) on /api/v1/user-tokens.
 func (s *Server) handleUserTokens(w http.ResponseWriter, r *http.Request) {
-	if s.userTokens == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "user tokens not configured")
-		return
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
@@ -97,10 +93,6 @@ func (s *Server) handleUserTokens(w http.ResponseWriter, r *http.Request) {
 
 // handleUserTokenDelete serves DELETE on /api/v1/user-tokens/{id}.
 func (s *Server) handleUserTokenDelete(w http.ResponseWriter, r *http.Request) {
-	if s.userTokens == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "user tokens not configured")
-		return
-	}
 	if r.Method != http.MethodDelete {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -130,10 +122,6 @@ func (s *Server) handleUserTokenDelete(w http.ResponseWriter, r *http.Request) {
 // user token to a user identity. Protected by X-Internal-Token shared secret;
 // registered outside /api/v1/ so it bypasses the OIDC middleware.
 func (s *Server) handleUserTokenValidate(w http.ResponseWriter, r *http.Request) {
-	if s.userTokens == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "user tokens not configured")
-		return
-	}
 	if r.Method != http.MethodPost {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return

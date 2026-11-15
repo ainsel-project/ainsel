@@ -179,7 +179,7 @@ func (s *Server) llmCheckCandidates(r *http.Request, provider, model string) ([]
 	})
 
 	visible := make(map[string]bool, len(list.Items))
-	scoped := s.authzStore != nil && !s.callerIsAdmin(r)
+	scoped := !s.callerIsAdmin(r)
 	if scoped {
 		// Public agents are visible to every caller, so they are in scope:
 		// their stored key can answer the question for anyone.

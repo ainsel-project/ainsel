@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -112,8 +113,12 @@ func (s *stubPersonaService) Rollback(ctx context.Context, id string, n int) (*p
 func newPersonaServer(t *testing.T, svc api.PersonaService) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	api.RegisterPersonaRoutes(mux, svc, nil, nil)
-	return httptest.NewServer(mux)
+	// The permissive pair is what auth mode "none" installs in production, and
+	// "legacy" is its one group — see Deps.DefaultGroupID.
+	api.RegisterPersonaRoutes(mux, svc, authz.NewPermissiveStore(), authz.NewChecker(authz.NewPermissiveStore(), nil), "legacy")
+	// The guards have no "no caller" branch left, so this mux needs a caller the way
+	// the auth middleware supplies one in production.
+	return httptest.NewServer(api.ServeWithTestCaller(mux))
 }
 
 func TestHandlerCreatePersona(t *testing.T) {

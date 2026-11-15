@@ -18,23 +18,9 @@ import (
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
-// SetLocalAuthSecret enables local username/password authentication with the
-// given JWT signing secret. Must be called before the server starts serving.
-func (s *Server) SetLocalAuthSecret(secret []byte) {
-	s.localAuthSecret = secret
-	s.loginThrottle = newLoginThrottle()
-}
-
 // LocalAuthEnabled reports whether local login is wired.
 func (s *Server) LocalAuthEnabled() bool {
 	return len(s.localAuthSecret) > 0
-}
-
-// SetPasswordPolicy installs the password policy enforced on all
-// password-setting paths. Must be called before the server starts serving,
-// following the SetLocalAuthSecret pattern.
-func (s *Server) SetPasswordPolicy(p PasswordPolicy) {
-	s.passwordPolicy = &p
 }
 
 // passwordPolicyOrDefault returns the effective policy. The zero-value Server
@@ -239,7 +225,7 @@ func isPasswordChangeAllowed(path, method string) bool {
 // those modes are unaffected.
 func (s *Server) passwordChangeGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.authzStore == nil || isPasswordChangeAllowed(r.URL.Path, r.Method) {
+		if isPasswordChangeAllowed(r.URL.Path, r.Method) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -305,7 +291,7 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	// Only local accounts have a flag to report. An unknown subject reads as
 	// false rather than 404, so /auth/me stays a self-report and not a way to
 	// probe the registry.
-	if s.authzStore != nil && strings.HasPrefix(u.Sub, authz.LocalUserIDPrefix) {
+	if strings.HasPrefix(u.Sub, authz.LocalUserIDPrefix) {
 		if stored, err := s.authzStore.GetUser(r.Context(), u.Sub); err == nil {
 			resp.MustChangePassword = stored.MustChangePassword
 		}

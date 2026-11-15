@@ -40,7 +40,6 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
-	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
@@ -124,10 +123,6 @@ func newPluginEndToEnd(t *testing.T) *pluginEndToEnd {
 	plugin.Spec.ApprovedPermissions = []string{"agents:read"}
 	plugin.Status.Manifest = &runtime.RawExtension{Raw: hello.Manifest()}
 
-	// The production constructor, so the route table is the one a real hub
-	// serves rather than a test's shortlist.
-	s := New(newFakeClient(plugin), "test-ns", ConnectorConfig{}, nil, invocationstest.New(100), nil, nil, nil, &Config{})
-
 	store := newFakeAuthzStore()
 	ctx := context.Background()
 	if _, err := store.CreateGroup(ctx, "g1", "Platform"); err != nil {
@@ -160,31 +155,38 @@ func newPluginEndToEnd(t *testing.T) *pluginEndToEnd {
 		}
 		return map[string]authz.GroupRole{"g1": authz.RoleReader}, nil
 	}
-	s.SetAuthZ(store, authz.NewChecker(store, authz.NewGroupCache(loader, time.Minute)))
-
 	issuer, err := plugincreds.NewIssuer([]byte(e2eCredSecret), 5*time.Minute)
 	if err != nil {
 		t.Fatalf("plugin credential issuer: %v", err)
 	}
-	s.SetPluginCredentialIssuer(issuer)
-	s.SetInternalValidateSecret(e2eInternalSecret)
-	s.SetPluginMCPClient(pluginmcp.New(&http.Client{Timeout: 20 * time.Second}))
 
 	// Production wiring, from cmd/hub/wire.go: plugin credentials are checked
 	// by the plugin middleware, everything else falls through to a chain that
-	// here stands in for OIDC and resolves every request to e2eUser.
-	s.SetAuthMiddleware(s.PluginCredentialMiddleware(
-		authz.NewDisabledGuard(store),
-		func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r.WithContext(oidc.ContextWithUser(r.Context(), &oidc.User{
-					Sub:      e2eUser,
-					Username: "ada",
-					Email:    "ada@example.com",
-				})))
-			})
-		},
-	))
+	// here stands in for OIDC and resolves every request to e2eUser. The chain
+	// is composed before the server, because Deps takes it as a finished
+	// middleware — the same order cmd/hub uses.
+	chain := NewPluginCredentialChain(issuer, newFakeClient(plugin), "test-ns", &recordingAuditStore{})
+	fallback := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(oidc.ContextWithUser(r.Context(), &oidc.User{
+				Sub:      e2eUser,
+				Username: "ada",
+				Email:    "ada@example.com",
+			})))
+		})
+	}
+
+	// The production constructor, so the route table is the one a real hub
+	// serves rather than a test's shortlist.
+	deps := testDeps(t)
+	deps.Client = newFakeClient(plugin)
+	deps.AuthzStore = store
+	deps.AuthzChecker = authz.NewChecker(store, authz.NewGroupCache(loader, time.Minute))
+	deps.PluginCreds = issuer
+	deps.InternalValidateSecret = e2eInternalSecret
+	deps.PluginMCP = pluginmcp.New(&http.Client{Timeout: 20 * time.Second})
+	deps.AuthMiddleware = chain.Middleware(authz.NewDisabledGuard(store), fallback)
+	s := newTestServer(t, deps)
 
 	hub := httptest.NewServer(s)
 	t.Cleanup(hub.Close)

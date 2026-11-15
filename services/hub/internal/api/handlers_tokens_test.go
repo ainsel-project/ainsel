@@ -48,7 +48,7 @@ func TestListTokens_IncludesCacheComponentsInTotals(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -102,7 +102,7 @@ func TestListTokens_MergesMultipleEntriesAndSumsTotals(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -141,7 +141,7 @@ func TestListTokens_PassesFiltersToPromQL(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens?agent=dev&repository=ainsel-project/ainsel&issueNumber=42", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -158,7 +158,7 @@ func TestListTokens_Returns503WhenPromNotConfigured(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -170,11 +170,11 @@ func TestListTokens_PinnedPrometheusWithoutURLNamesPrometheus(t *testing.T) {
 	// records — a pinned install is told the exact thing it has to fix, and
 	// the endpoint never silently answers from the other backend.
 	s := newServerWithTokensRoute(t, nil)
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -201,7 +201,7 @@ func TestListTokens_BadIssueNumberIs400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens?issueNumber=not-a-number", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -218,7 +218,7 @@ func TestListTokens_PromPathReportsSource(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -242,7 +242,7 @@ func TestHandleTokens_RejectsNonGET(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d: %s", rec.Code, rec.Body.String())
@@ -281,7 +281,7 @@ func getTokens(t *testing.T, s *Server, query string) tokensResponse {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens"+query, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/v1/tokens%s: expected 200, got %d: %s", query, rec.Code, rec.Body.String())
 	}
@@ -369,7 +369,7 @@ func TestListTokens_RecordsTotalEqualsSummaryTile(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("summary: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -447,7 +447,7 @@ func TestListTokens_RecordsRejectsBadSince(t *testing.T) {
 	s, _ := tokensRecordsServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens?since=yesterday", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -458,11 +458,11 @@ func TestListTokens_PinnedPrometheusNeverAnswersFromRecords(t *testing.T) {
 	// naming Prometheus. A pinned install is never silently answered from the
 	// records — that is the shared selector rule, not a third vocabulary.
 	s, _ := tokensRecordsServer(t)
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())

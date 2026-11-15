@@ -26,8 +26,9 @@ func localAuthTestServer(t *testing.T) (*Server, *fakeAuthzStore) {
 	s.authzChecker = authz.NewChecker(store, authz.NewGroupCache(func(string) (map[string]authz.GroupRole, error) {
 		return nil, nil
 	}, time.Minute))
-	s.identityTracker = newIdentityPersistTracker()
-	s.SetLocalAuthSecret(testLocalSecret)
+	s.identityTracker = NewIdentityPersistTracker()
+	s.localAuthSecret = testLocalSecret
+	s.loginThrottle = newLoginThrottle()
 	// testServer() does not register routes; wire the ones under test.
 	s.mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
 	s.mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
@@ -400,9 +401,9 @@ func TestIssuedTokenAuthenticates(t *testing.T) {
 	s, store := localAuthTestServer(t)
 	seedAdmin(t, store)
 	// Wire the real local middleware chain onto the server.
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return localauth.NewMiddleware(testLocalSecret, store)(s.IdentityPersistMiddleware(next))
-	})
+	}
 
 	rec := doJSON(t, s, http.MethodPost, "/api/v1/auth/login", map[string]string{
 		"username": "admin", "password": "admin-password",
@@ -454,9 +455,9 @@ func TestIssuedTokenAuthenticates(t *testing.T) {
 func localMWServer(t *testing.T) (*Server, *fakeAuthzStore) {
 	t.Helper()
 	s, store := localAuthTestServer(t)
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return localauth.NewMiddleware(testLocalSecret, store)(s.IdentityPersistMiddleware(next))
-	})
+	}
 	return s, store
 }
 

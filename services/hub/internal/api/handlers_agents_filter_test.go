@@ -24,10 +24,10 @@ import (
 // the caller cannot read yields nothing rather than another tenant's agents.
 
 // agentFilterAuthzFake is a small in-memory authz graph for the list filters.
-// It embeds the full authzStore interface so any method it does not implement
+// It embeds the full AuthzStore interface so any method it does not implement
 // panics loudly instead of returning a zero value a test could misread.
 type agentFilterAuthzFake struct {
-	authzStore
+	AuthzStore
 
 	// admins maps a subject to its admin flag.
 	admins map[string]bool
@@ -125,7 +125,7 @@ func newAgentFilterEnv(t *testing.T, agents []*agentv1alpha1.Agent, fake *agentF
 			}, time.Minute))
 		s.authzChecker = checker
 	}
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler { return next })
+	s.authMW = func(next http.Handler) http.Handler { return next }
 	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
 	return s
 }
@@ -147,7 +147,7 @@ func listAgentsAs(t *testing.T, s *Server, sub, query string) (int, agentListPag
 		req = req.WithContext(oidc.ContextWithUser(req.Context(), &oidc.User{Sub: sub, Username: sub}))
 	}
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	var page agentListPage
 	if rec.Body.Len() > 0 && rec.Code/100 == 2 {
 		if err := json.NewDecoder(rec.Body).Decode(&page); err != nil {
@@ -165,7 +165,10 @@ func itemNames(page agentListPage) []string {
 	return out
 }
 
-// Without authz the search filter still applies, before paging.
+// The search filter applies before paging. There is no "without authz" server
+// any more (issue #264): the env's store is the permissive one auth mode "none"
+// installs, which answers admin for the subject this request carries, so the
+// list is unfiltered and the filter under test is the search alone.
 func TestListAgents_SearchFiltersBeforePaging(t *testing.T) {
 	s := newAgentFilterEnv(t, []*agentv1alpha1.Agent{
 		filterTestAgent("a-1", "Alpha Writer", "writes docs"),
@@ -173,7 +176,7 @@ func TestListAgents_SearchFiltersBeforePaging(t *testing.T) {
 		filterTestAgent("a-3", "alpha-reader", "reads docs back"),
 	}, nil)
 
-	code, page := listAgentsAs(t, s, "", "search=alpha")
+	code, page := listAgentsAs(t, s, "anyone", "search=alpha")
 	if code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", code)
 	}
@@ -183,24 +186,24 @@ func TestListAgents_SearchFiltersBeforePaging(t *testing.T) {
 	}
 
 	// Description match.
-	_, page = listAgentsAs(t, s, "", "search=triage")
+	_, page = listAgentsAs(t, s, "anyone", "search=triage")
 	if page.Total != 1 || page.Items[0].Name != "Triage Bot" {
 		t.Fatalf("expected description match, got %v", itemNames(page))
 	}
 
 	// Search composes with pagination: total reflects the filtered set and
 	// page 2 of the filtered set is the second match.
-	_, page = listAgentsAs(t, s, "", "search=alpha&page=1&pageSize=1")
+	_, page = listAgentsAs(t, s, "anyone", "search=alpha&page=1&pageSize=1")
 	if page.Total != 2 || page.TotalPages != 2 || len(page.Items) != 1 {
 		t.Fatalf("expected filtered total=2 totalPages=2, got %+v", page)
 	}
-	_, page = listAgentsAs(t, s, "", "search=alpha&page=2&pageSize=1")
+	_, page = listAgentsAs(t, s, "anyone", "search=alpha&page=2&pageSize=1")
 	if len(page.Items) != 1 || page.Items[0].Name != "alpha-reader" {
 		t.Fatalf("expected page 2 = alpha-reader, got %v", itemNames(page))
 	}
 
 	// Empty result.
-	code, page = listAgentsAs(t, s, "", "search=zzz")
+	code, page = listAgentsAs(t, s, "anyone", "search=zzz")
 	if code != http.StatusOK || page.Total != 0 || len(page.Items) != 0 {
 		t.Fatalf("expected empty result, got code=%d page=%+v", code, page)
 	}

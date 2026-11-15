@@ -27,7 +27,7 @@ func newTestEventStore(t *testing.T) (*eventqueue.Store, func()) {
 func eventsTestServer(t *testing.T, store *eventqueue.Store) *Server {
 	t.Helper()
 	s := testServer(t)
-	s.SetEventQueue(store)
+	s.eventQueue = store
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
 	s.mux.HandleFunc("/api/v1/events/", s.handleEvent)
 	return s
@@ -89,7 +89,7 @@ func TestListEvents_Empty(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=100", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -120,7 +120,7 @@ func TestListEvents_StatusDerivation(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=100", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -175,7 +175,7 @@ func TestListEvents_ConnectorFilter(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?connector=slack", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -197,7 +197,7 @@ func TestListEvents_SinceFilter(t *testing.T) {
 	future := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?since="+future, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -210,7 +210,7 @@ func TestListEvents_SinceFilter(t *testing.T) {
 	past := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/events?since="+past, nil)
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if env := decodeEnvelope(t, rec); len(env.Events) != 1 {
 		t.Fatalf("expected 1 event for past since, got %d", len(env.Events))
 	}
@@ -223,7 +223,7 @@ func TestListEvents_InvalidSince_400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?since=not-a-time", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -237,7 +237,7 @@ func TestListEvents_InvalidLimit_400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=abc", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -276,7 +276,7 @@ func TestListEvents_Pagination(t *testing.T) {
 		url := fmt.Sprintf("/api/v1/events?limit=2&offset=%d", page*2)
 		req := httptest.NewRequest(http.MethodGet, url, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: expected 200, got %d: %s", url, rec.Code, rec.Body.String())
@@ -307,7 +307,7 @@ func TestListEvents_TotalReflectsFilters(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=1&connector=github", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	env := decodeEnvelope(t, rec)
 	if len(env.Events) != 1 {
@@ -340,7 +340,7 @@ func TestListEvents_StatusFilter(t *testing.T) {
 	for _, tc := range cases {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/events?status="+tc.status, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status=%s: expected 200, got %d: %s", tc.status, rec.Code, rec.Body.String())
@@ -373,7 +373,7 @@ func TestListEvents_AgentFilter(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?agent=agent-a", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	env := decodeEnvelope(t, rec)
 	if env.Total != 2 {
@@ -396,7 +396,7 @@ func TestListEvents_InvalidOffset_400(t *testing.T) {
 	for _, v := range []string{"abc", "-1"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/events?offset="+v, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("offset=%s: expected 400, got %d", v, rec.Code)
 		}
@@ -410,7 +410,7 @@ func TestListEvents_InvalidStatus_400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?status=bogus", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -427,7 +427,7 @@ func TestGetEvent_Found(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/evt-123", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -451,7 +451,7 @@ func TestGetEvent_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/does-not-exist", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -464,25 +464,16 @@ func TestGetEvent_RejectsMissingID(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestListEvents_NotConfigured_503(t *testing.T) {
-	s := testServer(t)
-	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when event queue not configured, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
+// The event queue is a required dependency (issue #264), so this endpoint has no
+// "not configured" 503 left; TestNewRejectsMissingEventQueue pins where that
+// state went instead.
 
 // seedTaskWithInvocation inserts a task for an event and sets its invocation_id.
 func seedTaskWithInvocation(t *testing.T, store *eventqueue.Store, eventID, agent, trigger, status, invocationID string) {
@@ -571,11 +562,11 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		`UPDATE agent_tasks SET created_at = now() - interval '2 hours' WHERE invocation_id = 'inv-eeee'`); err != nil {
 		t.Fatalf("age task: %v", err)
 	}
-	s.SetTaskStartTimeout(15 * time.Minute)
+	s.taskStartTimeout = 15 * time.Minute
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=100", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -681,7 +672,7 @@ func TestGetEvent_RunStateEnrichment(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/evt-detail", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -777,7 +768,7 @@ func listEventsOutcome(t *testing.T, s *Server, query string) eventsEnvelope {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?"+query, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query %q: expected 200, got %d: %s", query, rec.Code, rec.Body.String())
 	}
@@ -878,7 +869,7 @@ func TestListEvents_InvalidOutcome_400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?outcome=bogus", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())

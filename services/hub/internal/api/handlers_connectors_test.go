@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -23,12 +28,45 @@ import (
 func testServer(t *testing.T, objects ...runtime.Object) *Server {
 	t.Helper()
 	fc := newFakeClient(objects...)
+	// The authz pair is part of a Server, not an optional attachment (issue
+	// #264): the guards have no "not wired" branch left to take. A hand-built
+	// test server installs the same permissive pair auth mode "none" installs in
+	// production, so every caller reads as admin and unguarded routes stay
+	// unguarded. Tests that exercise the guards replace both fields.
+	store := authz.NewPermissiveStore()
 	return &Server{
 		client:             fc,
 		mux:                http.NewServeMux(),
 		ns:                 "test-ns",
 		observabilityCache: newPromCache(observabilityCacheTTL),
 		invocations:        invocationstest.New(100),
+		// Skills is a required dependency (issue #264): an agent create validates its
+		// skill ids against the catalogue instead of skipping the check when the
+		// service is absent. Tests that assert on the catalogue replace it.
+		skills: skills.NewService(skills.NewStore(deadPool(t)), nil, nil),
+		// The audit sink is required too; recording an auth event is best-effort
+		// and must not need a nil guard. Tests assert on their own sink.
+		authEvents:     &recordingAuditStore{},
+		chat:           chat.NewStore(deadPool(t)),
+		taskLogs:       tasklogs.NewStore(nil),
+		authzStore:     store,
+		authzChecker:   authz.NewChecker(store, nil),
+		defaultGroupID: "legacy",
+		// The caller-injecting middleware auth mode "none" installs in
+		// production: a Server always has a caller, so a hand-built test server
+		// states one too instead of relying on a guard that allowed anonymous
+		// requests. Tests that need "no caller" clear this field.
+		authMW: func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, ok := oidc.FromContext(r.Context()); ok {
+					next.ServeHTTP(w, r)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(oidc.ContextWithUser(r.Context(), &oidc.User{
+					Sub: "test-admin", Email: "admin@ainsel.local", Username: "admin",
+				})))
+			})
+		},
 	}
 }
 
@@ -54,7 +92,7 @@ func createWebhookConnectorForTest(t *testing.T, s *Server, body WebhookConnecto
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/connectors", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	var resp WebhookConnectorResponse
 	if rec.Body.Len() > 0 && rec.Code/100 == 2 {
 		_ = json.NewDecoder(rec.Body).Decode(&resp)
@@ -99,7 +137,7 @@ func TestCreateWebhookConnector_ReturnsWebhookFields(t *testing.T) {
 	// Subsequent GET must expose webhookEndpoint but NOT the HMAC secret value
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/connectors/"+created.ID, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 on GET, got %d", rec.Code)
 	}
@@ -147,7 +185,7 @@ func TestCreateWebhookConnector_RequiresName(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/connectors", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when name is empty, got %d", rec.Code)
 	}
@@ -208,7 +246,7 @@ func TestUpdateWebhookConnector_DisableAndRename(t *testing.T) {
 	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/connectors/"+created.ID, bytes.NewReader(ub))
 	putReq.Header.Set("Content-Type", "application/json")
 	putRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(putRec, putReq)
+	s.ServeHTTP(putRec, putReq)
 	if putRec.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", putRec.Code, putRec.Body.String())
 	}
@@ -243,7 +281,7 @@ func TestUpdateWebhookConnector_DisableAndRename(t *testing.T) {
 	putReq2 := httptest.NewRequest(http.MethodPut, "/api/v1/connectors/"+created.ID, bytes.NewReader(ub2))
 	putReq2.Header.Set("Content-Type", "application/json")
 	putRec2 := httptest.NewRecorder()
-	s.mux.ServeHTTP(putRec2, putReq2)
+	s.ServeHTTP(putRec2, putReq2)
 	if putRec2.Code != http.StatusOK {
 		t.Fatalf("re-enable: expected 200, got %d: %s", putRec2.Code, putRec2.Body.String())
 	}
@@ -267,7 +305,7 @@ func TestDeleteWebhookConnector_RemovesSecretAndCR(t *testing.T) {
 
 	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/connectors/"+created.ID, nil)
 	delRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(delRec, delReq)
+	s.ServeHTTP(delRec, delReq)
 	if delRec.Code != http.StatusNoContent {
 		t.Fatalf("delete: expected 204, got %d: %s", delRec.Code, delRec.Body.String())
 	}
@@ -298,7 +336,7 @@ func TestListWebhookConnectors_Pagination(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/connectors?pageSize=2&page=1", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -329,7 +367,7 @@ func TestGetWebhookConnector_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/connectors/does-not-exist", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
 	}
@@ -350,7 +388,7 @@ func TestGetWebhookConnector_GroupID(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/connectors/"+created.ID, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -377,7 +415,7 @@ func TestCreateWebhookConnector_ImageNotConfigured(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/connectors", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 when image not configured, got %d", rec.Code)
 	}
@@ -425,7 +463,7 @@ func TestConnector_PreExistingCR(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/connectors/helm-connector", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -455,7 +493,7 @@ func TestRotateConnectorSecret_ReturnsNewSecretValue(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/connectors/"+created.ID+"/rotate-secret", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rotate: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -486,7 +524,7 @@ func TestRotateConnectorSecret_UnknownConnector(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/connectors/nonexistent/rotate-secret", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown connector, got %d", rec.Code)
 	}

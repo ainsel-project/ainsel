@@ -88,7 +88,7 @@ func TestInvocations_EventEnrichesTasks(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?event="+eventID, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -167,7 +167,7 @@ func TestInvocations_EventSynthesizesFailedTask(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?event="+eventID, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	var resp struct {
 		Invocations []invocations.Invocation `json:"invocations"`
@@ -345,7 +345,7 @@ func TestInvocations_ListWithoutEventAttachesTaskState(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?agent="+agent, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())

@@ -38,7 +38,7 @@ func pluginCredentialTestServer(t *testing.T) (*Server, *fakeAuditStore, *plugin
 
 	// Wire the audit store
 	audit := &fakeAuditStore{}
-	s.SetAuditEventStore(audit)
+	s.authEvents = audit
 
 	// Create plugin credentials issuer
 	secret := make([]byte, 32)
@@ -49,7 +49,7 @@ func pluginCredentialTestServer(t *testing.T) (*Server, *fakeAuditStore, *plugin
 	if err != nil {
 		t.Fatalf("create issuer: %v", err)
 	}
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	// Convert secret to token form (base64 would be normal, but any 32+ bytes works)
 	return s, audit, issuer, string(secret)
@@ -332,7 +332,7 @@ func TestPluginCredential_PluginKindUsesGroups(t *testing.T) {
 	// Create issuer
 	secret := make([]byte, 32)
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	// Token has groups from g1
 	tok := mintPluginPluginToken(t, issuer, "mem0", []string{"agents:read"},
@@ -345,7 +345,7 @@ func TestPluginCredential_PluginKindUsesGroups(t *testing.T) {
 	rec := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("agent in group: expected 200, got %d", rec.Code)
+		t.Errorf("agent in group: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// a2 lives in g2, which the plugin was not granted

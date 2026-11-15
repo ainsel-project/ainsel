@@ -104,10 +104,6 @@ func writeSignInError(w http.ResponseWriter, err error) {
 //	DELETE /api/v1/agents/{name}/chatgpt-sign-in           cancel
 //	POST   /api/v1/agents/{name}/chatgpt-sign-in/redirect  paste the redirect URL
 func (s *Server) handleAgentSignIn(w http.ResponseWriter, r *http.Request, name string, redirect bool) {
-	if s.signIn == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "ChatGPT sign-in needs the hub database")
-		return
-	}
 	ctx := r.Context()
 	if redirect {
 		if r.Method != http.MethodPost {
@@ -261,10 +257,6 @@ func (s *Server) settleEndedSignIn(ctx context.Context, name string, sess signin
 //	GET  /api/internal/agents/{name}/chatgpt-sign-in/{session}/redirect
 //	POST /api/internal/agents/{name}/chatgpt-sign-in/{session}/result
 func (s *Server) handleInternalSignIn(w http.ResponseWriter, r *http.Request, path string) {
-	if s.signIn == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "ChatGPT sign-in needs the hub database")
-		return
-	}
 	agent, rest, _ := strings.Cut(path, "/chatgpt-sign-in/")
 	id, verb, ok := strings.Cut(rest, "/")
 	if agent == "" || id == "" || !ok {

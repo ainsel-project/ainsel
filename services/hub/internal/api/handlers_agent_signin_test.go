@@ -42,7 +42,7 @@ func signInServer(t *testing.T) (*Server, *time.Time) {
 		signInTestAgent("signer", agentv1alpha1.OpenAIAuthMethodChatGPTSignIn),
 		signInTestAgent("keyed", agentv1alpha1.OpenAIAuthMethodAPIKey))
 	now := time.Now()
-	s.SetSignInStore(signin.NewMemStore(func() time.Time { return now }))
+	s.signIn = signin.NewMemStore(func() time.Time { return now })
 	s.internalValidateSecret = testInternalToken
 	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
 	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
@@ -72,7 +72,7 @@ func call(t *testing.T, s *Server, method, path string, body any, internal bool)
 		}
 	}
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, r)
+	s.ServeHTTP(rec, r)
 	return rec.Code, rec.Body.Bytes()
 }
 
@@ -109,7 +109,7 @@ func TestSignInStartRequiresWrite(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/agents/signer/chatgpt-sign-in", nil)
 	r = r.WithContext(oidc.ContextWithUser(r.Context(), &oidc.User{Sub: "u1", Username: "u1"}))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, r)
+	s.ServeHTTP(rec, r)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("reader starting a sign-in: %d, want 403", rec.Code)
 	}
@@ -421,7 +421,7 @@ func TestInternalSignInRequiresPodToken(t *testing.T) {
 			r.Header.Set("X-Sign-In-Token", tok)
 		}
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, r)
+		s.ServeHTTP(rec, r)
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("pod token %q: %d, want 403", tok, rec.Code)
 		}
