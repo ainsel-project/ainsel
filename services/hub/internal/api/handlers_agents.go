@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
@@ -1343,13 +1344,7 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 
 	// Assign the agent to the creator's chosen group.
-	groupID := req.GroupID
-	if groupID == "" {
-		groupID = "legacy"
-	}
-	if err := s.authzStore.SetResourceGroup(r.Context(), "agent", id, groupID, false); err != nil {
-		slog.Error("set resource group on create", "error", err, "resource", id)
-	}
+	s.assignGroup(r.Context(), authz.ResourceAgent, id, req.GroupID)
 
 	httpx.WriteJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, res.displayName))
 }

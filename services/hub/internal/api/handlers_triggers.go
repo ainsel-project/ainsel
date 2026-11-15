@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	ainselapishared "github.com/ainsel-project/ainsel/shared/api"
@@ -262,13 +263,7 @@ func (s *Server) createTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	// Assign the trigger to the creator's chosen group.
-	groupID := req.GroupID
-	if groupID == "" {
-		groupID = "legacy"
-	}
-	if err := s.authzStore.SetResourceGroup(r.Context(), "trigger", id, groupID, false); err != nil {
-		slog.Error("set resource group on create", "error", err, "resource", id)
-	}
+	s.assignGroup(r.Context(), authz.ResourceTrigger, id, req.GroupID)
 
 	httpx.WriteJSON(w, http.StatusCreated, toSimpleTriggerResponse(t))
 }

@@ -250,9 +250,7 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 			h.writeSkillError(w, err)
 			return
 		}
-		if err := h.store.SetResourceGroup(r.Context(), "skill", sk.ID, req.GroupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", sk.ID)
-		}
+		assignGroup(r.Context(), h.store, authz.ResourceSkill, sk.ID, req.GroupID)
 		httpx.WriteJSON(w, http.StatusCreated, sk)
 	default:
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
