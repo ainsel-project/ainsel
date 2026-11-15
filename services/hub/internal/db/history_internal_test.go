@@ -189,3 +189,69 @@ func TestClassifyHistoryAllowsRollback(t *testing.T) {
 		t.Fatalf("rollback should not be drift, got %+v", d)
 	}
 }
+
+// shippedMigrations pins the checksum of every migration that has reached a
+// database. Editing one after release - even a comment - changes its checksum,
+// and every hub whose schema_history recorded the old one refuses to start
+// (#320 reworded a comment in 0034 and took the dev hub down). Fix a shipped
+// migration with a new one; when you add a migration, append its line here.
+var shippedMigrations = migrationSet{
+	1:  "0dfabfdedc5b456ef3de1c6a7b50e7878fcfdcc5997d2a1e01ad3c58bb2cd93e",
+	2:  "4db313d64d1ee57b98768953ec3dd2394d559660d01b9a41a2eb8fb912d1c743",
+	3:  "940c66818b249f60cba4a77be0c2eaf8e1e616a02cc8b3dc9b5548505c4a64b5",
+	4:  "d01a0c4374d49515c29ca3da307c93ed63488f00c0e9799ab730409ded9d2ab9",
+	5:  "e073f9ae783556fb197848c0c484020935d588efd17284ca1eae31cfa9ed205f",
+	6:  "f8b7e6bc3136a690ce2f2f96185b8ac277ad0833a4b27777b9690b9be3b5e5a2",
+	7:  "966c78f1bf388bdb006f898575d36e0b41cbf5806aee1efe057271e1b45d818e",
+	8:  "d74b32fa78b07775cc6e8dd2b88560f62abc9fcf405adc16e274e3a02caf54f1",
+	9:  "22dbe6ae06245982dbc15e8a056b28be343dd29396484b05f5a598b39cbbd450",
+	10: "8215666c90cf24b1fbbd6f7ad8f45cecdf88044cab373c060b3ed956ebb1411f",
+	11: "97b553502591f953e795c92d33ca8bfa3fb916a005422e54b74f65e0486d735b",
+	12: "a5c9758a9df6b561302ee5718753a142e737aaa81030b1c294e80f4ed202a038",
+	13: "5e6027ad2a0e7afb2765a1a0e9bc13220d8cef3c3972ac8b0dab833707864692",
+	14: "bd82f07d97878008cb62f3e06e2e5c4537bc8f3854410535f04f2739bf524e00",
+	15: "38eec993d7c68f379482d56d54b5564493add78e0c3748639ec6aa0cb6ee5b6a",
+	16: "a5d33c4a71847c6c9d2857a90c45d0d571dd25dbb442a7292e1d3b036a70da32",
+	17: "ec82a8dc20cdf923b1a4bcfa74761df75eb97c1d488978f4010cee2e819efae7",
+	18: "4e7edc831b9ad7d8ba02db7ec9e0fdd179a8057c93134426baf19a8ebc342a17",
+	19: "24e4e717c57d5c38db4907719abd18d67a89c7c472415dbaeea69deeb25e7586",
+	20: "d5f722e8702bf093fbe303d27c7d28d8538a88f8f5446e58a9d7257c1072b487",
+	21: "8562d77f577e889db0d5081fbef85af89a546804c18c5145f2cbd3d3b3d7af6d",
+	22: "beb7758c1aece24a76ac8616fd61623975f8d336e10f760ba9dd510e587ef591",
+	23: "809e6d2f6a887eb54f73b03c9cd7d0d8fb3458885a0664400e2044553ce2b7c4",
+	24: "13ac39a36ccca6ebc8dab7c928b0eee28b141fe15e919c9c3351b426aa6a77e4",
+	25: "e35e205237bfd6d51eddaf66bbaee4fa2d9a617de87a986a51bf063fd4a9db05",
+	26: "5d5ccd59278a0711bc6bd91655383544e427c9db5f2e814fb88ff6c1d1eadedc",
+	27: "9e3341f9c368fcbe521cf27b9328485d7f2beb3a6b6c53165fd4a7575465109e",
+	28: "ded2e8bec1ff9bba0d4f09a5bd23e2a7c669521c136607e994b9724916ad27a9",
+	29: "5b756298e653862398ae6b6a4f3f5ac0e030ccdd0979987107561720149e94ea",
+	30: "f9ee169e37e7d830849ca297584651eec01ff7d86e2f33ea3fb65475c44e6661",
+	31: "decac8d9bff35cfdefb69b900c8720c68d9ace717b0407d3b6d43e5befbe52ab",
+	32: "82da8425a66a30d1aa685287ba2bc7a93d4159917b0e3cd58ae7a7e2595f70bb",
+	33: "5efa6ea59dc43dd36fd9c7f7e5b6381aaf660dbccb44d19b2b3eef39bb8c7e99",
+	34: "997c037c907cf993b4abe763849cd028a99eead1c9b2e8b25b79410e071d5998",
+	35: "35ab4595cf3f97b6e3af1f54e204077f4819ad1f19653eb6eb5cf8735719b692",
+	36: "7c5c8ffcfa7d2f831efaecd9d2f535e5cd7b8502dc08945683f47c7bbbe3e6f5",
+}
+
+func TestShippedMigrationsAreNeverEdited(t *testing.T) {
+	files, err := loadMigrationSet()
+	if err != nil {
+		t.Fatalf("loadMigrationSet: %v", err)
+	}
+	for v, want := range shippedMigrations {
+		got, ok := files[v]
+		if !ok {
+			t.Errorf("migration %d was shipped but is no longer embedded", v)
+			continue
+		}
+		if got != want {
+			t.Errorf("migration %d was edited after release: checksum %s, shipped %s. Restore the file and put the change in a new migration.", v, short(got), short(want))
+		}
+	}
+	for v := range files {
+		if _, ok := shippedMigrations[v]; !ok {
+			t.Errorf("migration %d is not pinned: add its checksum to shippedMigrations", v)
+		}
+	}
+}
