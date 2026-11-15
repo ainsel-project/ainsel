@@ -233,8 +233,16 @@ func TestResolveMCPRequest_ExplicitEmptySelection(t *testing.T) {
 }
 
 // The MCP service is a required dependency (issue #264), so an unresolvable
-// server is a lookup miss rather than a "service not configured" answer.
-func TestResolveMCPRequest_UnknownServerIs404(t *testing.T) {
+// name is no longer the 503 "mcp service not configured" the old nil-service
+// path answered. It is still a 400, not a 404: the resource the request
+// addresses is the agent being written, and the unknown registry name is a bad
+// field of its body. docs/api-reference.md documents the agent MCP selection as
+// "unknown names -> 400", and the sibling write paths in handlers_agents.go and
+// handlers_agent_images.go answer the same way.
+//
+// This needs a real registry: with no store behind the service the lookup fails
+// as an internal error rather than a miss, which is the 500 branch.
+func TestResolveMCPRequest_UnknownServerIs400(t *testing.T) {
 	s := testServer(t)
 	s.mcp = mcpServiceForTest(t)
 	_, err := s.resolveMCPRequest(context.Background(), &AgentMCPRequest{Servers: []string{"github"}})
@@ -242,8 +250,8 @@ func TestResolveMCPRequest_UnknownServerIs404(t *testing.T) {
 	if !errors.As(err, &ae) {
 		t.Fatalf("expected an *apiError, got %v", err)
 	}
-	if ae.Status != http.StatusNotFound {
-		t.Errorf("expected 404, got %d %q", ae.Status, ae.Msg)
+	if ae.Status != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d %q", ae.Status, ae.Msg)
 	}
 }
 
