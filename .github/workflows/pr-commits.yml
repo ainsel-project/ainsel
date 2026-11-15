@@ -1,0 +1,61 @@
+name: PR commits
+
+# The changelog is written from commits, not from PR titles. PRs merge into
+# `main` as merge commits carrying their branch commits, and
+# `release-please-config.json` sets `include-pull-requests: false` — the PR-title
+# entry that used to appear for a non-conventional merge commit is off, which is
+# what stopped `CHANGELOG.md` listing every change twice.
+#
+# The cost is a new failure mode: a branch commit whose subject release-please
+# cannot parse merges, ships, and contributes nothing — no changelog entry, no
+# version bump, no red check. `pr-title.yml` used to guarantee that *something*
+# parseable landed on `main`; once titles stop becoming commit subjects, this
+# check is what guarantees it instead.
+#
+# See scripts/check-conventional-commits.py for the rules (what parses, which
+# commits are exempt) and its test, scripts/test_check_conventional_commits.py.
+# The pattern is pinned to the one in pr-title.yml by that test, so the two
+# checks cannot drift.
+#
+# No third-party action: the commit list comes from the API with the runner
+# token, and the rule lives in a tested script.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read # checkout the script
+  pull-requests: read # list the PR's commits
+
+jobs:
+  conventional:
+    name: Every commit conventional
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COMMITS_URL: ${{ github.event.pull_request.commits_url }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check every commit is a conventional commit
+        run: |
+          set -euo pipefail
+
+          # An app cannot be asked to reword its commits, and failing here would
+          # stop dependabot-auto-merge from ever merging its PRs. Its subjects
+          # (`chore(deps): bump …`) are conventional by construction.
+          case "$PR_AUTHOR" in
+            *'[bot]')
+              echo "ok: author '$PR_AUTHOR' is an app; its commit subjects are its own to choose"
+              exit 0
+              ;;
+          esac
+
+          # --paginate follows the Link headers; the endpoint caps a page at 100
+          # commits and gh emits the pages back to back, which the script
+          # flattens. Stopping at the first page would silently pass the commits
+          # past number 100 — the same silent-drop failure this check exists to
+          # catch.
+          gh api --paginate "$COMMITS_URL?per_page=100" | python3 scripts/check-conventional-commits.py
