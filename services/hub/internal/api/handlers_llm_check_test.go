@@ -73,7 +73,7 @@ func postLLMCheck(t *testing.T, s *Server, body string) (int, string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/check", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(req.Context(), pluginCallerKey{}, &PluginCaller{
+	req = req.WithContext(context.WithValue(req.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github",
 		Kind:     plugincreds.KindPlugin,
 		Sub:      "plugin:github",
@@ -266,7 +266,7 @@ func TestLLMCheck_BadRequests(t *testing.T) {
 func TestLLMCheck_MethodNotAllowed(t *testing.T) {
 	s := llmCheckServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/check", nil)
-	req = req.WithContext(context.WithValue(req.Context(), pluginCallerKey{}, &PluginCaller{
+	req = req.WithContext(context.WithValue(req.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github", Kind: plugincreds.KindPlugin, Sub: "plugin:github",
 	}))
 	rec := httptest.NewRecorder()
@@ -552,7 +552,7 @@ func TestLLMCheck_GroupScoping(t *testing.T) {
 	// user mirrors what the credential middleware sets for a plugin caller.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/check",
 		strings.NewReader(`{"provider":"ollama-cloud","model":"m1"}`))
-	ctx := context.WithValue(req.Context(), pluginCallerKey{}, &PluginCaller{
+	ctx := context.WithValue(req.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github", Kind: plugincreds.KindPlugin, Sub: "plugin:github",
 	})
 	ctx = oidc.ContextWithUser(ctx, &oidc.User{Sub: "plugin:github"})
@@ -573,7 +573,7 @@ func TestLLMCheck_GroupScoping(t *testing.T) {
 	hitPrivate, hitPublic = false, false
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/llm/check",
 		strings.NewReader(`{"provider":"ollama-cloud","model":"m1"}`))
-	ctx2 := context.WithValue(req2.Context(), pluginCallerKey{}, &PluginCaller{
+	ctx2 := context.WithValue(req2.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github", Kind: plugincreds.KindPlugin, Sub: "plugin:github",
 	})
 	ctx2 = oidc.ContextWithUser(ctx2, &oidc.User{Sub: "plugin:github"})

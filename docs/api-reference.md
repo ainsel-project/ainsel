@@ -43,12 +43,24 @@ resource externally managed**:
 - **Every mutation** of an externally managed resource is refused with `409 Conflict` and
   body `{"error": "<kind> is managed by <manager>"}` — e.g. `"agent is managed by gitops"`.
   This covers updates, deletes, pause/resume, agent-persona writes, image MCP refresh,
-  connector secret rotation, and persona rollback.
-- Clients cannot set or change `managedBy`: it is not part of any create/update request
-  shape, and the stored value is preserved on update. For CRD-backed resources it is
-  `spec.managedBy` (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`), written by external tooling via
-  kubectl/GitOps/Helm; for database-backed rows (personas, skills, MCP servers) only direct
-  DB writes or the owning subsystem (plugin syncer, seed loader) set it.
+  connector secret rotation, and persona rollback. The one caller that passes is the plugin
+  a `"plugin-<id>"` value names: a plugin that created a resource stays the only REST caller
+  allowed to write it (see below).
+- Clients cannot change `managedBy`: it is not part of any update request shape, and the
+  stored value is preserved on update — including for the plugin that owns the row. The one
+  exception is create, where a plugin-authenticated caller may send `managedBy` on the create
+  body of Agents, AgentImages, WebhookConnectors, Personas, and MCP Servers. The only value
+  it accepts is the caller's own `"plugin-<plugin id>"`, composed server-side from the
+  credential: any other value is a `400`, and a console caller's value is ignored (the row
+  stays `"user"`). Skills are the exception to the exception — their create path is always
+  console-owned. Beyond the API, `managedBy` is written by external tooling on the CRD-backed
+  kinds (`spec.managedBy`, pattern `^[a-z0-9][a-z0-9.-]{0,62}$`) and by direct DB writes or
+  the owning subsystem (plugin syncer, seed loader) on the database-backed rows (personas,
+  skills, MCP servers).
+
+The bare `"plugin"` value is a different marker: those rows are derived from `Plugin` CRs by
+the hub's own syncer and stay read-only for every REST caller, including the plugin they
+name. Only the `"plugin-<id>"` stamp carries the named-manager exception.
 
 The point is single authorship: a resource is edited in exactly one place, never from both
 the console and an external pipeline.
@@ -183,6 +195,7 @@ See [`POST /api/v1/agents/{name}/pause`](#post-apiv1agentsnamepause).
 ### POST /api/v1/agents
 
 Create a new Agent. The hub generates the resource name (`a-<short id>`); the request supplies the human display name.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json
@@ -494,6 +507,7 @@ List all `AgentImage` resources, sorted by name. Supports `page`/`pageSize`.
 ### POST /api/v1/agent-images
 
 Create an `AgentImage`. `displayName` and `imageURL` are required. The new image starts in phase `Pending`; tools are populated after the first successful sync.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json
@@ -583,6 +597,7 @@ List all connectors, sorted by ID. Supports `page`/`pageSize`.
 ### POST /api/v1/connectors
 
 Create a connector.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json
@@ -636,7 +651,7 @@ switch). Fails with `409 Conflict` if the connector is externally managed
 
 Rotate the connector's webhook HMAC secret. The new secret is returned once
 as `webhookSecretValue`; update the source's signing config afterwards.
-Fails with `409 Conflict` if the connector is externally managed (`managedBy`).
+Fails with `409 Conflict` if the connector is externally managed (`managedBy`) and the caller is not the plugin it names.
 
 **Response:** `200 OK` with the connector (including `webhookSecretValue`),
 `404 Not Found`, `409` (externally managed), or `500`.
@@ -1397,9 +1412,10 @@ List all registered MCP servers.
 
 ### POST /api/v1/mcp-servers
 
-Register a new MCP server. `managedBy` must be empty or `"user"` (the hub forces it to `"user"` server-side); externally managed entries (e.g. seeded by Helm) cannot be created through this API.
+Register a new MCP server. Console callers get a `"user"` row: a `managedBy` they send is ignored. A plugin-authenticated caller may stamp its own `"plugin-<plugin id>"` (any other value is a `400`). Externally managed entries under any other manager (e.g. seeded by Helm) cannot be created through this API.
 
 **Request body:** same as the list item shape minus `endpoint`, `status`, `createdAt`, `updatedAt`.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Response:** `201 Created`, `400` on invalid body or bad `managedBy`, `409 Conflict` if the name exists, `500` on internal failures, or `503` if the MCP service is not configured.
 
@@ -1503,6 +1519,7 @@ respond `400`.
 ### POST /api/v1/personas
 
 Create a new persona. The hub generates the ULID and inserts the initial version (1).
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json

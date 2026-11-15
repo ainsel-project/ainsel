@@ -22,6 +22,10 @@ type WebhookConnectorCreateRequest struct {
 	Name            string `json:"name"`
 	GroupID         string `json:"groupId"`
 	SignatureHeader string `json:"signatureHeader"`
+	// ManagedBy stamps this connector's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the connector stays console-owned).
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 // WebhookConnectorUpdateRequest is the PUT body for updating a
@@ -44,8 +48,9 @@ type WebhookConnectorResponse struct {
 	// ManagedBy names the external system that authors this connector
 	// (spec.managedBy). Any non-empty value other than "user" means the
 	// console renders it read-only and the hub refuses every mutation
-	// (update, delete, rotate-secret) with 409. Read-only: the create/update
-	// request shapes have no managedBy field.
+	// (update, delete, rotate-secret) with 409 — except to the plugin the value
+	// names. Read-only on update; a plugin caller may stamp its own value at
+	// create (see WebhookConnectorCreateRequest).
 	ManagedBy string `json:"managedBy,omitempty"`
 	// GroupID is the authz group the connector belongs to, as recorded at
 	// create time. Reported on the single-connector GET only (the list stays
@@ -87,7 +92,7 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 			if !s.requireWrite(w, r, "connector", name) {
 				return
 			}
-			s.rotateConnectorSecret(ctx, w, name)
+			s.rotateConnectorSecret(r, w, name)
 			return
 		}
 		httpx.WriteError(w, http.StatusNotFound, "not found")
@@ -110,7 +115,7 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 		if !s.requireWrite(w, r, "connector", name) {
 			return
 		}
-		s.deleteConnector(ctx, w, name)
+		s.deleteConnector(r, w, name)
 	default:
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -197,6 +202,13 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 		return
 	}
 
+	// Author stamping (issue #190): only a plugin caller naming itself gets a
+	// managed connector; every other caller stays "user" as before.
+	managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+	if writeCreateManagedBy(w, mbErr) {
+		return
+	}
+
 	// Validate group membership for resource creation.
 	if s.authzChecker != nil {
 		if req.GroupID == "" {
@@ -257,6 +269,7 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 				Tag:        imageRef.Tag,
 				Digest:     imageRef.Digest,
 			},
+			ManagedBy: crManagedBy(managedBy),
 		},
 	}
 	connector.APIVersion = "ainsel.dev/v1alpha1"
@@ -296,7 +309,7 @@ func (s *Server) updateConnector(ctx context.Context, w http.ResponseWriter, r *
 		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
-	if isManagedCR(c.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, c.Spec.ManagedBy) {
 		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}
@@ -315,14 +328,15 @@ func (s *Server) updateConnector(ctx context.Context, w http.ResponseWriter, r *
 	httpx.WriteJSON(w, http.StatusOK, toWebhookConnectorResponse(c))
 }
 
-func (s *Server) deleteConnector(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) deleteConnector(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
 		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
-	if isManagedCR(c.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, c.Spec.ManagedBy) {
 		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}
@@ -362,7 +376,8 @@ func toWebhookConnectorResponse(c connectorv1alpha1.WebhookConnector) WebhookCon
 	return resp
 }
 
-func (s *Server) rotateConnectorSecret(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) rotateConnectorSecret(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
@@ -370,8 +385,9 @@ func (s *Server) rotateConnectorSecret(ctx context.Context, w http.ResponseWrite
 		return
 	}
 	// Rotating the HMAC key rewrites the Secret an external author wired into
-	// its sender — a mutation of the managed connector's contract.
-	if isManagedCR(c.Spec.ManagedBy) {
+	// its sender — a mutation of the managed connector's contract, unless the
+	// caller is the plugin named in the value.
+	if isManagedCRForRequest(r, c.Spec.ManagedBy) {
 		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}

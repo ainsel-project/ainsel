@@ -19,9 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// pluginCallerKey is the context key for PluginCaller
-type pluginCallerKey struct{}
-
 // statusCaptureWriter wraps an http.ResponseWriter to capture the status code
 type statusCaptureWriter struct {
 	http.ResponseWriter
@@ -48,21 +45,15 @@ func (w *statusCaptureWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
-// PluginCaller describes the authenticated plugin caller and their effective permissions/groups.
-type PluginCaller struct {
-	PluginID     string
-	Kind         string
-	Sub          string
-	Username     string
-	Permissions  []string
-	Groups       []plugincreds.GroupGrant
-	InvocationID string
-}
+// PluginCaller describes the authenticated plugin caller and their effective
+// permissions/groups. The type lives in plugincreds so the DB-backed
+// registry guards (personas, MCP servers, skills) can read it from a request
+// context without importing this package.
+type PluginCaller = plugincreds.Caller
 
 // PluginCallerFrom retrieves the PluginCaller from the request context
 func PluginCallerFrom(ctx context.Context) (*PluginCaller, bool) {
-	pc, ok := ctx.Value(pluginCallerKey{}).(*PluginCaller)
-	return pc, ok
+	return plugincreds.CallerFrom(ctx)
 }
 
 // SetPluginCredentialIssuer wires the plugin credential issuer for minting and verifying tokens.
@@ -171,7 +162,7 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 		Groups:       effectiveGroups,
 		InvocationID: claims.InvocationID,
 	}
-	ctx = context.WithValue(ctx, pluginCallerKey{}, pc)
+	ctx = plugincreds.WithCaller(ctx, pc)
 
 	// For agent and plugin kinds, set the principal (no groups for agent, groups from spec for plugin/agent)
 	if claims.Kind == plugincreds.KindAgent || claims.Kind == plugincreds.KindPlugin {

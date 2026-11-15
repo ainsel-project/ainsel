@@ -36,8 +36,9 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 		httpx.WriteError(w, http.StatusNotFound, "agent image not found")
 		return
 	}
-	// Refresh rewrites spec.tools — a mutation of an externally managed image.
-	if isManagedCR(img.Spec.ManagedBy) {
+	// Refresh rewrites spec.tools — a mutation of an externally managed image,
+	// unless the caller is the plugin named in the value.
+	if isManagedCRForRequest(r, img.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent image", img.Spec.ManagedBy)
 		return
 	}
