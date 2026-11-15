@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -90,6 +91,12 @@ type authPlan struct {
 	// admin surface can invalidate a subject the chain is holding back.
 	identityTracker *api.IdentityPersistTracker
 
+	// defaultGroupID is Deps.DefaultGroupID: the group a create files under when
+	// the caller names none. Only mode "none" sets it — that mode has exactly one
+	// group, so "no groupId" has a meaning there. Every other mode leaves it empty
+	// and a create without groupId stays a 400, which is the caller's job to fix.
+	defaultGroupID string
+
 	localSecret    []byte
 	passwordPolicy *api.PasswordPolicy
 	userInfoURL    string
@@ -173,6 +180,10 @@ func wireAuthPlan(ctx context.Context, c *container, cfg containerConfig) (authP
 				next.ServeHTTP(w, r.WithContext(oidc.ContextWithUser(r.Context(), localUser)))
 			})
 		}
+		// The one group this mode has. Without it every create that omits groupId
+		// would 400 with "groupId is required" and no way to name a group, because
+		// the group endpoints behind mode "none" answer ErrNoRegistry.
+		plan.defaultGroupID = authz.DefaultGroupID
 	default:
 		return authPlan{}, fmt.Errorf("invalid HUB_AUTH_MODE %q (want oidc, local, oidc+local, or none)", c.authMode)
 	}
@@ -223,11 +234,11 @@ func wirePluginCreds() (*plugincreds.Issuer, error) {
 		return nil, nil
 	}
 	issuer, err := plugincreds.NewIssuer([]byte(secretStr), 5*time.Minute)
-	if err == plugincreds.ErrDisabled {
-		slog.Info("plugin credentials disabled (secret too short)")
-		return nil, nil
-	}
 	if err != nil {
+		if errors.Is(err, plugincreds.ErrDisabled) {
+			slog.Info("plugin credentials disabled (secret too short)")
+			return nil, nil
+		}
 		return nil, fmt.Errorf("create plugin credentials issuer: %w", err)
 	}
 	slog.Info("plugin credentials enabled")
@@ -318,6 +329,7 @@ func wireAPIServer(c *container, cfg containerConfig, plan authPlan) (*api.Serve
 		LocalAuthSecret:        plan.localSecret,
 		PasswordPolicy:         plan.passwordPolicy,
 		UserInfoURL:            plan.userInfoURL,
+		DefaultGroupID:         plan.defaultGroupID,
 		IdentityTracker:        plan.identityTracker,
 	})
 	if err != nil {

@@ -19,6 +19,15 @@ const (
 	RoleOwner GroupRole = "owner"
 )
 
+// DefaultGroupID is the single group of an install that runs with the group
+// model switched off (auth mode "none", see PermissiveStore): the synthetic
+// 'legacy' group migration 0016 creates. cmd/hub hands it to the API server as
+// api.Deps.DefaultGroupID so a create that names no groupId still lands in a
+// group instead of failing a "groupId is required" check there is no way to
+// satisfy. In every other auth mode this is not used and a create without
+// groupId is a 400.
+const DefaultGroupID = "legacy"
+
 // roleCovers returns true if `have` covers `need`.
 // owner covers writer covers reader.
 func roleCovers(have, need GroupRole) bool {
