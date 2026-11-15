@@ -64,7 +64,7 @@ spec:
             - name: PORT
               value: "{{ .Values.mcp.port }}"
             - name: HUB_URL
-              value: http://hub-backend.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.hub.port }}
+              value: http://hub.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.hub.port }}
             - name: OIDC_ISSUER
               value: {{ .Values.auth.oidcIssuer | quote }}
             - name: OIDC_AUDIENCE

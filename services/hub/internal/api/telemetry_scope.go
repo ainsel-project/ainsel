@@ -52,7 +52,7 @@ type telemetryScope struct {
 // A failure to enumerate fails closed: an empty accessible set means the
 // caller sees nothing rather than everything.
 func (s *Server) telemetryScopeFor(r *http.Request) telemetryScope {
-	if s.authzStore == nil || s.callerIsAdmin(r) {
+	if s.callerIsAdmin(r) {
 		return telemetryScope{unrestricted: true}
 	}
 

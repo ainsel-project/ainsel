@@ -32,6 +32,14 @@ func runBackfill(ctx context.Context, c *container) error {
 	if !c.mgr.GetCache().WaitForCacheSync(ctx) {
 		return fmt.Errorf("cache sync failed, skipping group backfill")
 	}
+	// Auth mode "none" has no resource-group table to backfill: the permissive
+	// store answers every subject as admin, so ownership rows would change
+	// nothing and there is nowhere to write them.
+	if c.authzStore == nil {
+		slog.Info("group backfill skipped: auth mode none has no resource-group registry")
+		return nil
+	}
+
 	refs, err := collectResourceRefs(ctx, c.apiClient, c.namespace, c.pool)
 	if err != nil {
 		return fmt.Errorf("collect resource refs for backfill: %w", err)

@@ -61,7 +61,7 @@ func TestAgents_CreateAndList(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -101,7 +101,7 @@ func TestAgents_CreateAndList(t *testing.T) {
 	// List agents
 	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
 	listRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(listRec, listReq)
+	s.ServeHTTP(listRec, listReq)
 
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", listRec.Code, listRec.Body.String())
@@ -146,7 +146,7 @@ func TestAgents_UpdateRename(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -164,7 +164,7 @@ func TestAgents_UpdateRename(t *testing.T) {
 	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+originalID, bytes.NewReader(updateBody))
 	putReq.Header.Set("Content-Type", "application/json")
 	putRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(putRec, putReq)
+	s.ServeHTTP(putRec, putReq)
 
 	if putRec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", putRec.Code, putRec.Body.String())
@@ -183,7 +183,7 @@ func TestAgents_UpdateRename(t *testing.T) {
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents/"+originalID, nil)
 	getRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(getRec, getReq)
+	s.ServeHTTP(getRec, getReq)
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 on get, got %d: %s", getRec.Code, getRec.Body.String())
 	}
@@ -205,7 +205,7 @@ func TestCreateAgent_RejectsMissingImageRef(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -227,7 +227,7 @@ func TestCreateAgent_RejectsUnknownImageRef(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -251,7 +251,7 @@ func TestCreateAgent_RejectsEnabledToolNotInImage(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -276,7 +276,7 @@ func TestCreateAgent_OKWithValidImageRef(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -310,7 +310,7 @@ func TestUpdateAgent_Replicas(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -328,7 +328,7 @@ func TestUpdateAgent_Replicas(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -356,7 +356,7 @@ func TestAgents_UpdatedAtStampedAndExposed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -385,7 +385,7 @@ func TestAgents_UpdatedAtStampedAndExposed(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -400,7 +400,7 @@ func TestAgents_UpdatedAtStampedAndExposed(t *testing.T) {
 	// Listing exposes updatedAt so clients can order by recency.
 	lreq := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
 	lrec := httptest.NewRecorder()
-	s.mux.ServeHTTP(lrec, lreq)
+	s.ServeHTTP(lrec, lreq)
 	var list struct {
 		Items []SimpleAgentResponse `json:"items"`
 	}
@@ -429,7 +429,7 @@ func TestUpdateAgent_PartialLLMUpdate(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -453,7 +453,7 @@ func TestUpdateAgent_PartialLLMUpdate(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -485,7 +485,7 @@ func TestUpdateAgent_PartialLLMUpdate_Temperature(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -503,7 +503,7 @@ func TestUpdateAgent_PartialLLMUpdate_Temperature(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -537,7 +537,7 @@ func TestUpdateAgent_PartialLLMUpdate_Vision(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -555,7 +555,7 @@ func TestUpdateAgent_PartialLLMUpdate_Vision(t *testing.T) {
 	oreq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ob))
 	oreq.Header.Set("Content-Type", "application/json")
 	orec := httptest.NewRecorder()
-	s.mux.ServeHTTP(orec, oreq)
+	s.ServeHTTP(orec, oreq)
 	if orec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", orec.Code, orec.Body.String())
 	}
@@ -573,7 +573,7 @@ func TestUpdateAgent_PartialLLMUpdate_Vision(t *testing.T) {
 	creq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(cb))
 	creq.Header.Set("Content-Type", "application/json")
 	crec := httptest.NewRecorder()
-	s.mux.ServeHTTP(crec, creq)
+	s.ServeHTTP(crec, creq)
 	if crec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", crec.Code, crec.Body.String())
 	}
@@ -603,7 +603,7 @@ func TestUpdateAgent_PartialLLMUpdate_ContextWindow(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -621,7 +621,7 @@ func TestUpdateAgent_PartialLLMUpdate_ContextWindow(t *testing.T) {
 	oreq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ob))
 	oreq.Header.Set("Content-Type", "application/json")
 	orec := httptest.NewRecorder()
-	s.mux.ServeHTTP(orec, oreq)
+	s.ServeHTTP(orec, oreq)
 	if orec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", orec.Code, orec.Body.String())
 	}
@@ -640,7 +640,7 @@ func TestUpdateAgent_PartialLLMUpdate_ContextWindow(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ub))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -678,7 +678,7 @@ func TestCreateAgent_CustomProvider_PersistsURLAndCreatesSecret(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httpReq)
+	s.ServeHTTP(rec, httpReq)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -731,7 +731,7 @@ func TestUpdateAgent_CustomProvider_FromNoneToCustom(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -750,7 +750,7 @@ func TestUpdateAgent_CustomProvider_FromNoneToCustom(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -794,7 +794,7 @@ func TestUpdateAgent_CustomProvider_EmptyURLNonEmptyKey_Rejects400(t *testing.T)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	var created SimpleAgentResponse
 	_ = json.NewDecoder(rec.Body).Decode(&created)
 
@@ -812,7 +812,7 @@ func TestUpdateAgent_CustomProvider_EmptyURLNonEmptyKey_Rejects400(t *testing.T)
 			t.Fatalf("backend panicked on URL=empty APIKey=non-empty payload: %v", r)
 		}
 	}()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 
 	if urec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", urec.Code, urec.Body.String())
@@ -851,7 +851,7 @@ func TestUpdateAgent_CustomProvider_RotateAPIKeyOnly(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -866,7 +866,7 @@ func TestUpdateAgent_CustomProvider_RotateAPIKeyOnly(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -908,7 +908,7 @@ func createTestAgent(t *testing.T, s *Server, req SimpleAgentCreateRequest) Simp
 	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httpReq)
+	s.ServeHTTP(rec, httpReq)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create agent: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -924,7 +924,7 @@ func getTestAgent(t *testing.T, s *Server, id string) SimpleAgentResponse {
 	t.Helper()
 	httpReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents/"+id, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httpReq)
+	s.ServeHTTP(rec, httpReq)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get agent: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -940,7 +940,7 @@ func listTestAgents(t *testing.T, s *Server) []SimpleAgentResponse {
 	t.Helper()
 	httpReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httpReq)
+	s.ServeHTTP(rec, httpReq)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list agents: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -1063,7 +1063,7 @@ func TestAgents_DisplayName_UpdateWithImageRef_ReusesValidatedName(t *testing.T)
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -1099,7 +1099,7 @@ func TestAgents_DisplayName_UpdateWithoutImageRef_ResolvesSeparately(t *testing.
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}
@@ -1133,7 +1133,7 @@ func TestAgents_SkillsScoped(t *testing.T) {
 		req := httptest.NewRequest(method, path, bytes.NewReader(b))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		return rec
 	}
 
@@ -1262,7 +1262,7 @@ func TestAgents_MCPScoped(t *testing.T) {
 		req := httptest.NewRequest(method, path, bytes.NewReader(b))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		return rec
 	}
 
@@ -1405,7 +1405,7 @@ func TestAgents_Update_EmptyPersonaObjectKeepsExisting(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := httptest.NewRecorder()
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 	if urec.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", urec.Code, urec.Body.String())
 	}

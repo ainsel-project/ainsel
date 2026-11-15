@@ -66,10 +66,6 @@ func (s *Server) handleAgentPersona(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) getAgentPersona(ctx context.Context, w http.ResponseWriter, agentName string) {
-	if s.personas == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "persona service not configured")
-		return
-	}
 	agent := &agentv1alpha1.Agent{}
 	if err := s.client.Get(ctx, types.NamespacedName{Name: agentName, Namespace: s.ns}, agent); err != nil {
 		httpx.WriteError(w, http.StatusNotFound, "agent not found")
@@ -96,10 +92,6 @@ func (s *Server) getAgentPersona(ctx context.Context, w http.ResponseWriter, age
 }
 
 func (s *Server) putAgentPersona(ctx context.Context, w http.ResponseWriter, r *http.Request, agentName string) {
-	if s.personas == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "persona service not configured")
-		return
-	}
 	var req AgentPersonaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
@@ -112,8 +104,9 @@ func (s *Server) putAgentPersona(ctx context.Context, w http.ResponseWriter, r *
 		return
 	}
 	// Editing an agent's persona writes the agent's persona reference (and an
-	// owned persona) — a spec mutation of an externally managed agent.
-	if isManagedCR(agent.Spec.ManagedBy) {
+	// owned persona) — a spec mutation of an externally managed agent, unless the
+	// caller is the plugin the value names.
+	if isManagedCRForRequest(r, agent.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent", agent.Spec.ManagedBy)
 		return
 	}

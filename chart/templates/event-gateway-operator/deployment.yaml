@@ -1,0 +1,117 @@
+{{- if .Values.eventGatewayOperator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-gateway-operator
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: event-gateway-operator
+spec:
+  replicas: {{ .Values.eventGatewayOperator.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ainsel-event-gateway-operator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ainsel-event-gateway-operator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: event-gateway-operator
+        {{- with .Values.eventGatewayOperator.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- $annotations := default (dict) (deepCopy .Values.eventGatewayOperator.podAnnotations) }}
+      {{- /* The policy is read once at startup, so a changed policy has to
+             roll the pod. Only add the checksum if the operator isn't already
+             carrying one from podAnnotations. */}}
+      {{- if not (hasKey $annotations "checksum/plugin-signing") }}
+      {{- $_ := set $annotations "checksum/plugin-signing" (include (print $.Template.BasePath "/event-gateway-operator/plugin-signing-configmap.yaml") . | sha256sum) }}
+      {{- end }}
+      annotations:
+        {{- toYaml $annotations | nindent 8 }}
+    spec:
+      serviceAccountName: event-gateway-operator
+      {{- with .Values.eventGatewayOperator.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.eventGatewayOperator.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.eventGatewayOperator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.eventGatewayOperator.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.eventGatewayOperator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.eventGatewayOperator.priorityClassName }}
+      priorityClassName: {{ .Values.eventGatewayOperator.priorityClassName }}
+      {{- end }}
+      containers:
+        - name: operator
+          image: "{{ .Values.eventGatewayOperator.image.repository }}:{{ .Values.eventGatewayOperator.image.tag }}"
+          imagePullPolicy: {{ .Values.eventGatewayOperator.image.pullPolicy }}
+          {{- with .Values.eventGatewayOperator.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            - --leader-elect
+            - --plugin-signing-policy=/etc/ainsel/plugin-signing/policy.yaml
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.eventGatewayOperator.hubURL }}
+            - name: HUB_URL
+              value: {{ .Values.eventGatewayOperator.hubURL | quote }}
+            {{- else }}
+            - name: HUB_URL
+              value: "http://hub.{{ .Values.namespace }}.svc.cluster.local:8080"
+            {{- end }}
+            {{- if .Values.auth.internalValidateSecret }}
+            - name: HUB_INTERNAL_VALIDATE_SECRET
+              value: {{ .Values.auth.internalValidateSecret | quote }}
+            {{- end }}
+            - name: CONNECTOR_IMAGE_PULL_POLICY
+              value: {{ .Values.eventGatewayOperator.connectorImagePullPolicy | default "IfNotPresent" | quote }}
+            {{- with .Values.eventGatewayOperator.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.eventGatewayOperator.resources | nindent 12 }}
+          {{- $mounts := list (dict "name" "plugin-signing" "mountPath" "/etc/ainsel/plugin-signing" "readOnly" true) -}}
+          {{- with .Values.eventGatewayOperator.extraVolumeMounts }}
+          {{- $mounts = concat $mounts . -}}
+          {{- end }}
+          volumeMounts:
+            {{- toYaml $mounts | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      {{- $volumes := list (dict "name" "plugin-signing" "configMap" (dict "name" (printf "%s-plugin-signing" .Release.Name))) -}}
+      {{- with .Values.eventGatewayOperator.extraVolumes }}
+      {{- $volumes = concat $volumes . -}}
+      {{- end }}
+      volumes:
+        {{- toYaml $volumes | nindent 8 }}
+{{- end }}

@@ -60,7 +60,7 @@ func TestHandleStats_RejectsNonGET(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/stats", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d: %s", rec.Code, rec.Body.String())

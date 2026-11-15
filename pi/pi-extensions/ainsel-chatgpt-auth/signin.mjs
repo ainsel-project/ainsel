@@ -20,6 +20,21 @@ import { CREDENTIALS_DIR, loadPi } from "./lib.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const POLL_MS = 2000;
+// A hub that restarts must not cost the user the sign-in: a call is retried
+// for about a minute (HUB_ATTEMPTS × HUB_RETRY_MS) while the connection is
+// refused, and no call hangs past HUB_TIMEOUT_MS.
+const HUB_ATTEMPTS = 20;
+const HUB_RETRY_MS = 3000;
+const HUB_TIMEOUT_MS = 10_000;
+
+// Errors that prove the request never reached the hub, so repeating it
+// cannot repeat its effect.
+const NOT_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+
+function notSent(error) {
+	for (let e = error; e; e = e.cause) if (NOT_SENT.has(e.code)) return true;
+	return false;
+}
 
 // SessionClosed: the hub ended the session (expired or cancelled).
 class SessionClosed extends Error {}
@@ -27,13 +42,36 @@ class SessionClosed extends Error {}
 // hubClient talks to the hub's internal sign-in routes for one session.
 // podToken is this session's own token (AINSEL_SIGN_IN_TOKEN): only the
 // sign-in pod has it, so the hub can tell it from other agent pods.
-export function hubClient({ hubUrl, token, podToken, agent, session }) {
+export function hubClient({ hubUrl, token, podToken, agent, session, sleep = delay, fetch = globalThis.fetch }) {
 	const base = `${hubUrl.replace(/\/$/, "")}/api/internal/agents/${encodeURIComponent(agent)}/chatgpt-sign-in/${encodeURIComponent(session)}`;
 	const headers = { "X-Internal-Token": token, "X-Sign-In-Token": podToken, "content-type": "application/json" };
-	async function call(method, verb, body) {
-		const res = await fetch(`${base}/${verb}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
-		if (res.status === 410) throw new SessionClosed("the sign-in session ended (expired or cancelled)");
-		return res;
+	// call retries a request that never reached the hub. The auth-url post
+	// and the redirect poll change the session (the pasted address is handed
+	// out once), so a timeout or 5xx, which may come after the hub acted, is
+	// returned or thrown, not repeated. Only a repeatable call (the result)
+	// also retries those.
+	async function call(method, verb, body, { repeatable = false, signal } = {}) {
+		for (let attempt = 1; ; attempt++) {
+			const timeout = AbortSignal.timeout(HUB_TIMEOUT_MS);
+			let res, error;
+			try {
+				res = await fetch(`${base}/${verb}`, {
+					method,
+					headers,
+					body: body ? JSON.stringify(body) : undefined,
+					signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+				});
+			} catch (e) {
+				error = e;
+			}
+			if (res?.status === 410) throw new SessionClosed("the sign-in session ended (expired or cancelled)");
+			const retry = res ? repeatable && res.status >= 500 : repeatable || notSent(error);
+			if (!retry || attempt >= HUB_ATTEMPTS) {
+				if (res) return res;
+				throw new Error(`hub unreachable: ${error instanceof Error ? error.message : error}`, { cause: error });
+			}
+			await sleep(HUB_RETRY_MS, undefined, signal ? { signal } : undefined);
+		}
 	}
 	return {
 		async postAuthURL(url) {
@@ -41,14 +79,14 @@ export function hubClient({ hubUrl, token, podToken, agent, session }) {
 			if (!res.ok) throw new Error(`hub refused the authorization URL (${res.status})`);
 		},
 		// takeRedirect returns the pasted address, or "" while none is pasted.
-		async takeRedirect() {
-			const res = await call("GET", "redirect");
+		async takeRedirect(signal) {
+			const res = await call("GET", "redirect", undefined, { signal });
 			if (res.status === 204) return "";
 			if (!res.ok) throw new Error(`hub redirect poll failed (${res.status})`);
 			return (await res.json()).redirectUrl ?? "";
 		},
 		async postResult(ok, error) {
-			await call("POST", "result", ok ? { ok: true } : { ok: false, error });
+			await call("POST", "result", ok ? { ok: true } : { ok: false, error }, { repeatable: true });
 		},
 	};
 }
@@ -94,7 +132,7 @@ export async function runSignIn({ ModelRuntime, hub, agentName = "", credentials
 				const signal = prompt.signal ? AbortSignal.any([abort.signal, prompt.signal]) : abort.signal;
 				for (;;) {
 					signal.throwIfAborted();
-					const url = await hub.takeRedirect();
+					const url = await hub.takeRedirect(signal);
 					if (url) return url;
 					await sleep(POLL_MS, undefined, { signal });
 				}

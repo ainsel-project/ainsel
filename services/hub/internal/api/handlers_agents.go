@@ -68,9 +68,6 @@ func (s *Server) resolveMCPRequest(ctx context.Context, req *AgentMCPRequest) (*
 	if req == nil {
 		return nil, nil
 	}
-	if s.mcp == nil {
-		return nil, newAPIError(http.StatusServiceUnavailable, "mcp service not configured")
-	}
 	mcp := &agentv1alpha1.AgentMCP{Servers: make([]agentv1alpha1.AgentMCPServer, 0, len(req.Servers))}
 	for _, name := range req.Servers {
 		server, err := s.mcp.Get(ctx, name)
@@ -179,9 +176,11 @@ type SimpleAgentResponse struct {
 	UpdatedAt       string                   `json:"updatedAt,omitempty"`
 	// ManagedBy names the external system that authors this agent (spec.managedBy).
 	// Any non-empty value other than "user" means the console renders the agent
-	// read-only and the hub refuses every mutation with 409. Read-only: the
-	// create/update request shapes have no managedBy field — only the external
-	// manager (kubectl/GitOps/Helm) sets it.
+	// read-only and the hub refuses every mutation with 409 — except to the
+	// plugin the value names. Read-only on update; the one way in is create,
+	// where a plugin caller may stamp its own "plugin-<id>" value (see
+	// SimpleAgentCreateRequest). External managers (kubectl/GitOps/Helm) set
+	// the field directly on the CR.
 	ManagedBy string `json:"managedBy,omitempty"`
 	// GroupID is the authz group this agent belongs to. Populated on the list
 	// endpoint (batched lookup); empty elsewhere and when authz is disabled.
@@ -342,6 +341,12 @@ type SimpleAgentCreateRequest struct {
 	Anthropic      *AgentAPIKeyInfo         `json:"anthropic,omitempty"`
 	Google         *AgentAPIKeyInfo         `json:"google,omitempty"`
 	CustomProvider *AgentCustomProviderInfo `json:"customProvider,omitempty"`
+	// ManagedBy stamps this agent's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>", the value the hub composes from
+	// the caller identity); any other value is a 400. For every other caller the
+	// field is ignored and the agent stays console-owned ("user"). It is never
+	// accepted on update — the stored value is preserved.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 // SimpleAgentUpdateRequest is used to update an existing Agent. All fields are optional.
@@ -640,7 +645,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		if !s.requireWrite(w, r, "agent", name) {
 			return
 		}
-		s.deleteAgent(ctx, w, name)
+		s.deleteAgent(r, w, name)
 	default:
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -713,31 +718,29 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 	// one. Both filters run before pagination so Pager totals describe the
 	// filtered set, and a group filter can never widen what authz scoped out.
 	groupID := strings.TrimSpace(r.URL.Query().Get("groupId"))
-	if s.authzStore != nil {
-		names := make([]string, len(list.Items))
-		for i, a := range list.Items {
-			names[i] = a.Name
-		}
-		if !s.callerIsAdmin(r) {
-			names = s.filterByAccess(r, "agent", names)
-		}
-		if groupID != "" {
-			inGroup, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", []string{groupID}, false)
-			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			names = intersectNames(names, inGroup)
-		}
-		set := toAccessSet(names)
-		filtered := list.Items[:0]
-		for _, a := range list.Items {
-			if set[a.Name] {
-				filtered = append(filtered, a)
-			}
-		}
-		list.Items = filtered
+	names := make([]string, len(list.Items))
+	for i, a := range list.Items {
+		names[i] = a.Name
 	}
+	if !s.callerIsAdmin(r) {
+		names = s.filterByAccess(r, "agent", names)
+	}
+	if groupID != "" {
+		inGroup, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", []string{groupID}, false)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		names = intersectNames(names, inGroup)
+	}
+	set := toAccessSet(names)
+	filtered := list.Items[:0]
+	for _, a := range list.Items {
+		if set[a.Name] {
+			filtered = append(filtered, a)
+		}
+	}
+	list.Items = filtered
 
 	// Case-insensitive substring filter on display name, resource name and
 	// description. Applied before pagination for the same reason as the
@@ -774,19 +777,17 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 	// never one Get per row.
 	agentGroupIDs := make(map[string]string)
 	groupNames := make(map[string]string)
-	if s.authzStore != nil {
-		if m, err := s.authzStore.ListResourceGroupsByType(r.Context(), "agent"); err == nil {
-			agentGroupIDs = m
-		} else {
-			slog.Warn("failed to list agent resource groups for group enrichment", "error", err)
+	if m, err := s.authzStore.ListResourceGroupsByType(r.Context(), "agent"); err == nil {
+		agentGroupIDs = m
+	} else {
+		slog.Warn("failed to list agent resource groups for group enrichment", "error", err)
+	}
+	if gs, err := s.authzStore.ListGroups(r.Context()); err == nil {
+		for _, g := range gs {
+			groupNames[g.ID] = g.Name
 		}
-		if gs, err := s.authzStore.ListGroups(r.Context()); err == nil {
-			for _, g := range gs {
-				groupNames[g.ID] = g.Name
-			}
-		} else {
-			slog.Warn("failed to list groups for group-name enrichment", "error", err)
-		}
+	} else {
+		slog.Warn("failed to list groups for group-name enrichment", "error", err)
 	}
 
 	items := make([]SimpleAgentResponse, 0, hi-lo)
@@ -862,7 +863,7 @@ type agentValidationResult struct {
 // path only — an AgentImage offers no skills to select. An unknown ID is a
 // 400 naming the ID; any other service failure is a 500.
 func (s *Server) validateAgentSkills(ctx context.Context, ids []string) error {
-	if len(ids) == 0 || s.skills == nil {
+	if len(ids) == 0 {
 		return nil
 	}
 	for _, id := range ids {
@@ -1218,6 +1219,13 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
+	// Author stamping (issue #190): only a plugin caller naming itself gets a
+	// managed row; every other caller stays "user" as before.
+	managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+	if writeCreateManagedBy(w, mbErr) {
+		return
+	}
+
 	// Validate group membership for resource creation. The check runs
 	// between image-ref and skills validation to keep the error precedence
 	// of the previous inline sequence.
@@ -1230,13 +1238,12 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		resolveEnv:    true,
 		env:           req.Env,
 	}
-	if s.authzChecker != nil {
-		in.groupCheck = func() error {
-			if req.GroupID == "" {
-				return newAPIError(http.StatusBadRequest, "groupId is required")
-			}
-			return s.checkGroupWrite(r, req.GroupID)
+	in.groupCheck = func() error {
+		req.GroupID = s.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			return newAPIError(http.StatusBadRequest, "groupId is required")
 		}
+		return s.checkGroupWrite(r, req.GroupID)
 	}
 	inlinePersona := req.Persona != nil && req.Persona.Text != ""
 	if inlinePersona && req.Persona.ID != "" {
@@ -1266,6 +1273,7 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 	agent.APIVersion = "ainsel.dev/v1alpha1"
 	agent.Kind = "Agent"
+	agent.Spec.ManagedBy = crManagedBy(managedBy)
 
 	if err := s.applyAgentRequest(ctx, agentApplyInput{
 		spec:     &agent.Spec,
@@ -1304,14 +1312,12 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 
 	// Assign the agent to the creator's chosen group.
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(r.Context(), "agent", id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
+	groupID := req.GroupID
+	if groupID == "" {
+		groupID = "legacy"
+	}
+	if err := s.authzStore.SetResourceGroup(r.Context(), "agent", id, groupID, false); err != nil {
+		slog.Error("set resource group on create", "error", err, "resource", id)
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, res.displayName))
@@ -1324,8 +1330,9 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 	// Externally managed agents have exactly one author; the hub refuses every
-	// spec mutation, which a GitOps reconciler would revert anyway.
-	if isManagedCR(existing.Spec.ManagedBy) {
+	// spec mutation, which a GitOps reconciler would revert anyway — except to
+	// the plugin the value names.
+	if isManagedCRForRequest(r, existing.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent", existing.Spec.ManagedBy)
 		return
 	}
@@ -1371,6 +1378,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
+	wasSignIn := existing.UsesChatGPTSignIn()
 	if err := s.applyAgentRequest(ctx, agentApplyInput{
 		spec: &existing.Spec,
 		req:  &req,
@@ -1379,6 +1387,13 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}); err != nil {
 		writeErr(w, err)
 		return
+	}
+	// Leaving ChatGPT sign-in ends a pending sign-in with it: the operator
+	// no longer runs the pod, and a request left behind would start one if
+	// the agent ever switched back.
+	endSignIn := wasSignIn && !existing.UsesChatGPTSignIn()
+	if endSignIn {
+		delete(existing.Annotations, signInSessionAnnotation)
 	}
 
 	// Stamp the hub-managed updated-at annotation so the list API can surface
@@ -1391,6 +1406,11 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	if err := s.client.Update(ctx, &existing); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if endSignIn && s.signIn != nil {
+		if err := s.signIn.Cancel(ctx, name); err != nil {
+			slog.Warn("could not cancel the chatgpt sign-in of an agent that left it", "agent", name, "error", err)
+		}
 	}
 
 	// Re-pointing away from the agent's own persona orphans it — owned
@@ -1408,13 +1428,14 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	httpx.WriteJSON(w, http.StatusOK, toSimpleAgentResponse(existing, imageDisplayName))
 }
 
-func (s *Server) deleteAgent(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) deleteAgent(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	var existing agentv1alpha1.Agent
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
 		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	if isManagedCR(existing.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, existing.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent", existing.Spec.ManagedBy)
 		return
 	}
@@ -1431,10 +1452,8 @@ func (s *Server) deleteAgent(ctx context.Context, w http.ResponseWriter, name st
 	s.cleanupOwnedPersona(ctx, name, "")
 
 	// Clean up ownership record.
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "agent", name); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", name)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "agent", name); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", name)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

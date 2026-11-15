@@ -29,9 +29,10 @@ func channelTestServer(t *testing.T) (*Server, *channels.Store, *eventqueue.Stor
 	svc := channels.NewService(cs, eq, ts)
 
 	s := testServer(t)
-	s.SetEventQueue(eq)
-	s.SetTriggerStore(ts)
-	s.SetChannelService(svc, channels.NewTransfer(svc, eq, invocationstest.New(100)))
+	s.eventQueue = eq
+	s.triggerStore = ts
+	s.channelSvc, s.channelTransfer = svc, channels.NewTransfer(svc, eq, invocationstest.New(100))
+	s.registerChannelRoutes()
 	return s, cs, eq, ts
 }
 

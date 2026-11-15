@@ -32,8 +32,8 @@ func obsDBServer(t *testing.T, paths ...string) (*Server, *pgxpool.Pool) {
 	pool := dbtest.Open(t)
 
 	s := testServer(t)
-	s.SetTelemetryStore(telemetry.NewStore(pool))
-	s.SetTaskLogStore(tasklogs.NewStore(pool))
+	s.telemetry = telemetry.NewStore(pool)
+	s.taskLogs = tasklogs.NewStore(pool)
 	for _, p := range paths {
 		s.mux.HandleFunc(p, s.handleObservability)
 	}
@@ -79,7 +79,7 @@ func TestObservability_SummaryReadsPostgresWhenPromMissing(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the hub's own records, got %d: %s", rec.Code, rec.Body.String())
@@ -115,7 +115,7 @@ func TestObservability_SummaryPrefersRecordsOverPrometheus(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the hub's own records, got %d: %s", rec.Code, rec.Body.String())
@@ -151,7 +151,7 @@ func TestObservability_SummaryWithRangeCountsWindow(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=1h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -180,7 +180,7 @@ func TestObservability_SummaryReturns503WithNoBackendAtAll(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -203,12 +203,12 @@ func TestObservability_StoreWithNoDatabaseIsNotAMetricsBackend(t *testing.T) {
 	// rather than a 502 from a query that could never run. No container needed —
 	// the missing pool is the point.
 	s := testServer(t)
-	s.SetTelemetryStore(telemetry.NewStore(nil))
+	s.telemetry = telemetry.NewStore(nil)
 	s.mux.HandleFunc("/api/v1/observability/metrics/summary", s.handleObservability)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -239,7 +239,7 @@ func TestObservability_TimeseriesFromPostgresIsZeroFilled(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/observability/metrics/timeseries?metric=events_consumed&range=1h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -293,7 +293,7 @@ func TestObservability_TimeseriesErrorsFromPostgres(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/observability/metrics/timeseries?metric=routing_errors&range=1h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -319,7 +319,7 @@ func TestObservability_TimeseriesRejectsMetricWithNoRecords(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		fmt.Sprintf("/api/v1/observability/metrics/timeseries?metric=%s&range=1h", "hub_something_new"), nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for an unknown metric, got %d: %s", rec.Code, rec.Body.String())
@@ -336,7 +336,7 @@ func TestObservability_TokensByEventServesWithoutProm(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-event?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the hub's own records, got %d: %s", rec.Code, rec.Body.String())
@@ -386,7 +386,7 @@ func TestObservability_TokenSummaryServedFromRecords(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the hub's own records, got %d: %s", rec.Code, rec.Body.String())
@@ -442,7 +442,7 @@ func TestObservability_TokenSummaryPresenceFlagsWhenSilent(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -469,7 +469,7 @@ func TestObservability_TokenSummaryUsesPrometheusWhenPinned(t *testing.T) {
 	s, _ := obsDBServer(t, "/api/v1/observability/metrics/tokens/summary")
 	prom, hits := countingProm(t, "7")
 	s.prom = prom
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 
 	seedConversation(t, s.taskLogs, &tasklogs.ConversationMessage{
 		InvocationID: "inv-1", AgentName: "olli", Role: "assistant", Content: "[]",
@@ -478,7 +478,7 @@ func TestObservability_TokenSummaryUsesPrometheusWhenPinned(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the pinned backend, got %d: %s", rec.Code, rec.Body.String())
@@ -505,7 +505,7 @@ func TestObservability_TokenTimeseriesServedFromRecordsIsZeroFilled(t *testing.T
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/timeseries?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the hub's own records, got %d: %s", rec.Code, rec.Body.String())
@@ -581,7 +581,7 @@ func TestObservability_TokenPanelsWithNoBackendAtAll(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -637,7 +637,7 @@ func TestObservability_TokensBySubjectServedFromRecordsWithoutProm(t *testing.T)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the hub's own records, got %d: %s", rec.Code, rec.Body.String())
@@ -685,7 +685,7 @@ func TestObservability_TokensBySubjectServedFromRecordsWithoutProm(t *testing.T)
 		tableTotal += r.TotalTokens
 	}
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=24h", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=24h", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("summary: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -702,7 +702,7 @@ func TestObservability_TokensBySubjectPinnedPrometheusWithoutClientIs503(t *test
 	// A pin is never silently answered from the other backend — even though
 	// this hub has perfectly good records to answer from.
 	s, _ := obsDBServer(t, "/api/v1/observability/metrics/tokens/by-subject")
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 	seedConversation(t, s.taskLogs, &tasklogs.ConversationMessage{
 		InvocationID: "inv-1", AgentName: "olli", Role: "assistant", Content: "[]",
 		InputTokens: 100, OutputTokens: 20,
@@ -710,7 +710,7 @@ func TestObservability_TokensBySubjectPinnedPrometheusWithoutClientIs503(t *test
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 naming Prometheus, got %d: %s", rec.Code, rec.Body.String())
@@ -739,7 +739,7 @@ func TestObservability_TokensBySubjectCacheIsSourceScoped(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=24h", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=24h", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("records read: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -761,11 +761,11 @@ func TestObservability_TokensBySubjectCacheIsSourceScoped(t *testing.T) {
 		return vectorResponse(nil)
 	})
 	defer promSrv.Close()
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 	s.prom = prometheus.NewClient(promSrv.URL, nil)
 
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=24h", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=24h", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pinned read: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -844,7 +844,7 @@ func TestObservability_AgentsServedFromRecordsWithoutProm(t *testing.T) {
 	obsSeedInvocation(t, pool, "inv-b1", "agent-b", "timeout", now.Add(-5*time.Minute), nil)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 with no Prometheus configured, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -893,7 +893,7 @@ func TestObservability_AgentsRecordsMatchTokenSummaryTile(t *testing.T) {
 	obsSeedConversation(t, pool, "agent-b", now.Add(-20*time.Minute), 7, 3, 1, 2)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, agentsPath+"?range=24h", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, agentsPath+"?range=24h", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("agents: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -907,7 +907,7 @@ func TestObservability_AgentsRecordsMatchTokenSummaryTile(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, summaryPath+"?range=24h", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, summaryPath+"?range=24h", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("summary: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -931,7 +931,7 @@ func TestObservability_AgentsRangeWindowsQueries(t *testing.T) {
 	obsSeedInvocation(t, pool, "inv-fresh", "fresh", "success", now.Add(-10*time.Minute), nil)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=1h", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=1h", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("range=1h: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -947,7 +947,7 @@ func TestObservability_AgentsRangeWindowsQueries(t *testing.T) {
 	// range=1h response above sits under a different cache key, so this read
 	// is not served from it.
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	var allTime AgentsMetricsResponse
 	if err := json.NewDecoder(rec.Body).Decode(&allTime); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -966,7 +966,7 @@ func TestObservability_AgentsCacheIsSourceScoped(t *testing.T) {
 	obsSeedConversation(t, pool, "agent-a", time.Now().UTC().Add(-time.Minute), 42, 0, 0, 0)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("records read: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -988,11 +988,11 @@ func TestObservability_AgentsCacheIsSourceScoped(t *testing.T) {
 		return vectorResponse(nil)
 	})
 	defer promSrv.Close()
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 	s.prom = prometheus.NewClient(promSrv.URL, nil)
 
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pinned read: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}

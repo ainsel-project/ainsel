@@ -221,14 +221,13 @@ func (s *Server) createTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	// Validate group membership for resource creation.
-	if s.authzChecker != nil {
-		if req.GroupID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-			return
-		}
-		if !s.requireGroupWrite(w, r, req.GroupID) {
-			return
-		}
+	req.GroupID = s.resolveGroupID(req.GroupID)
+	if req.GroupID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+		return
+	}
+	if !s.requireGroupWrite(w, r, req.GroupID) {
+		return
 	}
 
 	id := generateID("t")
@@ -263,14 +262,12 @@ func (s *Server) createTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	// Assign the trigger to the creator's chosen group.
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(r.Context(), "trigger", id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
+	groupID := req.GroupID
+	if groupID == "" {
+		groupID = "legacy"
+	}
+	if err := s.authzStore.SetResourceGroup(r.Context(), "trigger", id, groupID, false); err != nil {
+		slog.Error("set resource group on create", "error", err, "resource", id)
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, toSimpleTriggerResponse(t))
@@ -334,10 +331,8 @@ func (s *Server) deleteTrigger(ctx context.Context, w http.ResponseWriter, id st
 	}
 
 	// Clean up ownership record.
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "trigger", id); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", id)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "trigger", id); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", id)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

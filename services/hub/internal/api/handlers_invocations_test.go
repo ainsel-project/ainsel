@@ -27,7 +27,7 @@ func TestInvocations_ListReturnsAll(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -85,7 +85,7 @@ func TestInvocations_ListFilters(t *testing.T) {
 	for _, c := range cases {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?"+c.query, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("[%s] expected 200, got %d: %s", c.query, rec.Code, rec.Body.String())
 		}
@@ -108,7 +108,7 @@ func TestInvocations_GetByID(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations/"+rec0.ID, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -149,7 +149,7 @@ func TestInvocations_ListFilterByTrigger(t *testing.T) {
 	for _, c := range cases {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?"+c.query, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("[%s] expected 200, got %d: %s", c.query, rec.Code, rec.Body.String())
 		}
@@ -176,7 +176,7 @@ func TestInvocations_ListFilterByUntil(t *testing.T) {
 	until := now.Add(-15 * time.Minute).Format(time.RFC3339)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?until="+until, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -207,7 +207,7 @@ func TestInvocations_ListFilterBySinceAndUntil(t *testing.T) {
 	until := now.Add(-10 * time.Minute).Format(time.RFC3339)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?since="+since+"&until="+until, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -235,7 +235,7 @@ func TestInvocations_ListFilterByLimit(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?limit=2", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -264,7 +264,7 @@ func TestInvocations_ListCombinedFilters(t *testing.T) {
 	// Filter: trigger=t1 + status=success → only a
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?trigger=t1&status=success", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -284,24 +284,24 @@ func TestInvocations_GetUnknownIDReturns404(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations/inv-does-not-exist", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
 	}
 }
 
-func TestInvocations_NotConfiguredReturns503(t *testing.T) {
-	s := testServer(t)
-	s.invocations = nil
-	s.mux.HandleFunc("/api/v1/invocations", s.handleInvocations)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rec.Code)
+// The invocation store is a required dependency (issue #264): the endpoint has no
+// "not configured" 503 to answer, because New refuses a Deps without it.
+func TestNewRejectsMissingInvocationStore(t *testing.T) {
+	deps := testDeps(t)
+	deps.Invocations = nil
+	_, err := New(deps)
+	if err == nil {
+		t.Fatal("expected New to reject a Deps without Invocations")
+	}
+	if !strings.Contains(err.Error(), "Invocations") {
+		t.Fatalf("error should name the missing field, got: %v", err)
 	}
 }
 
@@ -311,7 +311,7 @@ func TestInvocations_RejectsNonGet(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/invocations", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rec.Code)
@@ -338,7 +338,7 @@ func TestInvocations_ListFilterByEvent(t *testing.T) {
 	for _, c := range cases {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?"+c.query, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("[%s] expected 200, got %d: %s", c.query, rec.Code, rec.Body.String())
 		}
@@ -393,7 +393,7 @@ func TestInvocations_ListFilterByConnector(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?"+query, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("[%s] expected 200, got %d: %s", query, rec.Code, rec.Body.String())
@@ -483,7 +483,7 @@ func TestInvocations_ConnectorCap(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?"+c.query, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 
 		if rec.Code != c.wantCode {
 			t.Fatalf("[%s] expected %d, got %d: %s", c.name, c.wantCode, rec.Code, rec.Body.String())
@@ -517,7 +517,7 @@ func TestInvocations_LimitClampedToMax(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?limit=100000", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -531,7 +531,7 @@ func TestInvocations_LimitClampedToMax(t *testing.T) {
 	// A limit at the cap passes through untouched.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/invocations?limit=500", nil)
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}

@@ -21,7 +21,7 @@ func (s *Server) handleErrors(w http.ResponseWriter, r *http.Request) {
 
 // listErrors serves error entries from the hub's own task_logs table.
 func (s *Server) listErrors(w http.ResponseWriter, r *http.Request) {
-	if s.taskLogs == nil {
+	if !s.taskLogs.Ready() {
 		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
 		return
 	}

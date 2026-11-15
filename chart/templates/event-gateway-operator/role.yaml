@@ -1,0 +1,55 @@
+{{- if .Values.eventGatewayOperator.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-event-gateway-operator
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: event-gateway-operator
+rules:
+  - apiGroups: ["ainsel.dev"]
+    resources: ["webhookconnectors", "webhookconnectors/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The operator reconciles Plugin resources: it fetches and validates each
+  # plugin's manifest and records the result on plugins/status. It never
+  # creates or deletes Plugin objects — the hub owns those writes.
+  - apiGroups: ["ainsel.dev"]
+    resources: ["plugins"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["ainsel.dev"]
+    resources: ["plugins/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The operator reconciles a ServiceMonitor per connector so the
+  # per-connector gateway pod can be scraped by Prometheus. Without this rule
+  # every reconcile errors at the ServiceMonitor step, leaves status empty,
+  # and never gets far enough to register the webhook in Forgejo.
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The operator reconciles an Ingress per connector to route webhooks from
+  # Forgejo to the connector gateway.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The operator resolves verified endpoints for plugins by listing EndpointSlices
+  # to find pods running the verified image digest.
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+{{- end }}

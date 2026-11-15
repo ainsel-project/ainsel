@@ -41,7 +41,7 @@ func TestPluginContext_PluginCaller(t *testing.T) {
 	}
 
 	// Create issuer
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	// Mint a plugin-kind token
 	tok := mintPluginPluginToken(t, issuer, "mem0", []string{"agents:read"},
@@ -169,7 +169,7 @@ func TestPluginContext_GET(t *testing.T) {
 		t.Fatalf("update plugin: %v", err)
 	}
 
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	// Register the handler
 	s.mux.HandleFunc("/api/v1/plugin-context", s.handlePluginContext)
@@ -240,7 +240,7 @@ func TestPluginVisible_FiltersByGroups(t *testing.T) {
 	// Create issuer and mint token with g1 access only
 	secret := make([]byte, 32)
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	var p connectorv1alpha1.Plugin
 	if err := s.client.Get(ctx, types.NamespacedName{Name: "mem0", Namespace: s.ns}, &p); err != nil {
@@ -423,7 +423,7 @@ func TestPluginBackgroundCredential_FromVerifiedEndpoint(t *testing.T) {
 	req.RemoteAddr = "10.0.0.5:51234"
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -462,7 +462,7 @@ func TestPluginBackgroundCredential_IgnoresForwardedFor(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "10.0.0.5")
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected 403 when X-Forwarded-For is spoofed, got %d", rec.Code)
@@ -478,7 +478,7 @@ func TestPluginBackgroundCredential_NotReady(t *testing.T) {
 	req.RemoteAddr = "10.0.0.5:51234"
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for not-ready plugin, got %d", rec.Code)

@@ -244,6 +244,14 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 				keepAliveTried[j.Name] = true
 			}
 			switch {
+			case !jobIsFinished(j) && !signIn:
+				// The agent left ChatGPT sign-in: the pod has nothing left
+				// to do, and would hold the volume and dispatch until its
+				// deadline.
+				if err := r.Delete(ctx, j, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
+					return ScaleDecision{}, fmt.Errorf("stopping credential job of an agent that left ChatGPT sign-in: %w", err)
+				}
+				log.Info("stopped credential job of an agent that left ChatGPT sign-in", "agent", agent.Name, "job", j.Name)
 			case !jobIsFinished(j):
 				signInJobLive = signInJobLive || kind == credentialJobSignIn
 				keepAliveLive = keepAliveLive || kind == credentialJobKeepAlive

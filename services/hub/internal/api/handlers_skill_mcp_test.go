@@ -93,9 +93,9 @@ const (
 func newCatalogueServer(t *testing.T, d SkillDiscovery, token string) *Server {
 	t.Helper()
 	s := &Server{mux: http.NewServeMux()}
-	s.SetSkillsMCPToken(token)
+	s.skillsMCPToken = token
 	s.mux.HandleFunc(skillMCPPath, s.handleSkillMCP)
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := oidc.FromContext(r.Context()); !ok {
 				http.Error(w, "missing bearer token", http.StatusUnauthorized)
@@ -103,9 +103,9 @@ func newCatalogueServer(t *testing.T, d SkillDiscovery, token string) *Server {
 			}
 			next.ServeHTTP(w, r)
 		})
-	})
+	}
 	if d != nil {
-		s.SetSkillDiscovery(d)
+		s.skillMCPHandler = s.requireCatalogueToken(skillMCPServer(d).ServeHTTP)
 	}
 	return s
 }
@@ -500,7 +500,7 @@ func TestCatalogueGetSkillRequiresID(t *testing.T) {
 // the gate back to the shared secret, this fails.
 func TestCatalogueDoesNotAcceptTheInternalSecret(t *testing.T) {
 	s := newCatalogueServer(t, catalogueFixture(), catalogueToken)
-	s.SetInternalValidateSecret("a-different-cluster-wide-secret")
+	s.internalValidateSecret = "a-different-cluster-wide-secret"
 
 	rec := doCatalogue(s, http.MethodPost, skillMCPPath, "X-Internal-Token", "a-different-cluster-wide-secret")
 	if rec.Code != http.StatusUnauthorized {

@@ -190,14 +190,13 @@ func (s *Server) createCronTrigger(ctx context.Context, w http.ResponseWriter, r
 	}
 
 	// Validate group membership for resource creation.
-	if s.authzChecker != nil {
-		if req.GroupID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-			return
-		}
-		if !s.requireGroupWrite(w, r, req.GroupID) {
-			return
-		}
+	req.GroupID = s.resolveGroupID(req.GroupID)
+	if req.GroupID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+		return
+	}
+	if !s.requireGroupWrite(w, r, req.GroupID) {
+		return
 	}
 
 	// Validate schedule at create time.
@@ -232,14 +231,12 @@ func (s *Server) createCronTrigger(ctx context.Context, w http.ResponseWriter, r
 		return
 	}
 
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(r.Context(), cronTriggerResourceType, id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
+	groupID := req.GroupID
+	if groupID == "" {
+		groupID = "legacy"
+	}
+	if err := s.authzStore.SetResourceGroup(r.Context(), cronTriggerResourceType, id, groupID, false); err != nil {
+		slog.Error("set resource group on create", "error", err, "resource", id)
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, toCronTriggerResponse(ct))
@@ -304,10 +301,8 @@ func (s *Server) deleteCronTrigger(ctx context.Context, w http.ResponseWriter, i
 		httpx.WriteError(w, http.StatusNotFound, "cron trigger not found (lookups take the trigger ID; display names are not unique)")
 		return
 	}
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, cronTriggerResourceType, id); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", id)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, cronTriggerResourceType, id); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", id)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

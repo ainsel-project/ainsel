@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ainsel-project/ainsel/services/hub/internal/invocations/invocationstest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -91,7 +90,7 @@ func TestObservability_SummaryReturns503WhenPromNotConfigured(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -123,7 +122,7 @@ func TestObservability_SummaryAggregatesHubCounters(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -151,7 +150,7 @@ func TestObservability_SummaryHandlesEmptyResults(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -178,7 +177,7 @@ func TestObservability_SummaryCaches(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("call %d: expected 200, got %d", i, rec.Code)
 		}
@@ -203,7 +202,7 @@ func TestObservability_TimeseriesDefaultsToEventsConsumedWhenMetricOmitted(t *te
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -226,7 +225,7 @@ func TestObservability_TimeseriesRejectsUnknownMetric(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=nonsense", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -239,7 +238,7 @@ func TestObservability_TimeseriesRejectsUnknownRange(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=events_consumed&range=42y", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -264,7 +263,7 @@ func TestObservability_TimeseriesUsesRateQueryAndReturnsPoints(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=events_consumed&range=1h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -298,7 +297,7 @@ func TestObservability_TimeseriesDefaultRangeIs1h(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/timeseries?metric=routing_errors", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -346,7 +345,7 @@ func TestObservability_AgentsAggregatesTokensAndInvocations(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/agents", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -422,7 +421,7 @@ func TestObservability_AgentsFallsBackToIDWhenAgentMissing(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/agents", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -448,7 +447,7 @@ func TestObservability_AgentsReturns503WhenPromNotConfigured(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/agents", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
 	}
@@ -461,7 +460,7 @@ func TestObservability_RejectsNonGet(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}
@@ -483,7 +482,7 @@ func TestObservability_RejectsNonGet(t *testing.T) {
 // from the mux's plaintext "page not found".
 
 func TestObservability_LegacyMetricPathsReturn404(t *testing.T) {
-	s := New(newFakeClient(), "test-ns", ConnectorConfig{}, nil, invocationstest.New(100), nil, nil, nil, &Config{})
+	s := newTestServer(t, testDeps(t))
 	for _, path := range []string{
 		"/api/v1/metrics/summary",
 		"/api/v1/metrics/timeseries",
@@ -492,12 +491,15 @@ func TestObservability_LegacyMetricPathsReturn404(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			rec := httptest.NewRecorder()
-			s.mux.ServeHTTP(rec, req)
+			s.ServeHTTP(rec, req)
 			if rec.Code != http.StatusNotFound {
 				t.Errorf("expected 404 for removed alias %s, got %d: %s", path, rec.Code, rec.Body.String())
 			}
-			if got := strings.TrimSpace(rec.Body.String()); got != "404 page not found" {
-				t.Errorf("expected the mux's own 404 (route not registered) for %s, got body %q — an alias registration is back in New(...)", path, got)
+			// The router's own not-found answer, not handleObservability's JSON
+			// 404: an alias that had been re-registered in New(...) would have
+			// reached the canonical handler instead.
+			if got := strings.TrimSpace(rec.Body.String()); got != `{"error":"not found"}` {
+				t.Errorf("expected the router's not-found body for %s, got %q — an alias registration is back in New(...)", path, got)
 			}
 		})
 	}
@@ -505,7 +507,7 @@ func TestObservability_LegacyMetricPathsReturn404(t *testing.T) {
 	// otherwise the 404s above could just mean a broken constructor.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code == http.StatusNotFound {
 		t.Errorf("canonical summary path unexpectedly 404s through New(...)")
 	}
@@ -525,7 +527,7 @@ func TestObservability_SummaryWithRangeUsesIncreaseQueries(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=6h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -563,7 +565,7 @@ func TestObservability_SummaryWithRangeRoundsFractionalCounts(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -584,7 +586,7 @@ func TestObservability_SummaryRejectsInvalidRange(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=42y", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -605,7 +607,7 @@ func TestObservability_SummaryWithoutRangePreservesLegacyBehavior(t *testing.T) 
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -631,7 +633,7 @@ func TestObservability_SummaryRangeCacheIsolation(t *testing.T) {
 	// First call with range=1h
 	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=1h", nil)
 	rec1 := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec1, req1)
+	s.ServeHTTP(rec1, req1)
 	if rec1.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec1.Code)
 	}
@@ -640,7 +642,7 @@ func TestObservability_SummaryRangeCacheIsolation(t *testing.T) {
 	// Second call with range=6h — must hit Prometheus again (different cache key).
 	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/summary?range=6h", nil)
 	rec2 := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec2, req2)
+	s.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec2.Code)
 	}

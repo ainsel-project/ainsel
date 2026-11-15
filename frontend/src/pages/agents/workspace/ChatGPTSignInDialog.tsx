@@ -17,8 +17,6 @@ type ChatGPTSignInDialogProps = {
   agentId: string
   open: boolean
   onClose: () => void
-  /** A task is running: the sign-in pod starts once it finishes. */
-  taskRunning?: boolean
   /** How often the session is re-read while it is live. */
   pollMs?: number
 }
@@ -39,7 +37,6 @@ export function ChatGPTSignInDialog({
   agentId,
   open,
   onClose,
-  taskRunning,
   pollMs = 2000,
 }: ChatGPTSignInDialogProps) {
   const qc = useQueryClient()
@@ -130,13 +127,9 @@ export function ChatGPTSignInDialog({
     confirmLabel = 'Try again'
     onConfirm = () => void begin()
   } else if (!s || state === 'waiting_for_pod') {
-    body = (
-      <p>
-        {taskRunning
-          ? 'Waiting for the running task to finish, then starting the sign-in…'
-          : 'Starting the sign-in…'}
-      </p>
-    )
+    // The sign-in pod waits for a running task, and the console cannot tell
+    // that wait from the pod starting, so the text covers both.
+    body = <p>Starting the sign-in… If a task is running, the link appears once it finishes.</p>
   } else if (state === 'awaiting_redirect') {
     body = (
       <div style={{ display: 'grid', gap: 12 }}>

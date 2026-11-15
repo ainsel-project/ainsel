@@ -48,7 +48,7 @@ func postAgentReq(t *testing.T, s *Server, req any) (int, string) {
 	hreq := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, hreq)
+	s.ServeHTTP(rec, hreq)
 	return rec.Code, rec.Body.String()
 }
 
@@ -58,7 +58,7 @@ func putAgentReq(t *testing.T, s *Server, id string, req any) (int, string) {
 	hreq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+id, bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, hreq)
+	s.ServeHTTP(rec, hreq)
 	return rec.Code, rec.Body.String()
 }
 
@@ -96,7 +96,7 @@ func TestAgentResponse_CarriesNoPauseFields(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create agent: got %d, want 201: %s", rec.Code, rec.Body.String())
 	}
@@ -109,7 +109,7 @@ func TestAgentResponse_CarriesNoPauseFields(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	getRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/api/v1/agents/"+created.ID, nil))
+	s.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/api/v1/agents/"+created.ID, nil))
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("get agent: got %d, want 200: %s", getRec.Code, getRec.Body.String())
 	}

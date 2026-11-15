@@ -1,0 +1,17 @@
+{{- if and .Values.eventGatewayOperator.enabled .Values.eventGatewayOperator.clusterWideRbac }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.namespace }}-event-gateway-operator
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: event-gateway-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.namespace }}-event-gateway-operator
+subjects:
+  - kind: ServiceAccount
+    name: event-gateway-operator
+    namespace: {{ .Values.namespace }}
+{{- end }}

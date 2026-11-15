@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,14 +30,24 @@ func createAgentBody(t *testing.T, skills string) []byte {
 	return []byte("{" + strings.Join(fields, ",") + "}")
 }
 
+// shapeSkills is the catalogue an agent create validates its skill ids against.
+// The service is a required dependency (issue #264), so the fixture states one
+// rather than relying on validation being skipped.
+func shapeSkills() SkillService {
+	svc := newMockSkillService()
+	svc.skills["sk-1"] = &skills.Skill{ID: "sk-1", Name: "Shape Skill"}
+	return svc
+}
+
 func postAgents(t *testing.T, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	s := testServer(t, testAgentImage("img-1", "git"))
+	s.skills = shapeSkills()
 	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -44,11 +55,12 @@ func postAgents(t *testing.T, body []byte) *httptest.ResponseRecorder {
 func putAgentShape(t *testing.T, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	s := testServer(t, testAgentImage("img-1", "git"))
+	s.skills = shapeSkills()
 	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
 	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/agents",
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/agents",
 		bytes.NewReader(createAgentBody(t, ""))))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("seed agent: expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -59,7 +71,7 @@ func putAgentShape(t *testing.T, body []byte) *httptest.ResponseRecorder {
 	}
 
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID,
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID,
 		bytes.NewReader(body)))
 	return rec
 }

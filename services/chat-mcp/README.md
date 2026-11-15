@@ -105,7 +105,7 @@ Env vars:
 | Var | Required | Default | Purpose |
 |-----|----------|---------|---------|
 | `PORT` | no | `8081` | HTTP listen port |
-| `HUB_URL` | yes | `http://hub-backend.ainsel.svc.cluster.local:8080` | Hub backend REST API URL |
+| `HUB_URL` | yes | `http://hub.ainsel.svc.cluster.local:8080` | Hub backend REST API URL |
 | `AGENT_NAME` | yes | — | Logical agent name (set by operator on the pod) |
 | `AINSEL_TASK_DIR` | no | — | Set by the operator on per-task Jobs: the directory holding the runtime's `agent.pid`. When set, this sidecar ends with the runtime — see [Lifecycle](#lifecycle) |
 

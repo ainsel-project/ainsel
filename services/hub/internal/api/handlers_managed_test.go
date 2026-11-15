@@ -61,7 +61,7 @@ func managedReq(t *testing.T, s *Server, method, path, body string) *httptest.Re
 	req := httptest.NewRequest(method, path, bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -176,7 +176,7 @@ func TestManagedImageMutations409(t *testing.T) {
 		req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader([]byte(tc.body)))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("%s %s: status = %d, body = %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
