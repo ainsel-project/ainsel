@@ -76,9 +76,9 @@ graph LR
             H_RB[rolebinding.yaml]
             H_SA[serviceaccount.yaml]
         end
-        subgraph ui/
-            U_D[deployment.yaml]
-            U_S[service.yaml]
+        subgraph frontend/
+            F_D[deployment.yaml]
+            F_S[service.yaml]
         end
     end
 

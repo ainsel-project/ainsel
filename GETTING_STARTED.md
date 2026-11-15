@@ -33,10 +33,10 @@ Expected output (all pods `Running`):
 
 ```
 NAME                                              READY   STATUS    RESTARTS   AGE
-hub-xxxxxxxxx-xxxxx                              1/1     Running   0          2m
-frontend-xxxxxxxxx-xxxxx                           1/1     Running   0          2m
+hub-xxxxxxxxx-xxxxx                               1/1     Running   0          2m
+frontend-xxxxxxxxx-xxxxx                          1/1     Running   0          2m
 agent-operator-xxxxxxxx-xxxxx                     1/1     Running   0          2m
-event-gateway-operator-xxxxxxxx-xxxxx               1/1     Running   0          2m
+event-gateway-operator-xxxxxxxx-xxxxx             1/1     Running   0          2m
 ainsel-mcp-xxxxxxxxx-xxxxx                        1/1     Running   0          2m
 postgres-0                                        1/1     Running   0          2m
 ```

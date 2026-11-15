@@ -31,7 +31,7 @@ spec:
           # nginx renders the configured path as a regex (see the
           # use-regex annotation) with pathType ImplementationSpecific;
           # other controllers get the literal path with pathType Prefix.
-          # The frontend serves under ui.basePath — on a non-nginx
+          # The frontend serves under frontend.basePath — on a non-nginx
           # controller, configure rewrite/strip-prefix middleware so the
           # request path still matches it (see "Ingress controllers" in
           # docs/deployment.md).
