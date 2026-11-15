@@ -56,6 +56,13 @@ func TestPluginToolsPollIntervalDefaults(t *testing.T) {
 	}
 }
 
+func TestHubURLDefault(t *testing.T) {
+	t.Setenv("HUB_URL", "")
+	if got := config.Load().HubURL; got != "http://hub.ainsel.svc.cluster.local:8080" {
+		t.Errorf("HubURL default = %q; want http://hub.ainsel.svc.cluster.local:8080", got)
+	}
+}
+
 func TestValidateRequiresOIDCFields(t *testing.T) {
 	cases := []struct {
 		name    string
