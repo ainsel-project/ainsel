@@ -31,10 +31,18 @@ const SIGN_IN_REQUIRED = [
 
 // classify reads the whole cause chain: pi-ai wraps the token-endpoint error
 // in two ModelsErrors whose own messages say nothing about why.
+//
+// An auth.json that does not parse (a pod killed mid-write; Pi writes in
+// place) is dead too: retrying cannot repair it, and signing in rewrites it.
+// Only a parse error under Pi's credential-store read counts — a non-JSON
+// answer from a proxy in front of OpenAI is a SyntaxError as well.
 export function classify(error) {
+	let storeRead = false;
 	for (let e = error; e; e = e.cause) {
 		const message = e instanceof Error ? e.message : String(e);
 		if (SIGN_IN_REQUIRED.some((re) => re.test(message))) return "signin-required";
+		if (/Credential store read failed/.test(message)) storeRead = true;
+		else if (storeRead && e instanceof SyntaxError) return "signin-required";
 	}
 	return "transient";
 }

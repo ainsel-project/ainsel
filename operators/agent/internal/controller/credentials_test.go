@@ -823,6 +823,39 @@ func TestKeepAliveIntervalProblem(t *testing.T) {
 	}
 }
 
+// A sign-in requested while the keep-alive holds the volume waits for it,
+// like for a running task.
+func TestSignInWaitsForKeepAlive(t *testing.T) {
+	agent := requestSignIn(signedIn(signInJobModeAgent(), time.Now().Add(-time.Hour)))
+	live := buildKeepAliveJob(agent, jobModeDeployment(), time.Now())
+	r, c := keepAliveReconciler(t, agent, live)
+	decision, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(signInJobs(listTaskJobs(t, c))); n != 0 {
+		t.Fatalf("sign-in Job started beside the keep-alive (%d), want it to wait", n)
+	}
+	if decision.RequeueAfter == 0 {
+		t.Errorf("decision = %+v, want a requeue to start the sign-in once the keep-alive ends", decision)
+	}
+}
+
+// A paused agent (replicas: 0) runs none of its queued tasks, so nothing
+// else would refresh the sign-in: the keep-alive still runs.
+func TestKeepAliveRunsForPausedAgentWithQueuedTasks(t *testing.T) {
+	agent := signedIn(signInJobModeAgent(7), time.Now().Add(-25*time.Hour))
+	agent.Spec.Scaling.Replicas = ptr.To(int32(0))
+	r, c := keepAliveReconciler(t, agent)
+	if _, err := r.syncPerTaskJobs(context.Background(), agent, "agent-worker", jobModeDeployment()); err != nil {
+		t.Fatal(err)
+	}
+	jobs := listTaskJobs(t, c)
+	if len(keepAliveJobs(jobs)) != 1 || len(taskJobsOf(jobs)) != 0 {
+		t.Fatalf("jobs = %d keep-alive / %d task, want the keep-alive and no task", len(keepAliveJobs(jobs)), len(taskJobsOf(jobs)))
+	}
+}
+
 // Switching back to an API key leaves no use for a sign-in pod: it is
 // stopped instead of holding the volume, and dispatch, until its deadline.
 func TestSignInJobStoppedOnSwitchToAPIKey(t *testing.T) {

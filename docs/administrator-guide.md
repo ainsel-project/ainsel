@@ -638,7 +638,9 @@ What to know:
   the token if needed. If OpenAI rejects it, the agent shows **Sign-in required**
   on its page and in the agent list, runs nothing, and keeps its queued tasks
   until someone signs in again. A network or OpenAI outage during that check is
-  retried and is not treated as a dead sign-in. A token revoked before it
+  retried and is not treated as a dead sign-in; each attempt gives up after 20
+  seconds. A stored credential that no longer parses (a pod killed while writing
+  it) counts as dead; signing in again clears it and stores a new one. A token revoked before it
   expires is only noticed when it next refreshes; until then tasks fail with an
   authorization error.
 - **Revoking.** Each agent signs in as its own app, shown as *AInsel
