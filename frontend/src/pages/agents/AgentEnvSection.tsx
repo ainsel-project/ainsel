@@ -87,7 +87,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
   return (
     <Panel title="Environment overrides">
       <div style={{ display: 'grid', gap: 8 }}>
-        <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
+        <p className="hint">
           Saved on this agent only — the image's own environment is edited on the image page.
         </p>
         <EnvTable
@@ -111,7 +111,7 @@ export function AgentEnvSection({ agent }: AgentEnvSectionProps) {
         )}
 
         {agent.env ? null : (
-          <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
+          <p className="hint">
             Currently inherited from the runtime image — the first change pins the environment to
             this agent.
           </p>

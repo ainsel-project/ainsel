@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/internal/telemetry"
@@ -287,7 +288,7 @@ func (s *Server) handleObservability(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/observability/metrics/tokens/by-event":
 		s.observabilityMethodGate(w, r, s.getTokensByEvent)
 	default:
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 	}
 }
 
@@ -304,11 +305,11 @@ func (s *Server) handleObservability(w http.ResponseWriter, r *http.Request) {
 // namespace and submit arbitrarily expensive expressions.
 func (s *Server) handleObservabilityMetricsQuery(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.prom == nil {
-		writeError(w, http.StatusServiceUnavailable, promRequiredMessage)
+		httpx.WriteError(w, http.StatusServiceUnavailable, promRequiredMessage)
 		return
 	}
 	// With no authz wired there is no notion of admin and the whole API is open
@@ -319,7 +320,7 @@ func (s *Server) handleObservabilityMetricsQuery(w http.ResponseWriter, r *http.
 	}
 	query := r.URL.Query().Get("query")
 	if query == "" {
-		writeError(w, http.StatusBadRequest, "query is required")
+		httpx.WriteError(w, http.StatusBadRequest, "query is required")
 		return
 	}
 	// Namespace scoping, kept as defence in depth now that the endpoint is
@@ -330,13 +331,13 @@ func (s *Server) handleObservabilityMetricsQuery(w http.ResponseWriter, r *http.
 	// must not be relied on as the access control.
 	ns := s.ns
 	if !containsNamespaceMatcher(query, ns) {
-		writeError(w, http.StatusBadRequest,
+		httpx.WriteError(w, http.StatusBadRequest,
 			fmt.Sprintf("query must be scoped to namespace %q (e.g. {namespace=%q})", ns, ns))
 		return
 	}
 	body, err := s.prom.QueryRaw(r.Context(), query, r.URL.Query().Get("time"))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "prometheus query failed: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "prometheus query failed: "+err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -359,7 +360,7 @@ func containsNamespaceMatcher(query, ns string) bool {
 
 func (s *Server) observabilityMethodGate(w http.ResponseWriter, r *http.Request, h func(http.ResponseWriter, *http.Request)) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	h(w, r)
@@ -427,7 +428,7 @@ func (s *Server) getMetricsSummary(w http.ResponseWriter, r *http.Request) {
 	if rangeKey != "" {
 		opt, ok := supportedRanges[rangeKey]
 		if !ok {
-			writeError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
+			httpx.WriteError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
 			return
 		}
 		rng = &opt
@@ -435,7 +436,7 @@ func (s *Server) getMetricsSummary(w http.ResponseWriter, r *http.Request) {
 
 	source, reason := s.metricsBackend()
 	if source == "" {
-		writeError(w, http.StatusServiceUnavailable, reason)
+		httpx.WriteError(w, http.StatusServiceUnavailable, reason)
 		return
 	}
 
@@ -447,7 +448,7 @@ func (s *Server) getMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		cacheKey += ":" + rangeKey
 	}
 	if cached, ok := s.observabilityCache.get(cacheKey); ok {
-		writeJSON(w, http.StatusOK, cached)
+		httpx.WriteJSON(w, http.StatusOK, cached)
 		return
 	}
 
@@ -459,12 +460,12 @@ func (s *Server) getMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		summary, err = s.summaryFromPrometheus(r.Context(), rng, rangeKey)
 	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 
 	s.observabilityCache.set(cacheKey, summary)
-	writeJSON(w, http.StatusOK, summary)
+	httpx.WriteJSON(w, http.StatusOK, summary)
 }
 
 // summaryFromPrometheus reads the four hub counters. With a range it uses
@@ -558,32 +559,32 @@ func (s *Server) getMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
 
 	rng, ok := supportedRanges[rangeKey]
 	if !ok {
-		writeError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
 		return
 	}
 
 	metric, ok := findHubMetric(metricName)
 	if !ok {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown metric %q", metricName))
+		httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("unknown metric %q", metricName))
 		return
 	}
 
 	source, reason := s.metricsBackend()
 	if source == "" {
-		writeError(w, http.StatusServiceUnavailable, reason)
+		httpx.WriteError(w, http.StatusServiceUnavailable, reason)
 		return
 	}
 	// Two registries, deliberately kept separate: hubMetrics names what can be
 	// scraped, telemetry names what the hub has rows for. A metric in one but not
 	// the other must be refused, not drawn as an empty chart.
 	if source == metricsSourcePostgres && !telemetry.SupportsMetric(metric.Name) {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("metric %q is not readable from the hub's own records", metric.Name))
+		httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("metric %q is not readable from the hub's own records", metric.Name))
 		return
 	}
 
 	cacheKey := fmt.Sprintf("ts:%s:%s:%s", source, metric.Name, rangeKey)
 	if cached, ok := s.observabilityCache.get(cacheKey); ok {
-		writeJSON(w, http.StatusOK, cached)
+		httpx.WriteJSON(w, http.StatusOK, cached)
 		return
 	}
 
@@ -598,7 +599,7 @@ func (s *Server) getMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
 		points, err = s.pointsFromPrometheus(r.Context(), metric, rng, start, end)
 	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 
@@ -610,7 +611,7 @@ func (s *Server) getMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
 		Source: source,
 	}
 	s.observabilityCache.set(cacheKey, resp)
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // pointsFromPrometheus samples a counter's rate across the window, so the chart
@@ -763,14 +764,14 @@ func (s *Server) getAgentsMetrics(w http.ResponseWriter, r *http.Request) {
 	rangeKey := r.URL.Query().Get("range")
 	if rangeKey != "" {
 		if _, ok := supportedRanges[rangeKey]; !ok {
-			writeError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
+			httpx.WriteError(w, http.StatusBadRequest, "unsupported range; allowed values: 1h, 6h, 24h, 7d")
 			return
 		}
 	}
 
 	source, reason := s.agentsBackend()
 	if source == "" {
-		writeError(w, http.StatusServiceUnavailable, reason)
+		httpx.WriteError(w, http.StatusServiceUnavailable, reason)
 		return
 	}
 
@@ -784,7 +785,7 @@ func (s *Server) getAgentsMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	cacheKey := "agents:" + source + ":" + cacheRange
 	if cached, ok := s.observabilityCache.get(cacheKey); ok {
-		writeJSON(w, http.StatusOK, cached)
+		httpx.WriteJSON(w, http.StatusOK, cached)
 		return
 	}
 
@@ -796,7 +797,7 @@ func (s *Server) getAgentsMetrics(w http.ResponseWriter, r *http.Request) {
 		agents, err = s.agentsFromPrometheus(r.Context())
 	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 
@@ -820,7 +821,7 @@ func (s *Server) getAgentsMetrics(w http.ResponseWriter, r *http.Request) {
 		Source:    source,
 	}
 	s.observabilityCache.set(cacheKey, resp)
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // agentsFromRecords builds the per-agent table from the hub's own tables: the

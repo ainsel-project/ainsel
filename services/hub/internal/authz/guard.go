@@ -2,10 +2,10 @@ package authz
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -49,24 +49,16 @@ func NewDisabledGuard(store DisabledUserChecker) func(http.Handler) http.Handler
 					next.ServeHTTP(w, r)
 					return
 				}
-				writeGuardError(w, http.StatusInternalServerError, "internal error")
+				httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			if disabled {
 				// Same generic "unauthorized" message as the anonymous closers:
 				// "disabled" must not be distinguishable from "not signed in".
-				writeGuardError(w, http.StatusUnauthorized, "unauthorized")
+				httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// writeGuardError mirrors the api package's writeError envelope without
-// importing it (authz must stay dependency-light).
-func writeGuardError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

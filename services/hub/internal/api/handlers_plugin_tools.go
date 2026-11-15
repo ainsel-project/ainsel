@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginproxy"
@@ -52,7 +53,7 @@ func (s *Server) handleInternalPluginTools(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -60,7 +61,7 @@ func (s *Server) handleInternalPluginTools(w http.ResponseWriter, r *http.Reques
 
 	var list connectorv1alpha1.PluginList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -115,7 +116,7 @@ func (s *Server) handleInternalPluginTools(w http.ResponseWriter, r *http.Reques
 		return entries[i].Name < entries[j].Name
 	})
 
-	writeJSON(w, http.StatusOK, pluginToolsListResponse{Tools: entries})
+	httpx.WriteJSON(w, http.StatusOK, pluginToolsListResponse{Tools: entries})
 }
 
 // pluginToolCallRequest is the body of POST /api/v1/plugin-tools/call.
@@ -136,12 +137,12 @@ type pluginToolCallRequest struct {
 // agent audience → 404 "tool not found"; plugin unreachable → 502.
 func (s *Server) handlePluginToolCall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	user, ok := oidc.FromContext(r.Context())
 	if !ok || user == nil || user.Sub == "" {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -150,32 +151,32 @@ func (s *Server) handlePluginToolCall(w http.ResponseWriter, r *http.Request) {
 	var body pluginToolCallRequest
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if body.PluginID == "" || body.Tool == "" {
-		writeError(w, http.StatusBadRequest, "pluginId and tool are required")
+		httpx.WriteError(w, http.StatusBadRequest, "pluginId and tool are required")
 		return
 	}
 
 	plugin, err := s.availablePlugin(ctx, body.PluginID)
 	if err != nil {
 		if errors.Is(err, errPluginUnavailable) {
-			writeError(w, http.StatusNotFound, "plugin not found")
+			httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	manifest, ok := pluginManifest(plugin)
 	if !ok || manifest.MCP == nil {
 		// A plugin without an MCP endpoint serves no tools at all.
-		writeError(w, http.StatusNotFound, "tool not found")
+		httpx.WriteError(w, http.StatusNotFound, "tool not found")
 		return
 	}
 	endpoint, ok := pluginproxy.PickEndpoint(plugin.Status.VerifiedEndpoints, nil)
 	if !ok {
-		writeError(w, http.StatusBadGateway, "plugin unreachable")
+		httpx.WriteError(w, http.StatusBadGateway, "plugin unreachable")
 		return
 	}
 	target := pluginMCPTarget(plugin.Name, endpoint, manifest)
@@ -192,11 +193,11 @@ func (s *Server) handlePluginToolCall(w http.ResponseWriter, r *http.Request) {
 	tools, err := s.getPluginMCPClient().ListTools(ctx, target, listCredential)
 	if err != nil {
 		slog.Warn("plugin tool call: plugin unreachable", "plugin", plugin.Name, "error", err)
-		writeError(w, http.StatusBadGateway, "plugin unreachable")
+		httpx.WriteError(w, http.StatusBadGateway, "plugin unreachable")
 		return
 	}
 	if !pluginToolIsKnown(tools, body.Tool) || manifest.ToolAudience(body.Tool) == pluginpkg.AudienceAgent {
-		writeError(w, http.StatusNotFound, "tool not found")
+		httpx.WriteError(w, http.StatusNotFound, "tool not found")
 		return
 	}
 
@@ -209,10 +210,10 @@ func (s *Server) handlePluginToolCall(w http.ResponseWriter, r *http.Request) {
 	result, err := s.getPluginMCPClient().CallTool(ctx, target, pluginmcp.CallOptions{Credential: credential}, body.Tool, body.Arguments)
 	if err != nil {
 		slog.Warn("plugin tool call failed", "plugin", plugin.Name, "tool", body.Tool, "error", err)
-		writeError(w, http.StatusBadGateway, "plugin unreachable")
+		httpx.WriteError(w, http.StatusBadGateway, "plugin unreachable")
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 // pluginManifest parses the manifest the operator published into
@@ -270,10 +271,10 @@ func pluginToolInputSchema(tool mcp.Tool) json.RawMessage {
 func writePluginMintError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, plugincreds.ErrDisabled):
-		writeError(w, http.StatusServiceUnavailable, "plugin credentials are not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "plugin credentials are not configured")
 	case errors.Is(err, errPluginUnavailable):
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 	default:
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 	}
 }

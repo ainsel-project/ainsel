@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 )
 
@@ -171,7 +172,7 @@ func TestPasswordPolicyEndpointBehindAuthMiddleware(t *testing.T) {
 	// sits behind it like every other /api/v1/* path.
 	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		})
 	}
 	rec := doJSON(t, s, http.MethodGet, "/api/v1/auth/password-policy", nil, nil)

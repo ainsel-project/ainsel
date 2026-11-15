@@ -6,10 +6,8 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,6 +18,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
@@ -505,18 +504,6 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("failed to encode JSON response", "error", err)
-	}
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
 // writeAuthzError maps the authz store sentinel errors to their HTTP
 // responses: authz.ErrNotFound becomes 404 "<resource> not found" and
 // authz.ErrAlreadyExists becomes 409 "<resource> already exists". It
@@ -525,14 +512,14 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 //	if writeAuthzError(w, err, "user") {
 //		return
 //	}
-//	writeError(w, http.StatusInternalServerError, err.Error())
+//	httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 func writeAuthzError(w http.ResponseWriter, err error, resource string) bool {
 	switch {
 	case errors.Is(err, authz.ErrNotFound):
-		writeError(w, http.StatusNotFound, resource+" not found")
+		httpx.WriteError(w, http.StatusNotFound, resource+" not found")
 		return true
 	case errors.Is(err, authz.ErrAlreadyExists):
-		writeError(w, http.StatusConflict, resource+" already exists")
+		httpx.WriteError(w, http.StatusConflict, resource+" already exists")
 		return true
 	}
 	return false
@@ -556,16 +543,16 @@ func (s *Server) requireRead(w http.ResponseWriter, r *http.Request, resourceTyp
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	ok, err := s.authzChecker.CanRead(r.Context(), u.Sub, resourceType, resourceName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -578,16 +565,16 @@ func (s *Server) requireWrite(w http.ResponseWriter, r *http.Request, resourceTy
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	ok, err := s.authzChecker.CanWrite(r.Context(), u.Sub, resourceType, resourceName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -600,16 +587,16 @@ func (s *Server) requireGroupOwner(w http.ResponseWriter, r *http.Request, group
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	ok, err := s.authzChecker.CanManageGroup(r.Context(), u.Sub, groupID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "group owner or admin required")
+		httpx.WriteError(w, http.StatusForbidden, "group owner or admin required")
 		return false
 	}
 	return true

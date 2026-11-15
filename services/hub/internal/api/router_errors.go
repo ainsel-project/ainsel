@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net"
 	"net/http"
+
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 )
 
 // maxRouterErrorBody bounds how many bytes of a candidate router error body are
@@ -114,7 +116,7 @@ func (w *routerErrorWriter) finish() {
 		bytes.HasPrefix(w.buf.Bytes(), []byte(prefix)) {
 		w.wroteHeader = true
 		w.passthrough = true
-		writeError(w.ResponseWriter, w.status, routerErrorMessage(w.status))
+		httpx.WriteError(w.ResponseWriter, w.status, routerErrorMessage(w.status))
 		w.buf.Reset()
 		return
 	}

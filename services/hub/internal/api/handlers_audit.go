@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -94,21 +95,21 @@ type authEventItem struct {
 // return 400. Missing store (no DB) returns 503.
 func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !s.requireAdmin(w, r) {
 		return
 	}
 	if s.authEvents == nil {
-		writeError(w, http.StatusServiceUnavailable, "audit event store not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "audit event store not configured")
 		return
 	}
 
 	q := r.URL.Query()
 	page, err := ParsePageParams(q)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -120,7 +121,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("from"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid from: must be RFC3339")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid from: must be RFC3339")
 			return
 		}
 		opts.Since = t
@@ -128,7 +129,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("to"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid to: must be RFC3339")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid to: must be RFC3339")
 			return
 		}
 		opts.Until = t
@@ -140,7 +141,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 		// Log the store detail server-side; the client gets a generic message so
 		// internal DB error text never reaches an API response body.
 		slog.Error("audit events list failed", "error", err)
-		writeError(w, http.StatusBadGateway, "failed to query audit events")
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query audit events")
 		return
 	}
 
@@ -156,7 +157,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 			Outcome:    e.Outcome,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,

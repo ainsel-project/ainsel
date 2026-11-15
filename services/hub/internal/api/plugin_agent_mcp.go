@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginproxy"
 	pluginpkg "github.com/ainsel-project/ainsel/shared/api/plugin"
@@ -53,17 +54,17 @@ type agentMCPCaller struct {
 // Ready, or without an MCP surface → 404; plugin unreachable → 502.
 func (s *Server) handlePluginAgentMCP(w http.ResponseWriter, r *http.Request, pluginID string) {
 	if s.internalValidateSecret == "" {
-		writeError(w, http.StatusServiceUnavailable, "internal endpoints disabled")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "internal endpoints disabled")
 		return
 	}
 	provided, ok := internalBearerToken(r.Header.Get("Authorization"))
 	if !ok || subtle.ConstantTimeCompare([]byte(provided), []byte(s.internalValidateSecret)) != 1 {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	caller, ok := agentMCPCallerFrom(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id")
 		return
 	}
 
@@ -74,22 +75,22 @@ func (s *Server) handlePluginAgentMCP(w http.ResponseWriter, r *http.Request, pl
 	plugin, err := s.availablePlugin(ctx, pluginID)
 	if err != nil {
 		if errors.Is(err, errPluginUnavailable) {
-			writeError(w, http.StatusNotFound, "plugin not found")
+			httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 			return
 		}
 		slog.Error("agent plugin mcp: plugin lookup failed", "plugin", pluginID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	manifest, ok := pluginManifest(plugin)
 	if !ok || manifest.MCP == nil {
 		// A plugin that declares no MCP surface serves no tools to anyone.
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 	endpoint, ok := pluginproxy.PickEndpoint(plugin.Status.VerifiedEndpoints, nil)
 	if !ok {
-		writeError(w, http.StatusBadGateway, "plugin unreachable")
+		httpx.WriteError(w, http.StatusBadGateway, "plugin unreachable")
 		return
 	}
 	target := pluginMCPTarget(plugin.Name, endpoint, manifest)
@@ -105,7 +106,7 @@ func (s *Server) handlePluginAgentMCP(w http.ResponseWriter, r *http.Request, pl
 	tools, err := s.getPluginMCPClient().ListTools(ctx, target, listCredential)
 	if err != nil {
 		slog.Warn("agent plugin mcp: plugin unreachable", "plugin", plugin.Name, "error", err)
-		writeError(w, http.StatusBadGateway, "plugin unreachable")
+		httpx.WriteError(w, http.StatusBadGateway, "plugin unreachable")
 		return
 	}
 

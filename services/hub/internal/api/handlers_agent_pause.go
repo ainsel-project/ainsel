@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -47,7 +48,7 @@ func (s *Server) handleAgentPause(w http.ResponseWriter, r *http.Request, name s
 	case http.MethodDelete:
 		s.resumeAgent(w, r, name)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -56,7 +57,7 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 	// An absent body is a valid request: indefinite pause.
 	if r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 			return
 		}
 	}
@@ -65,16 +66,16 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 	var until *metav1.Time
 	switch {
 	case req.Duration != "" && req.Until != "":
-		writeError(w, http.StatusBadRequest, "specify either duration or until, not both")
+		httpx.WriteError(w, http.StatusBadRequest, "specify either duration or until, not both")
 		return
 	case req.Duration != "":
 		d, err := time.ParseDuration(req.Duration)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid duration: "+err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, "invalid duration: "+err.Error())
 			return
 		}
 		if d <= 0 {
-			writeError(w, http.StatusBadRequest, "duration must be positive")
+			httpx.WriteError(w, http.StatusBadRequest, "duration must be positive")
 			return
 		}
 		t := metav1.NewTime(now.Add(d))
@@ -82,11 +83,11 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 	case req.Until != "":
 		t, err := time.Parse(time.RFC3339, req.Until)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "until must be an RFC3339 timestamp")
+			httpx.WriteError(w, http.StatusBadRequest, "until must be an RFC3339 timestamp")
 			return
 		}
 		if !t.After(now) {
-			writeError(w, http.StatusBadRequest, "until must be in the future")
+			httpx.WriteError(w, http.StatusBadRequest, "until must be in the future")
 			return
 		}
 		mt := metav1.NewTime(t)
@@ -95,7 +96,7 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 
 	agent, code, msg := s.getAgentForPauseWrite(r, name)
 	if code != 0 {
-		writeError(w, code, msg)
+		httpx.WriteError(w, code, msg)
 		return
 	}
 	agent.Spec.Pause = &agentv1alpha1.AgentPause{PausedUntil: until}
@@ -104,7 +105,7 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 	}
 	agent.Annotations[AgentUpdatedAtAnnotation] = stampAgentUpdatedAt()
 	if err := s.client.Update(r.Context(), agent); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to pause agent: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to pause agent: "+err.Error())
 		return
 	}
 	slog.Info("agent paused", "agent", name, "paused_until", until)
@@ -114,7 +115,7 @@ func (s *Server) pauseAgent(w http.ResponseWriter, r *http.Request, name string)
 func (s *Server) resumeAgent(w http.ResponseWriter, r *http.Request, name string) {
 	agent, code, msg := s.getAgentForPauseWrite(r, name)
 	if code != 0 {
-		writeError(w, code, msg)
+		httpx.WriteError(w, code, msg)
 		return
 	}
 	agent.Spec.Pause = nil
@@ -123,7 +124,7 @@ func (s *Server) resumeAgent(w http.ResponseWriter, r *http.Request, name string
 	}
 	agent.Annotations[AgentUpdatedAtAnnotation] = stampAgentUpdatedAt()
 	if err := s.client.Update(r.Context(), agent); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resume agent: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to resume agent: "+err.Error())
 		return
 	}
 	slog.Info("agent resumed", "agent", name)
@@ -153,5 +154,5 @@ func (s *Server) getAgentForPauseWrite(r *http.Request, name string) (*agentv1al
 // writeAgentResponse renders an agent as the standard simple response.
 func (s *Server) writeAgentResponse(w http.ResponseWriter, r *http.Request, agent *agentv1alpha1.Agent) {
 	displayName := s.resolveImageDisplayName(r.Context(), agent.Spec.ImageRef.Name)
-	writeJSON(w, http.StatusOK, toSimpleAgentResponse(*agent, displayName))
+	httpx.WriteJSON(w, http.StatusOK, toSimpleAgentResponse(*agent, displayName))
 }

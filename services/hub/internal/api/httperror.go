@@ -3,6 +3,8 @@ package api
 import (
 	"errors"
 	"net/http"
+
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 )
 
 // apiError is an error that carries the HTTP status and response message the
@@ -61,8 +63,8 @@ func wrapAPIError(status int, msg string, err error) *apiError {
 func writeErr(w http.ResponseWriter, err error) {
 	var ae *apiError
 	if errors.As(err, &ae) {
-		writeError(w, ae.Status, ae.Msg)
+		httpx.WriteError(w, ae.Status, ae.Msg)
 		return
 	}
-	writeError(w, http.StatusInternalServerError, err.Error())
+	httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 }

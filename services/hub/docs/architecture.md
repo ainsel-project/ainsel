@@ -109,4 +109,5 @@ graph LR
 | `handlers_connectors.go` | `/api/v1/connectors`, `/api/v1/connectors/:name` |
 | `handlers_triggers.go` | `/api/v1/triggers`, `/api/v1/triggers/:name` |
 | `handlers_eventqueue.go` | `/api/internal/agents/{name}/tasks/{id}`, `ack`, `nack` |
-| `server.go` | Route registration, health check, JSON helpers |
+| `server.go` | Route registration, health check |
+| `internal/httpx/` | Shared JSON response envelope (`WriteJSON`, `WriteError`) and bearer-header parsing used by every handler |

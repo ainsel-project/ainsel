@@ -12,6 +12,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginproxy"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	pluginpkg "github.com/ainsel-project/ainsel/shared/api/plugin"
@@ -117,12 +118,12 @@ func (s *Server) requirePluginAdmin(w http.ResponseWriter, r *http.Request) bool
 	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	admin, _ := s.authzChecker.IsAdmin(r.Context(), u.Sub)
 	if !admin {
-		writeError(w, http.StatusForbidden, "admin access required")
+		httpx.WriteError(w, http.StatusForbidden, "admin access required")
 		return false
 	}
 	return true
@@ -145,7 +146,7 @@ func (s *Server) requirePluginReader(w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 	if _, ok := oidc.FromContext(r.Context()); !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	return true
@@ -165,7 +166,7 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 		}
 		s.installPlugin(ctx, w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -174,7 +175,7 @@ func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 	escapedPath := r.URL.EscapedPath()
 	path := strings.TrimPrefix(escapedPath, "/api/v1/plugins/")
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "missing plugin id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing plugin id")
 		return
 	}
 
@@ -228,7 +229,7 @@ func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 			}
 			s.setPluginGroupAccess(ctx, w, r, name)
 		default:
-			writeError(w, http.StatusNotFound, "not found")
+			httpx.WriteError(w, http.StatusNotFound, "not found")
 		}
 		return
 	}
@@ -246,20 +247,20 @@ func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 		}
 		s.deletePlugin(ctx, w, r, name)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) listPlugins(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var list connectorv1alpha1.PluginList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -285,7 +286,7 @@ func (s *Server) listPlugins(ctx context.Context, w http.ResponseWriter, r *http
 	if items == nil {
 		items = []any{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -298,50 +299,50 @@ func (s *Server) getPlugin(ctx context.Context, w http.ResponseWriter, r *http.R
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var p connectorv1alpha1.Plugin
 	if err := s.client.Get(ctx, nn, &p); err != nil {
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 	if !s.pluginsCallerIsAdmin(r) {
 		if p.Spec.Disabled || !pluginIsReady(p) {
 			// Same 404 as "does not exist": the existence of a pending or
 			// disabled plugin is not public information.
-			writeError(w, http.StatusNotFound, "plugin not found")
+			httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 			return
 		}
-		writeJSON(w, http.StatusOK, toPluginPublicResponse(p))
+		httpx.WriteJSON(w, http.StatusOK, toPluginPublicResponse(p))
 		return
 	}
-	writeJSON(w, http.StatusOK, toPluginResponse(p))
+	httpx.WriteJSON(w, http.StatusOK, toPluginResponse(p))
 }
 
 func (s *Server) installPlugin(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req PluginInstallRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if !pluginIDPattern.MatchString(req.ID) {
-		writeError(w, http.StatusBadRequest, "id must match "+pluginIDPattern.String())
+		httpx.WriteError(w, http.StatusBadRequest, "id must match "+pluginIDPattern.String())
 		return
 	}
 	if req.ServiceName == "" {
-		writeError(w, http.StatusBadRequest, "serviceName is required")
+		httpx.WriteError(w, http.StatusBadRequest, "serviceName is required")
 		return
 	}
 	if len(req.ServiceName) > 63 || !pluginServiceNamePattern.MatchString(req.ServiceName) {
-		writeError(w, http.StatusBadRequest, "serviceName must be a DNS-1123 label ("+pluginServiceNamePattern.String()+", max 63 chars)")
+		httpx.WriteError(w, http.StatusBadRequest, "serviceName must be a DNS-1123 label ("+pluginServiceNamePattern.String()+", max 63 chars)")
 		return
 	}
 	if req.ServicePort < 1 || req.ServicePort > 65535 {
-		writeError(w, http.StatusBadRequest, "servicePort must be between 1 and 65535")
+		httpx.WriteError(w, http.StatusBadRequest, "servicePort must be between 1 and 65535")
 		return
 	}
 	if req.ImageRepository == "" {
-		writeError(w, http.StatusBadRequest, "imageRepository is required")
+		httpx.WriteError(w, http.StatusBadRequest, "imageRepository is required")
 		return
 	}
 	if !pluginDigestPattern.MatchString(req.ImageDigest) {
-		writeError(w, http.StatusBadRequest, "imageDigest must match ^sha256:[a-f0-9]{64}$")
+		httpx.WriteError(w, http.StatusBadRequest, "imageDigest must match ^sha256:[a-f0-9]{64}$")
 		return
 	}
 
@@ -359,26 +360,26 @@ func (s *Server) installPlugin(ctx context.Context, w http.ResponseWriter, r *ht
 
 	if err := s.client.Create(ctx, p); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			writeError(w, http.StatusConflict, "plugin "+req.ID+" already exists")
+			httpx.WriteError(w, http.StatusConflict, "plugin "+req.ID+" already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to create plugin: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create plugin: "+err.Error())
 		return
 	}
 
 	s.recordAuthEvent(r, auditevents.TypePluginInstalled, callerSub(r), req.ID, auditevents.OutcomeSuccess)
-	writeJSON(w, http.StatusCreated, toPluginResponse(*p))
+	httpx.WriteJSON(w, http.StatusCreated, toPluginResponse(*p))
 }
 
 func (s *Server) deletePlugin(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var p connectorv1alpha1.Plugin
 	if err := s.client.Get(ctx, nn, &p); err != nil {
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 	if err := s.client.Delete(ctx, &p); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.recordAuthEvent(r, auditevents.TypePluginUninstalled, callerSub(r), name, auditevents.OutcomeSuccess)
@@ -393,16 +394,16 @@ func (s *Server) setPluginDisabled(ctx context.Context, w http.ResponseWriter, r
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var p connectorv1alpha1.Plugin
 	if err := s.client.Get(ctx, nn, &p); err != nil {
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 	p.Spec.Disabled = disabled
 	if err := s.client.Update(ctx, &p); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.recordAuthEvent(r, eventType, callerSub(r), name, auditevents.OutcomeSuccess)
-	writeJSON(w, http.StatusOK, toPluginResponse(p))
+	httpx.WriteJSON(w, http.StatusOK, toPluginResponse(p))
 }
 
 // approvePluginPermissions copies the declared set into spec.approvedPermissions,
@@ -416,14 +417,14 @@ func (s *Server) approvePluginPermissions(ctx context.Context, w http.ResponseWr
 		Permissions []string `json:"permissions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var p connectorv1alpha1.Plugin
 	if err := s.client.Get(ctx, nn, &p); err != nil {
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 
@@ -432,7 +433,7 @@ func (s *Server) approvePluginPermissions(ctx context.Context, w http.ResponseWr
 	// what it approves without being declared.
 	if len(pluginpkg.MissingApprovals(declared, req.Permissions)) > 0 ||
 		len(pluginpkg.MissingApprovals(req.Permissions, declared)) > 0 {
-		writeError(w, http.StatusConflict, fmt.Sprintf(
+		httpx.WriteError(w, http.StatusConflict, fmt.Sprintf(
 			"permissions must match the plugin's declared set exactly (declared: [%s])", strings.Join(declared, ", ")))
 		return
 	}
@@ -441,11 +442,11 @@ func (s *Server) approvePluginPermissions(ctx context.Context, w http.ResponseWr
 	sort.Strings(approved)
 	p.Spec.ApprovedPermissions = approved
 	if err := s.client.Update(ctx, &p); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.recordAuthEvent(r, auditevents.TypePluginPermissionsApproved, callerSub(r), name, auditevents.OutcomeSuccess)
-	writeJSON(w, http.StatusOK, toPluginResponse(p))
+	httpx.WriteJSON(w, http.StatusOK, toPluginResponse(p))
 }
 
 // setPluginGroupAccess records which groups' background identity the plugin
@@ -456,14 +457,14 @@ func (s *Server) setPluginGroupAccess(ctx context.Context, w http.ResponseWriter
 		Groups []string `json:"groups"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var p connectorv1alpha1.Plugin
 	if err := s.client.Get(ctx, nn, &p); err != nil {
-		writeError(w, http.StatusNotFound, "plugin not found")
+		httpx.WriteError(w, http.StatusNotFound, "plugin not found")
 		return
 	}
 
@@ -471,13 +472,13 @@ func (s *Server) setPluginGroupAccess(ctx context.Context, w http.ResponseWriter
 		for _, g := range req.Groups {
 			grp, err := s.authzStore.GetGroup(ctx, g)
 			if errors.Is(err, authz.ErrNotFound) || (err == nil && grp == nil) {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("group %q does not exist", g))
+				httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("group %q does not exist", g))
 				return
 			}
 			if err != nil {
 				// A broken store is not a missing group — reporting it as one
 				// would send the admin to re-create a group that still exists.
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
@@ -485,11 +486,11 @@ func (s *Server) setPluginGroupAccess(ctx context.Context, w http.ResponseWriter
 
 	p.Spec.GroupAccess = req.Groups
 	if err := s.client.Update(ctx, &p); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.recordAuthEvent(r, auditevents.TypePluginGroupAccessChanged, callerSub(r), name, auditevents.OutcomeSuccess)
-	writeJSON(w, http.StatusOK, toPluginResponse(p))
+	httpx.WriteJSON(w, http.StatusOK, toPluginResponse(p))
 }
 
 // --- response mapping ---

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 )
 
@@ -90,7 +91,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.listEvents(w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -99,34 +100,34 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.getEvent(w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/events/")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing event id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing event id")
 		return
 	}
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
 	evt, err := s.eventQueue.GetEvent(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get event")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get event")
 		return
 	}
 	if evt == nil {
-		writeError(w, http.StatusNotFound, "event not found")
+		httpx.WriteError(w, http.StatusNotFound, "event not found")
 		return
 	}
 
 	tasks, err := s.eventQueue.TasksForEvents(r.Context(), []string{id})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get event tasks")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get event tasks")
 		return
 	}
 
@@ -145,17 +146,17 @@ func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !allowed {
-			writeError(w, http.StatusNotFound, "event not found")
+			httpx.WriteError(w, http.StatusNotFound, "event not found")
 			return
 		}
 	}
 
-	writeJSON(w, http.StatusOK, s.buildActivityEntry(*evt, tasks))
+	httpx.WriteJSON(w, http.StatusOK, s.buildActivityEntry(*evt, tasks))
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
@@ -165,7 +166,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			writeError(w, http.StatusBadRequest, "invalid limit")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid limit")
 			return
 		}
 		limit = n
@@ -178,7 +179,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("offset"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			writeError(w, http.StatusBadRequest, "invalid offset")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid offset")
 			return
 		}
 		offset = n
@@ -188,7 +189,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 	if v := q.Get("status"); v != "" {
 		if !validActivityStatuses[v] {
-			writeError(w, http.StatusBadRequest, "invalid status: expected matched, unmatched or error")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid status: expected matched, unmatched or error")
 			return
 		}
 		filter.Status = v
@@ -203,7 +204,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 			invocations.StatusTimeout:
 			filter.Outcome = v
 		default:
-			writeError(w, http.StatusBadRequest, "invalid outcome: expected queued, running, success, failure or timeout")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid outcome: expected queued, running, success, failure or timeout")
 			return
 		}
 	}
@@ -211,7 +212,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("since"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid since: expected RFC 3339 timestamp")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid since: expected RFC 3339 timestamp")
 			return
 		}
 		filter.Since = t
@@ -227,7 +228,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		if (filter.Connector != "" && !scope.allowsConnector(filter.Connector)) ||
 			(filter.Agent != "" && !scope.allowsAgent(filter.Agent)) ||
 			scope.isEmpty() {
-			writeJSON(w, http.StatusOK, eventsEnvelope{Events: []activityEntry{}, Total: 0})
+			httpx.WriteJSON(w, http.StatusOK, eventsEnvelope{Events: []activityEntry{}, Total: 0})
 			return
 		}
 		filter.Connectors = scope.connectors
@@ -236,13 +237,13 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 	events, err := s.eventQueue.QueryEvents(r.Context(), filter, limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list events")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list events")
 		return
 	}
 
 	total, err := s.eventQueue.CountEvents(r.Context(), filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to count events")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to count events")
 		return
 	}
 
@@ -254,7 +255,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		tasks, err := s.eventQueue.TasksForEvents(r.Context(), ids)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list event tasks")
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to list event tasks")
 			return
 		}
 		tasksByEvent := make(map[string][]eventqueue.Task, len(events))
@@ -266,7 +267,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, eventsEnvelope{Events: entries, Total: total})
+	httpx.WriteJSON(w, http.StatusOK, eventsEnvelope{Events: entries, Total: total})
 }
 
 // buildActivityEntry maps a stored event and its tasks into the frontend

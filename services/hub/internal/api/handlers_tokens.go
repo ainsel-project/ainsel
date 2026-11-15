@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
@@ -68,7 +69,7 @@ func (s *Server) handleTokens(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.listTokens(w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -81,7 +82,7 @@ func (s *Server) handleTokens(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 	source, reason := s.tokensBackend()
 	if source == "" {
-		writeError(w, http.StatusServiceUnavailable, reason)
+		httpx.WriteError(w, http.StatusServiceUnavailable, reason)
 		return
 	}
 
@@ -97,7 +98,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("issueNumber"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "issueNumber must be an integer")
+			httpx.WriteError(w, http.StatusBadRequest, "issueNumber must be an integer")
 			return
 		}
 		issueNumber, hasIssue = n, true
@@ -110,7 +111,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("since"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "since must be an RFC 3339 timestamp")
+			httpx.WriteError(w, http.StatusBadRequest, "since must be an RFC 3339 timestamp")
 			return
 		}
 		since = t
@@ -118,7 +119,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("until"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "until must be an RFC 3339 timestamp")
+			httpx.WriteError(w, http.StatusBadRequest, "until must be an RFC 3339 timestamp")
 			return
 		}
 		until = t
@@ -150,7 +151,7 @@ func (s *Server) listTokensFromRecords(w http.ResponseWriter, r *http.Request, q
 
 	rows, err := s.taskLogs.TokenUsageByIssue(r.Context(), f)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query token records: "+err.Error())
 		return
 	}
 
@@ -182,7 +183,7 @@ func (s *Server) listTokensFromRecords(w http.ResponseWriter, r *http.Request, q
 	}
 	totals.TotalTokens = tokenTotal(totals.InputTokens, totals.OutputTokens, totals.CacheReadTokens, totals.CacheWriteTokens)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"tokens": tokens,
 		"total":  totals,
 		"source": metricsSourcePostgres,
@@ -228,7 +229,7 @@ func (s *Server) listTokensFromPrometheus(w http.ResponseWriter, r *http.Request
 
 	result, err := s.prom.Query(r.Context(), promql)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query metrics: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query metrics: "+err.Error())
 		return
 	}
 
@@ -242,7 +243,7 @@ func (s *Server) listTokensFromPrometheus(w http.ResponseWriter, r *http.Request
 	)
 	costResult, err := s.prom.Query(r.Context(), costPromql)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query cost metrics: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query cost metrics: "+err.Error())
 		return
 	}
 
@@ -323,7 +324,7 @@ func (s *Server) listTokensFromPrometheus(w http.ResponseWriter, r *http.Request
 	}
 	totals.TotalTokens = tokenTotal(totals.InputTokens, totals.OutputTokens, totals.CacheReadTokens, totals.CacheWriteTokens)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"tokens": tokens,
 		"total":  totals,
 		"source": metricsSourcePrometheus,

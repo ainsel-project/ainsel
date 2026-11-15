@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
@@ -14,14 +15,14 @@ func (s *Server) handleErrors(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.listErrors(w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 // listErrors serves error entries from the hub's own task_logs table.
 func (s *Server) listErrors(w http.ResponseWriter, r *http.Request) {
 	if s.taskLogs == nil {
-		writeError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
 		return
 	}
 
@@ -60,7 +61,7 @@ func (s *Server) listErrors(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if scope := s.telemetryScopeFor(r); !scope.unrestricted {
 		if len(scope.agents) == 0 {
-			writeJSON(w, http.StatusOK, map[string]interface{}{
+			httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 				"errors": []map[string]interface{}{},
 				"total":  0,
 			})
@@ -71,7 +72,7 @@ func (s *Server) listErrors(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := s.taskLogs.List(r.Context(), opts)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query errors: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query errors: "+err.Error())
 		return
 	}
 
@@ -91,7 +92,7 @@ func (s *Server) listErrors(w http.ResponseWriter, r *http.Request) {
 		errors = append(errors, entry)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"errors": errors,
 		"total":  len(errors),
 	})

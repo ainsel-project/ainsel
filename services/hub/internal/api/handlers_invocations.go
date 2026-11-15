@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 )
 
@@ -168,7 +169,7 @@ func (s *Server) handleInvocations(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.listInvocations(w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -176,33 +177,33 @@ func (s *Server) handleInvocations(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleInvocation(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/invocations/")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing invocation id")
+		httpx.WriteError(w, http.StatusBadRequest, "missing invocation id")
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
 		s.getInvocation(w, r, id)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 	if s.invocations == nil {
-		writeError(w, http.StatusServiceUnavailable, "invocation history not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "invocation history not configured")
 		return
 	}
 	q := r.URL.Query()
 
 	page, err := ParsePageParams(q)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	connectors, err := parseMultiValueFilter(q, "connector", maxFilterValues)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -225,7 +226,7 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if !scope.unrestricted {
 		if len(scope.agents) == 0 {
-			writeJSON(w, http.StatusOK, map[string]interface{}{
+			httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 				"invocations": []invocations.Invocation{},
 				"total":       0,
 				"capacity":    s.invocations.Capacity(),
@@ -285,7 +286,7 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 		s.attachTasksToPage(r, pageItems)
 	}
 	withAgentIDs(pageItems)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"invocations": pageItems,
 		"total":       total,
 		"capacity":    s.invocations.Capacity(),
@@ -297,19 +298,19 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getInvocation(w http.ResponseWriter, r *http.Request, id string) {
 	if s.invocations == nil {
-		writeError(w, http.StatusServiceUnavailable, "invocation history not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "invocation history not configured")
 		return
 	}
 	inv, ok := s.invocations.Get(id)
 	if !ok {
-		writeError(w, http.StatusNotFound, "invocation not found")
+		httpx.WriteError(w, http.StatusNotFound, "invocation not found")
 		return
 	}
 	// A record with no agent cannot be attributed to any resource, so only an
 	// unrestricted caller may see it.
 	if inv.AgentName == "" {
 		if scope := s.telemetryScopeFor(r); !scope.unrestricted {
-			writeError(w, http.StatusForbidden, "forbidden")
+			httpx.WriteError(w, http.StatusForbidden, "forbidden")
 			return
 		}
 	} else if !s.requireRead(w, r, "agent", inv.AgentName) {
@@ -318,5 +319,5 @@ func (s *Server) getInvocation(w http.ResponseWriter, r *http.Request, id string
 	if inv.AgentID == "" {
 		inv.AgentID = inv.AgentName
 	}
-	writeJSON(w, http.StatusOK, inv)
+	httpx.WriteJSON(w, http.StatusOK, inv)
 }

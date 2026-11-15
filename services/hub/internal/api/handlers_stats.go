@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -39,13 +40,13 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.getStats(r.Context(), w)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) getStats(ctx context.Context, w http.ResponseWriter) {
 	stats := s.GetStats(ctx)
-	writeJSON(w, http.StatusOK, stats)
+	httpx.WriteJSON(w, http.StatusOK, stats)
 }
 
 // GetStats returns the current stats. Exported for use by the WebSocket broadcaster.

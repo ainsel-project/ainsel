@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	"github.com/ainsel-project/ainsel/services/hub/internal/types"
@@ -26,11 +27,11 @@ func (s *Server) SetEventQueue(eq *eventqueue.Store) {
 // configured shared secret. Returns true if the request is authorized.
 func (s *Server) requireInternalToken(w http.ResponseWriter, r *http.Request) bool {
 	if s.internalValidateSecret == "" {
-		writeError(w, http.StatusServiceUnavailable, "internal endpoints disabled")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "internal endpoints disabled")
 		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(s.internalValidateSecret)) != 1 {
-		writeError(w, http.StatusUnauthorized, "invalid internal token")
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid internal token")
 		return false
 	}
 	return true
@@ -43,21 +44,21 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
 	var evt eventqueue.Event
 	if err := json.NewDecoder(r.Body).Decode(&evt); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if evt.ID == "" || evt.Connector == "" {
-		writeError(w, http.StatusBadRequest, "id and connector are required")
+		httpx.WriteError(w, http.StatusBadRequest, "id and connector are required")
 		return
 	}
 
@@ -79,7 +80,7 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.eventQueue.InsertEvent(r.Context(), evt); err != nil {
 		slog.Error("ingest event failed", "event_id", evt.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to store event")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to store event")
 		return
 	}
 
@@ -196,34 +197,34 @@ func rewriteInvocationHeader(headers json.RawMessage, invocationID string) json.
 // secret is unset.
 func (s *Server) handleAgentTaskAck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
 	agentName, taskID, ok := parseAgentTaskPath(r.URL.Path)
 	if !ok {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 
 	// Verify the task belongs to this agent.
 	task, err := s.eventQueue.GetTask(r.Context(), taskID, agentName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get task")
 		return
 	}
 	if task == nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 
 	if err := s.eventQueue.AckTask(r.Context(), taskID); err != nil {
 		slog.Error("ack task failed", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to ack task")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to ack task")
 		return
 	}
 
@@ -246,28 +247,28 @@ func (s *Server) handleAgentTaskAck(w http.ResponseWriter, r *http.Request) {
 // Gated by the internal dispatcher, like handleAgentTaskAck.
 func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
 	agentName, taskID, ok := parseAgentTaskPath(r.URL.Path)
 	if !ok {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 
 	// Verify the task belongs to this agent.
 	task, err := s.eventQueue.GetTask(r.Context(), taskID, agentName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get task")
 		return
 	}
 	if task == nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 
@@ -276,7 +277,7 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 		DelayMs int    `json:"delay_ms"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	// delay_ms is the worker's base, not the final wait: the hub owns retry
@@ -287,7 +288,7 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.eventQueue.NakTask(r.Context(), taskID, delay, body.Error); err != nil {
 		slog.Error("nack task failed", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to nack task")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to nack task")
 		return
 	}
 
@@ -371,11 +372,11 @@ func inRetryBackoff(t *eventqueue.Task, now time.Time) bool {
 // Gated by the internal dispatcher, like handleAgentTaskAck.
 func (s *Server) handleAgentTaskGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
@@ -383,22 +384,22 @@ func (s *Server) handleAgentTaskGet(w http.ResponseWriter, r *http.Request) {
 	trimmed := stripAgentsPrefix(r.URL.Path)
 	parts := strings.Split(trimmed, "/")
 	if len(parts) != 3 || parts[0] == "" || parts[1] != "tasks" {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 	taskID, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 
 	task, err := s.eventQueue.GetTask(r.Context(), taskID, parts[0])
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get task")
 		return
 	}
 	if task == nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	// A nacked task sits out its retry backoff in the hub. Handing it to a
@@ -408,7 +409,7 @@ func (s *Server) handleAgentTaskGet(w http.ResponseWriter, r *http.Request) {
 	// one-shot worker to stand down; when retry_after elapses the task turns up
 	// in the hub's due list again and the operator dispatches a fresh Job.
 	if inRetryBackoff(task, time.Now()) {
-		writeError(w, http.StatusConflict, "task is in retry backoff")
+		httpx.WriteError(w, http.StatusConflict, "task is in retry backoff")
 		return
 	}
 	// Job-mode retry: a per-task Job never claims, so a worker picking up a
@@ -423,26 +424,26 @@ func (s *Server) handleAgentTaskGet(w http.ResponseWriter, r *http.Request) {
 	if err := recordRetryInvocation(r.Context(), s.invocations, s.eventQueue, s.eventQueue, task); err != nil {
 		slog.Error("retry invocation not recorded", "task_id", task.ID, "agent", parts[0], "error", err)
 	}
-	writeJSON(w, http.StatusOK, task)
+	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
 // handleQueueInfo serves GET /api/v1/queue/info — queue statistics endpoint.
 func (s *Server) handleQueueInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
 	info, err := s.eventQueue.GetStreamInfo(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get queue info")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get queue info")
 		return
 	}
-	writeJSON(w, http.StatusOK, info)
+	httpx.WriteJSON(w, http.StatusOK, info)
 }
 
 // handleQueueRecent serves GET /api/v1/queue/recent?count=20&connector=&filter= — recent events endpoint.
@@ -450,11 +451,11 @@ func (s *Server) handleQueueInfo(w http.ResponseWriter, r *http.Request) {
 // "*"/">" wildcards (see eventqueue.ParseSubjectFilter).
 func (s *Server) handleQueueRecent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.eventQueue == nil {
-		writeError(w, http.StatusServiceUnavailable, "event queue not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
@@ -472,7 +473,7 @@ func (s *Server) handleQueueRecent(w http.ResponseWriter, r *http.Request) {
 
 	events, err := s.eventQueue.RecentEvents(r.Context(), count, connector, filter, time.Time{})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get recent events")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get recent events")
 		return
 	}
 
@@ -482,7 +483,7 @@ func (s *Server) handleQueueRecent(w http.ResponseWriter, r *http.Request) {
 	// to probe which connectors exist.
 	if scope := s.telemetryScopeFor(r); !scope.unrestricted {
 		if connector != "" && !scope.allowsConnector(connector) {
-			writeJSON(w, http.StatusOK, []eventqueue.Event{})
+			httpx.WriteJSON(w, http.StatusOK, []eventqueue.Event{})
 			return
 		}
 		events = s.filterEventsByScope(r, scope, events)
@@ -491,7 +492,7 @@ func (s *Server) handleQueueRecent(w http.ResponseWriter, r *http.Request) {
 	if events == nil {
 		events = []eventqueue.Event{}
 	}
-	writeJSON(w, http.StatusOK, events)
+	httpx.WriteJSON(w, http.StatusOK, events)
 }
 
 // stripAgentsPrefix removes the /api/internal/agents/ prefix from a path,
@@ -546,17 +547,17 @@ func (s *Server) handleIngestTaskLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.taskLogs == nil {
-		writeError(w, http.StatusServiceUnavailable, "task log store not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "task log store not configured")
 		return
 	}
 
 	var entry tasklogs.Entry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 
@@ -565,13 +566,13 @@ func (s *Server) handleIngestTaskLog(w http.ResponseWriter, r *http.Request) {
 	// value at insert; reject it here as a 400 so the agent sees a usable
 	// error instead of a 500.
 	if !tasklogs.ValidLevel(entry.Level) {
-		writeError(w, http.StatusBadRequest, "invalid level: must be debug, info, warn, or error")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid level: must be debug, info, warn, or error")
 		return
 	}
 
 	if err := s.taskLogs.Insert(r.Context(), &entry); err != nil {
 		slog.Error("task log insert failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to store task log")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to store task log")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -583,23 +584,23 @@ func (s *Server) handleIngestTaskMessage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.taskLogs == nil {
-		writeError(w, http.StatusServiceUnavailable, "task log store not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "task log store not configured")
 		return
 	}
 
 	var msg tasklogs.ConversationMessage
 	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 
 	if err := s.taskLogs.InsertConversation(r.Context(), &msg); err != nil {
 		slog.Error("task message insert failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to store task message")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to store task message")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

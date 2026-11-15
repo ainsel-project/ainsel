@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 )
 
@@ -32,7 +33,7 @@ func isManagedCR(managedBy string) bool {
 // with 409 Conflict naming the manager, matching the MCP-server/skill
 // plugin-managed contract.
 func writeManagedConflict(w http.ResponseWriter, kind, managedBy string) {
-	writeError(w, http.StatusConflict, fmt.Sprintf("%s is managed by %s", kind, managedBy))
+	httpx.WriteError(w, http.StatusConflict, fmt.Sprintf("%s is managed by %s", kind, managedBy))
 }
 
 // managedByPattern is the CRD validation pattern for spec.managedBy
@@ -97,7 +98,7 @@ func writeCreateManagedBy(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
 	}
-	writeError(w, http.StatusBadRequest, err.Error())
+	httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	return true
 }
 

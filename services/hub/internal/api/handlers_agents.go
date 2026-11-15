@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
@@ -603,7 +604,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.createAgent(ctx, w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -611,7 +612,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	name := extractName(r.URL.Path, "/api/v1/agents/")
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "missing agent name")
+		httpx.WriteError(w, http.StatusBadRequest, "missing agent name")
 		return
 	}
 
@@ -623,7 +624,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	// agent image gets an honest "not found" instead of a nonsense
 	// "agent not found" from the CRUD path.
 	if strings.HasSuffix(name, "/next-task") || strings.Contains(name, "/tasks/") {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -638,7 +639,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	// Write-scoped: anyone who can edit the agent may sign it in.
 	if before, rest, ok := strings.Cut(name, "/chatgpt-sign-in"); ok && (rest == "" || rest == "/redirect") {
 		if before == "" {
-			writeError(w, http.StatusBadRequest, "missing agent name")
+			httpx.WriteError(w, http.StatusBadRequest, "missing agent name")
 			return
 		}
 		if !s.requireWrite(w, r, "agent", before) {
@@ -653,7 +654,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(name, "/pause") {
 		paused := strings.TrimSuffix(name, "/pause")
 		if paused == "" {
-			writeError(w, http.StatusBadRequest, "missing agent name")
+			httpx.WriteError(w, http.StatusBadRequest, "missing agent name")
 			return
 		}
 		if !s.requireWrite(w, r, "agent", paused) {
@@ -680,7 +681,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		s.deleteAgent(r, w, name)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -699,7 +700,7 @@ func (s *Server) handleInternalAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	name := extractName(r.URL.Path, "/api/internal/agents/")
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "missing agent name")
+		httpx.WriteError(w, http.StatusBadRequest, "missing agent name")
 		return
 	}
 
@@ -722,19 +723,19 @@ func (s *Server) handleInternalAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeError(w, http.StatusNotFound, "not found")
+	httpx.WriteError(w, http.StatusNotFound, "not found")
 }
 
 func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var list agentv1alpha1.AgentList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -762,7 +763,7 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 		if groupID != "" {
 			inGroup, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", []string{groupID}, false)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			names = intersectNames(names, inGroup)
@@ -836,7 +837,7 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 		}
 		items = append(items, item)
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -848,11 +849,11 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 func (s *Server) getAgent(ctx context.Context, w http.ResponseWriter, name string) {
 	var agent agentv1alpha1.Agent
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &agent); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return
 	}
 	imageDisplayName := s.resolveImageDisplayName(ctx, agent.Spec.ImageRef.Name)
-	writeJSON(w, http.StatusOK, toSimpleAgentResponse(agent, imageDisplayName))
+	httpx.WriteJSON(w, http.StatusOK, toSimpleAgentResponse(agent, imageDisplayName))
 }
 
 // agentValidationInput carries the pre-normalized effective values for the
@@ -1285,11 +1286,11 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 	inlinePersona := req.Persona != nil && req.Persona.Text != ""
 	if inlinePersona && req.Persona.ID != "" {
-		writeError(w, http.StatusBadRequest, "persona: set either id or text, not both")
+		httpx.WriteError(w, http.StatusBadRequest, "persona: set either id or text, not both")
 		return
 	}
 	if inlinePersona && s.personas == nil {
-		writeError(w, http.StatusServiceUnavailable, "persona service not configured")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "persona service not configured")
 		return
 	}
 	res, err := s.validateAgentRequest(ctx, in)
@@ -1345,7 +1346,7 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 				slog.Error("reclaim persona of refused agent", "error", derr, "agent", id, "persona", ownedPersona.ID)
 			}
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -1360,13 +1361,13 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, res.displayName))
+	httpx.WriteJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, res.displayName))
 }
 
 func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	var existing agentv1alpha1.Agent
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return
 	}
 	// Externally managed agents have exactly one author; the hub refuses every
@@ -1436,7 +1437,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	existing.Annotations[AgentUpdatedAtAnnotation] = stampAgentUpdatedAt()
 
 	if err := s.client.Update(ctx, &existing); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -1452,14 +1453,14 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	if imageDisplayName == "" && req.ImageRef == nil {
 		imageDisplayName = s.resolveImageDisplayName(ctx, existing.Spec.ImageRef.Name)
 	}
-	writeJSON(w, http.StatusOK, toSimpleAgentResponse(existing, imageDisplayName))
+	httpx.WriteJSON(w, http.StatusOK, toSimpleAgentResponse(existing, imageDisplayName))
 }
 
 func (s *Server) deleteAgent(r *http.Request, w http.ResponseWriter, name string) {
 	ctx := r.Context()
 	var existing agentv1alpha1.Agent
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return
 	}
 	if isManagedCRForRequest(r, existing.Spec.ManagedBy) {
@@ -1470,7 +1471,7 @@ func (s *Server) deleteAgent(r *http.Request, w http.ResponseWriter, name string
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns},
 	}
 	if err := s.client.Delete(ctx, agent); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return
 	}
 
