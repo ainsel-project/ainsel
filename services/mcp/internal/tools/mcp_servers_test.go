@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -119,6 +120,46 @@ func mcpServerText(result *mcp.CallToolResult) string {
 // storedRow is what the registry holds for the row these tests exercise: every
 // writable field populated, so a PUT that drops one is visible.
 const storedRow = `{"name":"forgejo","displayName":"Forgejo","description":"Forgejo MCP endpoint","url":"http://forgejo-mcp.platform.svc.cluster.local:8080/mcp","tokenFromEnv":"FORGEJO_TOKEN","managedBy":"user"}`
+
+// TestMCPServerNameIsPathEscaped pins the convention channels.go and plugins.go
+// already follow: a caller-supplied name is escaped into exactly one path
+// segment, so an argument like "../connectors" addresses one registry row
+// instead of reshaping the hub request path (or misrouting silently).
+func TestMCPServerNameIsPathEscaped(t *testing.T) {
+	paths := make(chan string, 2)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths <- r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer hub.Close()
+
+	name := "../connectors"
+	want := "/api/v1/mcp-servers/" + url.PathEscape(name)
+
+	mt := &MCPServerTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	if _, err := callMCPServer(t, mt, mt.DeleteMCPServer, map[string]any{"name": name}); err != nil {
+		t.Fatalf("delete_mcp_server: unexpected error: %v", err)
+	}
+	ct := &ConnectorTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	if _, err := callConnector(t, ct, ct.DeleteConnector, map[string]any{"name": name}); err != nil {
+		t.Fatalf("delete_connector: unexpected error: %v", err)
+	}
+
+	var got []string
+	for range 2 {
+		got = append(got, <-paths)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 hub requests, got %d: %v", len(got), got)
+	}
+	if got[0] != want {
+		t.Errorf("mcp-server delete: expected escaped path %q, got %q", want, got[0])
+	}
+	if want := "/api/v1/connectors/" + url.PathEscape(name); got[1] != want {
+		t.Errorf("connector delete: expected escaped path %q, got %q", want, got[1])
+	}
+}
 
 func TestCreateMCPServer_FullPayload(t *testing.T) {
 	hub, rec := stubHub(t, http.StatusCreated, `{"name":"forgejo","displayName":"Forgejo","url":"http://forgejo-mcp.platform.svc.cluster.local:8080/mcp","tokenFromEnv":"FORGEJO_TOKEN","managedBy":"user"}`)

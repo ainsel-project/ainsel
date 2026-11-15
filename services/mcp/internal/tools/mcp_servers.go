@@ -16,7 +16,10 @@ import (
 
 // MCPServerTools wraps the hub's /api/v1/mcp-servers endpoints. The MCP-server
 // registry lists every MCP endpoint an agent is allowed to call out to; this
-// tool surfaces that catalogue to an AI client.
+// tool surfaces that catalogue to an AI client. A caller-supplied name is
+// always interpolated into a path through url.PathEscape, matching channels.go
+// and plugins.go, so a tool argument can never address a row other than the
+// one it names.
 type MCPServerTools struct {
 	HubURL     string
 	HTTPClient *http.Client
@@ -64,7 +67,7 @@ func (t *MCPServerTools) GetMCPServer(ctx context.Context, req mcp.CallToolReque
 	if !ok || name == "" {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	body, err := hubGet(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+name)
+	body, err := hubGet(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+url.PathEscape(name))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get MCP server %s: %v", name, err)), nil
 	}
@@ -90,7 +93,7 @@ type mcpServerRow struct {
 // left unchanged" true here — the same read-then-merge the agent-image env
 // updates already do for the same reason.
 func (t *MCPServerTools) currentMCPServer(ctx context.Context, name string) (*mcpServerRow, error) {
-	body, err := hubGet(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+name)
+	body, err := hubGet(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+url.PathEscape(name))
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +219,7 @@ func (t *MCPServerTools) UpdateMCPServer(ctx context.Context, req mcp.CallToolRe
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to encode request: %v", err)), nil
 	}
-	respBody, err := hubPut(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+name, bytes.NewReader(bodyData))
+	respBody, err := hubPut(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+url.PathEscape(name), bytes.NewReader(bodyData))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to update MCP server %s: %v", name, err)), nil
 	}
@@ -236,7 +239,7 @@ func (t *MCPServerTools) DeleteMCPServer(ctx context.Context, req mcp.CallToolRe
 	if strings.TrimSpace(name) == "" {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	if _, err := hubDelete(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+name); err != nil {
+	if _, err := hubDelete(ctx, t.HTTPClient, t.HubURL, "/api/v1/mcp-servers/"+url.PathEscape(name)); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to delete MCP server %s: %v", name, err)), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("MCP server %s deleted", name)), nil

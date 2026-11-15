@@ -15,7 +15,10 @@ import (
 )
 
 // ConnectorTools wraps the hub's /api/v1/connectors endpoints so an MCP
-// client can list connectors, inspect one, and update it.
+// client can list connectors, inspect one, and update it. A caller-supplied
+// name is always interpolated into a path through url.PathEscape, matching
+// channels.go and plugins.go, so a tool argument can never address a row
+// other than the one it names.
 type ConnectorTools struct {
 	HubURL     string
 	HTTPClient *http.Client
@@ -72,7 +75,7 @@ func (c *ConnectorTools) GetConnector(ctx context.Context, req mcp.CallToolReque
 	if !ok || name == "" {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	body, err := hubGet(ctx, c.HTTPClient, c.HubURL, "/api/v1/connectors/"+name)
+	body, err := hubGet(ctx, c.HTTPClient, c.HubURL, "/api/v1/connectors/"+url.PathEscape(name))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get connector %s: %v", name, err)), nil
 	}
@@ -104,7 +107,7 @@ func (c *ConnectorTools) UpdateConnector(ctx context.Context, req mcp.CallToolRe
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to encode request: %v", err)), nil
 	}
-	respBody, err := hubPut(ctx, c.HTTPClient, c.HubURL, "/api/v1/connectors/"+name, bytes.NewReader(bodyData))
+	respBody, err := hubPut(ctx, c.HTTPClient, c.HubURL, "/api/v1/connectors/"+url.PathEscape(name), bytes.NewReader(bodyData))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to update connector %s: %v", name, err)), nil
 	}
@@ -168,7 +171,7 @@ func (c *ConnectorTools) DeleteConnector(ctx context.Context, req mcp.CallToolRe
 	if strings.TrimSpace(name) == "" {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	if _, err := hubDelete(ctx, c.HTTPClient, c.HubURL, "/api/v1/connectors/"+name); err != nil {
+	if _, err := hubDelete(ctx, c.HTTPClient, c.HubURL, "/api/v1/connectors/"+url.PathEscape(name)); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to delete connector %s: %v", name, err)), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("connector %s deleted", name)), nil
