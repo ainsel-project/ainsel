@@ -189,10 +189,6 @@ func (s *Server) handleInvocation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
-	if s.invocations == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "invocation history not configured")
-		return
-	}
 	q := r.URL.Query()
 
 	page, err := ParsePageParams(q)
@@ -297,10 +293,6 @@ func (s *Server) listInvocations(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getInvocation(w http.ResponseWriter, r *http.Request, id string) {
-	if s.invocations == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "invocation history not configured")
-		return
-	}
 	inv, ok := s.invocations.Get(id)
 	if !ok {
 		httpx.WriteError(w, http.StatusNotFound, "invocation not found")

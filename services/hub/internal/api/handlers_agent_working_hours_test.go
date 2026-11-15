@@ -93,7 +93,7 @@ func createAgentWithHours(t *testing.T, s *Server, name string, info *AgentWorki
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -110,7 +110,7 @@ func updateAgentHours(t *testing.T, s *Server, id string, info *AgentWorkingHour
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+id, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	// Read the body before decoding it: the decoder consumes it, and the raw text is
 	// what a rejected request is judged on.
 	raw := rec.Body.String()
@@ -319,7 +319,7 @@ func getAgentHours(t *testing.T, s *Server, id string) SimpleAgentResponse {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/"+id, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,7 +44,11 @@ func auditTestServer(t *testing.T) (*Server, *fakeAuthzStore, *fakeAuditStore) {
 	t.Helper()
 	s, store := localAuthTestServer(t)
 	audit := &fakeAuditStore{}
-	s.SetAuditEventStore(audit)
+	s.authEvents = audit
+	// These tests state the caller per request (see asUser), including the
+	// anonymous one. testServer's caller-injecting middleware would otherwise
+	// turn every request into an authenticated admin.
+	s.authMW = nil
 	s.mux.HandleFunc("/api/v1/audit/auth-events", s.handleAuditAuthEvents)
 	return s, store, audit
 }
@@ -211,14 +217,17 @@ func TestAuditEndpointRejectsNonAdmins(t *testing.T) {
 	}
 }
 
-func TestAuditEndpointForbiddenWhenAuthzUnwired(t *testing.T) {
-	// none mode: authzChecker is nil → requireAdmin answers 403, matching the
-	// AC "non-admins get 403".
+// There is no "authz unwired" server any more (issue #264): Deps requires the
+// store and checker, and auth mode "none" installs authz.PermissiveStore, which
+// answers every subject as admin. This pins that the none-mode install reads the
+// audit trail rather than being locked out of it.
+func TestAuditEndpointOpenInPermissiveMode(t *testing.T) {
 	s, _, _ := auditTestServer(t)
-	s.authzChecker = nil
+	s.authzStore = authz.NewPermissiveStore()
+	s.authzChecker = authz.NewChecker(authz.NewPermissiveStore(), nil)
 	rec := doJSON(t, s, http.MethodGet, "/api/v1/audit/auth-events", nil, asUser("local:admin", "admin"))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
 }
 
@@ -231,13 +240,19 @@ func TestAuditEndpointMethodGuard(t *testing.T) {
 	}
 }
 
-func TestAuditEndpointStoreUnwiredIs503(t *testing.T) {
-	s, store, _ := auditTestServer(t)
-	seedAdmin(t, store)
-	s.SetAuditEventStore(nil)
-	rec := doJSON(t, s, http.MethodGet, "/api/v1/audit/auth-events", nil, asUser("local:admin", "admin"))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", rec.Code)
+// The audit store is a required dependency (issue #264), so the endpoint has no
+// "store not wired" 503 to answer. The state is refused earlier instead: New
+// rejects a Deps that omits it and names the field, which is what a handler
+// branch used to stand in for.
+func TestNewRejectsMissingAuditStore(t *testing.T) {
+	deps := testDeps(t)
+	deps.AuditEvents = nil
+	_, err := New(deps)
+	if err == nil {
+		t.Fatal("expected New to reject a Deps without AuditEvents")
+	}
+	if !strings.Contains(err.Error(), "AuditEvents") {
+		t.Fatalf("error should name the missing field, got: %v", err)
 	}
 }
 

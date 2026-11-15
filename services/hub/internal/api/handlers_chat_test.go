@@ -6,39 +6,41 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
 	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 )
 
-func TestChatSessions_NotConfigured(t *testing.T) {
-	s := testServer(t)
-	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
-	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
-
-	// With chat store nil, all endpoints should return 503.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/chat/sessions", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+// The chat store is a required dependency (issue #264): the endpoints have no
+// "not configured" 503 left to answer, because New refuses to build a Server
+// without it. The state moved from a request-time branch to a startup error.
+func TestNewRejectsMissingChatStore(t *testing.T) {
+	deps := testDeps(t)
+	deps.Chat = nil
+	_, err := New(deps)
+	if err == nil {
+		t.Fatal("expected New to reject a Deps without Chat")
+	}
+	if !strings.Contains(err.Error(), "Chat") {
+		t.Fatalf("error should name the missing field, got: %v", err)
 	}
 }
 
 func TestChatSessions_CreateMissingAgentName(t *testing.T) {
 	s := testServer(t)
-	s.chat = nil // explicitly nil; the handler returns 503 before parsing
 	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
 
-	// Even with a nil store, a POST with empty body should get 503,
-	// not a 400 — the store check comes first.
+	// The chat store is required (issue #264), so there is no "not configured"
+	// answer ahead of validation: a POST with an empty body is the 400 the
+	// request actually deserves.
 	body := []byte(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/chat/sessions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when chat not configured, got %d: %s", rec.Code, rec.Body.String())
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -50,7 +52,7 @@ func TestChatSession_MissingID(t *testing.T) {
 	// /api/v1/chat/sessions/ with no ID should return 400.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/chat/sessions/", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	// The trailing slash path maps to handleChatSession, which strips the
 	// prefix and gets an empty id → 400.
 	if rec.Code != http.StatusBadRequest && rec.Code != http.StatusServiceUnavailable {
@@ -64,41 +66,29 @@ func TestChatSession_MethodNotAllowed(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/chat/sessions", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}
 }
 
-func TestChatSession_PatchNotConfigured(t *testing.T) {
+func TestChatSession_PatchRejectsMissingSession(t *testing.T) {
+	store, cleanup := newTestChatStore(t)
+	defer cleanup()
+
 	s := testServer(t)
+	s.chat = store
 	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
 	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
 
-	// With chat store nil, PATCH should return 503.
+	// The store is required (issue #264), so the request reaches the session
+	// lookup instead of a "not configured" branch: an unknown session is a 404.
 	body := []byte(`{"name":"New Name"}`)
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/chat/sessions/sess-test", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestChatSession_PatchNotConfiguredEmptyName(t *testing.T) {
-	s := testServer(t)
-	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
-	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
-
-	// With chat store nil, the handler returns 503 before parsing the body.
-	// This test documents that the 503 check comes first, even when the
-	// name field is empty.
-	body := []byte(`{"name":""}`)
-	req := httptest.NewRequest(http.MethodPatch, "/api/v1/chat/sessions/sess-test", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when chat not configured, got %d: %s", rec.Code, rec.Body.String())
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound && rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected the lookup to answer, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -129,7 +119,7 @@ func TestChatSession_PatchSuccess(t *testing.T) {
 	body := []byte(`{"name":"My Renamed Chat"}`)
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/chat/sessions/"+sess.ID, bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -165,7 +155,7 @@ func TestChatSession_PatchEmptyName_400(t *testing.T) {
 	body := []byte(`{"name":""}`)
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/chat/sessions/"+sess.ID, bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty name, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -174,7 +164,7 @@ func TestChatSession_PatchEmptyName_400(t *testing.T) {
 	body = []byte(`{"name":"   "}`)
 	req = httptest.NewRequest(http.MethodPatch, "/api/v1/chat/sessions/"+sess.ID, bytes.NewReader(body))
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for whitespace-only name, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -193,7 +183,7 @@ func TestChatSession_PatchNotFound(t *testing.T) {
 	body := []byte(`{"name":"New Name"}`)
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/chat/sessions/sess-missing", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}

@@ -110,10 +110,6 @@ func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "missing event id")
 		return
 	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
-		return
-	}
 
 	evt, err := s.eventQueue.GetEvent(r.Context(), id)
 	if err != nil {
@@ -155,10 +151,6 @@ func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
-		return
-	}
 
 	q := r.URL.Query()
 

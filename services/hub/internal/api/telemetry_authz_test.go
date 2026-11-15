@@ -44,7 +44,7 @@ import (
 // other call panic rather than silently returning a zero value that a test could
 // mistake for "denied".
 type telemetryAuthzFake struct {
-	authzStore
+	AuthzStore
 
 	// admins maps a subject to its admin flag.
 	admins map[string]bool
@@ -167,7 +167,7 @@ func newTelemetryEnv(t *testing.T, admins ...string) *telemetryEnv {
 			return fake.UserGroupRoles(context.Background(), userID)
 		}, time.Minute))
 	s.authzChecker = checker
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler { return next })
+	s.authMW = func(next http.Handler) http.Handler { return next }
 
 	taskLogStore := tasklogs.NewStore(pool)
 	eventStore := eventqueue.NewStore(pool)
@@ -283,7 +283,7 @@ func (e *telemetryEnv) get(path, sub string) *httptest.ResponseRecorder {
 		req = req.WithContext(oidc.ContextWithUser(req.Context(), &oidc.User{Sub: sub, Username: sub}))
 	}
 	rec := httptest.NewRecorder()
-	e.s.mux.ServeHTTP(rec, req)
+	e.s.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -629,7 +629,7 @@ func TestMetricsRawQueryRequiresAdmin(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, q, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Errorf("status = %d (%s), want 200 in dev mode", rec.Code, rec.Body.String())
 		}

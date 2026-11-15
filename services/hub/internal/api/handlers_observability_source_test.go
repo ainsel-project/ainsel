@@ -69,8 +69,8 @@ func sourceTestServer(t *testing.T, pin string, paths ...string) (*Server, *atom
 	prom, hits := countingProm(t, "7")
 	s := testServer(t)
 	s.prom = prom
-	s.SetTelemetryStore(recordsStoreWithoutDatabase(t))
-	s.SetMetricsSource(pin)
+	s.telemetry = recordsStoreWithoutDatabase(t)
+	s.metricsSource = pin
 	for _, p := range paths {
 		s.mux.HandleFunc(p, s.handleObservability)
 	}
@@ -103,13 +103,13 @@ func TestMetricsBackendChoosesRecordsUnlessPinned(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := testServer(t)
-			s.SetMetricsSource(tc.pin)
+			s.metricsSource = tc.pin
 			if tc.hasProm {
 				prom, _ := countingProm(t, "7")
 				s.prom = prom
 			}
 			if tc.hasRecords {
-				s.SetTelemetryStore(recordsStoreWithoutDatabase(t))
+				s.telemetry = recordsStoreWithoutDatabase(t)
 			}
 
 			source, reason := s.metricsBackend()
@@ -133,7 +133,7 @@ func TestObservability_SummaryDoesNotQueryPrometheusWhenRecordsAnswer(t *testing
 	s, hits := sourceTestServer(t, "", path)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	// The records store has no reachable database, so choosing it fails at the
 	// query — a 502 that names the hub database. That is the proof of the choice:
@@ -156,7 +156,7 @@ func TestObservability_SummaryServesPrometheusWhenPinned(t *testing.T) {
 	s, hits := sourceTestServer(t, MetricsSourcePrometheus, path)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the pinned counters, got %d: %s", rec.Code, rec.Body.String())
@@ -185,7 +185,7 @@ func TestObservability_SummaryPinnedPrometheusWithoutClientIs503(t *testing.T) {
 	s.prom = nil
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -209,7 +209,7 @@ func TestObservability_TimeseriesUsesRecordsByDefault(t *testing.T) {
 	path := "/api/v1/observability/metrics/timeseries?metric=events_consumed&range=1h"
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("expected the records read to be attempted (502), got %d: %s", rec.Code, rec.Body.String())
@@ -227,7 +227,7 @@ func TestObservability_TokenPanelsIgnoreTheRecordsDefault(t *testing.T) {
 	s, _ := sourceTestServer(t, "", path)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=1h", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=1h", nil))
 
 	if rec.Code == http.StatusBadGateway {
 		t.Fatalf("token panel was routed to the records backend: %s", rec.Body.String())
@@ -274,13 +274,13 @@ func TestAgentsBackendChoosesRecordsUnlessPinned(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := testServer(t)
-			s.SetMetricsSource(tc.pin)
+			s.metricsSource = tc.pin
 			if tc.hasProm {
 				prom, _ := countingProm(t, "7")
 				s.prom = prom
 			}
 			if tc.hasRecords {
-				s.SetTaskLogStore(tasklogsStoreWithoutDatabase(t))
+				s.taskLogs = tasklogsStoreWithoutDatabase(t)
 			}
 
 			source, reason := s.agentsBackend()
@@ -302,11 +302,11 @@ func TestObservability_AgentsDoesNotQueryPrometheusWhenRecordsAnswer(t *testing.
 	prom, hits := countingProm(t, "7")
 	s := testServer(t)
 	s.prom = prom
-	s.SetTaskLogStore(tasklogsStoreWithoutDatabase(t))
+	s.taskLogs = tasklogsStoreWithoutDatabase(t)
 	s.mux.HandleFunc(path, s.handleObservability)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	// The records store has no reachable database, so choosing it fails at the
 	// query — a 502 that names the hub database. That is the proof of the
@@ -324,12 +324,12 @@ func TestObservability_AgentsServesPrometheusWhenPinned(t *testing.T) {
 	prom, hits := countingProm(t, "7")
 	s := testServer(t)
 	s.prom = prom
-	s.SetTaskLogStore(tasklogsStoreWithoutDatabase(t))
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.taskLogs = tasklogsStoreWithoutDatabase(t)
+	s.metricsSource = MetricsSourcePrometheus
 	s.mux.HandleFunc(path, s.handleObservability)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from the pinned counters, got %d: %s", rec.Code, rec.Body.String())
@@ -349,12 +349,12 @@ func TestObservability_AgentsServesPrometheusWhenPinned(t *testing.T) {
 func TestObservability_AgentsPinnedPrometheusWithoutClientIs503(t *testing.T) {
 	const path = "/api/v1/observability/metrics/agents"
 	s := testServer(t)
-	s.SetTaskLogStore(tasklogsStoreWithoutDatabase(t))
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.taskLogs = tasklogsStoreWithoutDatabase(t)
+	s.metricsSource = MetricsSourcePrometheus
 	s.mux.HandleFunc(path, s.handleObservability)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -376,7 +376,7 @@ func TestObservability_AgentsWithNoBackendAtAllIs503(t *testing.T) {
 	s.mux.HandleFunc(path, s.handleObservability)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -398,7 +398,7 @@ func TestObservability_AgentsRejectsUnknownRange(t *testing.T) {
 	s.mux.HandleFunc(path, s.handleObservability)
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=5m", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?range=5m", nil))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for an unsupported range, got %d: %s", rec.Code, rec.Body.String())

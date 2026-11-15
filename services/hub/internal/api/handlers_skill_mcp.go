@@ -47,16 +47,6 @@ const (
 	skillSearchMaxLimit     = 50
 )
 
-// SetSkillDiscovery wires the catalogue and builds its MCP handler. Called
-// from wiring before the server starts serving, so the handler is never
-// mutated while requests are in flight.
-func (s *Server) SetSkillDiscovery(d SkillDiscovery) {
-	if d == nil {
-		return
-	}
-	s.skillMCPHandler = s.requireCatalogueToken(skillMCPServer(d).ServeHTTP)
-}
-
 // skillMCPServer builds the MCP server for the catalogue. Two tools: find
 // something, then read it. Nothing here writes.
 func skillMCPServer(d SkillDiscovery) *server.StreamableHTTPServer {

@@ -24,10 +24,6 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if s.taskLogs == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
-		return
-	}
 
 	q := r.URL.Query()
 	limit := 100
@@ -65,6 +61,11 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		opts.AgentNames = scope.agents
+	}
+
+	if !s.taskLogs.Ready() {
+		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		return
 	}
 
 	messages, err := s.taskLogs.ListConversations(r.Context(), opts)

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,11 +99,16 @@ func TestExpireQueuedTasks_ExpiresAndReports(t *testing.T) {
 
 // TestExpireQueuedTasks_NoQueueIsNoOp guards the nil-store path: a hub without
 // an event queue must not panic when the reaper loop fires.
-func TestExpireQueuedTasks_NoQueueIsNoOp(t *testing.T) {
-	s := testServer(t)
-	s.eventQueue = nil
-	n, err := s.ExpireQueuedTasks(context.Background())
-	if err != nil || n != 0 {
-		t.Fatalf("ExpireQueuedTasks with no queue = (%d, %v), want (0, nil)", n, err)
+// The event queue is a required dependency (issue #264): the reaper no longer has
+// a "no queue, nothing to do" path, because New refuses a Deps without it.
+func TestNewRejectsMissingEventQueue(t *testing.T) {
+	deps := testDeps(t)
+	deps.EventQueue = nil
+	_, err := New(deps)
+	if err == nil {
+		t.Fatal("expected New to reject a Deps without EventQueue")
+	}
+	if !strings.Contains(err.Error(), "EventQueue") {
+		t.Fatalf("error should name the missing field, got: %v", err)
 	}
 }

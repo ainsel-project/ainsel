@@ -34,41 +34,35 @@ type PersonaService interface {
 	DeleteOwned(ctx context.Context, personaID, agentName string) error
 }
 
-// personaHandlers groups handler functions plus their service dependency.
-// authzStorePtr is a pointer-to-pointer so it picks up the value set by
-// Server.SetAuthZ after construction.
+// personaHandlers groups the persona endpoints with their service dependency
+// and the authorization pair they guard with. Both arrive by value at
+// registration: New validates Deps and then registers this group, so there is
+// no later SetAuthZ for a handler to observe through a pointer-to-pointer.
 type personaHandlers struct {
-	svc           PersonaService
-	authzStorePtr *authzStore
-	checkerPtr    **authz.Checker
+	svc     PersonaService
+	store   AuthzStore
+	checker *authz.Checker
+	// defaultGroupID mirrors Server.resolveGroupID for the same reason the
+	// server has it: an install with the group model off files a group-less
+	// create in its one group instead of answering 400.
+	defaultGroupID string
 }
 
-func (h *personaHandlers) getAuthzStore() authzStore {
-	if h.authzStorePtr == nil {
-		return nil
+func (h *personaHandlers) resolveGroupID(id string) string {
+	if id != "" {
+		return id
 	}
-	return *h.authzStorePtr
-}
-
-func (h *personaHandlers) getChecker() *authz.Checker {
-	if h.checkerPtr == nil {
-		return nil
-	}
-	return *h.checkerPtr
+	return h.defaultGroupID
 }
 
 // requireRead enforces read access on a persona. Returns true if allowed.
 func (h *personaHandlers) requireRead(w http.ResponseWriter, r *http.Request, id string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanRead(r.Context(), u.Sub, "persona", id)
+	ok, err := h.checker.CanRead(r.Context(), u.Sub, "persona", id)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
@@ -82,16 +76,12 @@ func (h *personaHandlers) requireRead(w http.ResponseWriter, r *http.Request, id
 
 // requireWrite enforces write access on a persona. Returns true if allowed.
 func (h *personaHandlers) requireWrite(w http.ResponseWriter, r *http.Request, id string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWrite(r.Context(), u.Sub, "persona", id)
+	ok, err := h.checker.CanWrite(r.Context(), u.Sub, "persona", id)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
@@ -105,16 +95,12 @@ func (h *personaHandlers) requireWrite(w http.ResponseWriter, r *http.Request, i
 
 // requireGroupWrite checks the caller can create resources in the group.
 func (h *personaHandlers) requireGroupWrite(w http.ResponseWriter, r *http.Request, groupID string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWriteGroup(r.Context(), u.Sub, groupID)
+	ok, err := h.checker.CanWriteGroup(r.Context(), u.Sub, groupID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
@@ -127,19 +113,15 @@ func (h *personaHandlers) requireGroupWrite(w http.ResponseWriter, r *http.Reque
 }
 
 // accessibleSet returns the set of persona IDs the caller can read.
-// Returns nil if access control is not configured or the caller is an admin
+// Returns nil when the caller is an admin — which, in auth mode "none", is
+// every caller
 // (meaning: no filtering).
 func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
-	store := h.getAuthzStore()
-	c := h.getChecker()
-	if store == nil || c == nil {
-		return nil
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		return map[string]bool{}
 	}
-	admin, _ := c.IsAdmin(r.Context(), u.Sub)
+	admin, _ := h.checker.IsAdmin(r.Context(), u.Sub)
 	if admin {
 		return nil
 	}
@@ -149,10 +131,10 @@ func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
 		groupIDs = ids
 	} else {
 		// Fall back to store lookup for user callers
-		groupIDs, _ = store.UserGroupIDs(r.Context(), u.Sub)
+		groupIDs, _ = h.store.UserGroupIDs(r.Context(), u.Sub)
 	}
 	includePublic := r.URL.Query().Get("includePublic") == "true"
-	names, err := store.ListResourcesByGroups(r.Context(), "persona", groupIDs, includePublic)
+	names, err := h.store.ListResourcesByGroups(r.Context(), "persona", groupIDs, includePublic)
 	if err != nil {
 		return map[string]bool{}
 	}
@@ -160,10 +142,11 @@ func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
 }
 
 // RegisterPersonaRoutes wires the persona endpoints into the given mux.
-// authzStorePtr points to the Server's authzStore field so it picks up
-// the value set later by SetAuthZ.
-func RegisterPersonaRoutes(mux routeRegistrar, svc PersonaService, authzStorePtr *authzStore, checkerPtr **authz.Checker) {
-	h := &personaHandlers{svc: svc, authzStorePtr: authzStorePtr, checkerPtr: checkerPtr}
+//
+// The store and checker are taken by value, like every other handler
+// dependency, because there is no post-construction wiring left to observe.
+func RegisterPersonaRoutes(mux routeRegistrar, svc PersonaService, store AuthzStore, checker *authz.Checker, defaultGroupID string) {
+	h := &personaHandlers{svc: svc, store: store, checker: checker, defaultGroupID: defaultGroupID}
 	mux.HandleFunc("/api/v1/personas", h.handleCollection)
 	mux.HandleFunc("/api/v1/personas/", h.handleItem)
 }
@@ -216,28 +199,21 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
-		if h.getChecker() != nil {
-			if req.GroupID == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-				return
-			}
-			if !h.requireGroupWrite(w, r, req.GroupID) {
-				return
-			}
+		req.GroupID = h.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+			return
+		}
+		if !h.requireGroupWrite(w, r, req.GroupID) {
+			return
 		}
 		p, err := h.svc.Create(r.Context(), req)
 		if err != nil {
 			h.writePersonaError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := h.getAuthzStore().SetResourceGroup(r.Context(), "persona", p.ID, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", p.ID)
-			}
+		if err := h.store.SetResourceGroup(r.Context(), "persona", p.ID, req.GroupID, false); err != nil {
+			slog.Error("set resource group on create", "error", err, "resource", p.ID)
 		}
 		httpx.WriteJSON(w, http.StatusCreated, p)
 	default:
@@ -311,10 +287,8 @@ func (h *personaHandlers) itemRoot(w http.ResponseWriter, r *http.Request, id st
 			h.writePersonaError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			if err := h.getAuthzStore().DeleteResourceGroup(r.Context(), "persona", id); err != nil {
-				slog.Error("delete ownership", "error", err, "resource", id)
-			}
+		if err := h.store.DeleteResourceGroup(r.Context(), "persona", id); err != nil {
+			slog.Error("delete ownership", "error", err, "resource", id)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:

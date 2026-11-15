@@ -160,7 +160,7 @@ func refreshImage(t *testing.T, s *Server, name string) (tools []AgentImageToolI
 	s.mux.HandleFunc("/api/v1/agent-images/", s.handleAgentImagePath)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images/"+name+"/refresh-mcp", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
 	}

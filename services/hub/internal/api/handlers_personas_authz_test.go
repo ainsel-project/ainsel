@@ -20,7 +20,7 @@ import (
 // access, and a denied caller never reaches the service.
 //
 // They live in package api (not api_test) because RegisterPersonaRoutes takes
-// the unexported *authzStore pointer.
+// the unexported *AuthzStore pointer.
 
 // personaAuthzStub implements only the endpoints under test. The embedded nil
 // PersonaService makes every other method panic if a handler reaches it.
@@ -96,7 +96,9 @@ func newPersonaAuthzServer(t *testing.T, svc PersonaService, store authz.Checker
 	}, time.Minute))
 
 	mux := http.NewServeMux()
-	RegisterPersonaRoutes(mux, svc, nil, &checker)
+	// The store argument backs the ownership bookkeeping only; these endpoints
+	// are guarded by the checker, which is built from the test store above.
+	RegisterPersonaRoutes(mux, svc, authz.NewPermissiveStore(), checker, "legacy")
 	if sub == "" {
 		return httptest.NewServer(mux)
 	}

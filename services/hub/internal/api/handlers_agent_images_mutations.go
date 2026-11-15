@@ -131,10 +131,6 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	if req.MCPServers != nil {
-		if s.mcp == nil {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
-			return
-		}
 		newMCPServers := make([]agentv1alpha1.AgentImageMCPServer, 0, len(*req.MCPServers))
 		for _, name := range *req.MCPServers {
 			mcpServer, err := s.mcp.Get(ctx, name)
@@ -230,10 +226,8 @@ func (s *Server) deleteAgentImage(ctx context.Context, w http.ResponseWriter, na
 		return
 	}
 
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "agent-image", name); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", name)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "agent-image", name); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", name)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

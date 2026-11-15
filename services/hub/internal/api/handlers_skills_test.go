@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -80,8 +82,19 @@ func (m *mockSkillService) Unassign(_ context.Context, skillID, agentName string
 // registerSkillRoutesForTest wires skill routes onto the test server's mux.
 func registerSkillRoutesForTest(svc SkillService) http.Handler {
 	mux := http.NewServeMux()
-	RegisterSkillRoutes(mux, svc, nil, nil)
+	// The permissive pair is what auth mode "none" installs in production, and
+	// "legacy" is its one group — see Deps.DefaultGroupID.
+	RegisterSkillRoutes(mux, svc, authz.NewPermissiveStore(), authz.NewChecker(authz.NewPermissiveStore(), nil), "legacy")
 	return mux
+}
+
+// asSkillCaller states the caller these route-level tests send. The skill routes
+// guard on a caller (issue #264 removed the anonymous pass-through), and this
+// mux is built by hand, so it has no auth middleware to do it.
+func asSkillCaller(req *http.Request) *http.Request {
+	return req.WithContext(oidc.ContextWithUser(req.Context(), &oidc.User{
+		Sub: "test-admin", Email: "admin@ainsel.local", Username: "admin",
+	}))
 }
 
 func TestSkillAssignments_GETReturnsAssignments(t *testing.T) {
@@ -95,7 +108,7 @@ func TestSkillAssignments_GETReturnsAssignments(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/code-review/assignments", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -119,7 +132,7 @@ func TestSkillAssignments_GETReturnsEmptyArrayWhenNoAssignments(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/code-review/assignments", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -145,7 +158,7 @@ func TestSkillAssignments_GETSkillNotFound(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/nonexistent/assignments", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -159,7 +172,7 @@ func TestSkillAssignments_GETMethodNotAllowed(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/skills/code-review/assignments", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d: %s", rec.Code, rec.Body.String())
@@ -173,7 +186,7 @@ func TestSkillAssignments_PUTReturns204(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/code-review/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
@@ -192,7 +205,7 @@ func TestSkillAssignments_PUTSkillNotFound(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/nonexistent/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -206,7 +219,7 @@ func TestSkillAssignments_DELETEReturns204(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/skills/code-review/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
@@ -227,7 +240,7 @@ func TestSkillAssignments_DELETEMethodNotAllowed(t *testing.T) {
 	// POST on /assignments/:name should be 405
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/skills/code-review/assignments/agent-abc", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d: %s", rec.Code, rec.Body.String())
@@ -242,7 +255,7 @@ func TestSkillAssignments_PUTEmptyImageNameReturns404(t *testing.T) {
 	// /api/v1/skills/code-review/assignments/ with trailing slash but empty name
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/skills/code-review/assignments/", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	// The empty agent name path should result in 404
 	if rec.Code != http.StatusNotFound {
@@ -257,7 +270,7 @@ func TestSkillAssignments_TooManyPathSegmentsReturns404(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/code-review/assignments/agent-abc/extra", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -280,7 +293,7 @@ func TestUpdateSkill_PluginManaged409(t *testing.T) {
 		bytes.NewBufferString(`{"name":"Mine"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())
@@ -305,7 +318,7 @@ func TestDeleteSkill_PluginManaged409(t *testing.T) {
 	mux := registerSkillRoutesForTest(svc)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/skills/mem0-memory-usage", nil)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, asSkillCaller(req))
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())

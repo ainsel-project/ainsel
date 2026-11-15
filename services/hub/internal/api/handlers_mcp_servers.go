@@ -76,10 +76,6 @@ func validateTokenFromEnv(v string) error {
 }
 
 func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
-	if s.mcp == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
 		servers, err := s.mcp.List(r.Context())
@@ -88,7 +84,7 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Filter to resources the caller can access.
-		if s.authzStore != nil && !s.callerIsAdmin(r) {
+		if !s.callerIsAdmin(r) {
 			names := make([]string, len(servers))
 			for i, m := range servers {
 				names[i] = m.Name
@@ -122,14 +118,13 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Validate group membership for resource creation.
-		if s.authzChecker != nil {
-			if req.GroupID == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-				return
-			}
-			if !s.requireGroupWrite(w, r, req.GroupID) {
-				return
-			}
+		req.GroupID = s.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+			return
+		}
+		if !s.requireGroupWrite(w, r, req.GroupID) {
+			return
 		}
 		m := &mcpservers.MCPServer{
 			Name:         req.Name,
@@ -147,14 +142,12 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if s.authzStore != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := s.authzStore.SetResourceGroup(r.Context(), "mcp-server", m.Name, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", m.Name)
-			}
+		groupID := req.GroupID
+		if groupID == "" {
+			groupID = "legacy"
+		}
+		if err := s.authzStore.SetResourceGroup(r.Context(), "mcp-server", m.Name, groupID, false); err != nil {
+			slog.Error("set resource group on create", "error", err, "resource", m.Name)
 		}
 
 		saved, _ := s.mcp.Get(r.Context(), m.Name)
@@ -166,10 +159,6 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
-	if s.mcp == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
-		return
-	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/mcp-servers/")
 
 	// Handle sub-route /:name/tools
@@ -292,10 +281,8 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		if s.authzStore != nil {
-			if err := s.authzStore.DeleteResourceGroup(r.Context(), "mcp-server", name); err != nil {
-				slog.Error("delete ownership", "error", err, "resource", name)
-			}
+		if err := s.authzStore.DeleteResourceGroup(r.Context(), "mcp-server", name); err != nil {
+			slog.Error("delete ownership", "error", err, "resource", name)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:

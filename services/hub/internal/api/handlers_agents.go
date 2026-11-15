@@ -68,9 +68,6 @@ func (s *Server) resolveMCPRequest(ctx context.Context, req *AgentMCPRequest) (*
 	if req == nil {
 		return nil, nil
 	}
-	if s.mcp == nil {
-		return nil, newAPIError(http.StatusServiceUnavailable, "mcp service not configured")
-	}
 	mcp := &agentv1alpha1.AgentMCP{Servers: make([]agentv1alpha1.AgentMCPServer, 0, len(req.Servers))}
 	for _, name := range req.Servers {
 		server, err := s.mcp.Get(ctx, name)
@@ -744,31 +741,29 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 	// one. Both filters run before pagination so Pager totals describe the
 	// filtered set, and a group filter can never widen what authz scoped out.
 	groupID := strings.TrimSpace(r.URL.Query().Get("groupId"))
-	if s.authzStore != nil {
-		names := make([]string, len(list.Items))
-		for i, a := range list.Items {
-			names[i] = a.Name
-		}
-		if !s.callerIsAdmin(r) {
-			names = s.filterByAccess(r, "agent", names)
-		}
-		if groupID != "" {
-			inGroup, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", []string{groupID}, false)
-			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			names = intersectNames(names, inGroup)
-		}
-		set := toAccessSet(names)
-		filtered := list.Items[:0]
-		for _, a := range list.Items {
-			if set[a.Name] {
-				filtered = append(filtered, a)
-			}
-		}
-		list.Items = filtered
+	names := make([]string, len(list.Items))
+	for i, a := range list.Items {
+		names[i] = a.Name
 	}
+	if !s.callerIsAdmin(r) {
+		names = s.filterByAccess(r, "agent", names)
+	}
+	if groupID != "" {
+		inGroup, err := s.authzStore.ListResourcesByGroups(r.Context(), "agent", []string{groupID}, false)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		names = intersectNames(names, inGroup)
+	}
+	set := toAccessSet(names)
+	filtered := list.Items[:0]
+	for _, a := range list.Items {
+		if set[a.Name] {
+			filtered = append(filtered, a)
+		}
+	}
+	list.Items = filtered
 
 	// Case-insensitive substring filter on display name, resource name and
 	// description. Applied before pagination for the same reason as the
@@ -805,19 +800,17 @@ func (s *Server) listAgents(ctx context.Context, w http.ResponseWriter, r *http.
 	// never one Get per row.
 	agentGroupIDs := make(map[string]string)
 	groupNames := make(map[string]string)
-	if s.authzStore != nil {
-		if m, err := s.authzStore.ListResourceGroupsByType(r.Context(), "agent"); err == nil {
-			agentGroupIDs = m
-		} else {
-			slog.Warn("failed to list agent resource groups for group enrichment", "error", err)
+	if m, err := s.authzStore.ListResourceGroupsByType(r.Context(), "agent"); err == nil {
+		agentGroupIDs = m
+	} else {
+		slog.Warn("failed to list agent resource groups for group enrichment", "error", err)
+	}
+	if gs, err := s.authzStore.ListGroups(r.Context()); err == nil {
+		for _, g := range gs {
+			groupNames[g.ID] = g.Name
 		}
-		if gs, err := s.authzStore.ListGroups(r.Context()); err == nil {
-			for _, g := range gs {
-				groupNames[g.ID] = g.Name
-			}
-		} else {
-			slog.Warn("failed to list groups for group-name enrichment", "error", err)
-		}
+	} else {
+		slog.Warn("failed to list groups for group-name enrichment", "error", err)
 	}
 
 	items := make([]SimpleAgentResponse, 0, hi-lo)
@@ -893,7 +886,7 @@ type agentValidationResult struct {
 // path only — an AgentImage offers no skills to select. An unknown ID is a
 // 400 naming the ID; any other service failure is a 500.
 func (s *Server) validateAgentSkills(ctx context.Context, ids []string) error {
-	if len(ids) == 0 || s.skills == nil {
+	if len(ids) == 0 {
 		return nil
 	}
 	for _, id := range ids {
@@ -1261,13 +1254,12 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		resolveEnv:    true,
 		env:           req.Env,
 	}
-	if s.authzChecker != nil {
-		in.groupCheck = func() error {
-			if req.GroupID == "" {
-				return newAPIError(http.StatusBadRequest, "groupId is required")
-			}
-			return s.checkGroupWrite(r, req.GroupID)
+	in.groupCheck = func() error {
+		req.GroupID = s.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			return newAPIError(http.StatusBadRequest, "groupId is required")
 		}
+		return s.checkGroupWrite(r, req.GroupID)
 	}
 	inlinePersona := req.Persona != nil && req.Persona.Text != ""
 	if inlinePersona && req.Persona.ID != "" {
@@ -1335,14 +1327,12 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}
 
 	// Assign the agent to the creator's chosen group.
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(r.Context(), "agent", id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
+	groupID := req.GroupID
+	if groupID == "" {
+		groupID = "legacy"
+	}
+	if err := s.authzStore.SetResourceGroup(r.Context(), "agent", id, groupID, false); err != nil {
+		slog.Error("set resource group on create", "error", err, "resource", id)
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, toSimpleAgentResponse(agent, res.displayName))
@@ -1463,10 +1453,8 @@ func (s *Server) deleteAgent(ctx context.Context, w http.ResponseWriter, name st
 	s.cleanupOwnedPersona(ctx, name, "")
 
 	// Clean up ownership record.
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "agent", name); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", name)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "agent", name); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", name)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

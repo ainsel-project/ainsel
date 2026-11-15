@@ -206,7 +206,7 @@ func pluginToolsTestServer(t *testing.T, objects ...runtime.Object) (*Server, *p
 	s := testServer(t, objects...)
 	s.mux.HandleFunc("/api/internal/plugin-tools", s.handleInternalPluginTools)
 	s.mux.HandleFunc("/api/v1/plugin-tools/call", s.handlePluginToolCall)
-	s.SetInternalValidateSecret(pluginToolsInternalToken)
+	s.internalValidateSecret = pluginToolsInternalToken
 
 	secret := make([]byte, 32)
 	for i := range secret {
@@ -216,13 +216,13 @@ func pluginToolsTestServer(t *testing.T, objects ...runtime.Object) (*Server, *p
 	if err != nil {
 		t.Fatalf("new issuer: %v", err)
 	}
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	// The hub is a plain MCP client of the plugin: an in-cluster HTTP client is
 	// enough for the fixtures, but wire an explicit one to pin the setter too.
-	s.SetPluginMCPClient(pluginmcp.New(&http.Client{Timeout: 10 * time.Second}))
+	s.pluginMCP = pluginmcp.New(&http.Client{Timeout: 10 * time.Second})
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), &oidc.User{
 				Sub:      pluginToolsUserSub,
@@ -230,7 +230,7 @@ func pluginToolsTestServer(t *testing.T, objects ...runtime.Object) (*Server, *p
 			})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 	return s, issuer
 }
 
@@ -560,11 +560,11 @@ func TestPluginToolsCall_NoVerifiedEndpoint(t *testing.T) {
 // surface, not an open one.
 func TestPluginToolsCall_RequiresUser(t *testing.T) {
 	s, _ := pluginToolsTestServer(t, pluginToolsPluginCR(t, "mem0", false, "127.0.0.1:1"))
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		})
-	})
+	}
 
 	rec := doPluginToolsCall(t, s, `{"pluginId":"mem0","tool":"search"}`)
 	if rec.Code != http.StatusUnauthorized {
@@ -575,8 +575,8 @@ func TestPluginToolsCall_RequiresUser(t *testing.T) {
 // TestPluginToolsRoutesRegistered pins that New() mounts both routes: a
 // request that reaches the handler's own guard differs from the mux's 404.
 func TestPluginToolsRoutesRegistered(t *testing.T) {
-	s := New(nil, "test-ns", ConnectorConfig{}, nil, nil, nil, nil, nil, &Config{})
-	s.SetInternalValidateSecret(pluginToolsInternalToken)
+	s := newTestServer(t, testDeps(t))
+	s.internalValidateSecret = pluginToolsInternalToken
 
 	rec := doPluginToolsList(t, s, "wrong-token")
 	if rec.Code != http.StatusUnauthorized {
