@@ -125,6 +125,14 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	s.AddTool(skills.UpdateSkillTool(), skills.UpdateSkill)
 	s.AddTool(skills.DeleteSkillTool(), skills.DeleteSkill)
 
+	// Groups are the access-control containers every groupId argument points
+	// at, so creating resources from scratch needs them. Read + create only —
+	// group update, delete and membership stay on the hub REST API.
+	groups := tools.NewGroupTools(b.HubURL)
+	s.AddTool(groups.ListGroupsTool(), groups.ListGroups)
+	s.AddTool(groups.GetGroupTool(), groups.GetGroup)
+	s.AddTool(groups.CreateGroupTool(), groups.CreateGroup)
+
 	errs := tools.NewErrorTools(b.HubURL)
 	s.AddTool(errs.GetRecentErrorsTool(), errs.GetRecentErrors)
 
