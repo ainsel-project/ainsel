@@ -18,11 +18,6 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/types"
 )
 
-// SetEventQueue wires the event queue store for the ingest and agent task endpoints.
-func (s *Server) SetEventQueue(eq *eventqueue.Store) {
-	s.eventQueue = eq
-}
-
 // requireInternalToken checks the X-Internal-Token header against the
 // configured shared secret. Returns true if the request is authorized.
 func (s *Server) requireInternalToken(w http.ResponseWriter, r *http.Request) bool {
@@ -45,10 +40,6 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
@@ -200,10 +191,6 @@ func (s *Server) handleAgentTaskAck(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
-		return
-	}
 
 	agentName, taskID, ok := parseAgentTaskPath(r.URL.Path)
 	if !ok {
@@ -248,10 +235,6 @@ func (s *Server) handleAgentTaskAck(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
@@ -339,9 +322,6 @@ func (s *Server) reportTaskFailure(agentName string, taskID int64, invocationID,
 // 'timeout'. Called from the hub's reaper loop; returns the number of tasks
 // expired (for logging) and the first store error, if any.
 func (s *Server) ExpireQueuedTasks(ctx context.Context) (int, error) {
-	if s.eventQueue == nil {
-		return 0, nil
-	}
 	expired, err := s.eventQueue.ExpirePendingTasks(ctx)
 	if err != nil {
 		return 0, err
@@ -373,10 +353,6 @@ func inRetryBackoff(t *eventqueue.Task, now time.Time) bool {
 func (s *Server) handleAgentTaskGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
@@ -433,10 +409,6 @@ func (s *Server) handleQueueInfo(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
-		return
-	}
 
 	info, err := s.eventQueue.GetStreamInfo(r.Context())
 	if err != nil {
@@ -452,10 +424,6 @@ func (s *Server) handleQueueInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQueueRecent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
 		return
 	}
 
@@ -550,10 +518,6 @@ func (s *Server) handleIngestTaskLog(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if s.taskLogs == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "task log store not configured")
-		return
-	}
 
 	var entry tasklogs.Entry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
@@ -585,10 +549,6 @@ func (s *Server) handleIngestTaskMessage(w http.ResponseWriter, r *http.Request)
 	}
 	if r.Method != http.MethodPost {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if s.taskLogs == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "task log store not configured")
 		return
 	}
 

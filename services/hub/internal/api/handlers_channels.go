@@ -19,14 +19,6 @@ import (
 // caller does not pass ?since=. The window's end is always now.
 const channelDefaultWindow = 24 * time.Hour
 
-// SetChannelService wires the channel registry and its bridge transfers into
-// the server and registers the routes.
-func (s *Server) SetChannelService(svc *channels.Service, transfer *channels.Transfer) {
-	s.channelSvc = svc
-	s.channelTransfer = transfer
-	s.registerChannelRoutes()
-}
-
 func (s *Server) registerChannelRoutes() {
 	// Collection routes.
 	s.routes().HandleFunc("/api/v1/channels", s.handleChannels)
@@ -136,7 +128,7 @@ func (s *Server) requireChannelWrite(w http.ResponseWriter, r *http.Request, ch 
 // answers a whole page in one lookup per resource type instead of one authz
 // round trip per row.
 func (s *Server) visibleChannels(r *http.Request, chans []channels.Channel) map[string]bool {
-	if s.authzStore == nil || s.callerIsAdmin(r) {
+	if s.callerIsAdmin(r) {
 		set := make(map[string]bool, len(chans))
 		for _, ch := range chans {
 			set[ch.ID] = true
@@ -189,10 +181,6 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodGet {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if s.channelSvc == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "channels not configured")
 		return
 	}
 	since, err := channelSince(r)
@@ -273,10 +261,6 @@ func channelWindowLabel(since time.Time) string {
 // handleChannelSubscriptions returns every channel→channel edge: the transfers
 // owned by the trigger registry alongside the bridges stored on channels.
 func (s *Server) handleChannelSubscriptions(w http.ResponseWriter, r *http.Request) {
-	if s.channelSvc == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "channels not configured")
-		return
-	}
 	subs, err := s.channelSvc.Subscriptions(r.Context())
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
@@ -323,10 +307,6 @@ func (s *Server) handleChannelSubscriptions(w http.ResponseWriter, r *http.Reque
 // channelFromPath loads the channel named by a path id, writing the error
 // response and reporting false when it cannot be used.
 func (s *Server) channelFromPath(w http.ResponseWriter, r *http.Request, id string) (*channels.Channel, bool) {
-	if s.channelSvc == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "channels not configured")
-		return nil, false
-	}
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "channel id required")
 		return nil, false
@@ -376,10 +356,6 @@ type channelUpdateRequest struct {
 // handleCreateChannel creates a grouping channel. Provisioned channels are not
 // creatable here: they exist because their connector or agent does.
 func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
-	if s.channelSvc == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "channels not configured")
-		return
-	}
 	var req channelCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -389,14 +365,13 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if s.authzChecker != nil {
-		if req.GroupID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-			return
-		}
-		if !s.requireGroupWrite(w, r, req.GroupID) {
-			return
-		}
+	req.GroupID = s.resolveGroupID(req.GroupID)
+	if req.GroupID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+		return
+	}
+	if !s.requireGroupWrite(w, r, req.GroupID) {
+		return
 	}
 
 	ch, err := s.channelSvc.CreateCustom(r.Context(), req.Name, req.Description)
@@ -404,7 +379,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		channelError(w, err)
 		return
 	}
-	if s.authzStore != nil && req.GroupID != "" {
+	if req.GroupID != "" {
 		if err := s.authzStore.SetResourceGroup(r.Context(), "channel", ch.ID, req.GroupID, false); err != nil {
 			slog.Warn("resource group write failed", "resource_type", "channel", "resource_id", ch.ID, "error", err)
 		}
@@ -455,11 +430,9 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request, id string
 		channelError(w, err)
 		return
 	}
-	if s.authzStore != nil {
-		s.releaseNestedChannels(r, ch.ID, nested)
-		if err := s.authzStore.DeleteResourceGroup(r.Context(), "channel", ch.ID); err != nil {
-			slog.Warn("resource group cleanup failed", "resource_type", "channel", "resource_id", ch.ID, "error", err)
-		}
+	s.releaseNestedChannels(r, ch.ID, nested)
+	if err := s.authzStore.DeleteResourceGroup(r.Context(), "channel", ch.ID); err != nil {
+		slog.Warn("resource group cleanup failed", "resource_type", "channel", "resource_id", ch.ID, "error", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -562,9 +535,9 @@ func (s *Server) channelEvents(w http.ResponseWriter, r *http.Request, id string
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	status := q.Get("status")
-	if status != "" && !validActivityStatuses[status] {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid status: expected matched, unmatched or error")
+	match := queryAlias(q, paramMatch, legacyParamStatus)
+	if match != "" && !validActivityMatches[match] {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid match: expected matched, unmatched or error")
 		return
 	}
 
@@ -573,7 +546,7 @@ func (s *Server) channelEvents(w http.ResponseWriter, r *http.Request, id string
 		Limit:   limit,
 		Offset:  offset,
 		Agent:   q.Get("agent"),
-		Status:  status,
+		Match:   match,
 		Subject: q.Get("subject"),
 	})
 	if err != nil {
@@ -658,9 +631,6 @@ func (s *Server) attachBridge(w http.ResponseWriter, r *http.Request, id string)
 
 // adoptBridgeGroup records a bridge as a resource of the target channel's group.
 func (s *Server) adoptBridgeGroup(r *http.Request, bridge *channels.Bridge) {
-	if s.authzStore == nil {
-		return
-	}
 	to, err := s.channelSvc.Channel(r.Context(), bridge.ToChannel)
 	if err != nil {
 		return
@@ -684,10 +654,6 @@ func (s *Server) adoptBridgeGroup(r *http.Request, bridge *channels.Bridge) {
 // handleDetachBridge removes a subscription edge. The path channel must be one
 // of the bridge's endpoints, so an id from the wrong side cannot delete it.
 func (s *Server) detachBridge(w http.ResponseWriter, r *http.Request, id, bridgeID string) {
-	if s.channelSvc == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "channels not configured")
-		return
-	}
 	if bridgeID == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "missing bridge id")
 		return
@@ -716,10 +682,8 @@ func (s *Server) detachBridge(w http.ResponseWriter, r *http.Request, id, bridge
 		channelError(w, err)
 		return
 	}
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(r.Context(), "channel", bridgeID); err != nil {
-			slog.Warn("resource group cleanup failed", "resource_type", "channel", "resource_id", bridgeID, "error", err)
-		}
+	if err := s.authzStore.DeleteResourceGroup(r.Context(), "channel", bridgeID); err != nil {
+		slog.Warn("resource group cleanup failed", "resource_type", "channel", "resource_id", bridgeID, "error", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -3,6 +3,7 @@ package signin
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -21,13 +22,14 @@ func TestPgSignInStoreRoundTrip(t *testing.T) {
 			}
 			return NewPgStore(pool)
 		},
-		func(t *testing.T, _ Store, id string) { expireRow(t, pool, id) })
+		func(t *testing.T, _ Store, id string, d time.Duration) { ageRow(t, pool, id, d) })
 }
 
-func expireRow(t *testing.T, pool *pgxpool.Pool, id string) {
+func ageRow(t *testing.T, pool *pgxpool.Pool, id string, d time.Duration) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
-		`UPDATE agent_sign_in_sessions SET expires_at = now() - interval '1 second' WHERE id = $1`, id); err != nil {
-		t.Fatalf("expire row: %v", err)
+		`UPDATE agent_sign_in_sessions SET expires_at = expires_at - make_interval(secs => $2) WHERE id = $1`,
+		id, d.Seconds()); err != nil {
+		t.Fatalf("age row: %v", err)
 	}
 }

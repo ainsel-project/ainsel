@@ -24,7 +24,7 @@ import (
 // endpoint. It implements only what the handler reaches; the embedded nil
 // interface makes any other call panic rather than silently pass.
 type groupResAuthzFake struct {
-	authzStore
+	AuthzStore
 
 	groups    map[string]bool
 	admins    map[string]bool
@@ -210,7 +210,7 @@ func getGroupResources(t *testing.T, s *Server, path, sub string) (int, []GroupR
 		req = req.WithContext(oidc.ContextWithUser(req.Context(), &oidc.User{Sub: sub, Username: sub}))
 	}
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	var out struct {
 		Items []GroupResourceItem `json:"items"`
 	}
@@ -409,7 +409,7 @@ func TestGroupResources_MethodNotAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/groups/g1/resources", nil)
 	req = req.WithContext(oidc.ContextWithUser(req.Context(), &oidc.User{Sub: "alice"}))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
 	}

@@ -92,7 +92,7 @@ func TestAgentTaskGet_JobModeFetch(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/"+agentName+"/tasks/"+strconv.FormatInt(id, 10), nil)
 		req.Header.Set("X-Internal-Token", "test-secret")
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		return rec
 	}
 
@@ -132,7 +132,7 @@ func TestAgentTaskGet_JobModeFetch(t *testing.T) {
 	// Without the internal token: 401, even though the route matched.
 	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/"+agent+"/tasks/"+strconv.FormatInt(pending, 10), nil)
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("no token: got %d, want 401", rec.Code)
 	}
@@ -157,7 +157,7 @@ func TestAgentTaskGet_NotRoutedOnPublicAPI(t *testing.T) {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}"))
 		req.Header.Set("X-Internal-Token", "test-secret")
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("public %s %s: got %d, want 404", tc.method, tc.path, rec.Code)
 		}
@@ -212,7 +212,7 @@ func TestAgentTaskGet_JobModeRetryRepointsInvocation(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/"+agent+"/tasks/"+strconv.FormatInt(taskID, 10), nil)
 	req.Header.Set("X-Internal-Token", "test-secret")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("retry fetch: got %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
@@ -254,7 +254,7 @@ func TestAgentTaskGet_JobModeRetryRepointsInvocation(t *testing.T) {
 	// A second fetch (worker restarted mid-retry) must not stack a third row:
 	// the running fresh invocation is not terminal, so the id is kept.
 	rec2 := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec2, req)
+	s.ServeHTTP(rec2, req)
 	var task2 eventqueue.Task
 	if err := json.Unmarshal(rec2.Body.Bytes(), &task2); err != nil {
 		t.Fatalf("decode second fetch: %v", err)

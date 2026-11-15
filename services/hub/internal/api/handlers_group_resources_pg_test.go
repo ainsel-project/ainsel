@@ -28,9 +28,10 @@ func groupResPGServer(t *testing.T, fake *groupResAuthzFake) *Server {
 	svc := channels.NewService(cs, eq, ts)
 
 	s := groupResTestServer(t, fake)
-	s.SetEventQueue(eq)
-	s.SetTriggerStore(ts)
-	s.SetChannelService(svc, channels.NewTransfer(svc, eq, invocationstest.New(100)))
+	s.eventQueue = eq
+	s.triggerStore = ts
+	s.channelSvc, s.channelTransfer = svc, channels.NewTransfer(svc, eq, invocationstest.New(100))
+	s.registerChannelRoutes()
 	s.mcp = mcpservers.NewService(mcpservers.NewStore(pool))
 	return s
 }

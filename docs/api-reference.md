@@ -42,13 +42,25 @@ resource externally managed**:
   resources read-only.
 - **Every mutation** of an externally managed resource is refused with `409 Conflict` and
   body `{"error": "<kind> is managed by <manager>"}` — e.g. `"agent is managed by gitops"`.
-  This covers updates, deletes, pause/resume, agent-persona writes, image MCP refresh,
-  connector secret rotation, and persona rollback.
-- Clients cannot set or change `managedBy`: it is not part of any create/update request
-  shape, and the stored value is preserved on update. For CRD-backed resources it is
-  `spec.managedBy` (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`), written by external tooling via
-  kubectl/GitOps/Helm; for database-backed rows (personas, skills, MCP servers) only direct
-  DB writes or the owning subsystem (plugin syncer, seed loader) set it.
+  This covers updates, deletes, agent-persona writes, image MCP refresh,
+  connector secret rotation, and persona rollback. The one caller that passes is the plugin
+  a `"plugin-<id>"` value names: a plugin that created a resource stays the only REST caller
+  allowed to write it (see below).
+- Clients cannot change `managedBy`: it is not part of any update request shape, and the
+  stored value is preserved on update — including for the plugin that owns the row. The one
+  exception is create, where a plugin-authenticated caller may send `managedBy` on the create
+  body of Agents, AgentImages, WebhookConnectors, Personas, and MCP Servers. The only value
+  it accepts is the caller's own `"plugin-<plugin id>"`, composed server-side from the
+  credential: any other value is a `400`, and a console caller's value is ignored (the row
+  stays `"user"`). Skills are the exception to the exception — their create path is always
+  console-owned. Beyond the API, `managedBy` is written by external tooling on the CRD-backed
+  kinds (`spec.managedBy`, pattern `^[a-z0-9][a-z0-9.-]{0,62}$`) and by direct DB writes or
+  the owning subsystem (plugin syncer, seed loader) on the database-backed rows (personas,
+  skills, MCP servers).
+
+The bare `"plugin"` value is a different marker: those rows are derived from `Plugin` CRs by
+the hub's own syncer and stay read-only for every REST caller, including the plugin they
+name. Only the `"plugin-<id>"` stamp carries the named-manager exception.
 
 The point is single authorship: a resource is edited in exactly one place, never from both
 the console and an external pipeline.
@@ -64,10 +76,10 @@ only** — the hub ingress publishes `/api/v1/*` and deliberately does not expos
 ```bash
 # From inside the cluster
 kubectl run curl-test -n ainsel --rm -it --image=curlimages/curl --restart=Never -- \
-  curl -s http://hub-backend:8080/health
+  curl -s http://hub:8080/health
 
 # Or via port-forward
-kubectl port-forward -n ainsel svc/hub-backend 8080:8080 &
+kubectl port-forward -n ainsel svc/hub 8080:8080 &
 curl http://localhost:8080/health
 ```
 
@@ -116,7 +128,6 @@ Both are populated on the list endpoint only, and are empty when authz is disabl
       "replicas": 2,
       "memory": {"enabled": true, "provider": "example"},
       "status": {"ready": true, "desired": 1, "reason": "JobPerTask"},
-      "paused": false,
       "workingHours": {"timezone": "Europe/Berlin", "days": [1, 2, 3, 4, 5], "start": "09:00", "end": "17:00"},
       "hoursOpen": false,
       "hoursClosesAt": "2026-06-23T15:00:00Z",
@@ -145,7 +156,7 @@ Agents scale on `replicas`, the **concurrency cap**: the hub queues work for eac
 and the operator runs it as one Kubernetes Job per task, keeping at most `replicas` task
 Jobs in flight (default 1). There is no standing container: an idle agent runs nothing,
 and the first queued task of a cap-1 agent starts a fresh pod — one cold start per task
-is the price of never stranding a claim. `replicas: 0` pauses dispatch: work keeps
+is the price of never stranding a claim. `replicas: 0` stops dispatch: work keeps
 queueing but no Job is created. The detail `status` object reports what the operator is
 running (`desired` — active task Jobs — with `reason` and `message`); `desired: 0` on a
 ready agent is an idle agent, not a failed one.
@@ -168,21 +179,13 @@ agent is read, so they need no watcher. Requests follow the wrapper convention: 
 `workingHours` leaves the schedule alone, an empty one (`{}`) removes it. A window the hub
 cannot use — a timezone it cannot load, a clock that is not `HH:MM`, bounds that leave no
 window at all — is rejected with `400` rather than stored as a schedule that silently
-never holds. Like a pause this is a hold on delivery, not a stop: an agent whose window
-shuts mid-task finishes that task.
-
-Agents can be **paused**: `paused: true` means the hub withholds task delivery, so
-routed tasks accumulate as a backlog (visible via the queue-depth fields) and drain in
-id order when the pause ends. Nothing is lost — ingestion and routing keep running,
-in-flight tasks finish normally, and interactive chat still works. `pausedUntil` (RFC3339)
-marks a pause that expires on its own; absent on a running agent and on an indefinite
-pause, which must be lifted explicitly. Caveat: an indefinite pause keeps the backlog
-growing — `agent_tasks` and invocation rows are not pruned while the agent stays paused.
-See [`POST /api/v1/agents/{name}/pause`](#post-apiv1agentsnamepause).
+never holds. Like `replicas: 0` this is a hold on delivery, not a stop: an agent whose
+window shuts mid-task finishes that task.
 
 ### POST /api/v1/agents
 
 Create a new Agent. The hub generates the resource name (`a-<short id>`); the request supplies the human display name.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json
@@ -244,47 +247,11 @@ Delete an Agent, and reclaim the persona it owned if any (best-effort).
 
 **Response:** `204 No Content`, `404 Not Found`, or `409` if the agent is externally managed (`managedBy`).
 
-### POST /api/v1/agents/{name}/pause
-
-> **Not enforced.** The pause was withheld at the legacy `next-task` claim endpoint,
-> which is gone: per-task Jobs are dispatched without reading `spec.pause`, so a paused
-> agent keeps working. Use `replicas: 0` to stop dispatch. This endpoint is slated for
-> removal ([#249](https://github.com/ainsel-project/ainsel/issues/249)).
-
-Record a pause on the agent. Pause state lives on the Agent CRD (`spec.pause`), so
-`kubectl patch` works too, and expiry is evaluated at read time.
-
-**Request body** (all fields optional; an absent body means an indefinite pause):
-```json
-{ "duration": "8h" }
-```
-or
-```json
-{ "until": "2026-10-20T09:00:00Z" }
-```
-
-- `duration` — Go duration string (`30m`, `8h`, `168h`) measured from now.
-- `until` — RFC3339 timestamp when the pause ends; must be in the future.
-- Both fields together → `400`. Non-positive/unparsable `duration`, unparsable or
-  past `until` → `400`.
-
-**Response:** `200 OK` with the updated agent (`paused: true`, `pausedUntil` when the
-pause expires on its own), `404` if the agent does not exist, `409` if the agent is
-externally managed (`managedBy`). Gated by `write` on the agent.
-
-### DELETE /api/v1/agents/{name}/pause
-
-Resume the agent — lifts any pause, expired or not — and nudges the queue so a
-waiting runtime picks the backlog up immediately.
-
-**Response:** `200 OK` with the updated agent (`paused: false`), `404` if the agent does
-not exist, `409` if the agent is externally managed (`managedBy`). Gated by `write` on the
-agent.
-
 ### POST /api/v1/agents/{name}/chatgpt-sign-in
 
 Start a ChatGPT sign-in for an agent with `openAI.authMethod: ChatGPTSignIn`. The hub
-records a session (10 minutes) and sets the annotation `ainsel.dev/chatgpt-sign-in-session`
+records a session (10 minutes to start the pod, then another 10 from the moment the link
+appears) and sets the annotation `ainsel.dev/chatgpt-sign-in-session`
 on the Agent; the operator then runs a short sign-in pod on the agent's credential volume,
 once no task is running. The pod posts OpenAI's authorization link, the user signs in, the
 browser lands on a `http://127.0.0.1:1455/auth/callback?...` page that does not load, and
@@ -300,7 +267,9 @@ database. Gated by `write` on the agent; so are the calls below.
 ### GET /api/v1/agents/{name}/chatgpt-sign-in
 
 The agent's latest sign-in session (same shape), `404` if there is none. Never includes the
-pasted address.
+pasted address. A live session whose sign-in pod already ended without reporting (the
+operator recorded the session as handled on the Agent) is closed here: `succeeded` if the
+operator recorded a sign-in since the session started, otherwise `failed`.
 
 ### POST /api/v1/agents/{name}/chatgpt-sign-in/redirect
 
@@ -308,13 +277,15 @@ Body `{"redirectUrl": "http://127.0.0.1:1455/auth/callback?code=...&state=..."}`
 **Response:** `202 Accepted`. `400` unless it is exactly the callback the sign-in pod can use:
 `http://127.0.0.1:1455/auth/callback` with a `code`, a `client_id` and the `state` of the link
 this session showed (an error from OpenAI, or an address from an earlier attempt, is a `400`
-too). The session stays open for another paste. `409` before the authorization link is ready,
-`404` without a live session. The address is handed to the sign-in pod once and then
+too). The session stays open for another paste. `409` before the authorization link is ready
+or once an address was already received, `404` without a live session. The address is handed to the sign-in pod once and then
 deleted.
 
 ### DELETE /api/v1/agents/{name}/chatgpt-sign-in
 
-Cancel the live sign-in. **Response:** `204 No Content`.
+Cancel the live sign-in. **Response:** `204 No Content`. Switching the agent to another
+auth method or provider (`PUT /api/v1/agents/{name}`) cancels it too and removes the
+annotation; the operator stops a sign-in pod that is still running.
 
 Starting a sign-in also writes a token for that session to the Secret
 `<agent>-chatgpt-sign-in` (owned by the Agent), which the operator mounts into the
@@ -323,7 +294,9 @@ sign-in pod only. The pod uses internal routes behind `X-Internal-Token` **and**
 the internal token):
 `POST /api/internal/agents/{name}/chatgpt-sign-in/{session}/auth-url` (`{"url"}`, must start
 with `https://auth.openai.com/`), `GET …/redirect` (`204` until pasted, then `200` once,
-`410` once the session has ended) and `POST …/result` (`{"ok", "error"}`). An exchange
+`410` once the session has ended) and `POST …/result` (`{"ok", "error"}`). The pod retries
+a call for about a minute while the hub refuses connections (a restart); only the result
+post, which is safe to repeat, is also retried on a timeout or `5xx`. An exchange
 that has started is not cancelled and may finish after the session's 10 minutes.
 
 ### GET /api/v1/agents/{name}/persona
@@ -487,6 +460,7 @@ List all `AgentImage` resources, sorted by name. Supports `page`/`pageSize`.
 ### POST /api/v1/agent-images
 
 Create an `AgentImage`. `displayName` and `imageURL` are required. The new image starts in phase `Pending`; tools are populated after the first successful sync.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json
@@ -576,6 +550,7 @@ List all connectors, sorted by ID. Supports `page`/`pageSize`.
 ### POST /api/v1/connectors
 
 Create a connector.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json
@@ -629,7 +604,7 @@ switch). Fails with `409 Conflict` if the connector is externally managed
 
 Rotate the connector's webhook HMAC secret. The new secret is returned once
 as `webhookSecretValue`; update the source's signing config afterwards.
-Fails with `409 Conflict` if the connector is externally managed (`managedBy`).
+Fails with `409 Conflict` if the connector is externally managed (`managedBy`) and the caller is not the plugin it names.
 
 **Response:** `200 OK` with the connector (including `webhookSecretValue`),
 `404 Not Found`, `409` (externally managed), or `500`.
@@ -1232,7 +1207,7 @@ Delete a custom channel.
 
 ### GET /api/v1/channels/{id}/events
 
-The channel's timeline — events born in it plus events transferred into it. Query parameters: `limit` (default 100, max 500), `offset`, `since`, `agent`, `subject`, `status`. Same envelope as [`GET /api/v1/events`](#get-apiv1events).
+The channel's timeline — events born in it plus events transferred into it. Query parameters: `limit` (default 100, max 500), `offset`, `since`, `agent`, `subject`, `match` (retired alias: `status`). Same envelope as [`GET /api/v1/events`](#get-apiv1events).
 
 ### POST /api/v1/channels/{id}/bridges
 
@@ -1438,9 +1413,10 @@ List all registered MCP servers.
 
 ### POST /api/v1/mcp-servers
 
-Register a new MCP server. `managedBy` must be empty or `"user"` (the hub forces it to `"user"` server-side); externally managed entries (e.g. seeded by Helm) cannot be created through this API.
+Register a new MCP server. Console callers get a `"user"` row: a `managedBy` they send is ignored. A plugin-authenticated caller may stamp its own `"plugin-<plugin id>"` (any other value is a `400`). Externally managed entries under any other manager (e.g. seeded by Helm) cannot be created through this API.
 
 **Request body:** same as the list item shape minus `endpoint`, `status`, `createdAt`, `updatedAt`.
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Response:** `201 Created`, `400` on invalid body or bad `managedBy`, `409 Conflict` if the name exists, `500` on internal failures, or `503` if the MCP service is not configured.
 
@@ -1544,6 +1520,7 @@ respond `400`.
 ### POST /api/v1/personas
 
 Create a new persona. The hub generates the ULID and inserts the initial version (1).
+Plugin-authenticated callers may additionally send `"managedBy": "plugin-<their id>"` to record themselves as the author; see [Managed resources](#managed-resources-managedby).
 
 **Request body:**
 ```json
@@ -1799,7 +1776,7 @@ spec:
       secret: true
   mcpServers:
     - name: ainsel-skills
-      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/skills/mcp
+      url: http://hub.<namespace>.svc.cluster.local:8080/api/internal/skills/mcp
       tokenFromEnv: SKILLS_MCP_TOKEN
 ```
 
@@ -1848,7 +1825,14 @@ List recent events (the console's Activity page), newest first.
 
 **Access:** scoped to the caller. An event is visible when the caller can read the connector that ingested it *or* any agent it was routed to. `connector` and `agent` filters naming a resource the caller cannot read return an empty page rather than `403`, so the parameters cannot be used to probe which resources exist. Because the scope is applied in SQL, `total` counts only rows the caller may see, so pagination stays truthful. Admins see everything.
 
-**Query parameters:** `limit` (default `100`, max `500`), `offset`, `connector`, `agent`, `status` (`matched` | `unmatched` | `error`), `outcome` (`queued` | `running` | `success` | `failure` | `timeout`), `since` (RFC3339).
+**Query parameters:** `limit` (default `100`, max `500`), `offset`, `connector`, `agent`, `match` (`matched` | `unmatched` | `error`), `runState` (`queued` | `running` | `success` | `failure` | `timeout`), `since` (RFC3339).
+
+The two filter axes are named after the question they answer: `match` — did the
+event match a subscription? — and `runState` — what state is this run in right
+now? Their retired names, `status` and `outcome`, are still accepted as aliases
+for one release (`status` → `match`, `outcome` → `runState`); the current name
+wins when both are sent, and a retired name with an invalid value still returns
+`400` rather than being ignored. They will be removed in a later release.
 
 **Response:** `200 OK`
 ```json
@@ -1868,8 +1852,9 @@ List recent events (the console's Activity page), newest first.
 }
 ```
 
-`status` is derived from the event's tasks: no tasks → `unmatched`, any failed
-task → `error`, otherwise `matched`. `matches` entries carry the raw invocation
+`status` in the response is the match result, derived from the event's tasks: no
+tasks → `unmatched`, any failed task → `error`, otherwise `matched`. `matches`
+entries carry the raw invocation
 status (`runStatus`, within retention) plus the hub-derived `runState` —
 `queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
 from the task row, the start evidence (claim or first conversation row) and the
@@ -1879,13 +1864,13 @@ agent's API id (its resource name), the route key for
 `GET /api/v1/agents/{id}` — so callers can link the match without assuming
 `agent` is the id. `timeout` only occurs when no task backs
 the match and the invocation record itself is terminal; rows with nothing behind
-them at all are `unknown`. `outcome` filters on that derived state in SQL, so
-the console's Outcome filter walks the whole history, not just the loaded page.
+them at all are `unknown`. `runState` filters on that derived state in SQL, so
+the console's State filter walks the whole history, not just the loaded page.
 A task with no invocation record still matches `queued`/`running` (the task is
 the evidence). Note that terminal filter values stay invocation-derived in SQL
 while the rendered state makes the task authoritative: a retried task that
 completed while an older invocation record says `failure` renders `success` yet
-still matches `outcome=failure`.
+still matches `runState=failure`.
 
 **Status codes:** `200`, `400` (invalid parameters), `500`, `503` (event queue not configured).
 

@@ -462,3 +462,367 @@ func TestUpdateAgent_DisplayNameWithLLM(t *testing.T) {
 		}
 	}
 }
+
+// hubRecorder captures the last request seen by the stub hub.
+type hubRecorder struct {
+	method, path, body string
+}
+
+// stubHub replies with a fixed status/body and records the request.
+func stubHub(t *testing.T, status int, respBody string) (*httptest.Server, *hubRecorder) {
+	t.Helper()
+	rec := &hubRecorder{}
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		rec.method, rec.path, rec.body = r.Method, r.URL.Path, string(b)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(respBody))
+	}))
+	t.Cleanup(hub.Close)
+	return hub, rec
+}
+
+func callAgent(t *testing.T, at *AgentTools, handler func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error), args map[string]any) (*mcp.CallToolResult, error) {
+	t.Helper()
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = args
+	return handler(context.Background(), req)
+}
+
+func TestCreateAgent_FullPayload(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusCreated, `{"id":"a-abc123","name":"reviewer"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.CreateAgent, map[string]any{
+		"name":         "reviewer",
+		"groupId":      "platform",
+		"image":        "pi",
+		"model":        "glm-5.1",
+		"provider":     "openai",
+		"persona_text": "Review code carefully.",
+		"skills":       `["code-review"]`,
+		"mcp_servers":  `["forgejo"]`,
+		"env":          `[{"name":"FORGEJO_TOKEN","value":"s3cret","secret":true}]`,
+		"replicas":     2.0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/agents" {
+		t.Errorf("expected POST /api/v1/agents, got %s %s", rec.method, rec.path)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(rec.body), &got); err != nil {
+		t.Fatalf("bad body captured: %v (%s)", err, rec.body)
+	}
+	if got["name"] != "reviewer" || got["groupId"] != "platform" {
+		t.Errorf("expected name/groupId in body; got: %s", rec.body)
+	}
+	if ref, _ := got["imageRef"].(map[string]any); ref["name"] != "pi" {
+		t.Errorf("expected imageRef.name=pi; got: %s", rec.body)
+	}
+	llm, _ := got["llm"].(map[string]any)
+	if llm["model"] != "glm-5.1" || llm["provider"] != "openai" {
+		t.Errorf("expected llm model/provider; got: %s", rec.body)
+	}
+	if p, _ := got["persona"].(map[string]any); p["text"] != "Review code carefully." {
+		t.Errorf("expected inline persona text; got: %s", rec.body)
+	}
+	if sk, _ := got["skills"].([]any); len(sk) != 1 || sk[0] != "code-review" {
+		t.Errorf("expected skills; got: %s", rec.body)
+	}
+	if sel, _ := got["mcp"].(map[string]any); sel == nil || len(sel["servers"].([]any)) != 1 {
+		t.Errorf("expected mcp.servers; got: %s", rec.body)
+	}
+	env, _ := got["env"].([]any)
+	if len(env) != 1 {
+		t.Fatalf("expected one env entry; got: %s", rec.body)
+	}
+	if e, _ := env[0].(map[string]any); e["name"] != "FORGEJO_TOKEN" || e["secret"] != true {
+		t.Errorf("expected secret env entry; got: %s", rec.body)
+	}
+	if got["replicas"].(float64) != 2 {
+		t.Errorf("expected replicas=2; got: %s", rec.body)
+	}
+}
+
+func TestCreateAgent_MissingRequired(t *testing.T) {
+	at := &AgentTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	result, err := callAgent(t, at, at.CreateAgent, map[string]any{"name": "x"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected tool error for missing required args")
+	}
+}
+
+func TestCreateAgent_SecretEnvRequiresValue(t *testing.T) {
+	at := &AgentTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	result, err := callAgent(t, at, at.CreateAgent, map[string]any{
+		"name": "x", "image": "pi", "model": "m", "provider": "openai",
+		"env": `[{"name":"TOKEN","value":"","secret":true}]`,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content[0].(mcp.TextContent).Text, "requires a non-empty value") {
+		t.Fatalf("expected secret-env rejection; got: %+v", result)
+	}
+}
+
+func TestCreateAgent_PersonaMutuallyExclusive(t *testing.T) {
+	at := &AgentTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	result, err := callAgent(t, at, at.CreateAgent, map[string]any{
+		"name": "x", "image": "pi", "model": "m", "provider": "openai",
+		"persona_id": "p-1", "persona_text": "hi",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content[0].(mcp.TextContent).Text, "not both") {
+		t.Fatalf("expected persona exclusivity error; got: %+v", result)
+	}
+}
+
+func TestCreateAgent_ContextWindowGuard(t *testing.T) {
+	at := &AgentTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	result, err := callAgent(t, at, at.CreateAgent, map[string]any{
+		"name": "x", "image": "pi", "model": "m", "provider": "openai",
+		"context_window": 10.0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content[0].(mcp.TextContent).Text, "at least 1024") {
+		t.Fatalf("expected context_window guard; got: %+v", result)
+	}
+}
+
+func TestCreateAgent_ForbiddenPassthrough(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusForbidden, `{"error":"admin access required"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.CreateAgent, map[string]any{
+		"name": "x", "image": "pi", "model": "m", "provider": "openai",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected tool error on 403")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "403") || !strings.Contains(text, "admin access required") {
+		t.Fatalf("expected hub 403 passthrough; got: %s", text)
+	}
+	if rec.method != http.MethodPost {
+		t.Errorf("expected POST; got %s", rec.method)
+	}
+}
+
+func TestCreateAgent_SecretNotEchoed(t *testing.T) {
+	// The hub response never carries the submitted key back; the tool must
+	// not add it either (no request-body echo in results or errors).
+	const sentinel = "sentinel-secret-value"
+	hub, _ := stubHub(t, http.StatusCreated, `{"id":"a-abc","name":"x","openAI":{"keyStored":true}}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.CreateAgent, map[string]any{
+		"name": "x", "image": "pi", "model": "m", "provider": "openai",
+		"openai_api_key": sentinel,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if strings.Contains(result.Content[0].(mcp.TextContent).Text, sentinel) {
+		t.Fatalf("tool result leaked the API key: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+}
+
+// --- delete_agent -----------------------------------------------------------
+
+func TestDeleteAgent(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusNoContent, "")
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.DeleteAgent, map[string]any{"name": "a-director"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/agents/a-director" {
+		t.Errorf("expected DELETE /api/v1/agents/a-director, got %s %s", rec.method, rec.path)
+	}
+	if !strings.Contains(result.Content[0].(mcp.TextContent).Text, "a-director") {
+		t.Errorf("expected confirmation to name the agent; got: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+}
+
+func TestDeleteAgent_NotFoundPassthrough(t *testing.T) {
+	hub, _ := stubHub(t, http.StatusNotFound, `{"error":"agent not found"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.DeleteAgent, map[string]any{"name": "gone"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected tool error on 404")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "404") || !strings.Contains(text, "agent not found") {
+		t.Fatalf("expected hub 404 passthrough; got: %s", text)
+	}
+}
+
+// --- update_agent: presence-based field matrix ------------------------------
+
+func TestUpdateAgent_SkillsEmptyClears(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusOK, `{"id":"a-director"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director", "skills": "[]",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(rec.body, `"skills":[]`) {
+		t.Errorf("expected skills:[] (clear) in body; got: %s", rec.body)
+	}
+	if strings.Contains(rec.body, `"env"`) || strings.Contains(rec.body, `"llm"`) {
+		t.Errorf("absent fields must be omitted; got: %s", rec.body)
+	}
+}
+
+func TestUpdateAgent_SecretEnvEmptyValueKept(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusOK, `{"id":"a-director"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director",
+		"env":  `[{"name":"FORGEJO_TOKEN","value":"","secret":true}]`,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	// The empty value must reach the hub with secret: true — the hub keeps
+	// the stored value only when it sees the entry as secret.
+	if !strings.Contains(rec.body, `"value":""`) || !strings.Contains(rec.body, `"secret":true`) {
+		t.Errorf("expected keep-existing secret entry sent as-is; got: %s", rec.body)
+	}
+}
+
+func TestUpdateAgent_WorkingHoursEmptyClears(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusOK, `{"id":"a-director"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director", "working_hours": "{}",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(rec.body, `"workingHours":{}`) {
+		t.Errorf("expected workingHours:{} (clear) in body; got: %s", rec.body)
+	}
+}
+
+func TestUpdateAgent_ReplicasZeroSent(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusOK, `{"id":"a-director"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director", "replicas": 0.0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(rec.body, `"replicas":0`) {
+		t.Errorf("expected replicas:0 (present zero is a real change); got: %s", rec.body)
+	}
+}
+
+func TestUpdateAgent_ImageAndPersona(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusOK, `{"id":"a-director"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director", "image": "pi", "persona_id": "p-42",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(rec.body, `"imageRef":{"name":"pi"}`) {
+		t.Errorf("expected imageRef; got: %s", rec.body)
+	}
+	if !strings.Contains(rec.body, `"persona":{"id":"p-42"}`) {
+		t.Errorf("expected persona ref; got: %s", rec.body)
+	}
+}
+
+func TestUpdateAgent_ProviderKeyRotation(t *testing.T) {
+	const sentinel = "sentinel-rotate-key"
+	hub, rec := stubHub(t, http.StatusOK, `{"id":"a-director","openAI":{"keyStored":true}}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director", "openai_api_key": sentinel,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(rec.body, `"openAI"`) {
+		t.Errorf("expected openAI block in request; got: %s", rec.body)
+	}
+	if strings.Contains(result.Content[0].(mcp.TextContent).Text, sentinel) {
+		t.Fatalf("tool result leaked the API key: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+}
+
+func TestUpdateAgent_ChatGPTSignInConflict(t *testing.T) {
+	at := &AgentTools{HubURL: "http://unused", HTTPClient: http.DefaultClient}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director", "openai_api_key": "k", "openai_auth_method": "ChatGPTSignIn",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content[0].(mcp.TextContent).Text, "not both") {
+		t.Fatalf("expected sign-in/key conflict; got: %+v", result)
+	}
+}
+
+func TestUpdateAgent_McpServersEmptyConnectsNone(t *testing.T) {
+	hub, rec := stubHub(t, http.StatusOK, `{"id":"a-director"}`)
+	at := &AgentTools{HubURL: hub.URL, HTTPClient: hub.Client()}
+	result, err := callAgent(t, at, at.UpdateAgent, map[string]any{
+		"name": "a-director", "mcp_servers": "[]",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+	if !strings.Contains(rec.body, `"mcp":{"servers":[]}`) {
+		t.Errorf("expected explicit empty MCP selection; got: %s", rec.body)
+	}
+}

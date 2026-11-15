@@ -119,11 +119,24 @@ describe('EventsDetail', () => {
     expect(screen.getByText('doc-writer')).toBeInTheDocument()
   })
 
-  it('filters events by status param', async () => {
-    renderWithProviders(<EventsDetail />, { route: '/observability/events?status=matched' })
+  it('filters events by match param', async () => {
+    renderWithProviders(<EventsDetail />, { route: '/observability/events?match=matched' })
     await waitFor(() => expect(screen.getByText('on-pr')).toBeInTheDocument())
-    // ev-2 has status=error and payload action=closed; its content should be absent
+    // ev-2 has match=error and payload action=closed; its content should be absent
     expect(screen.queryByText('ev-2')).toBeNull()
+  })
+
+  // `status` was this filter's name until #328: an old link keeps its filter
+  // and the URL settles on the current spelling.
+  it('reads the retired status param and rewrites the URL', async () => {
+    const { getSearch } = withSpy(<EventsDetail />, '/observability/events?status=matched')
+    await waitFor(() => expect(screen.getByText('on-pr')).toBeInTheDocument())
+    expect(screen.queryByText('ev-2')).toBeNull()
+    expect(screen.getByLabelText(/filter by match/i)).toHaveValue('matched')
+    await waitFor(() => {
+      expect(getSearch()).toContain('match=matched')
+      expect(getSearch()).not.toContain('status')
+    })
   })
 
   it('sets range in URL when range button clicked', async () => {
@@ -149,8 +162,8 @@ describe('EventsDetail', () => {
     await waitFor(() => expect(screen.getByText('doc-writer')).toBeInTheDocument())
   })
 
-  it('panel title shows filtered-of-total when status filter active', async () => {
-    renderWithProviders(<EventsDetail />, { route: '/observability/events?status=matched' })
+  it('panel title shows filtered-of-total when match filter active', async () => {
+    renderWithProviders(<EventsDetail />, { route: '/observability/events?match=matched' })
     await waitFor(() =>
       expect(screen.getByText(`Events · 1 of ${EVENTS.length}`)).toBeInTheDocument(),
     )

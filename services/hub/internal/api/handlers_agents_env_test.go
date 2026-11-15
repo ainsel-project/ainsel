@@ -38,7 +38,7 @@ func createAgentWithEnv(t *testing.T, s *Server, env []AgentImageEnvVarInfo) Sim
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -70,7 +70,7 @@ func putAgentEnv(t *testing.T, s *Server, id string, env []AgentImageEnvVarInfo)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+id, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -202,7 +202,7 @@ func TestAgentEnv_UpdateWithoutEnvLeavesOverridesUntouched(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -240,7 +240,7 @@ func TestAgentEnv_RejectsInvalidEntries(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
-			s.mux.ServeHTTP(rec, req)
+			s.ServeHTTP(rec, req)
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 			}

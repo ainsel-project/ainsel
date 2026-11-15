@@ -214,3 +214,100 @@ test("a successful login exits 0 even if the hub has closed the session", async 
 		await hub.close();
 	}
 });
+
+test("signs in over a half-written auth.json", async () => {
+	// Pi's login reads the stored credentials before it writes, so a file a
+	// killed pod left half-written would fail every sign-in. The sign-in pod
+	// holds the volume alone and clears it first.
+	const { hub, dir, opts } = await setup();
+	await writeFile(join(dir, "auth.json"), '{"openai": {"type":"oauth","acc');
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.deepEqual(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")), {});
+	} finally {
+		await hub.close();
+	}
+});
+
+test("leaves a readable auth.json alone", async () => {
+	const { hub, dir, opts } = await setup();
+	await writeFile(join(dir, "auth.json"), '{"anthropic": {"type":"api_key"}}');
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.deepEqual(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")), { anthropic: { type: "api_key" } });
+	} finally {
+		await hub.close();
+	}
+});
+
+// refusing wraps fetch so the first n calls fail the way a restarting hub
+// behind its Service does: the connection is refused, nothing was sent.
+function refusing(n) {
+	let left = n;
+	return (url, init) => {
+		if (left-- > 0) return Promise.reject(new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } }));
+		return fetch(url, init);
+	};
+}
+
+function client(hub, extra = {}) {
+	return hubClient({ hubUrl: hub.url, token: "tok", podToken: "ptok", agent: "worker", session: "S1", sleep: async () => {}, ...extra });
+}
+
+test("rides out a hub restart instead of failing the sign-in", async () => {
+	const { hub, rt, opts } = await setup();
+	opts.hub = client(hub, { fetch: refusing(3) });
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.equal(rt.calls.pasted, PASTED);
+	} finally {
+		await hub.close();
+	}
+});
+
+test("gives up on a hub that stays away", async () => {
+	const { hub, opts } = await setup();
+	opts.hub = client(hub, { fetch: refusing(1000) });
+	try {
+		assert.equal(await runSignIn(opts), 1);
+	} finally {
+		await hub.close();
+	}
+});
+
+test("does not retry a redirect poll whose answer may have been lost", async () => {
+	// The hub hands the address out once. A 5xx (or a timeout) may come
+	// after it did: a retry would see nothing pasted and wait for nothing.
+	const { hub, opts } = await setup({ redirectAfter: 0 });
+	let polls = 0;
+	opts.hub = client(hub, {
+		fetch: (url, init) => {
+			if (String(url).endsWith("/redirect") && polls++ === 0) return Promise.resolve(new Response(null, { status: 502 }));
+			return fetch(url, init);
+		},
+	});
+	try {
+		assert.equal(await runSignIn(opts), 1);
+		assert.equal(polls, 1, "the poll was retried");
+		assert.equal(hub.seen.result?.ok, false, "the failure reaches the console at once");
+	} finally {
+		await hub.close();
+	}
+});
+
+test("retries the result report, which is safe to repeat", async () => {
+	const { hub, opts } = await setup();
+	let failures = 2;
+	opts.hub = client(hub, {
+		fetch: (url, init) => {
+			if (String(url).endsWith("/result") && failures-- > 0) return Promise.resolve(new Response(null, { status: 503 }));
+			return fetch(url, init);
+		},
+	});
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.deepEqual(hub.seen.result, { ok: true });
+	} finally {
+		await hub.close();
+	}
+});

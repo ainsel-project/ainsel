@@ -27,7 +27,7 @@ func newServerWithTokensProm(t *testing.T, prom *prometheus.Client, objects ...r
 	t.Helper()
 	s := testServer(t, objects...)
 	s.prom = prom
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/summary", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/timeseries", s.handleObservability)
 	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/by-subject", s.handleObservability)
@@ -62,7 +62,7 @@ func TestTokensSummary_ReturnsCurrentAndPriorWindowTotals(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -107,7 +107,7 @@ func TestTokensSummary_HandlesEmptyResults(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -162,7 +162,7 @@ func TestTokensSummary_ReportedZerosKeepPresence(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -191,7 +191,7 @@ func TestTokensSummary_Returns503WhenNoBackendConfigured(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
 	}
@@ -212,7 +212,7 @@ func TestTokensSummary_AcceptsRangeParam(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=1h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -232,7 +232,7 @@ func TestTokensSummary_RejectsInvalidRange(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary?range=42y", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -252,7 +252,7 @@ func TestTokensSummary_DefaultRangeIs24h(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -285,7 +285,7 @@ func TestTokensTimeseries_ReturnsPoints(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/timeseries?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -315,7 +315,7 @@ func TestTokensTimeseries_DefaultRangeIs24h(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/timeseries", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -336,7 +336,7 @@ func TestTokensTimeseries_RejectsUnsupportedRange(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/timeseries?range=7d", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for 7d range, got %d: %s", rec.Code, rec.Body.String())
@@ -380,7 +380,7 @@ func TestTokensBySubject_AggregatesRows(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject?range=24h", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -483,7 +483,7 @@ func TestTokensBySubject_EmptyResultIs200(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -516,7 +516,7 @@ func TestTokensBySubject_SkipsRowsWithoutAgent(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -545,7 +545,7 @@ func TestTokensBySubject_FallsBackToIDWhenAgentMissing(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -612,7 +612,7 @@ func TestTokensBySubject_RejectsUnknownRange(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject?range=42y", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -624,12 +624,12 @@ func TestTokensBySubject_PinnedPrometheusWithoutClientIs503(t *testing.T) {
 	// Prometheus, and the 503 must name it — the same rule the summary and the
 	// per-agent endpoint follow, now that by-subject routes through tokensBackend.
 	s := testServer(t)
-	s.SetMetricsSource(MetricsSourcePrometheus)
+	s.metricsSource = MetricsSourcePrometheus
 	s.mux.HandleFunc("/api/v1/observability/metrics/tokens/by-subject", s.handleObservability)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -653,7 +653,7 @@ func TestTokensBySubject_NoBackendAtAllIs503(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-subject", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
@@ -684,7 +684,7 @@ func TestTokensSummary_Caches(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/summary", nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("call %d: expected 200, got %d", i, rec.Code)
 		}
@@ -698,24 +698,16 @@ func TestTokensSummary_Caches(t *testing.T) {
 
 // --- by-event ----------------------------------------------------------------
 
-func TestTokensByEvent_Returns503WhenTaskLogsNotConfigured(t *testing.T) {
-	s := newServerWithTokensProm(t, prometheus.NewClient("http://localhost:0", nil))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-event?range=24h", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
+// The task-log store is a required dependency (issue #264), so this endpoint has
+// no "not configured" 503 left; TestNewRejectsMissingTaskLogStore pins where that
+// state went instead.
 
 func TestTokensByEvent_RejectsUnknownRange(t *testing.T) {
 	s := newServerWithTokensProm(t, prometheus.NewClient("http://localhost:0", nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-event?range=42y", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -730,7 +722,7 @@ func TestTokensByEvent_DefaultRangeIs24h(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/metrics/tokens/by-event", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	// 503 because taskLogs is nil, not 400 for range — confirms default range is accepted.
 	if rec.Code != http.StatusServiceUnavailable {

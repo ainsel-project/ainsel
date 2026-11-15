@@ -32,7 +32,7 @@ HELM = os.environ.get("HELM", "helm")
 BASE_SETS = ["mcp.enabled=true", "mcp.ingress.host=mcp.example.com"]
 NON_NGINX_SETS = BASE_SETS + [
     "hub.ingress.className=traefik",
-    "ui.ingress.className=traefik",
+    "frontend.ingress.className=traefik",
     "mcp.ingress.className=traefik",
 ]
 
@@ -124,10 +124,10 @@ def check_invariants(name, manifests):
         assert not any("internal" in p for p in all_paths), (
             "no ingress path may publish /api/internal/*"
         )
-        hub = ingress_named(manifests, "hub-backend")
+        hub = ingress_named(manifests, "hub")
         hub_paths = [tuple(pair) for pair in ingress_paths(hub)]
         assert hub_paths == [("/ainsel/api/v1", "Prefix")], (
-            "non-nginx hub-backend must publish exactly /ainsel/api/v1 with "
+            "non-nginx hub must publish exactly /ainsel/api/v1 with "
             f"pathType Prefix, got {hub_paths}"
         )
         for _, path_type in paths:

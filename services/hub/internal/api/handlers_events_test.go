@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func newTestEventStore(t *testing.T) (*eventqueue.Store, func()) {
 func eventsTestServer(t *testing.T, store *eventqueue.Store) *Server {
 	t.Helper()
 	s := testServer(t)
-	s.SetEventQueue(store)
+	s.eventQueue = store
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
 	s.mux.HandleFunc("/api/v1/events/", s.handleEvent)
 	return s
@@ -89,7 +90,7 @@ func TestListEvents_Empty(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=100", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -103,7 +104,7 @@ func TestListEvents_Empty(t *testing.T) {
 	}
 }
 
-func TestListEvents_StatusDerivation(t *testing.T) {
+func TestListEvents_MatchDerivation(t *testing.T) {
 	store, cleanup := newTestEventStore(t)
 	defer cleanup()
 	s := eventsTestServer(t, store)
@@ -120,7 +121,7 @@ func TestListEvents_StatusDerivation(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=100", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -135,14 +136,14 @@ func TestListEvents_StatusDerivation(t *testing.T) {
 		byID[e.ID] = e
 	}
 
-	if got := byID["evt-unmatched"].Status; got != activityStatusUnmatched {
-		t.Errorf("evt-unmatched: expected status %q, got %q", activityStatusUnmatched, got)
+	if got := byID["evt-unmatched"].Status; got != activityMatchUnmatched {
+		t.Errorf("evt-unmatched: expected match %q, got %q", activityMatchUnmatched, got)
 	}
-	if got := byID["evt-matched"].Status; got != activityStatusMatched {
-		t.Errorf("evt-matched: expected status %q, got %q", activityStatusMatched, got)
+	if got := byID["evt-matched"].Status; got != activityMatchMatched {
+		t.Errorf("evt-matched: expected match %q, got %q", activityMatchMatched, got)
 	}
-	if got := byID["evt-error"].Status; got != activityStatusError {
-		t.Errorf("evt-error: expected status %q, got %q", activityStatusError, got)
+	if got := byID["evt-error"].Status; got != activityMatchError {
+		t.Errorf("evt-error: expected match %q, got %q", activityMatchError, got)
 	}
 
 	// Matches should be populated for routed events.
@@ -175,7 +176,7 @@ func TestListEvents_ConnectorFilter(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?connector=slack", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -197,7 +198,7 @@ func TestListEvents_SinceFilter(t *testing.T) {
 	future := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?since="+future, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -210,7 +211,7 @@ func TestListEvents_SinceFilter(t *testing.T) {
 	past := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/events?since="+past, nil)
 	rec = httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if env := decodeEnvelope(t, rec); len(env.Events) != 1 {
 		t.Fatalf("expected 1 event for past since, got %d", len(env.Events))
 	}
@@ -223,7 +224,7 @@ func TestListEvents_InvalidSince_400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?since=not-a-time", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -237,7 +238,7 @@ func TestListEvents_InvalidLimit_400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=abc", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -276,7 +277,7 @@ func TestListEvents_Pagination(t *testing.T) {
 		url := fmt.Sprintf("/api/v1/events?limit=2&offset=%d", page*2)
 		req := httptest.NewRequest(http.MethodGet, url, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: expected 200, got %d: %s", url, rec.Code, rec.Body.String())
@@ -307,7 +308,7 @@ func TestListEvents_TotalReflectsFilters(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=1&connector=github", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	env := decodeEnvelope(t, rec)
 	if len(env.Events) != 1 {
@@ -318,7 +319,7 @@ func TestListEvents_TotalReflectsFilters(t *testing.T) {
 	}
 }
 
-func TestListEvents_StatusFilter(t *testing.T) {
+func TestListEvents_MatchFilter(t *testing.T) {
 	store, cleanup := newTestEventStore(t)
 	defer cleanup()
 	s := eventsTestServer(t, store)
@@ -330,29 +331,31 @@ func TestListEvents_StatusFilter(t *testing.T) {
 	seedTask(t, store, "evt-error", "agent-b", "trig-2", "failed")
 
 	cases := []struct {
-		status string
-		want   []string
+		match string
+		want  []string
 	}{
-		{activityStatusUnmatched, []string{"evt-unmatched"}},
-		{activityStatusMatched, []string{"evt-matched"}},
-		{activityStatusError, []string{"evt-error"}},
+		{activityMatchUnmatched, []string{"evt-unmatched"}},
+		{activityMatchMatched, []string{"evt-matched"}},
+		{activityMatchError, []string{"evt-error"}},
 	}
 	for _, tc := range cases {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/events?status="+tc.status, nil)
-		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		for _, param := range []string{"match", "status"} { // status = retired alias (#328)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/events?"+param+"="+tc.match, nil)
+			rec := httptest.NewRecorder()
+			s.ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status=%s: expected 200, got %d: %s", tc.status, rec.Code, rec.Body.String())
-		}
-		env := decodeEnvelope(t, rec)
-		if len(env.Events) != len(tc.want) || env.Total != len(tc.want) {
-			t.Fatalf("status=%s: expected %d events (total %d), got %d events (total %d)",
-				tc.status, len(tc.want), len(tc.want), len(env.Events), env.Total)
-		}
-		for i, want := range tc.want {
-			if env.Events[i].ID != want {
-				t.Errorf("status=%s: event %d: expected %q, got %q", tc.status, i, want, env.Events[i].ID)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s=%s: expected 200, got %d: %s", param, tc.match, rec.Code, rec.Body.String())
+			}
+			env := decodeEnvelope(t, rec)
+			if len(env.Events) != len(tc.want) || env.Total != len(tc.want) {
+				t.Fatalf("%s=%s: expected %d events (total %d), got %d events (total %d)",
+					param, tc.match, len(tc.want), len(tc.want), len(env.Events), env.Total)
+			}
+			for i, want := range tc.want {
+				if env.Events[i].ID != want {
+					t.Errorf("%s=%s: event %d: expected %q, got %q", param, tc.match, i, want, env.Events[i].ID)
+				}
 			}
 		}
 	}
@@ -373,7 +376,7 @@ func TestListEvents_AgentFilter(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?agent=agent-a", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	env := decodeEnvelope(t, rec)
 	if env.Total != 2 {
@@ -396,24 +399,74 @@ func TestListEvents_InvalidOffset_400(t *testing.T) {
 	for _, v := range []string{"abc", "-1"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/events?offset="+v, nil)
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("offset=%s: expected 400, got %d", v, rec.Code)
 		}
 	}
 }
 
-func TestListEvents_InvalidStatus_400(t *testing.T) {
+// The two activity axes were renamed `status` → `match` and `outcome` →
+// `runState` (#328). The retired spellings stay accepted for one release, but
+// they must still be validated: a legacy param with a bad value has to 400,
+// never be dropped, because an unrecognised filter silently widens to "any".
+// The current name wins when both spellings are sent.
+func TestListEvents_LegacyParamAliases(t *testing.T) {
 	store, cleanup := newTestEventStore(t)
 	defer cleanup()
 	s := eventsTestServer(t, store)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?status=bogus", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	seedEvent(t, store, "evt-unmatched", "github", `{"a":1}`)
+	seedEvent(t, store, "evt-matched", "github", `{"b":2}`)
+	seedTask(t, store, "evt-matched", "agent-a", "trig-1", "completed")
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	get := func(t *testing.T, query string) eventsEnvelope {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/events?"+query, nil)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("query %q: expected 200, got %d: %s", query, rec.Code, rec.Body.String())
+		}
+		return decodeEnvelope(t, rec)
+	}
+
+	// Legacy alone behaves like the new name; both together answer with the
+	// new name's value; an empty value means "any", like the new param.
+	cases := []struct {
+		query string
+		want  []string
+	}{
+		{"match=unmatched", []string{"evt-unmatched"}},
+		{"status=unmatched", []string{"evt-unmatched"}},
+		{"match=unmatched&status=matched", []string{"evt-unmatched"}},
+		{"match=matched&status=unmatched", []string{"evt-matched"}},
+		{"match=", []string{"evt-matched", "evt-unmatched"}},
+		{"status=", []string{"evt-matched", "evt-unmatched"}},
+	}
+	for _, tc := range cases {
+		assertEventIDs(t, get(t, tc.query), tc.want)
+	}
+}
+
+func TestListEvents_InvalidMatch_400(t *testing.T) {
+	store, cleanup := newTestEventStore(t)
+	defer cleanup()
+	s := eventsTestServer(t, store)
+
+	// Both spellings 400, and the message names the current spelling so a
+	// script author reading the error learns it.
+	for _, query := range []string{"match=bogus", "status=bogus"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/events?"+query, nil)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected 400, got %d: %s", query, rec.Code, rec.Body.String())
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "invalid match") {
+			t.Errorf("%s: expected the error to name `match`, got %s", query, body)
+		}
 	}
 }
 
@@ -427,7 +480,7 @@ func TestGetEvent_Found(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/evt-123", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -436,7 +489,7 @@ func TestGetEvent_Found(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&entry); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if entry.ID != "evt-123" || entry.Connector != "github" || entry.Status != activityStatusMatched {
+	if entry.ID != "evt-123" || entry.Connector != "github" || entry.Status != activityMatchMatched {
 		t.Fatalf("unexpected entry: %+v", entry)
 	}
 	if len(entry.Matches) != 1 || entry.Matches[0].Agent != "agent-a" {
@@ -451,7 +504,7 @@ func TestGetEvent_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/does-not-exist", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -464,25 +517,16 @@ func TestGetEvent_RejectsMissingID(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestListEvents_NotConfigured_503(t *testing.T) {
-	s := testServer(t)
-	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when event queue not configured, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
+// The event queue is a required dependency (issue #264), so this endpoint has no
+// "not configured" 503 left; TestNewRejectsMissingEventQueue pins where that
+// state went instead.
 
 // seedTaskWithInvocation inserts a task for an event and sets its invocation_id.
 func seedTaskWithInvocation(t *testing.T, store *eventqueue.Store, eventID, agent, trigger, status, invocationID string) {
@@ -571,11 +615,11 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		`UPDATE agent_tasks SET created_at = now() - interval '2 hours' WHERE invocation_id = 'inv-eeee'`); err != nil {
 		t.Fatalf("age task: %v", err)
 	}
-	s.SetTaskStartTimeout(15 * time.Minute)
+	s.taskStartTimeout = 15 * time.Minute
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?limit=100", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -681,7 +725,7 @@ func TestGetEvent_RunStateEnrichment(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/evt-detail", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -704,13 +748,13 @@ func TestGetEvent_RunStateEnrichment(t *testing.T) {
 	}
 }
 
-// outcomeFixture seeds events for the outcome-filter tests: every run status
-// is represented, one event mixes outcomes across its tasks, and two events
-// carry tasks without a usable invocation record (empty id, or a pruned one).
+// stateFixture seeds events for the run-state filter tests: every run state is
+// represented, one event mixes states across its tasks, and two events carry
+// tasks without a usable invocation record (empty id, or a pruned one).
 // Returns the server wired with a Postgres-backed invocation store so the
-// SQL outcome filter and the runStatus enrichment read the same table — the
+// SQL run-state filter and the runStatus enrichment read the same table — the
 // production wiring.
-func outcomeFixture(t *testing.T) (*Server, *eventqueue.Store, context.CancelFunc) {
+func stateFixture(t *testing.T) (*Server, *eventqueue.Store, context.CancelFunc) {
 	t.Helper()
 	store, cleanup := newTestEventStore(t)
 	s := eventsTestServer(t, store)
@@ -759,8 +803,8 @@ func outcomeFixture(t *testing.T) (*Server, *eventqueue.Store, context.CancelFun
 		t.Fatalf("seed conversation: %v", err)
 	}
 
-	// A task with no invocation record: matches the activity status filters
-	// but no outcome, mirroring the UI which renders "—".
+	// A task with no invocation record: matches the activity match filters
+	// but no run state, mirroring the UI which renders "—".
 	seedEvent(t, store, "evt-oc-no-inv", "github", `{"e":5}`)
 	seedTaskWithInvocation(t, store, "evt-oc-no-inv", "agent-f", "trig-6", "completed", "")
 
@@ -771,13 +815,13 @@ func outcomeFixture(t *testing.T) (*Server, *eventqueue.Store, context.CancelFun
 	return s, store, cleanup
 }
 
-// listEventsOutcome runs GET /api/v1/events with the given query and returns
+// listEventsState runs GET /api/v1/events with the given query and returns
 // the decoded envelope.
-func listEventsOutcome(t *testing.T, s *Server, query string) eventsEnvelope {
+func listEventsState(t *testing.T, s *Server, query string) eventsEnvelope {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?"+query, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query %q: expected 200, got %d: %s", query, rec.Code, rec.Body.String())
 	}
@@ -805,13 +849,13 @@ func assertEventIDs(t *testing.T, env eventsEnvelope, want []string) {
 	}
 }
 
-func TestListEvents_OutcomeFilter(t *testing.T) {
-	s, _, cleanup := outcomeFixture(t)
+func TestListEvents_RunStateFilter(t *testing.T) {
+	s, _, cleanup := stateFixture(t)
 	defer cleanup()
 
 	cases := []struct {
-		outcome string
-		want    []string
+		state string
+		want  []string
 	}{
 		{"success", []string{"evt-oc-ok", "evt-oc-mixed"}},
 		{"failure", []string{"evt-oc-failed", "evt-oc-mixed"}},
@@ -821,30 +865,56 @@ func TestListEvents_OutcomeFilter(t *testing.T) {
 		{"running", []string{"evt-oc-running", "evt-oc-jobrun"}},
 		{"queued", []string{"evt-oc-queued"}},
 		// No event has a timeout run; the events without invocation records
-		// match no outcome at all.
+		// match no run state at all.
 		{"timeout", nil},
 	}
 	for _, tc := range cases {
-		env := listEventsOutcome(t, s, "outcome="+tc.outcome)
-		assertEventIDs(t, env, tc.want)
+		// `outcome` is the retired spelling of the same axis (#328).
+		for _, param := range []string{"runState", "outcome"} {
+			env := listEventsState(t, s, param+"="+tc.state)
+			assertEventIDs(t, env, tc.want)
+		}
 	}
 
-	// AND with the activity status filter: evt-oc-mixed is the only event
-	// whose runs include a success while its derived status is error (one
-	// failed task).
-	env := listEventsOutcome(t, s, "outcome=success&status=error")
+	// AND with the match filter: evt-oc-mixed is the only event whose runs
+	// include a success while its derived match result is error (one failed
+	// task).
+	env := listEventsState(t, s, "runState=success&match=error")
 	assertEventIDs(t, env, []string{"evt-oc-mixed"})
 
-	env = listEventsOutcome(t, s, "outcome=failure&status=matched")
+	env = listEventsState(t, s, "runState=failure&match=matched")
 	assertEventIDs(t, env, nil)
 }
 
-// TestListEvents_OutcomeFilterPaginates is the regression the frontend bug
+// Both spellings of one axis in one URL resolve to the current name, and a
+// legacy value is still validated rather than dropped.
+func TestListEvents_RunStateLegacyAlias(t *testing.T) {
+	s, _, cleanup := stateFixture(t)
+	defer cleanup()
+
+	// New name wins when both are sent.
+	assertEventIDs(t, listEventsState(t, s, "runState=success&outcome=failure"),
+		[]string{"evt-oc-ok", "evt-oc-mixed"})
+	assertEventIDs(t, listEventsState(t, s, "runState=failure&outcome=success"),
+		[]string{"evt-oc-failed", "evt-oc-mixed"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?outcome=bogus", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("legacy outcome=bogus: expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "invalid runState") {
+		t.Errorf("expected the error to name `runState`, got %s", body)
+	}
+}
+
+// TestListEvents_RunStateFilterPaginates is the regression the frontend bug
 // was: a matching event deeper in history had to belong to a page the
 // server-side filter can reach. With limit=1 the filtered set is walked one
 // event at a time, oldest and newest failure both visible.
-func TestListEvents_OutcomeFilterPaginates(t *testing.T) {
-	s, store, cleanup := outcomeFixture(t)
+func TestListEvents_RunStateFilterPaginates(t *testing.T) {
+	s, store, cleanup := stateFixture(t)
 	defer cleanup()
 
 	// Pin received_at so the (received_at DESC, id DESC) page order is fully
@@ -861,24 +931,24 @@ func TestListEvents_OutcomeFilterPaginates(t *testing.T) {
 	pinTime("evt-oc-failed", base.Add(-10*time.Second))
 	pinTime("evt-oc-mixed", base.Add(-5*time.Second))
 
-	page1 := listEventsOutcome(t, s, "outcome=failure&status=error&limit=1&offset=0")
+	page1 := listEventsState(t, s, "runState=failure&match=error&limit=1&offset=0")
 	if len(page1.Events) != 1 || page1.Events[0].ID != "evt-oc-mixed" || page1.Total != 2 {
 		t.Fatalf("first failure page: got %+v (total %d)", page1.Events, page1.Total)
 	}
 
-	page2 := listEventsOutcome(t, s, "outcome=failure&status=error&limit=1&offset=1")
+	page2 := listEventsState(t, s, "runState=failure&match=error&limit=1&offset=1")
 	if len(page2.Events) != 1 || page2.Events[0].ID != "evt-oc-failed" || page2.Total != 2 {
 		t.Fatalf("second failure page: got %+v (total %d)", page2.Events, page2.Total)
 	}
 }
 
-func TestListEvents_InvalidOutcome_400(t *testing.T) {
-	s, _, cleanup := outcomeFixture(t)
+func TestListEvents_InvalidRunState_400(t *testing.T) {
+	s, _, cleanup := stateFixture(t)
 	defer cleanup()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?outcome=bogus", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events?runState=bogus", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())

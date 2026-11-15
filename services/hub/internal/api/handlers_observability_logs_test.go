@@ -6,18 +6,9 @@ import (
 	"testing"
 )
 
-func TestObservabilityLogs_Returns503WhenNotConfigured(t *testing.T) {
-	s := testServer(t)
-	s.mux.HandleFunc("/api/v1/observability/logs", s.handleObservabilityLogs)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/logs?app=hub-backend", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
+// The task log store is a required dependency (issue #264), so this endpoint has no
+// "not configured" 503 left; TestNewRejectsMissingTaskLogStore pins where that
+// state went instead.
 
 func TestObservabilityLogs_RejectsNonGet(t *testing.T) {
 	s := testServer(t)
@@ -25,7 +16,7 @@ func TestObservabilityLogs_RejectsNonGet(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/observability/logs?app=hub-backend", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}
@@ -37,7 +28,7 @@ func TestObservabilityLogs_RejectsUnknownRange(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/logs?app=hub-backend&range=42y", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -51,7 +42,7 @@ func TestObservabilityLogs_RejectsInvalidLimit(t *testing.T) {
 		t.Run("limit="+raw, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/observability/logs?app=hub-backend&limit="+raw, nil)
 			rec := httptest.NewRecorder()
-			s.mux.ServeHTTP(rec, req)
+			s.ServeHTTP(rec, req)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400 for limit=%q, got %d", raw, rec.Code)
 			}

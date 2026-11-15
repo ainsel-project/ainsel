@@ -38,21 +38,28 @@ import (
 // It is unexported and lives in cmd/hub to keep the boot sequence
 // explicit and easy to step through in a debugger.
 type container struct {
-	pool         *pgxpool.Pool
-	mgr          ctrl.Manager
-	apiClient    client.Client
-	namespace    string
-	authzStore   *authz.Store
-	authzChecker *authz.Checker
-	idx          *triggerindex.Index
-	triggerStore *triggers.Store
-	channelStore *channels.Store
-	channels     *channels.Service
-	channelRecon *channels.Reconciler
-	transfer     *channels.Transfer
-	cronEmitter  *cron.Emitter
-	eventQueue   *eventqueue.Store
-	queueSignals *queuesignal.Publisher
+	pool      *pgxpool.Pool
+	mgr       ctrl.Manager
+	apiClient client.Client
+	namespace string
+	// authzStore is the Postgres user/group registry. nil in auth mode "none",
+	// which has no registry to write to — see apiAuthzStore for what the API
+	// server is given instead.
+	authzStore *authz.Store
+	// apiAuthzStore is what the API server and the plugin syncer are wired
+	// with. Never nil: mode "none" gets authz.NewPermissiveStore(), so the
+	// authorization code path is the same one the configured modes run.
+	apiAuthzStore api.AuthzStore
+	authzChecker  *authz.Checker
+	idx           *triggerindex.Index
+	triggerStore  *triggers.Store
+	channelStore  *channels.Store
+	channels      *channels.Service
+	channelRecon  *channels.Reconciler
+	transfer      *channels.Transfer
+	cronEmitter   *cron.Emitter
+	eventQueue    *eventqueue.Store
+	queueSignals  *queuesignal.Publisher
 	// deliveryGate answers "may this agent be handed work right now?" from its
 	// working hours. The queue signal is the only dispatch decision the hub makes,
 	// and it asks here: no due-task ids means the operator creates no Job, so held
@@ -70,11 +77,15 @@ type container struct {
 	// It is the backend those panels ask by default, so the console keeps its
 	// charts on a hub with no Prometheus and reports the same figures with one.
 	telemetryStore *telemetry.Store
-	rtr            *router.Router
-	apiHTTPServer  *http.Server
-	metricsServer  *http.Server
-	promClient     *prometheus.Client
-	taskLogStore   *tasklogs.Store
+	// authMode is the resolved HUB_AUTH_MODE ("oidc", "local", "oidc+local",
+	// "none"). Resolved before the authz wiring because mode "none" has no
+	// user registry.
+	authMode      string
+	rtr           *router.Router
+	apiHTTPServer *http.Server
+	metricsServer *http.Server
+	promClient    *prometheus.Client
+	taskLogStore  *tasklogs.Store
 	// auditEventStore persists the auth-event audit trail (issue #116).
 	auditEventStore *auditevents.Store
 }
@@ -134,7 +145,18 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 	c.eventQueue.SetTaskExpiry(time.Duration(cfg.taskExpirySecs) * time.Second)
 
 	// --- AuthZ ---
-	c.authzStore, c.authzChecker = wireAuthZ(ctx, pool)
+	// The mode is resolved once, here: it decides whether there is a user
+	// registry at all, and both the store wiring and the auth chain have to
+	// agree on the answer.
+	c.authMode, err = resolveAuthMode()
+	if err != nil {
+		return nil, err
+	}
+	c.authzStore, c.apiAuthzStore, c.authzChecker, err = wireAuthZ(ctx, pool, c.authMode)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
 
 	// --- Kubernetes manager + client ---
 	if deps.mgr != nil {
@@ -225,8 +247,16 @@ func newContainer(ctx context.Context, cfg containerConfig, deps containerDeps) 
 	// --- API server + auth middleware ---
 	c.userTokenStore = usertokens.NewStore(pool)
 	c.signInStore = signin.NewPgStore(pool)
-	c.apiServer = wireAPIServer(c, cfg)
-	if err := wireAuthMiddleware(ctx, c, cfg); err != nil {
+	// The auth chain is composed first and handed to the server as a Deps
+	// field: api.New is one step, so the chain cannot reach back into a
+	// half-built server.
+	plan, err := wireAuthPlan(ctx, c, cfg)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	c.apiServer, err = wireAPIServer(c, cfg, plan)
+	if err != nil {
 		c.Close()
 		return nil, err
 	}

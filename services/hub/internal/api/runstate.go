@@ -27,7 +27,7 @@ const DefaultTaskStartTimeout = 15 * time.Minute
 //   - otherwise → queued, flagged stuck once it has waited past stuckAfter
 //
 // With no task row there is nothing to back a "queued" or "running" claim: a
-// terminal invocation record still reports its outcome, anything else (a hub
+// terminal invocation record still reports its state, anything else (a hub
 // that died between recording and enqueuing, a pruned record) is unknown —
 // never running, never queued.
 //

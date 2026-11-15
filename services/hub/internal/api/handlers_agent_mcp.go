@@ -232,7 +232,7 @@ func (s *Server) agentMCPTools() []agentMCPTool {
 			spec: mcp.NewTool("get_channel_events",
 				mcp.WithDescription("Recent events of one channel, newest first — what arrived, when, and whether it matched an agent."),
 				mcp.WithString("id", mcp.Required(), mcp.Description("Channel id from list_channels")),
-				mcp.WithString("status", mcp.Description("matched, unmatched or error")),
+				mcp.WithString("match", mcp.Description("matched, unmatched or error")),
 				mcp.WithNumber("since_hours", mcp.Description(fmt.Sprintf("Look back this many hours (default %d, max %d)", agentMCPDefaultHours, agentMCPMaxWindowHours))),
 				mcp.WithNumber("limit", mcp.Description(fmt.Sprintf("Max results (default %d, hard max %d)", agentMCPDefaultLimit, agentMCPMaxLimit))),
 			),
@@ -738,9 +738,9 @@ func (s *Server) agentMCPGetChannelEvents(ctx context.Context, req mcp.CallToolR
 		return agentMCPNotConfigured("the channel store"), nil
 	}
 	events, total, err := s.channelSvc.Events(ctx, id, channels.EventQuery{
-		Since:  agentMCPSince(req),
-		Limit:  agentMCPLimit(req),
-		Status: strings.TrimSpace(req.GetString("status", "")),
+		Since: agentMCPSince(req),
+		Limit: agentMCPLimit(req),
+		Match: strings.TrimSpace(req.GetString("match", "")),
 	})
 	if err != nil {
 		return mcp.NewToolResultError("failed to read channel events: " + err.Error()), nil

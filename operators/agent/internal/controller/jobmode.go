@@ -244,6 +244,14 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 				keepAliveTried[j.Name] = true
 			}
 			switch {
+			case !jobIsFinished(j) && !signIn:
+				// The agent left ChatGPT sign-in: the pod has nothing left
+				// to do, and would hold the volume and dispatch until its
+				// deadline.
+				if err := r.Delete(ctx, j, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
+					return ScaleDecision{}, fmt.Errorf("stopping credential job of an agent that left ChatGPT sign-in: %w", err)
+				}
+				log.Info("stopped credential job of an agent that left ChatGPT sign-in", "agent", agent.Name, "job", j.Name)
 			case !jobIsFinished(j):
 				signInJobLive = signInJobLive || kind == credentialJobSignIn
 				keepAliveLive = keepAliveLive || kind == credentialJobKeepAlive
@@ -332,7 +340,7 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 	if limit == 0 {
 		// spec.scaling.replicas: 0 — an explicit "none": nothing is
 		// dispatched, existing Jobs run out.
-		decision.Message = "agent paused (replicas: 0)"
+		decision.Message = "dispatch stopped (replicas: 0)"
 		return decision, nil
 	}
 
@@ -343,7 +351,7 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 
 	// A ChatGPT sign-in agent without a usable sign-in runs nothing: every
 	// pod would exit at its pre-check. Due tasks stay queued for the next
-	// sign-in. spec.pause and replicas are left alone — this is state, not
+	// sign-in. spec.scaling.replicas is left alone — this is state, not
 	// a change of the user's intent.
 	if signIn {
 		if required, _ := signInRequired(agent.Status.ChatGPTSignIn); required {

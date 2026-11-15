@@ -61,7 +61,7 @@ func managedReq(t *testing.T, s *Server, method, path, body string) *httptest.Re
 	req := httptest.NewRequest(method, path, bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -91,8 +91,6 @@ func TestManagedAgentMutations409(t *testing.T) {
 	for _, tc := range []struct{ method, path, body string }{
 		{http.MethodPut, "/api/v1/agents/managed", `{"description":"mine"}`},
 		{http.MethodDelete, "/api/v1/agents/managed", ""},
-		{http.MethodPost, "/api/v1/agents/managed/pause", `{}`},
-		{http.MethodDelete, "/api/v1/agents/managed/pause", ""},
 	} {
 		rec := managedReq(t, s, tc.method, tc.path, tc.body)
 		requireManaged409(t, rec, "gitops")
@@ -103,8 +101,29 @@ func TestManagedAgentMutations409(t *testing.T) {
 	if err := s.client.Get(t.Context(), types.NamespacedName{Name: "managed", Namespace: "test-ns"}, &a); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if a.Spec.Description != "" || a.Spec.Pause != nil {
+	if a.Spec.Description != "" {
 		t.Errorf("spec changed despite the refused mutations: %+v", a.Spec)
+	}
+}
+
+// The pause feature is removed (#249): the route must be gone, not merely
+// refused. What is left is the plain agent CRUD path, which knows no POST
+// sub-resource (405) and reads "managed/pause" as an unknown agent name (404).
+func TestAgentPauseRouteIsGone(t *testing.T) {
+	s := agentTestServerWith(t, managedTestAgent("managed", "gitops"))
+
+	for _, tc := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodPost, "/api/v1/agents/managed/pause", `{}`, http.StatusMethodNotAllowed},
+		{http.MethodDelete, "/api/v1/agents/managed/pause", "", http.StatusNotFound},
+	} {
+		rec := managedReq(t, s, tc.method, tc.path, tc.body)
+		if rec.Code != tc.want {
+			t.Errorf("%s %s: status = %d, want %d (route removed); body = %s",
+				tc.method, tc.path, rec.Code, tc.want, rec.Body.String())
+		}
 	}
 }
 
@@ -157,7 +176,7 @@ func TestManagedImageMutations409(t *testing.T) {
 		req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader([]byte(tc.body)))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("%s %s: status = %d, body = %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}

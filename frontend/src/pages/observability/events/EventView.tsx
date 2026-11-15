@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { birthChannelPath } from '../../../api/channels'
 import { useConversations } from '../../../api/conversations'
 import { useEvent } from '../../../api/events'
+import type { ActivityMatchResult } from '../../../api/events'
 import {
   useInvocations,
   invocationStatusVariant,
@@ -25,9 +26,11 @@ import { formatISO } from '../../../utils/time'
 import { ConversationTranscript } from './ConversationTranscript'
 import { PluginSlot } from '../../../plugins/PluginSlot'
 
-function StatusTag({ status }: { status: 'matched' | 'unmatched' | 'error' }) {
-  if (status === 'matched') return <Tag variant="ok">MATCH</Tag>
-  if (status === 'error') return <Tag variant="err">ERR</Tag>
+// The event's match result — the same axis the Activity toolbar's Match
+// filter narrows.
+function MatchTag({ match }: { match: ActivityMatchResult }) {
+  if (match === 'matched') return <Tag variant="ok">MATCH</Tag>
+  if (match === 'error') return <Tag variant="err">ERR</Tag>
   return <Tag variant="stale">SKIP</Tag>
 }
 
@@ -118,7 +121,7 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
           <div className="v">{invocation.triggerName ?? invocation.trigger ?? '—'}</div>
         </div>
         <div>
-          <div className="k">Status</div>
+          <div className="k">State</div>
           <div className="v">
             {/* The derived run state: a task with no worker yet reads queued
                 (never running), a live per-task Job run reads running (never
@@ -240,10 +243,10 @@ export function EventView() {
               </div>
               <div className="kpi">
                 <div className="hd">
-                  <span className="label">Status</span>
+                  <span className="label">Match</span>
                 </div>
                 <div className="figure">
-                  <StatusTag status={data.status} />
+                  <MatchTag match={data.status} />
                 </div>
               </div>
               <div className="kpi">

@@ -66,7 +66,7 @@ func pluginTestServer(t *testing.T, objects ...runtime.Object) (*Server, *fakeAu
 	s := testServer(t, objects...)
 	registerPluginRoutes(s)
 	audit := &fakeAuditStore{}
-	s.SetAuditEventStore(audit)
+	s.authEvents = audit
 	return s, audit
 }
 
@@ -115,7 +115,7 @@ func pluginAuthzTestServer(t *testing.T, groups map[string]struct{}, objects ...
 	}, time.Minute))
 	registerPluginRoutes(s)
 	audit := &fakeAuditStore{}
-	s.SetAuditEventStore(audit)
+	s.authEvents = audit
 	return s, audit
 }
 
@@ -425,6 +425,9 @@ func TestListPlugins_NonAdminStripsAdminPages(t *testing.T) {
 func TestPluginRoutes_Unauthenticated(t *testing.T) {
 	seed := pluginCRReady(pluginCR("mem0", false), true, "Ready", "ok", []string{"agents:read"})
 	s, audit := pluginAuthzTestServer(t, map[string]struct{}{"g1": {}}, seed)
+	// This test is about the request having no caller; the fixture's default
+	// caller has to come off.
+	s.authMW = nil
 
 	calls := []struct {
 		method, path string

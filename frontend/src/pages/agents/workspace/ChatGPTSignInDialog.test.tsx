@@ -92,7 +92,9 @@ describe('ChatGPTSignInDialog', () => {
     expect(screen.getByLabelText(/address the browser landed on/i)).toBeInTheDocument()
   })
 
-  it('says it waits for a running task before the link appears', async () => {
+  // The console cannot tell a running task from the sign-in pod starting
+  // (both raise the agent's desired pods), so the text covers both.
+  it('says a running task delays the link, without claiming one runs', async () => {
     const hub = signInHub()
     // Keep the session waiting: the pod has not started.
     hub.fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
@@ -103,10 +105,10 @@ describe('ChatGPTSignInDialog', () => {
       )
     })
     vi.stubGlobal('fetch', hub.fetchMock)
-    renderWithProviders(
-      <ChatGPTSignInDialog agentId="a1" open onClose={vi.fn()} pollMs={20} taskRunning />,
-    )
-    expect(await screen.findByText(/waiting for the running task to finish/i)).toBeInTheDocument()
+    renderWithProviders(<ChatGPTSignInDialog agentId="a1" open onClose={vi.fn()} pollMs={20} />)
+    expect(
+      await screen.findByText(/if a task is running, the link appears once it finishes/i),
+    ).toBeInTheDocument()
   })
 
   it('cancel stops the live sign-in', async () => {
@@ -156,7 +158,6 @@ describe('SignInBanner', () => {
   const signInAgent = {
     id: 'a1',
     name: 'writer',
-    paused: false,
     llm: { model: 'gpt-5', provider: 'openai' },
     openAI: { authMethod: 'ChatGPTSignIn', keyStored: false },
     status: { ready: false, signInRequired: true, signInReason: 'SignInExpired' },

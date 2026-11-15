@@ -148,3 +148,46 @@ test("without forced refresh, 'expires too soon' is not success", async () => {
 	]);
 	assert.notEqual(await runCheck(h.opts), 0);
 });
+
+test("exits 78 when the stored credential is unreadable", async () => {
+	// A pod killed mid-write leaves half a file. Pi 1.5.2 reports it as below;
+	// retrying cannot repair it, and signing in again rewrites it.
+	const h = harness([
+		async () => {
+			const parse = new SyntaxError("Unterminated string in JSON at position 31 (line 1 column 32)");
+			throw new Error("Credential store read failed for openai: " + parse.message, { cause: parse });
+		},
+	]);
+	assert.equal(await runCheck(h.opts), 78);
+	assert.equal(h.calls.getAuth, 1, "an unreadable credential is not retried");
+});
+
+test("a getAuth that hangs times out and is retried like a network failure", async () => {
+	const h = harness([() => new Promise(() => {})]);
+	h.opts.attemptTimeoutMs = 5;
+	assert.equal(await runCheck(h.opts), 1);
+	assert.equal(h.calls.getAuth, 3);
+	assert.ok(h.lines.some((l) => l.includes("timed out")), h.lines.join("\n"));
+});
+
+test("gives Pi each attempt's deadline as a signal it can cancel cleanly", async () => {
+	// Pi cancels a lock wait on the signal, and lets a refresh it already
+	// sent finish and persist — a rotated token is never lost.
+	const seen = [];
+	const ModelRuntime = {
+		async create() {
+			return {
+				getAuth(_p, overrides) {
+					seen.push(overrides);
+					return new Promise((_, reject) => {
+						overrides?.signal?.addEventListener("abort", () => reject(overrides.signal.reason));
+					});
+				},
+			};
+		},
+	};
+	const opts = { ModelRuntime, forceRefresh: true, attemptTimeoutMs: 5, log: () => {}, sleep: async () => {} };
+	assert.equal(await runCheck(opts), 1);
+	assert.equal(seen.length, 3);
+	assert.ok(seen.every((o) => o?.signal instanceof AbortSignal && o.minOAuthValidityMs > 0), "signal and forced validity passed together");
+});

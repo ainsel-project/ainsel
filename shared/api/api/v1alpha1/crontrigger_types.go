@@ -33,7 +33,7 @@ type CronTriggerSpec struct {
 
 	// Enabled controls whether the schedule is active. When false (or unset,
 	// which defaults to enabled), the hub does not fire the trigger. This
-	// allows pausing a schedule without deleting it.
+	// allows disabling a schedule without deleting it.
 	// +kubebuilder:default:=true
 	Enabled *bool `json:"enabled,omitempty"`
 }

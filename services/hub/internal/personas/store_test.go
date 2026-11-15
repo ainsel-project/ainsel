@@ -36,6 +36,11 @@ func TestStoreCreate(t *testing.T) {
 	if got.Name != "code-reviewer" {
 		t.Errorf("name mismatch: %q", got.Name)
 	}
+	// managed_by is NOT NULL DEFAULT 'user': a create that names no author has to
+	// write 'user', not an explicit NULL (#190 review).
+	if got.ManagedBy != personas.ManagedByUser {
+		t.Errorf("stored managedBy = %q, want %q", got.ManagedBy, personas.ManagedByUser)
+	}
 }
 
 func TestStoreCreateDuplicateName(t *testing.T) {

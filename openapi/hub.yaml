@@ -37,7 +37,10 @@
 #     body that sets `message`.
 #   - `managedBy`: any value other than "" or "user" marks the resource
 #     externally managed, and then *every* mutation answers 409
-#     {"error": "<kind> is managed by <manager>"}. It is never a request field.
+#     {"error": "<kind> is managed by <manager>"} — except for the plugin a
+#     "plugin-<id>" value names, which remains the sole writer of its own rows.
+#     It is never an update request field; on create it is accepted only as a
+#     plugin-authenticated caller's own stamp (see `ManagedByCreateStamp`).
 #   - 503 means "a dependency this panel needs is unconfigured" and the `error`
 #     text names it; 502 means an upstream (Prometheus, Forgejo, the database,
 #     an MCP server) failed.
@@ -56,7 +59,7 @@ info:
     name: Apache-2.0
 servers:
   - url: /
-    description: The hub, in-cluster (http://hub-backend.<namespace>.svc:8080) or behind the ingress rewrite.
+    description: The hub, in-cluster (http://hub.<namespace>.svc:8080) or behind the ingress rewrite.
 tags:
   - name: internal
     description: >-
@@ -212,45 +215,6 @@ paths:
         - $ref: '#/components/parameters/resourceName'
       responses:
         '204': { description: 'Deleted.' }
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/agents/{name}/pause:
-    post:
-      operationId: pauseAgent
-      summary: Record a pause on the agent
-      description: >-
-        Not enforced: the pause was withheld at the legacy next-task claim
-        endpoint, which is gone, so a paused agent keeps working. Use
-        `replicas: 0` to stop dispatch. Slated for removal (#249).
-      parameters:
-        - $ref: '#/components/parameters/resourceName'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PauseRequest'
-      responses:
-        '200':
-          description: 'The agent, with `paused: true`.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Agent'
-        default:
-          $ref: '#/components/responses/Error'
-    delete:
-      operationId: resumeAgent
-      summary: Lift any pause and nudge the queue
-      parameters:
-        - $ref: '#/components/parameters/resourceName'
-      responses:
-        '200':
-          description: 'The agent, with `paused: false`.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Agent'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/agents/{name}/persona:
@@ -1145,8 +1109,16 @@ paths:
         - name: subject
           in: query
           schema: { type: string }
+        - name: match
+          in: query
+          description: >-
+            Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          schema: { type: string, enum: [matched, unmatched, error] }
         - name: status
           in: query
+          deprecated: true
+          description: >-
+            Retired alias of `match`, accepted for one release; `match` wins when both are sent.
           schema: { type: string, enum: [matched, unmatched, error] }
       responses:
         '200':
@@ -1431,8 +1403,10 @@ paths:
       operationId: createMCPServer
       summary: Register a new MCP server
       description: >-
-        `managedBy` must be empty or `"user"` (the hub forces it to `"user"`);
-        externally managed entries cannot be created here.
+        Console callers always get a `"user"` row — a `managedBy` they send is
+        ignored. A plugin-authenticated caller may stamp its own
+        `"plugin-<plugin id>"`; any other value is a 400. Rows under any other
+        manager cannot be created here.
       requestBody:
         required: true
         content:
@@ -1867,13 +1841,28 @@ paths:
         - name: agent
           in: query
           schema: { type: string }
+        - name: match
+          in: query
+          description: >-
+            Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          schema: { type: string, enum: [matched, unmatched, error] }
         - name: status
           in: query
-          description: Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          deprecated: true
+          description: >-
+            Retired alias of `match`, accepted for one release; `match` wins when both are sent.
           schema: { type: string, enum: [matched, unmatched, error] }
+        - name: runState
+          in: query
+          description: >-
+            Filter on the hub-derived run state — the state this run is in right now — applied in SQL.
+          schema: { type: string, enum: [queued, running, success, failure, timeout] }
         - name: outcome
           in: query
-          description: Filter on the hub-derived run state, applied in SQL.
+          deprecated: true
+          description: >-
+            Retired alias of `runState`, accepted for one release; `runState` wins when both are sent.
+            It was the wrong word for `queued` and `running`, which are not finished at all.
           schema: { type: string, enum: [queued, running, success, failure, timeout] }
         - $ref: '#/components/parameters/sinceParam'
       responses:
@@ -3321,8 +3310,20 @@ components:
       type: string
       description: >-
         The external system that authors this resource ("gitops", "helm",
-        "plugin"). Empty or "user" means console-managed; any other value makes
-        every mutation answer 409. Never a request field.
+        "plugin", or the "plugin-<id>" a plugin stamped on its own create).
+        Empty or "user" means console-managed; any other value makes every
+        mutation answer 409, except for the plugin the value names. Never an
+        update request field; see `ManagedByCreateStamp` for the create-time
+        exception.
+    ManagedByCreateStamp:
+      type: string
+      description: >-
+        Create-only. A plugin-authenticated caller may send its own
+        "plugin-<plugin id>" to record itself as this resource's author. The hub
+        composes the accepted value from the credential and answers 400 on any
+        other value, so the body can never name a different manager; a
+        non-plugin caller's value is ignored and the row stays "user". The
+        stored value is never accepted on update, not even by the owning plugin.
     Referrer:
       type: object
       description: One agent blocking a delete.
@@ -3444,10 +3445,8 @@ components:
         replicas:
           type: integer
           description: >-
-            The concurrency cap — at most this many task Jobs in flight. 0 pauses
+            The concurrency cap — at most this many task Jobs in flight. 0 stops
             dispatch (work keeps queueing).
-        paused: { type: boolean }
-        pausedUntil: { type: string, format: date-time, description: 'Absent on a running agent and on an indefinite pause.' }
         memory:
           $ref: '#/components/schemas/MemoryConfig'
         status:
@@ -3558,6 +3557,8 @@ components:
         anthropic: { type: object }
         google: { type: object }
         customProvider: { type: object }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
     AgentUpdateRequest:
       type: object
       description: All fields optional; only present fields are applied. `managedBy` is never accepted.
@@ -3615,12 +3616,6 @@ components:
         anthropic: { type: object }
         google: { type: object }
         customProvider: { type: object }
-    PauseRequest:
-      type: object
-      description: An absent body means an indefinite pause. `duration` and `until` together is 400.
-      properties:
-        duration: { type: string, description: 'Go duration string from now (`30m`, `8h`, `168h`).' }
-        until: { type: string, format: date-time, description: 'Must be in the future.' }
     AgentPersonaView:
       type: object
       properties:
@@ -3739,11 +3734,13 @@ components:
       type: object
       description: >-
         POST requires `name` and `image`; PUT accepts any subset. `managedBy` is
-        never accepted.
+        accepted on POST only, and only as the calling plugin's own stamp.
       properties:
         name: { type: string }
         description: { type: string }
         image: { type: string }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
         runtime:
           type: object
           properties:
@@ -3822,6 +3819,8 @@ components:
       properties:
         name: { type: string }
         description: { type: string }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
         type: { type: string }
         url: { type: string }
         webhookPath: { type: string }
@@ -4328,8 +4327,9 @@ components:
     ActivityEntry:
       type: object
       description: >-
-        One event with its routing outcome. `status` is derived from the event's
-        tasks — no tasks is `unmatched`, any failed task is `error`.
+        One event with its match result and runs. `status` is the match result,
+        derived from the event's tasks — no tasks is `unmatched`, any failed task is
+        `error`. Each match carries the derived `runState`.
       properties:
         id: { type: string }
         timestamp: { type: string, description: 'RFC 3339.' }
@@ -4688,6 +4688,10 @@ components:
         updatedAt: { type: string, format: date-time }
     MCPServerWriteRequest:
       type: object
+      description: >-
+        POST requires `name` and `url`; PUT accepts any subset. `managedBy` is
+        accepted on POST only, and only as the calling plugin's own stamp — on PUT
+        the stored value is always preserved.
       required: [name, url]
       properties:
         name: { type: string }
@@ -4696,6 +4700,8 @@ components:
         description: { type: string }
         url: { type: string }
         tokenFromEnv: { type: string, maxLength: 64, description: 'Env-var name shape; empty means anonymous.' }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
     MCPServerTool:
       type: object
       properties:
@@ -4743,11 +4749,14 @@ components:
       type: object
       description: >-
         POST requires `name` and `text`; PUT accepts any subset. `text` <= 100000
-        chars, `name` <= 200, `description` <= 2000.
+        chars, `name` <= 200, `description` <= 2000. `ownerAgent` is never a
+        request field — the hub sets it on its own copy-on-write path.
       properties:
         name: { type: string, maxLength: 200 }
         description: { type: string, maxLength: 2000 }
         text: { type: string, maxLength: 100000 }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
     PersonaVersion:
       type: object
       properties:

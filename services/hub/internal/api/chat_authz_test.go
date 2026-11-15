@@ -34,19 +34,19 @@ func newAuthzChatEnv(t *testing.T) (*chat.Store, *authz.Store, func()) {
 // chatAuthzServer wires the v1 chat routes with authentication configured.
 // The middleware is a pass-through: identity comes from the request context,
 // exactly as the OIDC middleware leaves it.
-func chatAuthzServer(t *testing.T, chatStore *chat.Store, authzStore *authz.Store) *Server {
+func chatAuthzServer(t *testing.T, chatStore *chat.Store, AuthzStore *authz.Store) *Server {
 	t.Helper()
 	s := testServer(t)
 	s.chat = chatStore
-	if authzStore != nil {
-		checker := authz.NewChecker(authzStore, authz.NewGroupCache(
+	if AuthzStore != nil {
+		checker := authz.NewChecker(AuthzStore, authz.NewGroupCache(
 			func(uid string) (map[string]authz.GroupRole, error) {
-				return authzStore.UserGroupRoles(context.Background(), uid)
+				return AuthzStore.UserGroupRoles(context.Background(), uid)
 			}, time.Minute))
-		s.authzStore = authzStore
+		s.authzStore = AuthzStore
 		s.authzChecker = checker
 	}
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler { return next })
+	s.authMW = func(next http.Handler) http.Handler { return next }
 	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
 	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
 	return s
@@ -66,7 +66,7 @@ func chatReqAs(s *Server, method, path, sub string, body []byte) *httptest.Respo
 		req = req.WithContext(asUser(sub, sub)(req.Context()))
 	}
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -84,7 +84,7 @@ func makeAdmin(t *testing.T, store *authz.Store, sub string) {
 // not be able to read or mutate alice's session, and the mutation must not
 // have happened.
 func TestChatSession_ForbiddenForOtherUser(t *testing.T) {
-	chatStore, authzStore, cleanup := newAuthzChatEnv(t)
+	chatStore, AuthzStore, cleanup := newAuthzChatEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -96,7 +96,7 @@ func TestChatSession_ForbiddenForOtherUser(t *testing.T) {
 		t.Fatalf("add message: %v", err)
 	}
 
-	s := chatAuthzServer(t, chatStore, authzStore)
+	s := chatAuthzServer(t, chatStore, AuthzStore)
 	base := "/api/v1/chat/sessions/" + sess.ID
 
 	cases := []struct {
@@ -142,7 +142,7 @@ func TestChatSession_ForbiddenForOtherUser(t *testing.T) {
 // TestChatSession_AllowedForOwner is the counterweight: the gate must not lock
 // the real owner out of their own conversation.
 func TestChatSession_AllowedForOwner(t *testing.T) {
-	chatStore, authzStore, cleanup := newAuthzChatEnv(t)
+	chatStore, AuthzStore, cleanup := newAuthzChatEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -150,7 +150,7 @@ func TestChatSession_AllowedForOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	s := chatAuthzServer(t, chatStore, authzStore)
+	s := chatAuthzServer(t, chatStore, AuthzStore)
 	base := "/api/v1/chat/sessions/" + sess.ID
 
 	if rec := chatReqAs(s, http.MethodGet, base, "alice", nil); rec.Code != http.StatusOK {
@@ -168,7 +168,7 @@ func TestChatSession_AllowedForOwner(t *testing.T) {
 // TestChatSessions_ListScopedToCaller covers the ?user= query parameter, which
 // used to be taken at face value and let any caller list anyone's sessions.
 func TestChatSessions_ListScopedToCaller(t *testing.T) {
-	chatStore, authzStore, cleanup := newAuthzChatEnv(t)
+	chatStore, AuthzStore, cleanup := newAuthzChatEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -182,7 +182,7 @@ func TestChatSessions_ListScopedToCaller(t *testing.T) {
 		t.Fatalf("create bob session: %v", err)
 	}
 
-	s := chatAuthzServer(t, chatStore, authzStore)
+	s := chatAuthzServer(t, chatStore, AuthzStore)
 
 	decode := func(t *testing.T, body string) []struct {
 		ID     string `json:"id"`
@@ -249,7 +249,7 @@ func TestChatSessions_ListScopedToCaller(t *testing.T) {
 // TestChatSessions_ListAdminSeesAll keeps the gate from over-tightening: an
 // admin still gets the cross-user view the UI's admin screens need.
 func TestChatSessions_ListAdminSeesAll(t *testing.T) {
-	chatStore, authzStore, cleanup := newAuthzChatEnv(t)
+	chatStore, AuthzStore, cleanup := newAuthzChatEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -259,9 +259,9 @@ func TestChatSessions_ListAdminSeesAll(t *testing.T) {
 	if _, err := chatStore.CreateSession(ctx, "a-agent", "bob"); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	makeAdmin(t, authzStore, "root")
+	makeAdmin(t, AuthzStore, "root")
 
-	s := chatAuthzServer(t, chatStore, authzStore)
+	s := chatAuthzServer(t, chatStore, AuthzStore)
 
 	rec := chatReqAs(s, http.MethodGet, "/api/v1/chat/sessions", "root", nil)
 	if rec.Code != http.StatusOK {
@@ -293,14 +293,14 @@ func TestChatSessions_ListAdminSeesAll(t *testing.T) {
 // authentication configured, a request carrying no identity must be refused
 // rather than treated as "no owner to compare against, so allow".
 func TestChatSession_FailsClosedWithoutIdentity(t *testing.T) {
-	chatStore, authzStore, cleanup := newAuthzChatEnv(t)
+	chatStore, AuthzStore, cleanup := newAuthzChatEnv(t)
 	defer cleanup()
 
 	sess, err := chatStore.CreateSession(context.Background(), "a-agent", "alice")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	s := chatAuthzServer(t, chatStore, authzStore)
+	s := chatAuthzServer(t, chatStore, AuthzStore)
 
 	rec := chatReqAs(s, http.MethodGet, "/api/v1/chat/sessions/"+sess.ID, "", nil)
 	if rec.Code != http.StatusForbidden && rec.Code != http.StatusUnauthorized {
@@ -317,10 +317,10 @@ func TestChatSession_FailsClosedWithoutIdentity(t *testing.T) {
 // created with no owner, which previously fell back to the shared "anonymous"
 // bucket and made the session invisible to its creator.
 func TestCreateChatSession_RequiresIdentity(t *testing.T) {
-	chatStore, authzStore, cleanup := newAuthzChatEnv(t)
+	chatStore, AuthzStore, cleanup := newAuthzChatEnv(t)
 	defer cleanup()
 
-	s := chatAuthzServer(t, chatStore, authzStore)
+	s := chatAuthzServer(t, chatStore, AuthzStore)
 
 	rec := chatReqAs(s, http.MethodPost, "/api/v1/chat/sessions", "",
 		[]byte(`{"agentName":"a-agent"}`))

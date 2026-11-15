@@ -18,7 +18,7 @@ With `enabled: true` (the default) the chart installs:
 2. **Per-component ingress policies** — explicit allows for each chart-managed workload (see inventory below).
 3. **`agent-egress`** — locks down agent pod egress to a known set of destinations (see [Security Hardening](security-hardening.md) for the rationale).
 
-There is **no egress restriction** on non-agent components (hub-backend, hub-frontend, mcp, connectors). This is deliberate: hub-backend must reach MCP servers declared in AgentImages, and those URLs can point at arbitrary in-cluster or external endpoints. See [Known gaps](#known-gaps).
+There is **no egress restriction** on non-agent components (hub, frontend, mcp, connectors). This is deliberate: hub must reach MCP servers declared in AgentImages, and those URLs can point at arbitrary in-cluster or external endpoints. See [Known gaps](#known-gaps).
 
 ## Enforcement Requirements
 
@@ -48,11 +48,11 @@ All policies live in the release namespace (`.Values.namespace`).
 | Policy | Applies to (podSelector) | Direction | Allows |
 |---|---|---|---|
 | `default-deny-ingress` | all pods | Ingress | nothing (baseline deny) |
-| `hub-backend` | `component: hub-backend` | Ingress | `hub-frontend` pods, `mcp` pods, agent pods (`component: agents`), webhook connector pods (`managed-by: connector-operator`), pods in `networkPolicy.ingressNamespace` (browser API traffic) — all on `hub.port`; metrics port open for scraping |
-| `hub-frontend` | `component: hub-frontend` | Ingress | any source, port 80 (served through the ingress controller) |
+| `hub` | `component: hub` | Ingress | `frontend` pods, `mcp` pods, agent pods (`component: agents`), webhook connector pods (`managed-by: connector-operator`), pods in `networkPolicy.ingressNamespace` (browser API traffic) — all on `hub.port`; metrics port open for scraping |
+| `frontend` | `component: frontend` | Ingress | any source, port 80 (served through the ingress controller) |
 | `mcp` | `component: mcp` | Ingress | any source, port 8080 |
-| `postgres` | `component: postgres` | Ingress | `hub-backend` only, port 5432 |
-| `agent-egress` | `component: agents` | Egress | hub-backend (8080), DNS (53), any destination on 443/TCP (LLM APIs; FQDN scoping tracked in #652) |
+| `postgres` | `component: postgres` | Ingress | `hub` only, port 5432 |
+| `agent-egress` | `component: agents` | Egress | hub (8080), DNS (53), any destination on 443/TCP (LLM APIs; FQDN scoping tracked in #652) |
 | `agent-metrics` | `managed-by: agent-operator` | Ingress | any source, named port `metrics` (Prometheus scrapes of `agent_tokens_used_total` etc.; selector matches the `ainsel-agents` PodMonitor) |
 | `connectors-webhook-ingress` | `managed-by: connector-operator` | Ingress | ingress controller's namespace (external webhooks) plus any peers listed in `networkPolicy.connectorWebhookSources`, port `http` |
 | `acme-http01-solver` | `acme.cert-manager.io/http01-solver: true` | Ingress | ingress controller's namespace, so Let's Encrypt HTTP-01 challenges succeed under default-deny. Toggle with `networkPolicy.allowAcmeSolver` (default true). |
@@ -91,25 +91,25 @@ These are the flows that break most often when a policy is missing:
 
 | Flow | Why it exists | Allowed by |
 |---|---|---|
-| browser → ingress → hub-backend | UI API calls | chart `hub-backend` policy (ingressNamespace) |
-| agent → hub-backend | token validation, API | chart `hub-backend` + `agent-egress` |
-| connector → hub-backend | webhook receivers publish accepted webhooks (`POST /api/internal/events`) | chart `hub-backend` policy (connector pods); connectors have no egress restriction |
+| browser → ingress → hub | UI API calls | chart `hub` policy (ingressNamespace) |
+| agent → hub | token validation, API | chart `hub` + `agent-egress` |
+| connector → hub | webhook receivers publish accepted webhooks (`POST /api/internal/events`) | chart `hub` policy (connector pods); connectors have no egress restriction |
 | external → connector | webhook delivery through the ingress controller | chart `connectors-webhook-ingress` (ingressNamespace) |
 | in-cluster producer → connector | e.g. a Forgejo in the cluster delivering directly via the `*-webhook` service | chart `connectors-webhook-ingress` (`connectorWebhookSources`) |
 | Prometheus → agent pods | scraping `agent_tokens_used_total` and other runner metrics | chart `agent-metrics` policy (named port `metrics`) |
-| **hub-backend → MCP servers** | "Refresh MCP Tools" on AgentImages calls every configured MCP server directly from hub-backend to discover tools; the mcp gateway proxies MCP traffic | **not covered by the chart** for in-cluster servers outside the release — see below |
+| **hub → MCP servers** | "Refresh MCP Tools" on AgentImages calls every configured MCP server directly from hub to discover tools; the mcp gateway proxies MCP traffic | **not covered by the chart** for in-cluster servers outside the release — see below |
 | agent → MCP servers | tools declared in the AgentImage | chart `agent-egress` covers 443/TCP; in-cluster servers on other ports need extension policies |
 
 ## Adding an MCP Server (Checklist)
 
 MCP servers referenced by AgentImages (the `mcpServers` list) are reached from two consumers:
 
-1. **hub-backend** — during tool discovery ("Refresh MCP Tools") and when the hub MCP registry proxies a server.
+1. **hub** — during tool discovery ("Refresh MCP Tools") and when the hub MCP registry proxies a server.
 2. **agent pods** — at runtime, when agents call the tools.
 
 What you have to configure depends on where the server runs:
 
-| MCP server location | hub-backend | agent pods |
+| MCP server location | hub | agent pods |
 |---|---|---|
 | External, HTTPS (port 443) | nothing — hub egress is unrestricted | nothing — `agent-egress` allows 443/TCP |
 | External, plain HTTP | nothing | additive egress policy needed (prefer HTTPS instead) |
@@ -129,14 +129,14 @@ spec:
     matchLabels: { ... }        # the MCP server pods
   policyTypes: [Ingress]
   ingress:
-    # hub-backend: tool discovery + registry proxy
+    # hub: tool discovery + registry proxy
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: <ainsel namespace>
           podSelector:
             matchLabels:
-              app.kubernetes.io/component: hub-backend
+              app.kubernetes.io/component: hub
       ports: [{port: 8080}]
     # agents: runtime tool calls
     - from:
@@ -167,11 +167,11 @@ Services that live outside the AInsel namespace but talk to the platform:
 
 | Service | Direction | What to configure |
 |---|---|---|
-| **Prometheus / metrics scraping** | external → hub-backend | Nothing for hub-backend: the chart opens `hub.metricsPort` (default 9090) to any source under the `hub-backend` policy. Scrape via the hub-backend Service. Components without such an open metrics port (operators, connectors) are unreachable under default-deny and need an additive ingress policy from the monitoring namespace. |
-| **Ingress controller** | external → hub-backend, hub-frontend, mcp | Set `networkPolicy.ingressNamespace` to the namespace of the ingress controller that serves the hub. A second controller in a different namespace needs an additive policy. |
-| **Auth proxies** (Authelia, oauth2-proxy, ...) | ingress controller or proxy → hub-backend | If the proxy runs as a pod in its own namespace rather than a sidecar of the ingress controller, add an ingress allow for its namespace/pods to the target service. |
-| **Webhook sources** (Forgejo, GitHub, ...) | external → connector webhook receivers | Covered by the chart's `connectors-webhook-ingress` policy, which allows `networkPolicy.ingressNamespace` to reach connector pods (`managed-by: connector-operator`). For an in-cluster producer that delivers webhooks directly (bypassing the ingress controller), add its namespace/pods to `networkPolicy.connectorWebhookSources`. The reverse direction (connector → hub-backend publish) is covered by the chart's `hub-backend` policy. |
-| **External MCP / LLM APIs** | hub-backend, agents → external | Nothing for HTTPS endpoints (see checklist above). |
+| **Prometheus / metrics scraping** | external → hub | Nothing for hub: the chart opens `hub.metricsPort` (default 9090) to any source under the `hub` policy. Scrape via the hub Service. Components without such an open metrics port (operators, connectors) are unreachable under default-deny and need an additive ingress policy from the monitoring namespace. |
+| **Ingress controller** | external → hub, frontend, mcp | Set `networkPolicy.ingressNamespace` to the namespace of the ingress controller that serves the hub. A second controller in a different namespace needs an additive policy. |
+| **Auth proxies** (Authelia, oauth2-proxy, ...) | ingress controller or proxy → hub | If the proxy runs as a pod in its own namespace rather than a sidecar of the ingress controller, add an ingress allow for its namespace/pods to the target service. |
+| **Webhook sources** (Forgejo, GitHub, ...) | external → connector webhook receivers | Covered by the chart's `connectors-webhook-ingress` policy, which allows `networkPolicy.ingressNamespace` to reach connector pods (`managed-by: connector-operator`). For an in-cluster producer that delivers webhooks directly (bypassing the ingress controller), add its namespace/pods to `networkPolicy.connectorWebhookSources`. The reverse direction (connector → hub publish) is covered by the chart's `hub` policy. |
+| **External MCP / LLM APIs** | hub, agents → external | Nothing for HTTPS endpoints (see checklist above). |
 
 ## Temporarily Relaxing Policies (Dev/Testing)
 
@@ -211,9 +211,9 @@ kubectl delete networkpolicy default-deny-ingress -n <ainsel namespace>
 
 ## Known Gaps
 
-- **No egress lockdown for hub-backend / mcp / connectors.** hub-backend intentionally needs open egress because AgentImages can declare MCP servers at arbitrary external URLs. FQDN-scoped egress filtering for agents is tracked in #652 (sidecar proxy approach).
-- **`hub-frontend` and `mcp` ingress is open to any source** on their serving port; they are expected to sit behind an ingress controller with its own access controls (e.g. an auth proxy).
-- **Metrics ports** on hub-backend are open for scraping without source restriction.
+- **No egress lockdown for hub / mcp / connectors.** hub intentionally needs open egress because AgentImages can declare MCP servers at arbitrary external URLs. FQDN-scoped egress filtering for agents is tracked in #652 (sidecar proxy approach).
+- **`frontend` and `mcp` ingress is open to any source** on their serving port; they are expected to sit behind an ingress controller with its own access controls (e.g. an auth proxy).
+- **Metrics ports** on hub are open for scraping without source restriction.
 
 ## Verifying Enforcement
 
@@ -240,8 +240,8 @@ Symptoms of a missing allow rule:
 - Agents fail to call an MCP tool that works from other clients.
 - Webhook connectors receive no events (ingress controller → connector denied).
 - In-cluster webhook deliveries fail with `connect: connection refused` to a `*-webhook` service (producer → connector denied; add the producer to `networkPolicy.connectorWebhookSources`).
-- Webhook deliveries are answered `500 publish failed` although signatures validate (connector → hub-backend publish denied).
-- UI requests fail with 502/504 at the ingress while hub-backend is up (`ingressNamespace` mismatch).
-- Agents stop claiming tasks and their poll loop logs `connection refused` against hub-backend (agent pods not matched by the chart policies; verify the pods carry `component: agents` — see [Agent pod selectors](#agent-pod-selectors)).
+- Webhook deliveries are answered `500 publish failed` although signatures validate (connector → hub publish denied).
+- UI requests fail with 502/504 at the ingress while hub is up (`ingressNamespace` mismatch).
+- Agents stop claiming tasks and their poll loop logs `connection refused` against hub (agent pods not matched by the chart policies; verify the pods carry `component: agents` — see [Agent pod selectors](#agent-pod-selectors)).
 
 Fix: identify the client pod's labels and the target pod's labels, then add an additive NetworkPolicy granting ingress to the target (and egress on the client side if the client is an agent).

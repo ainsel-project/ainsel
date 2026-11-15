@@ -262,7 +262,7 @@ func userSyncTestServer(t *testing.T) *Server {
 	s := testServer(t)
 	store := newFakeAuthzStore()
 	s.authzStore = store
-	s.identityTracker = newIdentityPersistTracker()
+	s.identityTracker = NewIdentityPersistTracker()
 	return s
 }
 
@@ -275,7 +275,7 @@ func TestHandleUserSync_WrongMethod(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("want 405 for GET /users/me/sync, got %d: %s", rec.Code, rec.Body.String())
@@ -284,12 +284,15 @@ func TestHandleUserSync_WrongMethod(t *testing.T) {
 
 func TestHandleUserSync_NoAuthContext(t *testing.T) {
 	s := testServer(t)
+	// This test is about the request having no caller, so the fixture's default
+	// caller has to come off.
+	s.authMW = nil
 	s.mux.HandleFunc("/api/v1/users/", s.handleUser)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/sync", nil)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("want 401 for unauthenticated POST /users/me/sync, got %d: %s", rec.Code, rec.Body.String())
@@ -298,6 +301,13 @@ func TestHandleUserSync_NoAuthContext(t *testing.T) {
 
 func TestHandleUserSync_AdminRequired(t *testing.T) {
 	s := testServer(t)
+	// testServer installs the permissive pair auth mode "none" uses, which answers
+	// admin for every caller. This test needs a registry that says otherwise.
+	store := newFakeAuthzStore()
+	s.authzStore = store
+	s.authzChecker = authz.NewChecker(store, authz.NewGroupCache(func(string) (map[string]authz.GroupRole, error) {
+		return nil, nil
+	}, time.Minute))
 	s.mux.HandleFunc("/api/v1/users/", s.handleUser)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/other-user/sync", nil)
@@ -305,9 +315,9 @@ func TestHandleUserSync_AdminRequired(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
-	// authzChecker is nil in testServer → requireAdmin returns 403
+	// The registry says user-123 is not an admin → requireAdmin returns 403
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("want 403 for non-admin POST /users/other-user/sync, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -331,7 +341,7 @@ func TestHandleUserSync_MeSync_UserInfo500_FallbackToJWT(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200 fallback when userinfo fails, got %d: %s", rec.Code, rec.Body.String())
@@ -366,7 +376,7 @@ func TestHandleUserSync_MeSync_UserInfo401_FallbackToJWT(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200 fallback on upstream 401, got %d: %s", rec.Code, rec.Body.String())
@@ -407,7 +417,7 @@ func TestHandleUserSync_MeSync_UserInfoTimeout_FallbackToJWT(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200 fallback on timeout, got %d: %s", rec.Code, rec.Body.String())
@@ -439,7 +449,7 @@ func TestHandleUserSync_MeSync_NoUserInfoURL_PersistsIdentity(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
@@ -484,7 +494,7 @@ func TestHandleUserSync_MeSync_NoToken_PersistsIdentity(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
@@ -698,7 +708,7 @@ func TestHandleUserSyncRejectsUserInfoSubjectMismatch(t *testing.T) {
 			ctx := oidc.ContextWithUser(req.Context(), &oidc.User{Sub: "alice", Username: "Alice"})
 			req = req.WithContext(oidc.ContextWithToken(ctx, "access-token"))
 			rec := httptest.NewRecorder()
-			s.mux.ServeHTTP(rec, req)
+			s.ServeHTTP(rec, req)
 			if rec.Code != http.StatusUnauthorized {
 				t.Fatalf("status %d, want 401: %s", rec.Code, rec.Body.String())
 			}

@@ -17,7 +17,6 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
-	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
 	"github.com/ainsel-project/ainsel/services/hub/internal/selfsync"
@@ -46,16 +45,6 @@ func wireDB(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("db open: %w", err)
 	}
 	return pool, nil
-}
-
-// wireAuthZ creates the authz store and checker.
-func wireAuthZ(ctx context.Context, pool *pgxpool.Pool) (*authz.Store, *authz.Checker) {
-	store := authz.NewStore(pool)
-	groupCache := authz.NewGroupCache(func(uid string) (map[string]authz.GroupRole, error) {
-		return store.UserGroupRoles(ctx, uid)
-	}, 30*time.Second)
-	checker := authz.NewChecker(store, groupCache)
-	return store, checker
 }
 
 // wireK8sManager creates the controller-runtime manager.
@@ -169,7 +158,7 @@ func wirePluginSync(c *container) *pluginsync.Syncer {
 	}
 	fetcher := pluginsync.NewHTTPSkillFetcher(&http.Client{Timeout: 10 * time.Second})
 	s := pluginsync.New(c.apiClient, c.namespace, c.mcpSvc, pluginSkillRegistry{svc: c.skillSvc}, selfURL, fetcher)
-	s.SetResourceVisibility(c.authzStore)
+	s.SetResourceVisibility(c.apiAuthzStore)
 	slog.Info("plugin registry sync enabled", "selfURL", selfURL, "interval", pluginSyncInterval)
 	return s
 }
@@ -240,173 +229,6 @@ func wireSkills(pool *pgxpool.Pool, apiClient client.Client, namespace string) *
 	return skills.NewService(store, rec, lister)
 }
 
-// wireAPIServer creates the API server and wires basic dependencies.
-func wireAPIServer(c *container, cfg containerConfig) *api.Server {
-	srv := api.New(c.apiClient, cfg.namespace, cfg.connectorCfg, c.promClient, c.invStore, c.mcpSvc, c.personaSvc, c.skillSvc, &api.Config{})
-	srv.SetAuthZ(c.authzStore, c.authzChecker)
-	srv.SetEventQueue(c.eventQueue)
-	srv.SetChatStore(c.chatStore)
-	srv.SetTriggerStore(c.triggerStore)
-	srv.SetChannelService(c.channels, c.transfer)
-	srv.SetUserTokenStore(c.userTokenStore)
-	srv.SetSignInStore(c.signInStore)
-	srv.SetTaskLogStore(c.taskLogStore)
-	srv.SetAuditEventStore(c.auditEventStore)
-	srv.SetTaskStartTimeout(time.Duration(cfg.taskStartTimeoutSecs) * time.Second)
-	srv.SetTelemetryStore(c.telemetryStore)
-	// Logged rather than left implicit: which backend answers is the difference
-	// between two sets of figures on the same panel, and an operator reading a
-	// support report needs to know which one their hub picked.
-	source := wireMetricsSource(cfg.metricsSource)
-	srv.SetMetricsSource(source)
-	slog.Info("event metric source configured", "source", source, "prometheus", c.promClient != nil)
-	// The read-only skill catalogue MCP. c.skillSvc is the concrete service,
-	// which satisfies SkillDiscovery; passing it here rather than widening
-	// SkillService keeps Create/Update/Delete out of the catalogue's reach.
-	// The token is deliberately not HUB_INTERNAL_VALIDATE_SECRET: see
-	// requireCatalogueToken. Unset means the endpoint answers 503.
-	if token := os.Getenv("HUB_SKILLS_MCP_TOKEN"); token != "" {
-		srv.SetSkillsMCPToken(token)
-		slog.Info("skill catalogue MCP enabled", "path", "/api/internal/skills/mcp")
-	} else {
-		slog.Info("skill catalogue MCP disabled (HUB_SKILLS_MCP_TOKEN not set)")
-	}
-	srv.SetSkillDiscovery(c.skillSvc)
-
-	// The platform read plane. Off unless an operator opts in; when off, the
-	// endpoint answers 503 and no registry row is written for it, so nothing
-	// advertises it to agents.
-	if agentMCPEnabled() {
-		srv.SetAgentMCPEnabled(true)
-		slog.Info("platform agent MCP enabled", "path", api.AgentMCPPath)
-	} else {
-		slog.Info("platform agent MCP disabled (" + agentMCPEnabledEnv + " not true)")
-	}
-
-	// This block reports the validate credential only. The catalogue has its
-	// own token and its own line above; naming it here would tie two
-	// independent settings together and let one log line lie about the other.
-	if secret := os.Getenv("HUB_INTERNAL_VALIDATE_SECRET"); secret != "" {
-		srv.SetInternalValidateSecret(secret)
-		slog.Info("user token validate endpoint enabled")
-	} else {
-		slog.Warn("HUB_INTERNAL_VALIDATE_SECRET not set, user token validate endpoint disabled")
-	}
-
-	// Extra Origins allowed to open /api/v1/ws. Same-origin is always
-	// permitted, so this is only needed when the UI is served from a different
-	// host or port than the hub API (local development).
-	if v := os.Getenv("HUB_WS_ALLOWED_ORIGINS"); v != "" {
-		var origins []string
-		for _, o := range strings.Split(v, ",") {
-			if o = strings.TrimSpace(o); o != "" {
-				origins = append(origins, o)
-			}
-		}
-		srv.SetWSAllowedOrigins(origins)
-		slog.Info("websocket cross-origin allowlist configured", "origins", origins)
-	}
-
-	return srv
-}
-
-// wireAuthMiddleware sets up the API auth middleware according to
-// HUB_AUTH_MODE: "oidc" (external IdP, today's default), "local" (hub
-// username/password accounts, issue #108), "oidc+local" (both at once,
-// issue #114), or "none" (no auth; requires
-// HUB_ALLOW_INSECURE_NO_AUTH=true). When HUB_AUTH_MODE is unset the mode is
-// derived from the common OIDC issuer and audience settings when unset.
-// The derived mode is never "oidc+local": coexistence is a deliberate
-// operational decision and must be requested explicitly.
-func wireAuthMiddleware(ctx context.Context, c *container, cfg containerConfig) error {
-	oidcCfg := oidc.FromEnvironment()
-	issuer, audience := oidcCfg.Issuer, oidcCfg.Audience
-
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("HUB_AUTH_MODE")))
-	if mode == "" {
-		if issuer != "" && audience != "" {
-			mode = "oidc"
-		} else {
-			mode = "none"
-		}
-		slog.Info("HUB_AUTH_MODE not set, derived from environment", "mode", mode)
-	}
-
-	switch mode {
-	case "oidc":
-		if issuer == "" || audience == "" {
-			return fmt.Errorf("auth mode oidc requires OIDC_ISSUER and OIDC_AUDIENCE (or OIDC_CLIENT_ID) to be set")
-		}
-		if err := wireOIDCAuth(c, oidcCfg); err != nil {
-			return err
-		}
-	case "local":
-		if err := wireLocalAuth(ctx, c); err != nil {
-			return err
-		}
-	case "oidc+local":
-		if issuer == "" || audience == "" {
-			return fmt.Errorf("auth mode oidc+local requires OIDC_ISSUER and OIDC_AUDIENCE (or OIDC_CLIENT_ID) to be set")
-		}
-		if err := wireOIDCPlusLocalAuth(ctx, c, oidcCfg); err != nil {
-			return err
-		}
-	case "none":
-		slog.Warn("auth mode none: API runs without authentication middleware")
-	default:
-		return fmt.Errorf("invalid HUB_AUTH_MODE %q (want oidc, local, oidc+local, or none)", mode)
-	}
-
-	// Wire plugin credentials issuer if configured
-	if secretStr := os.Getenv("HUB_PLUGIN_CREDENTIAL_SECRET"); secretStr != "" {
-		secret := []byte(secretStr)
-		issuer, err := plugincreds.NewIssuer(secret, 5*time.Minute)
-		if err == plugincreds.ErrDisabled {
-			slog.Info("plugin credentials disabled (secret too short)")
-		} else if err != nil {
-			return fmt.Errorf("create plugin credentials issuer: %w", err)
-		} else {
-			c.apiServer.SetPluginCredentialIssuer(issuer)
-			slog.Info("plugin credentials enabled")
-		}
-	} else {
-		slog.Info("plugin credentials disabled (HUB_PLUGIN_CREDENTIAL_SECRET not set)")
-	}
-
-	if err := c.apiServer.ValidateAuthConfig(cfg.hubAllowInsecureNoAuth); err != nil {
-		return fmt.Errorf("API auth middleware not configured (override: HUB_ALLOW_INSECURE_NO_AUTH): %w", err)
-	}
-	if !c.apiServer.AuthMiddlewareConfigured() {
-		slog.Error("========================================")
-		slog.Error("API IS RUNNING WITHOUT AUTHENTICATION")
-		slog.Error("All /api/v1/* endpoints are open to any caller.")
-		slog.Error("Set HUB_AUTH_MODE=oidc, =local, or =oidc+local to enable auth.")
-		slog.Error("This mode is intended for local development ONLY.")
-		slog.Error("========================================",
-			"override", "HUB_ALLOW_INSECURE_NO_AUTH=true",
-		)
-	}
-
-	// Wire per-IP rate limiting. Defaults: 30 rps sustained, burst 60.
-	// Override via HUB_RATE_LIMIT_RPS and HUB_RATE_LIMIT_BURST.
-	rateRPS := 30.0
-	rateBurst := 60
-	if v := os.Getenv("HUB_RATE_LIMIT_RPS"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
-			rateRPS = f
-		}
-	}
-	if v := os.Getenv("HUB_RATE_LIMIT_BURST"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			rateBurst = n
-		}
-	}
-	c.apiServer.SetRateLimiter(rateRPS, rateBurst)
-	slog.Info("Rate limiting enabled", "rps", rateRPS, "burst", rateBurst)
-
-	return nil
-}
-
 // buildOIDCMiddleware resolves the OIDC endpoints via discovery and builds
 // the verification middleware. Shared by the "oidc" and "oidc+local" modes
 // so the subtle discovery + escape-hatch logic stays identical in both.
@@ -449,110 +271,6 @@ func buildUserTokenMiddleware(c *container) func(http.Handler) http.Handler {
 		}
 		return u.Username, nil
 	})
-}
-
-// wireOIDCAuth builds the OIDC middleware chain (previous default behavior).
-func wireOIDCAuth(c *container, oidcCfg oidc.Config) error {
-	slog.Info("OIDC auth enabled", "issuer", oidcCfg.Issuer, "audience", oidcCfg.Audience)
-	oidcMW, userInfoURL, err := buildOIDCMiddleware(oidcCfg)
-	if err != nil {
-		return err
-	}
-	userTokenMW := buildUserTokenMiddleware(c)
-	// Authorization is enforced in handlers via requireRead/requireWrite/
-	// requireManage helpers. The middleware chain only handles authentication.
-	// The disabled guard sits inside both token middlewares so a disabled
-	// user is rejected even with a still-valid OIDC access token; it is
-	// required in every future chain too (e.g. a combined oidc+local mode).
-	// The identity persistence middleware is the innermost handler so it
-	// runs after userTokenMW and oidcMW have populated the request context
-	// with the authenticated user's identity.
-	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	fallbackChain := func(next http.Handler) http.Handler {
-		return userTokenMW(oidcMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
-	}
-	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
-	c.apiServer.SetUserInfoURL(userInfoURL)
-	return nil
-}
-
-// wireLocalAuth builds the local username/password middleware chain and
-// bootstraps the admin account from the environment (issue #108).
-func wireLocalAuth(ctx context.Context, c *container) error {
-	secret := os.Getenv("HUB_LOCAL_JWT_SECRET")
-	if secret == "" {
-		return fmt.Errorf("auth mode local requires HUB_LOCAL_JWT_SECRET to be set")
-	}
-
-	policy, err := passwordPolicyFromEnv()
-	if err != nil {
-		return err
-	}
-
-	if err := bootstrapLocalAdmin(ctx, c.authzStore, policy); err != nil {
-		return fmt.Errorf("bootstrap local admin: %w", err)
-	}
-
-	localMW := localauth.NewMiddleware([]byte(secret), c.authzStore)
-	userTokenMW := buildUserTokenMiddleware(c)
-	// The disabled guard sits inside both token middlewares (required in any
-	// future combined chain too): local session JWTs are verified statelessly,
-	// so this is what makes disabling take effect immediately.
-	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	fallbackChain := func(next http.Handler) http.Handler {
-		// RequireAuth sits inside both token middlewares: anonymous requests
-		// fall through the token checks and are rejected there, mirroring how
-		// the OIDC middleware rejects missing bearer tokens.
-		return userTokenMW(localMW(localauth.RequireAuth(disabledGuard(c.apiServer.IdentityPersistMiddleware(next)))))
-	}
-	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
-	c.apiServer.SetLocalAuthSecret([]byte(secret))
-	c.apiServer.SetPasswordPolicy(policy)
-	slog.Info("local auth enabled", "loginEndpoint", "/api/v1/auth/login",
-		"passwordMinLength", policy.MinLength, "passwordCharacterClasses", policy.RequireClasses)
-	return nil
-}
-
-// wireOIDCPlusLocalAuth builds the coexistence chain for auth mode
-// "oidc+local" (issue #114): local session JWTs are verified by the local
-// layer and never reach the OIDC middleware; everything else (OIDC access
-// tokens and anonymous requests) is handled by the OIDC middleware, which
-// supplies the anonymous rejection — so no localauth.RequireAuth closer is
-// needed in this mode. Both halves are required: a half-configured
-// coexistence install must fail startup, not silently drop the break-glass
-// path or the SSO path.
-func wireOIDCPlusLocalAuth(ctx context.Context, c *container, oidcCfg oidc.Config) error {
-	secret := os.Getenv("HUB_LOCAL_JWT_SECRET")
-	if secret == "" {
-		return fmt.Errorf("auth mode oidc+local requires HUB_LOCAL_JWT_SECRET to be set")
-	}
-	oidcMW, userInfoURL, err := buildOIDCMiddleware(oidcCfg)
-	if err != nil {
-		return err
-	}
-	policy, err := passwordPolicyFromEnv()
-	if err != nil {
-		return err
-	}
-	if err := bootstrapLocalAdmin(ctx, c.authzStore, policy); err != nil {
-		return fmt.Errorf("bootstrap local admin: %w", err)
-	}
-	chainMW := localauth.NewChainMiddleware([]byte(secret), c.authzStore, oidcMW)
-	userTokenMW := buildUserTokenMiddleware(c)
-	// Same innermost-guard rule as the single-mode chains: both halves of
-	// chainMW verify tokens statelessly, so the disabled check must run
-	// inside chainMW and outside IdentityPersistMiddleware.
-	disabledGuard := authz.NewDisabledGuard(c.authzStore)
-	fallbackChain := func(next http.Handler) http.Handler {
-		return userTokenMW(chainMW(disabledGuard(c.apiServer.IdentityPersistMiddleware(next))))
-	}
-	c.apiServer.SetAuthMiddleware(c.apiServer.PluginCredentialMiddleware(disabledGuard, fallbackChain))
-	c.apiServer.SetLocalAuthSecret([]byte(secret))
-	c.apiServer.SetPasswordPolicy(policy)
-	c.apiServer.SetUserInfoURL(userInfoURL)
-	slog.Info("oidc+local auth enabled", "issuer", oidcCfg.Issuer, "audience", oidcCfg.Audience, "loginEndpoint", "/api/v1/auth/login",
-		"passwordMinLength", policy.MinLength, "passwordCharacterClasses", policy.RequireClasses)
-	return nil
 }
 
 // passwordPolicyFromEnv reads the HUB_LOCAL_PASSWORD_* overrides for the

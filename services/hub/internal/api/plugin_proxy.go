@@ -160,18 +160,16 @@ func (s *Server) userPluginContext(r *http.Request, u *oidc.User) (pluginContext
 		Groups:   []pluginContextGroup{},
 	}
 
-	if s.authzStore != nil {
-		roles, err := s.authzStore.UserGroupRoles(r.Context(), u.Sub)
-		if err != nil {
-			return pluginContextResponse{}, err
-		}
-		for id, role := range roles {
-			resp.Groups = append(resp.Groups, pluginContextGroup{
-				ID:   id,
-				Name: s.groupName(r, id),
-				Role: string(role),
-			})
-		}
+	roles, err := s.authzStore.UserGroupRoles(r.Context(), u.Sub)
+	if err != nil {
+		return pluginContextResponse{}, err
+	}
+	for id, role := range roles {
+		resp.Groups = append(resp.Groups, pluginContextGroup{
+			ID:   id,
+			Name: s.groupName(r, id),
+			Role: string(role),
+		})
 	}
 
 	sort.Slice(resp.Groups, func(a, b int) bool { return resp.Groups[a].ID < resp.Groups[b].ID })

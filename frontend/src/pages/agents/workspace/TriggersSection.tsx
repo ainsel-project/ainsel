@@ -156,7 +156,7 @@ export function TriggersSection() {
               disabled={updateSchedule.isPending}
               onClick={() => updateSchedule.mutate({ id: r.id, body: { enabled: !r.enabled } })}
             >
-              {r.enabled ? 'Pause' : 'Enable'}
+              {r.enabled ? 'Disable' : 'Enable'}
             </Button>
           ) : null}
           <Button size="sm" variant="danger" onClick={() => setDeleteTarget(r)}>

@@ -15,7 +15,7 @@ agentOperator:
       cpu: 400m
       memory: 512Mi
 
-connectorOperator:
+eventGatewayOperator:
   resources:
     requests:
       cpu: 100m
@@ -33,7 +33,7 @@ hub:
       cpu: 500m
       memory: 1Gi
 
-ui:
+frontend:
   resources:
     requests:
       cpu: 50m

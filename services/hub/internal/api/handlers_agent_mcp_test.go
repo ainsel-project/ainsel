@@ -36,15 +36,24 @@ const (
 	platformMCPAgent  = "reviewer"
 )
 
-// platformMCPServer wires the route on a dev-mode server with the plane enabled
-// and the internal bearer secret set.
+// platformDeps is the Deps the platform-plane tests build on: the shared fixture
+// deps, the hub's internal bearer secret, and the plane opted in. New registers
+// the route, so a server built from these deps serves AgentMCPPath.
+func platformDeps(t *testing.T, objects ...runtime.Object) Deps {
+	t.Helper()
+	deps := testDeps(t)
+	if len(objects) > 0 {
+		deps.Client = newFakeClient(objects...)
+	}
+	deps.InternalValidateSecret = platformMCPSecret
+	deps.AgentMCPEnabled = true
+	return deps
+}
+
+// platformMCPServer wires the plane enabled and the internal bearer secret set.
 func platformMCPServer(t *testing.T, objects ...runtime.Object) *Server {
 	t.Helper()
-	s := testServer(t, objects...)
-	s.mux.HandleFunc(AgentMCPPath, s.handleAgentMCP)
-	s.SetInternalValidateSecret(platformMCPSecret)
-	s.SetAgentMCPEnabled(true)
-	return s
+	return newTestServer(t, platformDeps(t, objects...))
 }
 
 // platformMCPHeaders is the header set an agent runtime sends.
@@ -90,10 +99,10 @@ func doPlatformMCP(t *testing.T, s *Server, headers map[string]string) (int, str
 }
 
 func TestPlatformAgentMCPDisabledAnswers503(t *testing.T) {
-	s := testServer(t)
-	s.mux.HandleFunc(AgentMCPPath, s.handleAgentMCP)
-	s.SetInternalValidateSecret(platformMCPSecret)
 	// Enabled is the opt-in; without it the endpoint is configured-off, not open.
+	deps := platformDeps(t)
+	deps.AgentMCPEnabled = false
+	s := newTestServer(t, deps)
 	code, body := doPlatformMCP(t, s, platformMCPHeaders(platformMCPSecret, platformMCPAgent))
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d (%s), want 503", code, body)
@@ -101,8 +110,9 @@ func TestPlatformAgentMCPDisabledAnswers503(t *testing.T) {
 }
 
 func TestPlatformAgentMCPWithoutInternalSecretAnswers503(t *testing.T) {
-	s := platformMCPServer(t)
-	s.SetInternalValidateSecret("")
+	deps := platformDeps(t)
+	deps.InternalValidateSecret = ""
+	s := newTestServer(t, deps)
 	code, body := doPlatformMCP(t, s, platformMCPHeaders(platformMCPSecret, platformMCPAgent))
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d (%s), want 503", code, body)
@@ -345,6 +355,19 @@ func TestPlatformAgentMCPInvocationToolsReportMissingHistory(t *testing.T) {
 
 // A store the hub does not run is a different fact from a tool that does not
 // exist: the second reads to a model like its own mistake, and it would retry.
+//
+// The four below are the only stores a running hub may lack: tasklogs and
+// telemetry report Ready() == false over a nil pool, which is how the hub says
+// "no records backend". Every other store behind the plane is a required Deps
+// field now, so a server without one does not build — the unwired answers this
+// test used to pin for the MCP registry, channels and the skill catalogue are
+// gone, not hidden.
+// The stores that answer these four are the only ones a running hub may lack:
+// tasklogs and telemetry report Ready() == false over a nil pool, which is how the
+// hub says "no records backend". Every other store behind the plane is a required
+// Deps field now, so a server without one does not build — the "unwired store"
+// answers this test used to pin for the MCP registry, channels and the skill
+// catalogue are gone, not hidden.
 func TestPlatformAgentMCPUnwiredStoresAnswerNotConfigured(t *testing.T) {
 	s := platformMCPServer(t)
 	calls := []struct {
@@ -355,11 +378,6 @@ func TestPlatformAgentMCPUnwiredStoresAnswerNotConfigured(t *testing.T) {
 		{"get_recent_errors", nil},
 		{"get_token_usage", nil},
 		{"query_metrics", nil},
-		{"list_mcp_servers", nil},
-		{"list_channels", nil},
-		{"get_channel_events", map[string]any{"id": "connector:github"}},
-		{"search_skills", nil},
-		{"get_skill", map[string]any{"id": "some-skill"}},
 	}
 	for _, c := range calls {
 		txt := textOf(t, platformCall(t, s, c.tool, c.args))
@@ -377,9 +395,10 @@ func TestPlatformAgentMCPUnwiredStoresAnswerNotConfigured(t *testing.T) {
 // cost — two answers to one question.
 func TestPlatformAgentMCPGetTokenUsageReportsCostForOneAgent(t *testing.T) {
 	pool := dbtest.Open(t)
-	s := platformMCPServer(t)
 	store := tasklogs.NewStore(pool)
-	s.SetTaskLogStore(store)
+	deps := platformDeps(t)
+	deps.TaskLogs = store
+	s := newTestServer(t, deps)
 	ctx := context.Background()
 	seed := func(agent string, cost *float64) {
 		t.Helper()
@@ -473,8 +492,9 @@ func TestPlatformAgentMCPHealthSummarizesPods(t *testing.T) {
 }
 
 func TestPlatformAgentMCPSkillsReuseTheCatalogue(t *testing.T) {
-	s := platformMCPServer(t)
-	s.SetSkillDiscovery(catalogueFixture())
+	deps := platformDeps(t)
+	deps.SkillDiscovery = catalogueFixture()
+	s := newTestServer(t, deps)
 	res := platformCall(t, s, "search_skills", map[string]any{"query": "rubric"})
 	if res.IsError {
 		t.Fatalf("tool errored: %s", textOf(t, res))

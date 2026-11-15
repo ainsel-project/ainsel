@@ -73,13 +73,13 @@ func postLLMCheck(t *testing.T, s *Server, body string) (int, string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/check", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(req.Context(), pluginCallerKey{}, &PluginCaller{
+	req = req.WithContext(context.WithValue(req.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github",
 		Kind:     plugincreds.KindPlugin,
 		Sub:      "plugin:github",
 	}))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec.Code, rec.Body.String()
 }
 
@@ -266,11 +266,11 @@ func TestLLMCheck_BadRequests(t *testing.T) {
 func TestLLMCheck_MethodNotAllowed(t *testing.T) {
 	s := llmCheckServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/check", nil)
-	req = req.WithContext(context.WithValue(req.Context(), pluginCallerKey{}, &PluginCaller{
+	req = req.WithContext(context.WithValue(req.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github", Kind: plugincreds.KindPlugin, Sub: "plugin:github",
 	}))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}
@@ -470,10 +470,10 @@ func TestLLMCheck_KeyReadViaSelector(t *testing.T) {
 }
 
 // llmCheckAuthzFake is a minimal authz graph for the group-scoping tests.
-// It embeds the full authzStore interface so unimplemented methods panic
+// It embeds the full AuthzStore interface so unimplemented methods panic
 // loudly instead of returning a misleading zero value.
 type llmCheckAuthzFake struct {
-	authzStore
+	AuthzStore
 
 	admins map[string]bool
 	// resources maps "agent/<name>" -> groupID.
@@ -552,7 +552,7 @@ func TestLLMCheck_GroupScoping(t *testing.T) {
 	// user mirrors what the credential middleware sets for a plugin caller.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/check",
 		strings.NewReader(`{"provider":"ollama-cloud","model":"m1"}`))
-	ctx := context.WithValue(req.Context(), pluginCallerKey{}, &PluginCaller{
+	ctx := context.WithValue(req.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github", Kind: plugincreds.KindPlugin, Sub: "plugin:github",
 	})
 	ctx = oidc.ContextWithUser(ctx, &oidc.User{Sub: "plugin:github"})
@@ -563,7 +563,7 @@ func TestLLMCheck_GroupScoping(t *testing.T) {
 	})
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !hitPrivate {
 		t.Fatalf("caller-group agent must be probed: code=%d hitPrivate=%v body=%s", rec.Code, hitPrivate, rec.Body.String())
 	}
@@ -573,7 +573,7 @@ func TestLLMCheck_GroupScoping(t *testing.T) {
 	hitPrivate, hitPublic = false, false
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/llm/check",
 		strings.NewReader(`{"provider":"ollama-cloud","model":"m1"}`))
-	ctx2 := context.WithValue(req2.Context(), pluginCallerKey{}, &PluginCaller{
+	ctx2 := context.WithValue(req2.Context(), plugincreds.CallerContextKey(), &PluginCaller{
 		PluginID: "github", Kind: plugincreds.KindPlugin, Sub: "plugin:github",
 	})
 	ctx2 = oidc.ContextWithUser(ctx2, &oidc.User{Sub: "plugin:github"})
@@ -583,7 +583,7 @@ func TestLLMCheck_GroupScoping(t *testing.T) {
 	})
 	req2 = req2.WithContext(ctx2)
 	rec2 := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec2, req2)
+	s.ServeHTTP(rec2, req2)
 	// "in-group" is public and matches the pair, so the public agent answers.
 	if rec2.Code != http.StatusOK || !hitPublic || hitPrivate {
 		t.Fatalf("public agent must answer, private must not: code=%d hitPublic=%v hitPrivate=%v", rec2.Code, hitPublic, hitPrivate)
@@ -607,6 +607,9 @@ func TestLLMCheck_UserCallers(t *testing.T) {
 			admins:    map[string]bool{"admin-sub": true},
 			resources: map[string]string{"agent/ag": "gA"},
 		})
+		// This test states the caller per request through the request context,
+		// including the anonymous one, so the fixture's default caller is off.
+		s.authMW = nil
 		return s
 	}
 
@@ -618,7 +621,7 @@ func TestLLMCheck_UserCallers(t *testing.T) {
 			req = req.WithContext(oidc.ContextWithUser(req.Context(), &oidc.User{Sub: sub}))
 		}
 		rec := httptest.NewRecorder()
-		s.mux.ServeHTTP(rec, req)
+		s.ServeHTTP(rec, req)
 		return rec.Code, rec.Body.String()
 	}
 
@@ -697,7 +700,7 @@ func TestLLMCheck_NonPostViaMux(t *testing.T) {
 	s.mux.HandleFunc("/api/v1/llm/check", s.handleLLMCheck)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/llm/check", bytes.NewReader(nil))
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}

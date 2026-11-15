@@ -61,11 +61,13 @@ func TestAgentImageCRDHasTokenFromEnv(t *testing.T) {
 	}
 }
 
-// TestAgentCRDHasPauseFields guards the pause feature (issue #328): the
-// checked-in Agent CRD must carry spec.pause.pausedUntil and status.paused.
-// Without them the API server silently prunes the fields, so pausing an
-// agent through the hub or kubectl would appear to succeed and do nothing.
-func TestAgentCRDHasPauseFields(t *testing.T) {
+// TestAgentCRDHasNoPauseFields guards the removal of the agent pause feature
+// (issue #249): the checked-in Agent CRD must not carry spec.pause or
+// status.paused. A field that is back in the schema without the hub and
+// operator code behind it is a trap — the API server would accept it, store
+// it, and nothing would act on it, which is exactly the state the feature was
+// in when it was dropped in favour of `replicas: 0`.
+func TestAgentCRDHasNoPauseFields(t *testing.T) {
 	b, err := os.ReadFile("../../config/crd/bases/ainsel.dev_agents.yaml")
 	if err != nil {
 		t.Fatalf("read CRD: %v", err)
@@ -85,15 +87,13 @@ func TestAgentCRDHasPauseFields(t *testing.T) {
 	oapi := mustMap(t, mustMap(t, mustMap(t, v0, "schema"), "openAPIV3Schema"), "properties")
 
 	specProps := mustMap(t, mustMap(t, oapi, "spec"), "properties")
-	pause := mustMap(t, specProps, "pause")
-	pauseProps := mustMap(t, pause, "properties")
-	if _, ok := pauseProps["pausedUntil"]; !ok {
-		t.Errorf("Agent CRD spec.pause schema missing 'pausedUntil'; found keys: %v", keys(pauseProps))
+	if _, ok := specProps["pause"]; ok {
+		t.Errorf("Agent CRD spec schema still carries 'pause'; found keys: %v", keys(specProps))
 	}
 
 	statusProps := mustMap(t, mustMap(t, oapi, "status"), "properties")
-	if _, ok := statusProps["paused"]; !ok {
-		t.Errorf("Agent CRD status schema missing 'paused'; found keys: %v", keys(statusProps))
+	if _, ok := statusProps["paused"]; ok {
+		t.Errorf("Agent CRD status schema still carries 'paused'; found keys: %v", keys(statusProps))
 	}
 }
 

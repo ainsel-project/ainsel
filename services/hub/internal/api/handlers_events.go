@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -12,12 +13,31 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 )
 
-// Activity status values. These mirror the ActivityStatus union in the
-// frontend (frontend/src/api/events.ts).
+// Activity match values — the answer to "did this event match a
+// subscription?". These mirror the ActivityMatchResult union in the frontend
+// (frontend/src/api/events.ts).
 const (
-	activityStatusUnmatched = "unmatched"
-	activityStatusMatched   = "matched"
-	activityStatusError     = "error"
+	activityMatchUnmatched = "unmatched"
+	activityMatchMatched   = "matched"
+	activityMatchError     = "error"
+)
+
+// Query-parameter names for the two independent activity filter axes. Each is
+// named after the question it answers: `match` — did the event match? — and
+// `runState` — what state is this run in right now? (queued, running, …).
+//
+// `status` and `outcome` are the retired spellings of the same two axes,
+// still accepted as aliases for one release so scripted callers and
+// bookmarked links keep working. `outcome` was actively wrong: queued and
+// running are explicitly not finished, so they are not outcomes. The current
+// name wins when both spellings are sent. Removing the aliases is the
+// breaking step — track it before the next release.
+const (
+	paramMatch    = "match"
+	paramRunState = "runState"
+
+	legacyParamStatus  = "status"
+	legacyParamOutcome = "outcome"
 )
 
 // Default and maximum page sizes for the activity list endpoint. The
@@ -28,11 +48,33 @@ const (
 	maxEventLimit     = 500
 )
 
-// validActivityStatuses are the status values accepted by the list filter.
-var validActivityStatuses = map[string]bool{
-	activityStatusUnmatched: true,
-	activityStatusMatched:   true,
-	activityStatusError:     true,
+// validActivityMatches are the match values accepted by the list filters.
+var validActivityMatches = map[string]bool{
+	activityMatchUnmatched: true,
+	activityMatchMatched:   true,
+	activityMatchError:     true,
+}
+
+// validRunStates are the run states accepted by the list filters. They are the
+// hub-derived display states (see runstate.go), not the raw invocation status.
+var validRunStates = map[string]bool{
+	invocations.StatusQueued:  true,
+	invocations.StatusRunning: true,
+	invocations.StatusSuccess: true,
+	invocations.StatusFailure: true,
+	invocations.StatusTimeout: true,
+}
+
+// queryAlias reads a query parameter under its current name, falling back to a
+// retired spelling of the same axis. The current name wins when both are sent.
+// The value is returned unvalidated: callers must still check it, so a legacy
+// `?status=bogus` 400s instead of being dropped and silently widening the
+// filter to "any".
+func queryAlias(q url.Values, name, legacy string) string {
+	if v := q.Get(name); v != "" {
+		return v
+	}
+	return q.Get(legacy)
 }
 
 // activityMatch is a single agent/trigger that an event was routed to.
@@ -110,10 +152,6 @@ func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "missing event id")
 		return
 	}
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
-		return
-	}
 
 	evt, err := s.eventQueue.GetEvent(r.Context(), id)
 	if err != nil {
@@ -155,10 +193,6 @@ func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
-	if s.eventQueue == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "event queue not configured")
-		return
-	}
 
 	q := r.URL.Query()
 
@@ -187,26 +221,20 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 	filter := eventqueue.EventFilter{Connector: q.Get("connector"), Agent: q.Get("agent")}
 
-	if v := q.Get("status"); v != "" {
-		if !validActivityStatuses[v] {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid status: expected matched, unmatched or error")
+	if v := queryAlias(q, paramMatch, legacyParamStatus); v != "" {
+		if !validActivityMatches[v] {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid match: expected matched, unmatched or error")
 			return
 		}
-		filter.Status = v
+		filter.Match = v
 	}
 
-	if v := q.Get("outcome"); v != "" {
-		switch v {
-		case invocations.StatusQueued,
-			invocations.StatusRunning,
-			invocations.StatusSuccess,
-			invocations.StatusFailure,
-			invocations.StatusTimeout:
-			filter.Outcome = v
-		default:
-			httpx.WriteError(w, http.StatusBadRequest, "invalid outcome: expected queued, running, success, failure or timeout")
+	if v := queryAlias(q, paramRunState, legacyParamOutcome); v != "" {
+		if !validRunStates[v] {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid runState: expected queued, running, success, failure or timeout")
 			return
 		}
+		filter.State = v
 	}
 
 	if v := q.Get("since"); v != "" {
@@ -271,8 +299,8 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildActivityEntry maps a stored event and its tasks into the frontend
-// activity shape. Status is derived from the tasks: no tasks → unmatched,
-// any failed task → error, otherwise → matched.
+// activity shape. The match result (the `status` field) is derived from the
+// tasks: no tasks → unmatched, any failed task → error, otherwise → matched.
 //
 // Each match carries the derived run state (runState, taskStatus, startedAt,
 // stuck) computed by deriveRunState from the task and, when the invocation
@@ -287,16 +315,16 @@ func (s *Server) buildActivityEntry(evt eventqueue.Event, tasks []eventqueue.Tas
 		Timestamp: evt.ReceivedAt.UTC().Format(time.RFC3339),
 		Connector: evt.Connector,
 		ChannelID: evt.ChannelID,
-		Status:    activityStatusUnmatched,
+		Status:    activityMatchUnmatched,
 	}
 
 	if len(tasks) > 0 {
-		entry.Status = activityStatusMatched
+		entry.Status = activityMatchMatched
 		matches := make([]activityMatch, 0, len(tasks))
 		now := time.Now().UTC()
 		for _, t := range tasks {
 			if t.Status == "failed" {
-				entry.Status = activityStatusError
+				entry.Status = activityMatchError
 			}
 			m := activityMatch{Trigger: t.TriggerName, Agent: t.AgentName, AgentID: t.AgentName}
 			task := t

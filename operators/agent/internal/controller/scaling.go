@@ -31,7 +31,7 @@ type ScaleDecision struct {
 // concurrencyCap is the ceiling on simultaneously running task Jobs for an
 // agent: spec.scaling.replicas, defaulting to one. Its meaning predates the Job
 // model as "pods running at once" — one pod per task, bounded, is the same
-// number. Zero pauses the agent: due tasks stay queued.
+// number. Zero stops dispatch: due tasks stay queued.
 func concurrencyCap(agent *ainselv1alpha1.Agent) int32 {
 	if agent.Spec.Scaling != nil && agent.Spec.Scaling.Replicas != nil {
 		return *agent.Spec.Scaling.Replicas

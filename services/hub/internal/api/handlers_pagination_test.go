@@ -52,7 +52,7 @@ func TestAgents_Pagination(t *testing.T) {
 		}
 		req := httptest.NewRequest(http.MethodGet, url, nil)
 		rec := httptest.NewRecorder()
-		srv.mux.ServeHTTP(rec, req)
+		srv.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s: expected 200, got %d: %s", url, rec.Code, rec.Body.String())
 		}
@@ -121,7 +121,7 @@ func TestAgents_Pagination(t *testing.T) {
 	t.Run("invalid page returns 400", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/agents?page=abc", nil)
 		rec := httptest.NewRecorder()
-		srv.mux.ServeHTTP(rec, req)
+		srv.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("expected 400 for invalid page, got %d", rec.Code)
 		}
@@ -144,7 +144,7 @@ func TestTriggers_Pagination(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/triggers?page=2&pageSize=5", nil)
 	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
+	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -183,7 +183,7 @@ func TestTriggers_PaginationCombinedWithFilters(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/triggers?agent=dev-agent&pageSize=2&page=2", nil)
 	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
+	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -223,7 +223,7 @@ func TestConnectors_Pagination(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/connectors?pageSize=2&page=1", nil)
 	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
+	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -261,7 +261,7 @@ func TestInvocations_Pagination(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invocations?pageSize=3&page=2", nil)
 	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
+	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}

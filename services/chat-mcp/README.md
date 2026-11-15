@@ -79,7 +79,7 @@ The contract, all of it set by the operator on task Jobs:
 
 If the pid file never appears, the server exits non-zero rather than serving an
 empty pod forever. If `AINSEL_TASK_DIR` is unset — a long-lived pod (scale-to-zero
-or paused), or a plain local run — none of this applies and the server serves
+or disabled), or a plain local run — none of this applies and the server serves
 until it is signalled down.
 
 ## Local development
@@ -105,7 +105,7 @@ Env vars:
 | Var | Required | Default | Purpose |
 |-----|----------|---------|---------|
 | `PORT` | no | `8081` | HTTP listen port |
-| `HUB_URL` | yes | `http://hub-backend.ainsel.svc.cluster.local:8080` | Hub backend REST API URL |
+| `HUB_URL` | yes | `http://hub.ainsel.svc.cluster.local:8080` | Hub backend REST API URL |
 | `AGENT_NAME` | yes | — | Logical agent name (set by operator on the pod) |
 | `AINSEL_TASK_DIR` | no | — | Set by the operator on per-task Jobs: the directory holding the runtime's `agent.pid`. When set, this sidecar ends with the runtime — see [Lifecycle](#lifecycle) |
 

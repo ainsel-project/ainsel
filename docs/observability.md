@@ -34,7 +34,7 @@ belongs to, which is what links a log line to an event (see
 
 The hub's own process log — startup, routing decisions, `activity_event` lines —
 goes to stdout as JSON and is yours to collect with whatever the cluster already
-runs (`kubectl logs deploy/hub-backend`, or a log pipeline). It is not served by
+runs (`kubectl logs deploy/hub`, or a log pipeline). It is not served by
 this endpoint.
 
 ## Event detail & conversation transcript
@@ -42,9 +42,12 @@ this endpoint.
 Activity events (see [`GET /api/v1/events`](api-reference.md)) are the entry point for tracing what happened for a given event. From the **Activity** page or **Observability → Events**, every event row shows an always-visible `open →` link (and a **View full event** link when the row is expanded). Either opens the event detail view at `/observability/events/<id>`.
 
 ![The Activity stream listing 16,921 events, with filters for free-text search,
-status, outcome, connector and agent above a table of when, connector, trigger,
-agent and status — each row resolving to either MATCH, where the event routed
+match, state, connector and agent above a table of when, connector, trigger,
+agent and match — each row resolving to either MATCH, where the event routed
 to an agent, or SKIP, where no trigger matched](images/activity-stream.webp)
+
+*(The screenshot still shows the retired `Status`/`Outcome` filter labels; the
+two axes are now `Match` and `State`.)*
 
 *Every event the platform has seen, and the routing decision made for it.
 `SKIP` rows are as useful as `MATCH` ones: they are how you find a trigger
@@ -54,20 +57,20 @@ Besides the dropdown filters, the Activity page accepts a `since` URL parameter
 with the value `today`, which bounds the list to the current local day. It has
 no dropdown — it exists so the agent overview's daily stat cells (Runs today,
 Failures today, Timeouts today, Running now, Queued now) can link straight to
-the matching filtered view at `/activity?agent=<id>&since=today&outcome=<state>`.
+the matching filtered view at `/activity?agent=<id>&since=today&runState=<state>`.
 Any other `since` value is ignored and the history stays unbounded.
 
 The event detail view lists each invocation matched to that event with its agent, trigger, status, duration, and total token usage. Below that it renders the full agent conversation transcript for the invocation: the user prompt, assistant thinking and text, tool calls, and tool results. These messages are served by [`GET /api/v1/observability/conversations`](api-reference.md).
 
 ![The event detail view for a matched pull_request.opened event: event id,
-connector and MATCH status across the top, the agents whose triggers matched,
+connector and match result across the top, the agents whose triggers matched,
 the channel journey from connector to agent delivery, the invocation table
-with agent, trigger, status, duration and token total, and beneath it the
+with agent, trigger, run state, duration and token total, and beneath it the
 recorded conversation opening with the event envelope rendered verbatim as
 the agent's prompt](images/event-detail.webp)
 
 *One event, end to end: routing decision, channel journey, invocation
-outcome, and the exact prompt the agent received. (Source-identifying
+run state, and the exact prompt the agent received. (Source-identifying
 fields redacted.)*
 
 Transcripts are populated by the agent runtime, which reports its messages back to the hub when a task completes. If an invocation has no reported messages, the event detail view says so explicitly rather than rendering an empty transcript.
@@ -85,12 +88,12 @@ backs the row — a pruned record or a task that was never enqueued — and is n
 rendered as queued or running. A task still queued past the hub's start deadline
 (`TASK_START_TIMEOUT_SECONDS`) is flagged *stuck*; one that then waits past its
 pickup deadline (`TASK_EXPIRY_SECONDS`) is reaped to `expired` and renders as
-*timeout* — never picked up, and the sender notified like a failed task. The Activity page's Outcome
+*timeout* — never picked up, and the sender notified like a failed task. The Activity page's State
 filter accepts all five states (`queued`, `running`, `success`, `failure`,
 `timeout`) and filters over the whole history, not just the loaded page. The
 agent overview's stat cells count with this same derived state — a non-terminal
 record with no task behind it is `unknown` and shows up as neither Running now
-nor Queued now — and each cell links to Activity with the matching `outcome`
+nor Queued now — and each cell links to Activity with the matching `runState`
 and `since=today` applied.
 
 ## Metrics

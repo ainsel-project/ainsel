@@ -13,10 +13,10 @@ the machinery every agent depends on. Read-only.
 
 | Workload | Name (chart) | Role |
 |---|---|---|
-| Deployment | `hub-backend` | control plane: event queue, REST API, task store, metrics |
-| Deployment | `hub-frontend` | the operations console (nginx) |
-| Deployment | `k8s-ai-agent-operator` | renders per-task Jobs, template Deployments, persona ConfigMaps |
-| Deployment | `k8s-event-source-gateway-operator` | reconciles `WebhookConnector` (receiver Deployment + Ingress) |
+| Deployment | `hub` | control plane: event queue, REST API, task store, metrics |
+| Deployment | `frontend` | the operations console (nginx) |
+| Deployment | `agent-operator` | renders per-task Jobs, template Deployments, persona ConfigMaps |
+| Deployment | `event-gateway-operator` | reconciles `WebhookConnector` (receiver Deployment + Ingress) |
 | Deployment | `ainsel-mcp` | MCP server registry |
 | StatefulSet | `postgres` | the hub's database (when the chart manages it) |
 | Deployment(s) | `connector-<connector-id>` | one webhook receiver per connector, created by the operator, **not** by the chart |
@@ -28,7 +28,7 @@ not exist in the chart. Use the names above.
 Two facts that shape every command below:
 
 - The Go component images are **distroless** — no shell, no `curl`. You cannot
-  `kubectl exec deploy/hub-backend -- curl ...`. Port-forward, or run a throwaway
+  `kubectl exec deploy/hub -- curl ...`. Port-forward, or run a throwaway
   `curlimages/curl` pod.
 - All components log **structured JSON (slog) to stdout**. `kubectl logs` output
   pipes into `jq`, and that is usually the fastest way to see what is wrong.
@@ -55,10 +55,10 @@ names the stuck ReplicaSet; then read that pod's events.
 ```bash
 # In-cluster (no token needed — /health is not exposed through the ingress)
 kubectl run curl-test -n $NS --rm -it --restart=Never --image=curlimages/curl -- \
-  curl -s http://hub-backend:8080/health
+  curl -s http://hub:8080/health
 
 # Externally, with a token: subsystem-by-subsystem (database, operator connectivity)
-kubectl port-forward -n $NS svc/hub-backend 8080:8080 &
+kubectl port-forward -n $NS svc/hub 8080:8080 &
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/platform/health | jq
 ```
 
@@ -70,7 +70,7 @@ for an agent: `get_platform_health`
 ## 3. Read the logs like they are structured (they are)
 
 ```bash
-for c in hub-backend k8s-ai-agent-operator k8s-event-source-gateway-operator ainsel-mcp; do
+for c in hub agent-operator event-gateway-operator ainsel-mcp; do
   echo "== $c"; kubectl logs -n $NS deploy/$c --tail=200 --since=15m \
     | jq -r 'select(.level=="error" or .level=="warn") | "\(.time) \(.level) \(.msg)"' | tail -20
 done
@@ -79,7 +79,7 @@ done
 Startup lines worth reading in full — the hub announces how it wired itself:
 
 ```bash
-kubectl logs -n $NS deploy/hub-backend | jq -r 'select(.msg | test("prometheus|metric source|auth|db|Listening";"i")) | .msg'
+kubectl logs -n $NS deploy/hub | jq -r 'select(.msg | test("prometheus|metric source|auth|db|Listening";"i")) | .msg'
 ```
 
 | Log line | Meaning |
@@ -163,9 +163,9 @@ Same discipline as the agent check: state the pass/fail per subsystem with the
 line that proves it, and name the layer you are *not* suspecting.
 
 ```
-namespace:  <ns>   workloads: 5/5 ready, postgres 1/1   restarts(24h): hub-backend 0, operator 3
+namespace:  <ns>   workloads: 5/5 ready, postgres 1/1   restarts(24h): hub 0, operator 3
 health:     /api/v1/platform/health → db ok, operator ok
-anomaly:    k8s-ai-agent-operator CrashLoopBackOff since <ts>; last log: "<line>"
+anomaly:    agent-operator CrashLoopBackOff since <ts>; last log: "<line>"
 ruled out:  database (healthy, pvc 40%), OIDC (discovery ok)
 next:       <the one thing to change or the next command to run>
 ```
@@ -176,7 +176,7 @@ next:       <the one thing to change or the next command to run>
 
 | Pitfall | Why it misleads | Fix |
 |---|---|---|
-| Looking for `deploy/ainsel-hub` | That name is not what the chart creates | `hub-backend` (and the other names in §0) |
+| Looking for `deploy/ainsel-hub` | That name is not what the chart creates | `hub` (and the other names in §0) |
 | `kubectl exec` into a component | Distroless images have no shell | port-forward or a `curlimages/curl` pod |
 | `kubectl get pods` says "no agents" | Idle agents are 0-replica by design | Agent questions belong to the other skill |
 | Missing `connector-<id>` deployments | Operator-created, not chart-created | `kubectl get deploy -l ainsel.dev/connector=<id>`; check the operator |

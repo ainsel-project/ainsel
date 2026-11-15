@@ -374,10 +374,6 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	if s.authzChecker == nil {
-		httpx.WriteError(w, http.StatusForbidden, "admin required")
-		return false
-	}
 	admin, err := s.authzChecker.IsAdmin(r.Context(), u.Sub)
 	if err != nil || !admin {
 		httpx.WriteError(w, http.StatusForbidden, "admin required")

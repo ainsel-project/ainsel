@@ -587,7 +587,7 @@ comment, unprompted.
 
 - Schedule fires in the **hub's local time**. Confirm the hub pod's
   timezone (default UTC) when picking times.
-- Pausing without deletion → update it with `enabled: false`
+- Disabling without deletion → update it with `enabled: false`
   (console, MCP, or `PUT /api/v1/cron-triggers/{id}`).
 - Backfill missed runs is intentionally not supported — each fire is
   one invocation; if the hub is down during a slot, that slot is
@@ -605,7 +605,8 @@ Choose **OpenAI** as the provider and **Sign in with ChatGPT** under *How to
 authenticate*, save, then click **Sign in with ChatGPT** on the agent page:
 
 1. AInsel starts a short sign-in pod for the agent (after any running task
-   finishes) and shows OpenAI's sign-in link.
+   finishes) and shows OpenAI's sign-in link. You then have 10 minutes to
+   sign in and paste the address.
 2. Sign in with your ChatGPT account. The browser then lands on a page at
    `http://127.0.0.1:1455/auth/callback?...` that does not load. That is
    expected.
@@ -637,12 +638,15 @@ What to know:
   the token if needed. If OpenAI rejects it, the agent shows **Sign-in required**
   on its page and in the agent list, runs nothing, and keeps its queued tasks
   until someone signs in again. A network or OpenAI outage during that check is
-  retried and is not treated as a dead sign-in. A token revoked before it
+  retried and is not treated as a dead sign-in; each attempt gives up after 20
+  seconds. A stored credential that no longer parses (a pod killed while writing
+  it) counts as dead; signing in again clears it and stores a new one. A token revoked before it
   expires is only noticed when it next refreshes; until then tasks fail with an
   authorization error.
 - **Revoking.** Each agent signs in as its own app, shown as *AInsel
   &lt;agent name&gt;*, and can be revoked on its own in your ChatGPT settings. Switching the agent
-  back to an API key deletes its credential volume and the sign-in with it.
+  back to an API key deletes its credential volume and the sign-in with it, and
+  stops a sign-in that is still in progress.
 - **Terms.** OpenAI lets open-source, self-hosted apps use Sign in with ChatGPT
   without approval; paid or remotely hosted apps go through OpenAI's
   [interest form](https://openai.com/form/sign-in-with-chatgpt-interest/).
@@ -744,15 +748,20 @@ misbehaves, scale it to zero (below) while you fix the persona.
 Mostly persona-driven today: refusal patterns ("never close
 issues"), output-format constraints, blast-radius limits.
 
-![The agent detail view for agent-reviewer-gh, showing its model and image, a
-runtime status of Ready with configured replicas and containers, and the
-persona-reviewer shared template rendered alongside its Scope Constraint
-section](images/agent-persona.webp)
+![The Runtime & env section of the agent-reviewer-gh agent workspace in the
+console: the Model & scaling panel with its model and scaling settings, the
+read-only Image panel with an Edit image link to the image page, and the
+Environment overrides panel with the agent's own variables layered over the
+image's environment](images/agent-persona.webp)
 
-*A reviewer agent's guardrails, in the console. The persona's scope
-constraints — review the diff only, never propose rewrites of unchanged code,
-never open issues or apply labels — are the guardrail, and they are versioned
-with the persona rather than living in someone's head.*
+*A reviewer agent's runtime configuration, in the console: Model & scaling
+sets the model and how many tasks may run at once, the Image panel shows the
+referenced image read-only (the Edit image link leads to the image page, where
+an edit updates every agent sharing it), and Environment overrides pin this
+agent's env on top of the image's. The guardrail itself — the persona's scope
+constraints, review the diff only, never propose rewrites of unchanged code,
+never open issues or apply labels — lives on the agent's Persona section,
+versioned with the persona rather than living in someone's head.*
 
 The
 platform supplements this with:
@@ -906,7 +915,7 @@ stage sigstore's trusted root as a file in the cluster and point at it:
 plugins:
   signing:
     trustedRootFile: /etc/sigstore/trusted_root.json
-connectorOperator:
+eventGatewayOperator:
   extraVolumes:
     - name: sigstore-root
       secret:
@@ -1004,7 +1013,7 @@ the whole point:
 spec:
   mcpServers:
     - name: plugin-mem0
-      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/plugins/mem0/agent-mcp
+      url: http://hub.<namespace>.svc.cluster.local:8080/api/internal/plugins/mem0/agent-mcp
       tokenFromEnv: HUB_INTERNAL_VALIDATE_SECRET
 ```
 
@@ -1033,7 +1042,7 @@ platform's state the way it attaches a plugin's tools:
 spec:
   mcpServers:
     - name: ainsel
-      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/agent-mcp
+      url: http://hub.<namespace>.svc.cluster.local:8080/api/internal/agent-mcp
       tokenFromEnv: HUB_INTERNAL_VALIDATE_SECRET
 ```
 
