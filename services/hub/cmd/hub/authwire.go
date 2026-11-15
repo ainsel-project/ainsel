@@ -267,6 +267,15 @@ func wireAPIServer(c *container, cfg containerConfig, plan authPlan) (*api.Serve
 		slog.Info("skill catalogue MCP disabled (HUB_SKILLS_MCP_TOKEN not set)")
 	}
 
+	// The platform read plane. Off unless an operator opts in; when off, the
+	// endpoint answers 503 and no registry row is written for it, so nothing
+	// advertises it to agents.
+	if agentMCPEnabled() {
+		slog.Info("platform agent MCP enabled", "path", api.AgentMCPPath)
+	} else {
+		slog.Info("platform agent MCP disabled (" + agentMCPEnabledEnv + " not true)")
+	}
+
 	// The validate credential only. The catalogue has its own token and its own
 	// line above; naming it here would tie two independent settings together and
 	// let one log line lie about the other.
@@ -321,6 +330,7 @@ func wireAPIServer(c *container, cfg containerConfig, plan authPlan) (*api.Serve
 
 		TaskStartTimeout:       time.Duration(cfg.taskStartTimeoutSecs) * time.Second,
 		SkillsMCPToken:         skillsMCPToken,
+		AgentMCPEnabled:        agentMCPEnabled(),
 		InternalValidateSecret: internalValidateSecret,
 		WSAllowedOrigins:       wsAllowedOrigins,
 		MetricsSource:          source,

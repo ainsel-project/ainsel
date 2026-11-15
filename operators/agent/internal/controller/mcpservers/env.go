@@ -74,32 +74,44 @@ func TokenEnvValue(servers []ainselv1alpha1.AgentImageMCPServer, envNames map[st
 	return strings.Join(parts, ","), missingEnv
 }
 
-// PluginTokenEnv is the platform-injected env var that plugin MCP servers in
-// the hub registry use as their bearer: the hub's agent endpoint for plugins
-// authenticates the runner with it.
+// PluginTokenEnv is the platform-injected env var that the hub's own
+// agent-facing MCP endpoints authenticate with: the hub's endpoint for a
+// plugin's tools, and the hub's endpoint for the platform's own read plane.
 const PluginTokenEnv = "HUB_INTERNAL_VALIDATE_SECRET" // #nosec G101 -- an env var name, not a credential
 
-// IsHubPluginURL reports whether url is one of the hub's internal plugin
-// endpoints (<hubURL>/api/internal/plugins/...). Only such servers may
-// reference PluginTokenEnv: handing the platform secret to any other URL
-// would let a user-registered server collect it.
-func IsHubPluginURL(url, hubURL string) bool {
+// hubPluginPathPrefix is the path prefix of the hub's per-plugin agent MCP
+// endpoints; HubAgentPath is the path of the platform read plane.
+const (
+	hubPluginPathPrefix = "/api/internal/plugins/"
+	HubAgentPath        = "/api/internal/agent-mcp"
+)
+
+// IsHubAgentEndpointURL reports whether url is one of the hub's own agent
+// endpoints: a plugin's agent MCP (<hubURL>/api/internal/plugins/<id>/agent-mcp)
+// or the platform read plane (<hubURL>/api/internal/agent-mcp). Only such
+// servers may reference PluginTokenEnv: handing the platform secret to any other
+// URL would let a user-registered server collect it.
+//
+// The platform plane is matched exactly rather than by prefix. Its path has no
+// sub-structure, so a prefix match would accept a path the hub does not serve
+// and hand the credential to whatever answers there.
+func IsHubAgentEndpointURL(url, hubURL string) bool {
 	hubURL = strings.TrimSuffix(hubURL, "/")
 	if hubURL == "" {
 		return false
 	}
-	return strings.HasPrefix(url, hubURL+"/api/internal/plugins/")
+	return strings.HasPrefix(url, hubURL+hubPluginPathPrefix) || url == hubURL+HubAgentPath
 }
 
-// TokenEnvValueWithPlatform is TokenEnvValue plus one platform exception:
-// a server pointing at the hub's internal plugin endpoints may use
-// PluginTokenEnv even though it is not an AgentImage env var (the operator
-// injects it on every agent container).
+// TokenEnvValueWithPlatform is TokenEnvValue plus one platform exception: a
+// server pointing at one of the hub's own agent endpoints may use PluginTokenEnv
+// even though it is not an AgentImage env var (the operator injects it on every
+// agent container).
 func TokenEnvValueWithPlatform(servers []ainselv1alpha1.AgentImageMCPServer, envNames map[string]bool, hubURL string) (string, []MissingEnvEntry) {
 	var parts []string
 	var missing []MissingEnvEntry
 	for _, s := range servers {
-		if s.TokenFromEnv == PluginTokenEnv && IsHubPluginURL(s.URL, hubURL) {
+		if s.TokenFromEnv == PluginTokenEnv && IsHubAgentEndpointURL(s.URL, hubURL) {
 			parts = append(parts, fmt.Sprintf("%s=$(%s)", s.Name, s.TokenFromEnv))
 			continue
 		}

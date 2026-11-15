@@ -51,6 +51,10 @@ func fullRouteServer(t *testing.T) *Server {
 	deps := testDeps(t)
 	deps.Personas = &stubPersona{}
 	deps.Skills = newMockSkillService()
+	// The platform read plane is off by default, and an off endpoint answers 503
+	// before it looks at credentials. The internal-token table below is about
+	// credentials, so the inventory server is the opted-in one.
+	deps.AgentMCPEnabled = true
 	return newTestServer(t, deps)
 }
 
@@ -59,6 +63,7 @@ func fullRouteServer(t *testing.T) *Server {
 // diff: converting a route group changes this list, and the diff is the review of
 // that group.
 var goldenRoutePatterns = []string{
+	"/api/internal/agent-mcp",
 	"/api/internal/agents/",
 	"/api/internal/chat/sessions",
 	"/api/internal/chat/sessions/",
@@ -667,6 +672,8 @@ type internalTokenRoute struct {
 //     itself (a verified caller identity), not the shared internal token.
 //   - /api/internal/plugins/{id}/agent-mcp uses the internal secret as a bearer
 //     token, not X-Internal-Token.
+//   - /api/internal/agent-mcp does the same, and additionally requires
+//     X-Ainsel-Agent: it is the platform's own read plane, not a plugin's.
 //   - /api/internal/skills/mcp uses the separate catalogue token on purpose.
 var internalTokenRoutes = []internalTokenRoute{
 	{method: http.MethodPost, path: "/api/internal/agents/a-1/tasks/7", wantNoSecret: http.StatusServiceUnavailable, wantWrongToken: http.StatusUnauthorized},
@@ -689,6 +696,7 @@ var internalTokenRoutes = []internalTokenRoute{
 	// Exceptions — see the comment above.
 	{method: http.MethodPost, path: "/api/internal/plugins/github/credentials", wantNoSecret: http.StatusNotFound, wantWrongToken: http.StatusNotFound},
 	{method: http.MethodPost, path: "/api/internal/plugins/github/agent-mcp", wantNoSecret: http.StatusServiceUnavailable, wantWrongToken: http.StatusUnauthorized},
+	{method: http.MethodPost, path: "/api/internal/agent-mcp", wantNoSecret: http.StatusServiceUnavailable, wantWrongToken: http.StatusUnauthorized},
 	{method: http.MethodPost, path: "/api/internal/skills/mcp", wantNoSecret: http.StatusServiceUnavailable, wantWrongToken: http.StatusServiceUnavailable},
 }
 

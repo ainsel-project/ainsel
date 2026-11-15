@@ -156,6 +156,14 @@ and **control** it. Below is the full tool surface, grouped by area.
 Read tools are safe to call freely; mutation tools change platform state
 and should be used deliberately.
 
+> This server is for **you** — a human at a laptop or a console operator. AInsel's
+> own agents do not get it. They get a separate, read-only plane served by the hub
+> at `/api/internal/agent-mcp`, which mounts the read half of this list and no
+> mutation at all: an agent may read that a trigger is paused, but cannot pause
+> one. That split is what keeps an agent from changing the platform it runs on —
+> see
+> [`administrator-guide.md`](administrator-guide.md#plugins).
+
 Write tools accept secrets (a provider API key, a secret `env` value) and never
 put them back into a result or an error string — the hub's read shapes mask
 them, and no tool echoes a request body into its error text. The single
@@ -406,7 +414,7 @@ limits** when the caller does not pass an explicit parameter:
 | `list_cron_triggers` | `pageSize=50` | `page`, `pageSize` |
 | `list_connectors` | `pageSize=50` | `page`, `pageSize` |
 | `list_channels` | `pageSize=50` | `page`, `pageSize`, `kind`, `since` |
-| `get_channel_events` | `limit=50` | `limit`, `since`, `status`, `subject` |
+| `get_channel_events` | `limit=50` | `limit`, `since`, `match`, `subject` |
 | `list_agent_images` | `pageSize=50` | `page`, `pageSize` |
 | `list_personas` | `pageSize=50` | `page`, `pageSize` |
 | `list_skills` | `pageSize=50` | `page`, `pageSize` |
