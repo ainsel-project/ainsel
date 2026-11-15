@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,6 +22,10 @@ type WebhookConnectorCreateRequest struct {
 	Name            string `json:"name"`
 	GroupID         string `json:"groupId"`
 	SignatureHeader string `json:"signatureHeader"`
+	// ManagedBy stamps this connector's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the connector stays console-owned).
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 // WebhookConnectorUpdateRequest is the PUT body for updating a
@@ -43,8 +48,9 @@ type WebhookConnectorResponse struct {
 	// ManagedBy names the external system that authors this connector
 	// (spec.managedBy). Any non-empty value other than "user" means the
 	// console renders it read-only and the hub refuses every mutation
-	// (update, delete, rotate-secret) with 409. Read-only: the create/update
-	// request shapes have no managedBy field.
+	// (update, delete, rotate-secret) with 409 — except to the plugin the value
+	// names. Read-only on update; a plugin caller may stamp its own value at
+	// create (see WebhookConnectorCreateRequest).
 	ManagedBy string `json:"managedBy,omitempty"`
 	// GroupID is the authz group the connector belongs to, as recorded at
 	// create time. Reported on the single-connector GET only (the list stays
@@ -68,7 +74,7 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.createConnector(ctx, w, r)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -76,7 +82,7 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/connectors/")
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "missing connector name")
+		httpx.WriteError(w, http.StatusBadRequest, "missing connector name")
 		return
 	}
 
@@ -86,10 +92,10 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 			if !s.requireWrite(w, r, "connector", name) {
 				return
 			}
-			s.rotateConnectorSecret(ctx, w, name)
+			s.rotateConnectorSecret(r, w, name)
 			return
 		}
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -109,27 +115,27 @@ func (s *Server) handleConnector(w http.ResponseWriter, r *http.Request) {
 		if !s.requireWrite(w, r, "connector", name) {
 			return
 		}
-		s.deleteConnector(ctx, w, name)
+		s.deleteConnector(r, w, name)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) listConnectors(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var list connectorv1alpha1.WebhookConnectorList
 	if err := s.client.List(ctx, &list, client.InNamespace(s.ns)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	// Filter to resources the caller can access.
-	if s.authzStore != nil && !s.callerIsAdmin(r) {
+	if !s.callerIsAdmin(r) {
 		names := make([]string, len(list.Items))
 		for i, c := range list.Items {
 			names[i] = c.Name
@@ -156,7 +162,7 @@ func (s *Server) listConnectors(ctx context.Context, w http.ResponseWriter, r *h
 	if items == nil {
 		items = []WebhookConnectorResponse{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -169,47 +175,51 @@ func (s *Server) getConnector(ctx context.Context, w http.ResponseWriter, name s
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
 	resp := toWebhookConnectorResponse(c)
-	if s.authzStore != nil {
-		rg, err := s.authzStore.GetResourceGroup(ctx, "connector", name)
-		if err != nil {
-			// Group row is best-effort enrichment; degrade to no group but keep it diagnosable.
-			slog.Warn("get connector resource group", "error", err, "connector", name)
-		} else if rg != nil {
-			resp.GroupID = rg.GroupID
-		}
+	rg, err := s.authzStore.GetResourceGroup(ctx, "connector", name)
+	if err != nil {
+		// Group row is best-effort enrichment; degrade to no group but keep it diagnosable.
+		slog.Warn("get connector resource group", "error", err, "connector", name)
+	} else if rg != nil {
+		resp.GroupID = rg.GroupID
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var req WebhookConnectorCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+		httpx.WriteError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	// Author stamping (issue #190): only a plugin caller naming itself gets a
+	// managed connector; every other caller stays "user" as before.
+	managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+	if writeCreateManagedBy(w, mbErr) {
 		return
 	}
 
 	// Validate group membership for resource creation.
-	if s.authzChecker != nil {
-		if req.GroupID == "" {
-			writeError(w, http.StatusBadRequest, "groupId is required")
-			return
-		}
-		if !s.requireGroupWrite(w, r, req.GroupID) {
-			return
-		}
+	req.GroupID = s.resolveGroupID(req.GroupID)
+	if req.GroupID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+		return
+	}
+	if !s.requireGroupWrite(w, r, req.GroupID) {
+		return
 	}
 
 	webhookHMAC, err := generateWebhookSecret()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
 		return
 	}
 
@@ -219,14 +229,14 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 		map[string][]byte{"secret": []byte(webhookHMAC)},
 		map[string]string{webhookConnectorLabel: id},
 	); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create webhook secret: "+err.Error())
 		return
 	}
 
 	imageRef, err := s.connectorCfg.WebhookImage()
 	if err != nil {
 		_ = s.deleteSecret(ctx, secretName)
-		writeError(w, http.StatusInternalServerError, "failed to resolve image: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to resolve image: "+err.Error())
 		return
 	}
 
@@ -256,6 +266,7 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 				Tag:        imageRef.Tag,
 				Digest:     imageRef.Digest,
 			},
+			ManagedBy: crManagedBy(managedBy),
 		},
 	}
 	connector.APIVersion = "ainsel.dev/v1alpha1"
@@ -263,39 +274,37 @@ func (s *Server) createConnector(ctx context.Context, w http.ResponseWriter, r *
 
 	if err := s.client.Create(ctx, connector); err != nil {
 		_ = s.deleteSecret(ctx, secretName)
-		writeError(w, http.StatusInternalServerError, "failed to create connector: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create connector: "+err.Error())
 		return
 	}
 
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(ctx, "connector", id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
+	groupID := req.GroupID
+	if groupID == "" {
+		groupID = "legacy"
+	}
+	if err := s.authzStore.SetResourceGroup(ctx, "connector", id, groupID, false); err != nil {
+		slog.Error("set resource group on create", "error", err, "resource", id)
 	}
 
 	resp := toWebhookConnectorResponse(*connector)
 	resp.WebhookSecretValue = webhookHMAC
-	writeJSON(w, http.StatusCreated, resp)
+	httpx.WriteJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) updateConnector(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	var req WebhookConnectorUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
-	if isManagedCR(c.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, c.Spec.ManagedBy) {
 		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}
@@ -308,34 +317,33 @@ func (s *Server) updateConnector(ctx context.Context, w http.ResponseWriter, r *
 	}
 
 	if err := s.client.Update(ctx, &c); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toWebhookConnectorResponse(c))
+	httpx.WriteJSON(w, http.StatusOK, toWebhookConnectorResponse(c))
 }
 
-func (s *Server) deleteConnector(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) deleteConnector(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
-	if isManagedCR(c.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, c.Spec.ManagedBy) {
 		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}
 
 	if err := s.client.Delete(ctx, &c); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	_ = s.deleteSecret(ctx, webhookSecretName(name))
 
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "connector", name); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", name)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "connector", name); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", name)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -361,39 +369,41 @@ func toWebhookConnectorResponse(c connectorv1alpha1.WebhookConnector) WebhookCon
 	return resp
 }
 
-func (s *Server) rotateConnectorSecret(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) rotateConnectorSecret(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	nn := types.NamespacedName{Name: name, Namespace: s.ns}
 	var c connectorv1alpha1.WebhookConnector
 	if err := s.client.Get(ctx, nn, &c); err != nil {
-		writeError(w, http.StatusNotFound, "connector not found")
+		httpx.WriteError(w, http.StatusNotFound, "connector not found")
 		return
 	}
 	// Rotating the HMAC key rewrites the Secret an external author wired into
-	// its sender — a mutation of the managed connector's contract.
-	if isManagedCR(c.Spec.ManagedBy) {
+	// its sender — a mutation of the managed connector's contract, unless the
+	// caller is the plugin named in the value.
+	if isManagedCRForRequest(r, c.Spec.ManagedBy) {
 		writeManagedConflict(w, "connector", c.Spec.ManagedBy)
 		return
 	}
 
 	newHMAC, err := generateWebhookSecret()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to generate webhook secret: "+err.Error())
 		return
 	}
 
 	var sec corev1.Secret
 	snn := types.NamespacedName{Name: webhookSecretName(name), Namespace: s.ns}
 	if err := s.client.Get(ctx, snn, &sec); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to fetch webhook secret: "+err.Error())
 		return
 	}
 	sec.Data = map[string][]byte{"secret": []byte(newHMAC)}
 	if err := s.client.Update(ctx, &sec); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update webhook secret: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update webhook secret: "+err.Error())
 		return
 	}
 
 	resp := toWebhookConnectorResponse(c)
 	resp.WebhookSecretValue = newHMAC
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }

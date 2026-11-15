@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -14,18 +15,18 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		groups, err := s.authzStore.ListGroups(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if groups == nil {
 			groups = []authz.Group{}
 		}
-		writeJSON(w, http.StatusOK, groups)
+		httpx.WriteJSON(w, http.StatusOK, groups)
 	case http.MethodPost:
 		// Any authenticated user can create a group and becomes its owner.
 		u, ok := oidc.FromContext(r.Context())
 		if !ok {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		var body struct {
@@ -33,26 +34,26 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 			Description string `json:"description"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		if body.Name == "" {
-			writeError(w, http.StatusBadRequest, "name is required")
+			httpx.WriteError(w, http.StatusBadRequest, "name is required")
 			return
 		}
 		g, err := s.authzStore.CreateGroup(r.Context(), body.Name, body.Description)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		// Creator becomes owner.
 		if err := s.authzStore.AddGroupMember(r.Context(), g.ID, u.Sub, authz.RoleOwner); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, g)
+		httpx.WriteJSON(w, http.StatusCreated, g)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -86,18 +87,18 @@ func (s *Server) handleGroupRoot(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		members, err := s.authzStore.ListGroupMembers(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if members == nil {
 			members = []authz.MemberWithUser{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{
 			"group":   g,
 			"members": members,
 		})
@@ -110,7 +111,7 @@ func (s *Server) handleGroupRoot(w http.ResponseWriter, r *http.Request, id stri
 			Description string `json:"description"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		g, err := s.authzStore.UpdateGroup(r.Context(), id, body.Name, body.Description)
@@ -118,10 +119,10 @@ func (s *Server) handleGroupRoot(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, g)
+		httpx.WriteJSON(w, http.StatusOK, g)
 	case http.MethodDelete:
 		if !s.requireGroupOwner(w, r, id) {
 			return
@@ -130,12 +131,12 @@ func (s *Server) handleGroupRoot(w http.ResponseWriter, r *http.Request, id stri
 			if writeAuthzError(w, err, "group") {
 				return
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -152,19 +153,19 @@ func (s *Server) handleGroupMembers(w http.ResponseWriter, r *http.Request, grou
 			Role    authz.GroupRole `json:"role"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		if body.Role == "" {
 			body.Role = authz.RoleReader
 		}
 		if body.Role != authz.RoleReader && body.Role != authz.RoleWriter && body.Role != authz.RoleOwner {
-			writeError(w, http.StatusBadRequest, "role must be reader, writer, or owner")
+			httpx.WriteError(w, http.StatusBadRequest, "role must be reader, writer, or owner")
 			return
 		}
 		for _, uid := range body.UserIDs {
 			if err := s.authzStore.AddGroupMember(r.Context(), groupID, uid, body.Role); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
@@ -175,11 +176,11 @@ func (s *Server) handleGroupMembers(w http.ResponseWriter, r *http.Request, grou
 			if writeAuthzError(w, err, "member") {
 				return
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }

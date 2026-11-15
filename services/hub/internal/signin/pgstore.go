@@ -94,8 +94,9 @@ func (p *PgStore) whyNot(ctx context.Context, agent, id string) error {
 
 func (p *PgStore) SetAuthURL(ctx context.Context, agent, id, url string) error {
 	tag, err := p.pool.Exec(ctx, `
-		UPDATE agent_sign_in_sessions SET auth_url = $3, state = 'awaiting_redirect'
-		 WHERE agent = $1 AND id = $2 AND state = 'waiting_for_pod' AND expires_at > now()`, agent, id, url)
+		UPDATE agent_sign_in_sessions SET auth_url = $3, state = 'awaiting_redirect',
+		       expires_at = now() + $4::interval
+		 WHERE agent = $1 AND id = $2 AND state = 'waiting_for_pod' AND expires_at > now()`, agent, id, url, TTL.String())
 	if err != nil {
 		return err
 	}

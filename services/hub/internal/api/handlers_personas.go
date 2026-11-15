@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -33,47 +34,41 @@ type PersonaService interface {
 	DeleteOwned(ctx context.Context, personaID, agentName string) error
 }
 
-// personaHandlers groups handler functions plus their service dependency.
-// authzStorePtr is a pointer-to-pointer so it picks up the value set by
-// Server.SetAuthZ after construction.
+// personaHandlers groups the persona endpoints with their service dependency
+// and the authorization pair they guard with. Both arrive by value at
+// registration: New validates Deps and then registers this group, so there is
+// no later SetAuthZ for a handler to observe through a pointer-to-pointer.
 type personaHandlers struct {
-	svc           PersonaService
-	authzStorePtr *authzStore
-	checkerPtr    **authz.Checker
+	svc     PersonaService
+	store   AuthzStore
+	checker *authz.Checker
+	// defaultGroupID mirrors Server.resolveGroupID for the same reason the
+	// server has it: an install with the group model off files a group-less
+	// create in its one group instead of answering 400.
+	defaultGroupID string
 }
 
-func (h *personaHandlers) getAuthzStore() authzStore {
-	if h.authzStorePtr == nil {
-		return nil
+func (h *personaHandlers) resolveGroupID(id string) string {
+	if id != "" {
+		return id
 	}
-	return *h.authzStorePtr
-}
-
-func (h *personaHandlers) getChecker() *authz.Checker {
-	if h.checkerPtr == nil {
-		return nil
-	}
-	return *h.checkerPtr
+	return h.defaultGroupID
 }
 
 // requireRead enforces read access on a persona. Returns true if allowed.
 func (h *personaHandlers) requireRead(w http.ResponseWriter, r *http.Request, id string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanRead(r.Context(), u.Sub, "persona", id)
+	ok, err := h.checker.CanRead(r.Context(), u.Sub, "persona", id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -81,22 +76,18 @@ func (h *personaHandlers) requireRead(w http.ResponseWriter, r *http.Request, id
 
 // requireWrite enforces write access on a persona. Returns true if allowed.
 func (h *personaHandlers) requireWrite(w http.ResponseWriter, r *http.Request, id string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWrite(r.Context(), u.Sub, "persona", id)
+	ok, err := h.checker.CanWrite(r.Context(), u.Sub, "persona", id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -104,41 +95,33 @@ func (h *personaHandlers) requireWrite(w http.ResponseWriter, r *http.Request, i
 
 // requireGroupWrite checks the caller can create resources in the group.
 func (h *personaHandlers) requireGroupWrite(w http.ResponseWriter, r *http.Request, groupID string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWriteGroup(r.Context(), u.Sub, groupID)
+	ok, err := h.checker.CanWriteGroup(r.Context(), u.Sub, groupID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "writer or owner of the group required")
+		httpx.WriteError(w, http.StatusForbidden, "writer or owner of the group required")
 		return false
 	}
 	return true
 }
 
 // accessibleSet returns the set of persona IDs the caller can read.
-// Returns nil if access control is not configured or the caller is an admin
+// Returns nil when the caller is an admin — which, in auth mode "none", is
+// every caller
 // (meaning: no filtering).
 func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
-	store := h.getAuthzStore()
-	c := h.getChecker()
-	if store == nil || c == nil {
-		return nil
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		return map[string]bool{}
 	}
-	admin, _ := c.IsAdmin(r.Context(), u.Sub)
+	admin, _ := h.checker.IsAdmin(r.Context(), u.Sub)
 	if admin {
 		return nil
 	}
@@ -148,10 +131,10 @@ func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
 		groupIDs = ids
 	} else {
 		// Fall back to store lookup for user callers
-		groupIDs, _ = store.UserGroupIDs(r.Context(), u.Sub)
+		groupIDs, _ = h.store.UserGroupIDs(r.Context(), u.Sub)
 	}
 	includePublic := r.URL.Query().Get("includePublic") == "true"
-	names, err := store.ListResourcesByGroups(r.Context(), "persona", groupIDs, includePublic)
+	names, err := h.store.ListResourcesByGroups(r.Context(), "persona", groupIDs, includePublic)
 	if err != nil {
 		return map[string]bool{}
 	}
@@ -159,12 +142,31 @@ func (h *personaHandlers) accessibleSet(r *http.Request) map[string]bool {
 }
 
 // RegisterPersonaRoutes wires the persona endpoints into the given mux.
-// authzStorePtr points to the Server's authzStore field so it picks up
-// the value set later by SetAuthZ.
-func RegisterPersonaRoutes(mux routeRegistrar, svc PersonaService, authzStorePtr *authzStore, checkerPtr **authz.Checker) {
-	h := &personaHandlers{svc: svc, authzStorePtr: authzStorePtr, checkerPtr: checkerPtr}
+//
+// The store and checker are taken by value, like every other handler
+// dependency, because there is no post-construction wiring left to observe.
+func RegisterPersonaRoutes(mux routeRegistrar, svc PersonaService, store AuthzStore, checker *authz.Checker, defaultGroupID string) {
+	h := &personaHandlers{svc: svc, store: store, checker: checker, defaultGroupID: defaultGroupID}
 	mux.HandleFunc("/api/v1/personas", h.handleCollection)
 	mux.HandleFunc("/api/v1/personas/", h.handleItem)
+}
+
+// personaCreateRequest is the POST body of /api/v1/personas. It is deliberately
+// narrower than personas.CreateRequest: `managedBy` and `ownerAgent` are
+// server-side fields — the handler composes managedBy from the authenticated
+// caller (issue #190) and ownerAgent is only ever set by the hub's own
+// copy-on-write path — so binding the service struct straight from the body
+// would let a client stamp itself as an external manager.
+type personaCreateRequest struct {
+	Name        string `json:"name"`
+	GroupID     string `json:"groupId"`
+	Description string `json:"description"`
+	Text        string `json:"text"`
+	// ManagedBy stamps this persona's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the persona stays console-owned).
+	// The value written is always the hub-composed stamp, never this field.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +174,7 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 	case http.MethodGet:
 		page, err := ParsePageParams(r.URL.Query())
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		// Authz: the accessible-id set goes into the query as id = ANY(...).
@@ -181,7 +183,7 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 		// alone, without querying.
 		set := h.accessibleSet(r)
 		if set != nil && len(set) == 0 {
-			writeJSON(w, http.StatusOK, map[string]any{
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{
 				"items":      []personas.PersonaSummary{},
 				"total":      0,
 				"page":       page.Page,
@@ -202,7 +204,7 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 		if items == nil {
 			items = []personas.PersonaSummary{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{
 			"items":      items,
 			"total":      total,
 			"page":       page.Page,
@@ -210,37 +212,42 @@ func (h *personaHandlers) handleCollection(w http.ResponseWriter, r *http.Reques
 			"totalPages": page.TotalPages(total),
 		})
 	case http.MethodPost:
-		var req personas.CreateRequest
+		var req personaCreateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
-		if h.getChecker() != nil {
-			if req.GroupID == "" {
-				writeError(w, http.StatusBadRequest, "groupId is required")
-				return
-			}
-			if !h.requireGroupWrite(w, r, req.GroupID) {
-				return
-			}
+		req.GroupID = h.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+			return
 		}
-		p, err := h.svc.Create(r.Context(), req)
+		if !h.requireGroupWrite(w, r, req.GroupID) {
+			return
+		}
+		// Author stamping (issue #190): only a plugin caller naming itself gets a
+		// managed row; every other caller stays "user" as before.
+		managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+		if writeCreateManagedBy(w, mbErr) {
+			return
+		}
+		p, err := h.svc.Create(r.Context(), personas.CreateRequest{
+			Name:        req.Name,
+			GroupID:     req.GroupID,
+			Description: req.Description,
+			Text:        req.Text,
+			ManagedBy:   managedBy,
+		})
 		if err != nil {
 			h.writePersonaError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := h.getAuthzStore().SetResourceGroup(r.Context(), "persona", p.ID, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", p.ID)
-			}
+		if err := h.store.SetResourceGroup(r.Context(), "persona", p.ID, req.GroupID, false); err != nil {
+			slog.Error("set resource group on create", "error", err, "resource", p.ID)
 		}
-		writeJSON(w, http.StatusCreated, p)
+		httpx.WriteJSON(w, http.StatusCreated, p)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -264,7 +271,7 @@ func (h *personaHandlers) handleItem(w http.ResponseWriter, r *http.Request) {
 	case len(rest) == 2 && rest[0] == "versions":
 		n, err := strconv.Atoi(rest[1])
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid version number")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid version number")
 			return
 		}
 		h.itemVersion(w, r, id, n)
@@ -286,14 +293,14 @@ func (h *personaHandlers) itemRoot(w http.ResponseWriter, r *http.Request, id st
 			h.writePersonaError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, p)
+		httpx.WriteJSON(w, http.StatusOK, p)
 	case http.MethodPut:
 		if !h.requireWrite(w, r, id) {
 			return
 		}
 		var req personas.UpdateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
 		p, err := h.svc.Update(r.Context(), id, req)
@@ -301,7 +308,7 @@ func (h *personaHandlers) itemRoot(w http.ResponseWriter, r *http.Request, id st
 			h.writePersonaError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, p)
+		httpx.WriteJSON(w, http.StatusOK, p)
 	case http.MethodDelete:
 		if !h.requireWrite(w, r, id) {
 			return
@@ -310,20 +317,18 @@ func (h *personaHandlers) itemRoot(w http.ResponseWriter, r *http.Request, id st
 			h.writePersonaError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			if err := h.getAuthzStore().DeleteResourceGroup(r.Context(), "persona", id); err != nil {
-				slog.Error("delete ownership", "error", err, "resource", id)
-			}
+		if err := h.store.DeleteResourceGroup(r.Context(), "persona", id); err != nil {
+			slog.Error("delete ownership", "error", err, "resource", id)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (h *personaHandlers) itemVersions(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireRead(w, r, id) {
@@ -331,7 +336,7 @@ func (h *personaHandlers) itemVersions(w http.ResponseWriter, r *http.Request, i
 	}
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	all, total, err := h.svc.ListVersions(r.Context(), id, page.PageSize, (page.Page-1)*page.PageSize)
@@ -343,7 +348,7 @@ func (h *personaHandlers) itemVersions(w http.ResponseWriter, r *http.Request, i
 	if items == nil {
 		items = []personas.VersionSummary{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,
@@ -354,7 +359,7 @@ func (h *personaHandlers) itemVersions(w http.ResponseWriter, r *http.Request, i
 
 func (h *personaHandlers) itemVersion(w http.ResponseWriter, r *http.Request, id string, n int) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireRead(w, r, id) {
@@ -365,12 +370,12 @@ func (h *personaHandlers) itemVersion(w http.ResponseWriter, r *http.Request, id
 		h.writePersonaError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, v)
+	httpx.WriteJSON(w, http.StatusOK, v)
 }
 
 func (h *personaHandlers) itemRollback(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireWrite(w, r, id) {
@@ -380,7 +385,7 @@ func (h *personaHandlers) itemRollback(w http.ResponseWriter, r *http.Request, i
 		ToVersion int `json:"toVersion"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ToVersion <= 0 {
-		writeError(w, http.StatusBadRequest, "invalid body: expected {\"toVersion\": <positive int>}")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid body: expected {\"toVersion\": <positive int>}")
 		return
 	}
 	p, err := h.svc.Rollback(r.Context(), id, body.ToVersion)
@@ -388,7 +393,7 @@ func (h *personaHandlers) itemRollback(w http.ResponseWriter, r *http.Request, i
 		h.writePersonaError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	httpx.WriteJSON(w, http.StatusOK, p)
 }
 
 func (h *personaHandlers) writePersonaError(w http.ResponseWriter, err error) {
@@ -400,33 +405,33 @@ func (h *personaHandlers) writePersonaError(w http.ResponseWriter, err error) {
 func writePersonaServiceError(w http.ResponseWriter, err error) {
 	var verr *personas.ValidationError
 	if errors.As(err, &verr) {
-		writeError(w, http.StatusBadRequest, verr.Error())
+		httpx.WriteError(w, http.StatusBadRequest, verr.Error())
 		return
 	}
 	var inUse *personas.ErrInUse
 	if errors.As(err, &inUse) {
-		writeJSON(w, http.StatusConflict, map[string]any{
+		httpx.WriteJSON(w, http.StatusConflict, map[string]any{
 			"error":     "persona in use",
 			"referrers": inUse.Referrers,
 		})
 		return
 	}
 	if errors.Is(err, personas.ErrNotOwned) {
-		writeError(w, http.StatusConflict, "persona is not owned by this agent")
+		httpx.WriteError(w, http.StatusConflict, "persona is not owned by this agent")
 		return
 	}
 	var managedErr *personas.ManagedError
 	if errors.As(err, &managedErr) {
-		writeError(w, http.StatusConflict, managedErr.Error())
+		httpx.WriteError(w, http.StatusConflict, managedErr.Error())
 		return
 	}
 	if errors.Is(err, personas.ErrNameTaken) {
-		writeError(w, http.StatusConflict, "persona name already in use")
+		httpx.WriteError(w, http.StatusConflict, "persona name already in use")
 		return
 	}
 	if errors.Is(err, personas.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "internal error: "+err.Error())
+	httpx.WriteError(w, http.StatusInternalServerError, "internal error: "+err.Error())
 }

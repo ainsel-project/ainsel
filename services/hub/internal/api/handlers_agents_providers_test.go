@@ -28,7 +28,7 @@ func doAgentJSON(t *testing.T, s *Server, method, path string, body any, want in
 	req := httptest.NewRequest(method, path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != want {
 		t.Fatalf("%s %s: got %d, want %d: %s", method, path, rec.Code, want, rec.Body.String())
 	}

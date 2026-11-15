@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 )
 
 func TestWireMetricsSource(t *testing.T) {
@@ -39,6 +44,34 @@ func TestWireMetricsSource(t *testing.T) {
 // the oidc+local coexistence mode (issue #114). Only the error paths are
 // exercised: they all return before any network or container access, so no
 // live OIDC issuer or database is needed.
+// wireAuthPlanForTest drops the returned plan so the guard tests read as error
+// checks. wireAuthPlan is the successor of the old wireAuthMiddleware (issue
+// #264): the chain is now composed before the server exists.
+// wireAuthPlanForMode is wireAuthPlan with the mode resolution newContainer does
+// before calling it, for the tests that assert on the plan rather than on the
+// error.
+func wireAuthPlanForMode(ctx context.Context) (authPlan, error) {
+	mode, err := resolveAuthMode()
+	if err != nil {
+		return authPlan{}, err
+	}
+	// Same reading of the insecure-no-auth override main.go does, so a mode-"none"
+	// plan is only reachable here the way it is reachable in production.
+	cfg := containerConfig{hubAllowInsecureNoAuth: os.Getenv("HUB_ALLOW_INSECURE_NO_AUTH") == "true"}
+	return wireAuthPlan(ctx, &container{authMode: mode}, cfg)
+}
+
+func wireAuthPlanForTest(ctx context.Context, c *container, cfg containerConfig) error {
+	// newContainer resolves the mode before wiring the chain; mirror that here.
+	mode, err := resolveAuthMode()
+	if err != nil {
+		return err
+	}
+	c.authMode = mode
+	_, err = wireAuthPlan(ctx, c, cfg)
+	return err
+}
+
 func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 	setEnv := func(t *testing.T, key, val string) {
 		t.Setenv(key, val)
@@ -48,7 +81,7 @@ func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 		setEnv(t, "HUB_AUTH_MODE", "bogus")
 		setEnv(t, "OIDC_ISSUER", "")
 		setEnv(t, "OIDC_AUDIENCE", "")
-		err := wireAuthMiddleware(context.Background(), &container{}, containerConfig{})
+		err := wireAuthPlanForTest(context.Background(), &container{}, containerConfig{})
 		if err == nil || !strings.Contains(err.Error(), "oidc+local") {
 			t.Fatalf("expected invalid-mode error to mention oidc+local, got: %v", err)
 		}
@@ -59,7 +92,7 @@ func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 		setEnv(t, "OIDC_ISSUER", "")
 		setEnv(t, "OIDC_AUDIENCE", "")
 		setEnv(t, "HUB_LOCAL_JWT_SECRET", "0123456789abcdef0123456789abcdef")
-		err := wireAuthMiddleware(context.Background(), &container{}, containerConfig{})
+		err := wireAuthPlanForTest(context.Background(), &container{}, containerConfig{})
 		if err == nil || !strings.Contains(err.Error(), "OIDC_ISSUER") {
 			t.Fatalf("expected issuer/audience requirement error, got: %v", err)
 		}
@@ -70,7 +103,7 @@ func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 		setEnv(t, "OIDC_ISSUER", "https://idp.test/")
 		setEnv(t, "OIDC_AUDIENCE", "ainsel")
 		setEnv(t, "HUB_LOCAL_JWT_SECRET", "")
-		err := wireAuthMiddleware(context.Background(), &container{}, containerConfig{})
+		err := wireAuthPlanForTest(context.Background(), &container{}, containerConfig{})
 		if err == nil || !strings.Contains(err.Error(), "HUB_LOCAL_JWT_SECRET") {
 			t.Fatalf("expected HUB_LOCAL_JWT_SECRET requirement error, got: %v", err)
 		}
@@ -128,4 +161,57 @@ func TestPasswordPolicyFromEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestWireAuthPlanDefaultGroupID pins the wiring api.Deps.DefaultGroupID's
+// doc-comment promises: cmd/hub sets it from the resolved auth mode.
+//
+// Nothing else catches a plan that never sets it. The api tests that exercise the
+// group-less create path pass "legacy" to the handlers themselves, so they stay
+// green while a real mode-"none" install files every group-less create as "" and
+// rejects it with "groupId is required" — the one thing the mode has no way to
+// satisfy, because its group endpoints answer authz.ErrNoRegistry.
+func TestWireAuthPlanDefaultGroupID(t *testing.T) {
+	t.Run("mode none carries the single group", func(t *testing.T) {
+		t.Setenv("HUB_AUTH_MODE", "none")
+		t.Setenv("HUB_ALLOW_INSECURE_NO_AUTH", "true")
+		plan, err := wireAuthPlanForMode(context.Background())
+		if err != nil {
+			t.Fatalf("wireAuthPlan(none): %v", err)
+		}
+		if plan.defaultGroupID != authz.DefaultGroupID {
+			t.Errorf("mode none: defaultGroupID = %q, want %q", plan.defaultGroupID, authz.DefaultGroupID)
+		}
+	})
+
+	// An authenticating mode has a real group registry, so a create that names no
+	// group is the caller's mistake and stays a 400. The plan must not quietly
+	// default it into the legacy group.
+	t.Run("mode oidc leaves groupId mandatory", func(t *testing.T) {
+		issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/.well-known/openid-configuration":
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"issuer":                 "http://" + r.Host,
+					"jwks_uri":               "http://" + r.Host + "/keys",
+					"userinfo_endpoint":      "http://" + r.Host + "/userinfo",
+					"authorization_endpoint": "http://" + r.Host + "/authorize",
+				})
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer issuer.Close()
+
+		t.Setenv("HUB_AUTH_MODE", "oidc")
+		t.Setenv("OIDC_ISSUER", issuer.URL)
+		t.Setenv("OIDC_AUDIENCE", "ainsel")
+		plan, err := wireAuthPlanForMode(context.Background())
+		if err != nil {
+			t.Fatalf("wireAuthPlan(oidc): %v", err)
+		}
+		if plan.defaultGroupID != "" {
+			t.Errorf("mode oidc: defaultGroupID = %q, want empty", plan.defaultGroupID)
+		}
+	})
 }

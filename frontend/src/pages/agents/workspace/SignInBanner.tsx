@@ -35,12 +35,7 @@ export function SignInBanner({ agent }: { agent: AgentResponse }) {
           )}
         </div>
       </Notice>
-      <ChatGPTSignInDialog
-        agentId={agent.id}
-        open={open}
-        onClose={() => setOpen(false)}
-        taskRunning={(status?.desired ?? 0) > 0}
-      />
+      <ChatGPTSignInDialog agentId={agent.id} open={open} onClose={() => setOpen(false)} />
     </>
   )
 }

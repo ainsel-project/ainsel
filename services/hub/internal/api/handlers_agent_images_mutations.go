@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,17 +41,17 @@ func mergeEnvVarUpdate(e AgentImageEnvVarUpdate, existingSecrets map[string]stri
 func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	var existing agentv1alpha1.AgentImage
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &existing); err != nil {
-		writeError(w, http.StatusNotFound, "agent image not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent image not found")
 		return
 	}
-	if isManagedCR(existing.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, existing.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent image", existing.Spec.ManagedBy)
 		return
 	}
 
 	var req SimpleAgentImageUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
@@ -95,11 +96,11 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		if len(removedTools) > 0 {
 			affectedAgents, err := s.agentsReferencingTools(ctx, name, removedTools)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			if len(affectedAgents) > 0 {
-				writeJSON(w, http.StatusConflict, map[string]interface{}{
+				httpx.WriteJSON(w, http.StatusConflict, map[string]interface{}{
 					"error":          "tool referenced by agent(s)",
 					"affectedAgents": affectedAgents,
 					"removedTools":   removedTools,
@@ -130,19 +131,15 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	if req.MCPServers != nil {
-		if s.mcp == nil {
-			writeError(w, http.StatusServiceUnavailable, "mcp service not configured")
-			return
-		}
 		newMCPServers := make([]agentv1alpha1.AgentImageMCPServer, 0, len(*req.MCPServers))
 		for _, name := range *req.MCPServers {
 			mcpServer, err := s.mcp.Get(ctx, name)
 			if err != nil {
 				if errors.Is(err, mcpservers.ErrNotFound) {
-					writeError(w, http.StatusBadRequest, "mcp server not found: "+name)
+					httpx.WriteError(w, http.StatusBadRequest, "mcp server not found: "+name)
 					return
 				}
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			newMCPServers = append(newMCPServers, agentv1alpha1.AgentImageMCPServer{
@@ -186,34 +183,35 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	if err := s.client.Update(ctx, &existing); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toSimpleAgentImageResponse(existing))
+	httpx.WriteJSON(w, http.StatusOK, toSimpleAgentImageResponse(existing))
 }
 
-func (s *Server) deleteAgentImage(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) deleteAgentImage(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	var img agentv1alpha1.AgentImage
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &img); err != nil {
 		if apierrors.IsNotFound(err) {
-			writeError(w, http.StatusNotFound, "agent image not found")
+			httpx.WriteError(w, http.StatusNotFound, "agent image not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if isManagedCR(img.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, img.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent image", img.Spec.ManagedBy)
 		return
 	}
 
 	affectedAgents, err := s.agentsReferencingImage(ctx, name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if len(affectedAgents) > 0 {
-		writeJSON(w, http.StatusConflict, map[string]interface{}{
+		httpx.WriteJSON(w, http.StatusConflict, map[string]interface{}{
 			"error":          "agent image referenced by agent(s)",
 			"affectedAgents": affectedAgents,
 		})
@@ -225,14 +223,12 @@ func (s *Server) deleteAgentImage(ctx context.Context, w http.ResponseWriter, na
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "agent-image", name); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", name)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "agent-image", name); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", name)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

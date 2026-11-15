@@ -16,6 +16,7 @@ import { ConfirmModal } from '../../primitives/ConfirmModal'
 import { Panel } from '../../primitives/Panel'
 import { RegisterTable, type Column } from '../../primitives/RegisterTable'
 import { Autocomplete } from '../../primitives/Autocomplete'
+import { Select } from '../../primitives/Select'
 import { Tag } from '../../primitives/Tag'
 import { Titleblock } from '../../layout/Titleblock'
 import { sectionPath } from '../agents/workspace/sections'
@@ -25,6 +26,14 @@ const ROLE_LABEL: Record<GroupRole, string> = {
   writer: 'Writer',
   owner: 'Owner',
 }
+
+// The add-member row's role picker — the same three roles as ROLE_LABEL,
+// shaped for the Select primitive instead of native <option> markup.
+const MEMBER_ROLE_OPTIONS = [
+  { value: 'reader', label: 'Reader' },
+  { value: 'writer', label: 'Writer' },
+  { value: 'owner', label: 'Owner' },
+]
 
 // One panel per resource type, in this order — the panel-per-type shape
 // matches how the agent workspace groups its sections and keeps small groups
@@ -233,16 +242,12 @@ export function GroupDetail() {
                   }}
                   aria-label="Select user to add"
                 />
-                <select
+                <Select
                   value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value as GroupRole)}
+                  onChange={(v) => setSelectedRole(v as GroupRole)}
+                  options={MEMBER_ROLE_OPTIONS}
                   aria-label="Role for new member"
-                  style={{ padding: '6px 8px' }}
-                >
-                  <option value="reader">Reader</option>
-                  <option value="writer">Writer</option>
-                  <option value="owner">Owner</option>
-                </select>
+                />
                 <Button
                   variant="primary"
                   size="sm"

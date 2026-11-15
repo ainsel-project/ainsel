@@ -287,10 +287,10 @@ classDiagram
 graph TD
     subgraph "Kubernetes Cluster"
         subgraph "ainsel namespace"
-            AO[k8s-ai-agent-operator<br/>Deployment, 1 replica]
-            CO[k8s-event-source-gateway-operator<br/>Deployment, 1 replica]
-            HUB[hub-backend<br/>Deployment + Service]
-            UI_POD[hub-frontend<br/>Deployment + Service<br/>nginx]
+            AO[agent-operator<br/>Deployment, 1 replica]
+            CO[event-gateway-operator<br/>Deployment, 1 replica]
+            HUB[hub<br/>Deployment + Service]
+            UI_POD[frontend<br/>Deployment + Service<br/>nginx]
             PG[PostgreSQL<br/>StatefulSet + PVC]
 
             subgraph "Dynamic (created by operators)"

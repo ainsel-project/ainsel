@@ -43,7 +43,7 @@ func agentMCPServer(t *testing.T, objects ...runtime.Object) (*Server, *plugincr
 
 	s := testServer(t, objects...)
 	s.mux.HandleFunc("/api/internal/plugins/", s.handleInternalPluginRoutes)
-	s.SetInternalValidateSecret(agentMCPSecret)
+	s.internalValidateSecret = agentMCPSecret
 
 	secret := make([]byte, 32)
 	for i := range secret {
@@ -53,8 +53,8 @@ func agentMCPServer(t *testing.T, objects ...runtime.Object) (*Server, *plugincr
 	if err != nil {
 		t.Fatalf("new issuer: %v", err)
 	}
-	s.SetPluginCredentialIssuer(issuer)
-	s.SetPluginMCPClient(pluginmcp.New(&http.Client{Timeout: 10 * time.Second}))
+	s.pluginCreds = issuer
+	s.pluginMCP = pluginmcp.New(&http.Client{Timeout: 10 * time.Second})
 	return s, issuer
 }
 
@@ -355,7 +355,7 @@ func TestAgentMCP_RequiresInternalToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPluginToolsFixture(t)
 			s, issuer := agentMCPServer(t, pluginToolsPluginCR(t, agentMCPPlugin, false, f.endpoint()))
-			s.SetInternalValidateSecret(tt.secret)
+			s.internalValidateSecret = tt.secret
 
 			headers := tt.headers
 			if tt.pluginCredential {
@@ -457,7 +457,7 @@ func TestInternalPluginRoutes_Dispatch(t *testing.T) {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
-			s.mux.ServeHTTP(rec, req)
+			s.ServeHTTP(rec, req)
 			if rec.Code != tt.want {
 				t.Fatalf("%s %s → %d, want %d: %s", tt.method, tt.path, rec.Code, tt.want, rec.Body.String())
 			}
@@ -474,7 +474,7 @@ func TestInternalPluginCredentials_StillRouted(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/plugins/"+agentMCPPlugin+"/credentials", nil)
 	req.RemoteAddr = "10.0.0.5:51234"
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
@@ -508,7 +508,7 @@ func postAgentMCP(t *testing.T, s *Server, headers map[string]string) *httptest.
 		req.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 

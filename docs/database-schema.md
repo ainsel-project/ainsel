@@ -194,7 +194,7 @@ External MCP servers the hub can expose to agents (0001, reshaped in 0005–0007
 | `description` | `TEXT NOT NULL DEFAULT ''` | |
 | `url` | `TEXT NOT NULL DEFAULT ''` | Replaced `image_repo`/`image_tag`/`port`/`path` |
 | `token_from_env` | `TEXT NOT NULL DEFAULT ''` | Env var *name* holding the bearer token (was `bearer_token`) |
-| `managed_by` | `TEXT NOT NULL DEFAULT 'user'` | Manager name (`user`, `helm`, `gitops`, …); only changed via `Upsert`, never by `Update`; any value other than `user` refuses user-facing update/delete with 409 |
+| `managed_by` | `TEXT NOT NULL DEFAULT 'user'` | Manager name (`user`, `helm`, `gitops`, `plugin-<id>`, …); only changed via `Upsert` or a plugin-authenticated create stamp, never by `Update`; any value other than `user` refuses user-facing update/delete with 409, except for the plugin a `plugin-<id>` value names |
 | `created_at` / `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | |
 
 Index: `idx_mcp_servers_managed_by`. Writer: `internal/mcpservers/store.go`.
@@ -215,7 +215,7 @@ inline.
 | `description` | `TEXT NOT NULL DEFAULT ''` | |
 | `current_version_id` | `BIGINT NOT NULL` → `persona_versions(id)`, `DEFERRABLE INITIALLY DEFERRED` | Cycle with `persona_versions.persona_id`; deferred so a persona and its v1 can be inserted in one transaction |
 | `owner_agent` | `TEXT` (nullable) | Agent CR name for owned copies; not an FK |
-| `managed_by` | `TEXT NOT NULL DEFAULT 'user'` | 0033 — manager name (`user`, `helm`, `gitops`, …); any value other than `user` refuses user-facing update/delete/rollback with 409. Not an input to `Create` |
+| `managed_by` | `TEXT NOT NULL DEFAULT 'user'` | 0033 — manager name (`user`, `helm`, `gitops`, `plugin-<id>`, …); any value other than `user` refuses user-facing update/delete/rollback with 409, except for the plugin a `plugin-<id>` value names. `Create` takes it only as the server-composed stamp of a plugin-authenticated caller |
 | `created_at` / `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | |
 
 Index: `idx_personas_owner_agent (owner_agent) WHERE owner_agent IS NOT NULL`.
@@ -245,7 +245,7 @@ Skill registry (0008, tags in 0015).
 | `description` | `TEXT NOT NULL DEFAULT ''` | |
 | `body` | `TEXT NOT NULL DEFAULT ''` | Markdown body; rendered to a ConfigMap by skills delivery |
 | `tags` | `TEXT[] NOT NULL DEFAULT '{}'` | |
-| `managed_by` | `TEXT NOT NULL DEFAULT 'user'` | 0030 — manager name (`user`, `plugin`, `gitops`, …); the plugin registry syncer writes `'plugin'`; any value other than `user` refuses user-facing update/delete with 409. Not an input to `Create` |
+| `managed_by` | `TEXT NOT NULL DEFAULT 'user'` | 0030 — manager name (`user`, `plugin`, `gitops`, `plugin-<id>`, …); the plugin registry syncer writes `'plugin'`; any value other than `user` refuses user-facing update/delete with 409, except for the plugin a `plugin-<id>` value names. Not an input to `Create` |
 | `created_at` / `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | |
 
 ### `triggers` / `cron_triggers`

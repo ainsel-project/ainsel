@@ -18,8 +18,9 @@ type SimpleAgentImageResponse struct {
 	// ManagedBy names the external system that authors this image
 	// (spec.managedBy). Any non-empty value other than "user" means the
 	// console renders the image read-only and the hub refuses every mutation
-	// (update, delete, refresh-mcp) with 409. Read-only: the request shapes
-	// have no managedBy field.
+	// (update, delete, refresh-mcp) with 409 — except to the plugin the value
+	// names. Read-only on update; a plugin caller may stamp its own value at
+	// create (see SimpleAgentImageCreateRequest).
 	ManagedBy string               `json:"managedBy,omitempty"`
 	Status    AgentImageStatusInfo `json:"status"`
 }
@@ -82,6 +83,10 @@ type SimpleAgentImageCreateRequest struct {
 	Env         []AgentImageEnvVarInfo  `json:"env,omitempty"`
 	MCPServers  []string                `json:"mcpServers,omitempty"`
 	Sidecars    []AgentImageSidecarInfo `json:"sidecars,omitempty"`
+	// ManagedBy stamps this image's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the image stays console-owned).
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 // SimpleAgentImageUpdateRequest is the PUT body for updating an AgentImage.

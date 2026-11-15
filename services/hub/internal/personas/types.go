@@ -21,8 +21,10 @@ type Persona struct {
 	// "helm" or "gitops". Any non-empty value other than "user" marks the
 	// persona externally managed: the hub API refuses mutations with 409 and
 	// the console renders it read-only. Empty reads as "user" (console-owned).
-	// The hub REST API never accepts a client-supplied value — only the
-	// external manager sets or clears it.
+	// The hub REST API accepts a value only as the create-time stamp a
+	// plugin-authenticated caller writes for itself ("plugin-<id>", derived from
+	// the caller identity); every other value arrives by direct DB write or from
+	// the owning subsystem, and no value is ever accepted on update.
 	ManagedBy string    `json:"managedBy"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

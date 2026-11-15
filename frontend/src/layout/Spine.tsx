@@ -14,6 +14,9 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
       { name: 'Channels', to: '/channels', icon: 'channels' },
       { name: 'Activity', to: '/activity', icon: 'activity' },
       { name: 'Observability', to: '/observability', icon: 'observability' },
+      // Installed plugins are used day to day (browse, run, watch), so they sit
+      // with the day-to-day pages rather than under platform administration.
+      { name: 'Plugins', to: '/plugins', icon: 'plugins' },
     ],
   },
   {
@@ -28,7 +31,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
       { name: 'Images', to: '/agent-images', icon: 'images' },
       { name: 'Personas', to: '/personas', icon: 'personas' },
       { name: 'Skills', to: '/skills', icon: 'skills' },
-      { name: 'MCPs', to: '/settings', icon: 'mcps' },
+      { name: 'MCP Servers', to: '/settings', icon: 'mcps' },
     ],
   },
   {
@@ -42,7 +45,6 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
       { name: 'Groups', to: '/groups', icon: 'groups' },
       { name: 'Connectors', to: '/connectors', icon: 'connectors' },
       { name: 'Audit', to: '/audit', icon: 'audit' },
-      { name: 'Plugins', to: '/plugins', icon: 'plugins' },
     ],
   },
 ]

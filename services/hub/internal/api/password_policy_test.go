@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 )
 
@@ -136,7 +137,7 @@ func TestPasswordPolicyEndpointDefaults(t *testing.T) {
 
 func TestPasswordPolicyEndpointConfigured(t *testing.T) {
 	s := policyEndpointServer(t)
-	s.SetPasswordPolicy(PasswordPolicy{MinLength: 12, RequireClasses: []string{PasswordClassUpper, PasswordClassDigit}})
+	s.passwordPolicy = &PasswordPolicy{MinLength: 12, RequireClasses: []string{PasswordClassUpper, PasswordClassDigit}}
 
 	rec := doJSON(t, s, http.MethodGet, "/api/v1/auth/password-policy", nil, asUser("local:bob", "bob"))
 	if rec.Code != http.StatusOK {
@@ -171,7 +172,7 @@ func TestPasswordPolicyEndpointBehindAuthMiddleware(t *testing.T) {
 	// sits behind it like every other /api/v1/* path.
 	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		})
 	}
 	rec := doJSON(t, s, http.MethodGet, "/api/v1/auth/password-policy", nil, nil)
@@ -191,7 +192,8 @@ func strictPolicy() PasswordPolicy {
 func TestChangePasswordEnforcesPolicy(t *testing.T) {
 	s, store := localAuthTestServer(t)
 	seedAdmin(t, store)
-	s.SetPasswordPolicy(strictPolicy())
+	p := strictPolicy()
+	s.passwordPolicy = &p
 
 	rec := doJSON(t, s, http.MethodPut, "/api/v1/auth/password", map[string]string{
 		"current": "admin-password", "new": "lowercase",
@@ -218,7 +220,8 @@ func TestChangePasswordEnforcesPolicy(t *testing.T) {
 func TestCreateUserEnforcesPolicy(t *testing.T) {
 	s, store := localAuthTestServer(t)
 	seedAdmin(t, store)
-	s.SetPasswordPolicy(strictPolicy())
+	p := strictPolicy()
+	s.passwordPolicy = &p
 	admin := asUser("local:admin", "admin")
 
 	rec := doJSON(t, s, http.MethodPost, "/api/v1/users", map[string]any{
@@ -242,7 +245,8 @@ func TestCreateUserEnforcesPolicy(t *testing.T) {
 func TestAdminResetPasswordEnforcesPolicy(t *testing.T) {
 	s, store := localAuthTestServer(t)
 	seedAdmin(t, store)
-	s.SetPasswordPolicy(strictPolicy())
+	p := strictPolicy()
+	s.passwordPolicy = &p
 	admin := asUser("local:admin", "admin")
 
 	hash, _ := localauth.HashPassword("user-password")

@@ -26,9 +26,11 @@ var ErrManaged = errors.New("mcp server is managed and cannot be deleted")
 
 // IsManaged reports whether a managedBy value marks the row externally
 // managed. Empty means console-managed (equivalent to "user"); any other
-// value names an external author (helm, plugin, gitops, ...) whose row the
-// console must not mutate. The rule is value-agnostic on purpose: new
-// integrators are protected without another code change.
+// value names an external author (helm, plugin, gitops, plugin-<id>, ...) whose
+// row the console must not mutate. The rule is value-agnostic on purpose: new
+// integrators are protected without another code change. The single exception —
+// the plugin named by a "plugin-<id>" value may still write its own rows — is
+// enforced by RefusesWrite, not here.
 func IsManaged(managedBy string) bool {
 	return managedBy != "" && managedBy != ManagedByUser
 }
@@ -111,26 +113,28 @@ func (s *Service) List(ctx context.Context) ([]*MCPServer, error) {
 // managed row is refused, so a user cannot repoint an agent endpoint the hub
 // itself serves or edit a row another system authors. The check reads the
 // stored row rather than the caller's copy, because that copy is whatever the
-// caller chose to send.
+// caller chose to send. The one caller that passes is the plugin a
+// "plugin-<id>" row names — a created-only plugin is its rows' sole writer.
 func (s *Service) Update(ctx context.Context, m *MCPServer) error {
 	row, err := s.store.Get(ctx, m.Name)
 	if err != nil {
 		return err
 	}
-	if IsManaged(row.ManagedBy) {
+	if RefusesWrite(ctx, row) {
 		return managedRefusal(row)
 	}
 	return s.store.Update(ctx, m)
 }
 
 // Delete removes a row. Returns PluginManagedError when the row is owned by a
-// plugin and ManagedError (wrapping ErrManaged) for any other external owner.
+// plugin and ManagedError (wrapping ErrManaged) for any other external owner —
+// except for the plugin a "plugin-<id>" row names, which may delete its own.
 func (s *Service) Delete(ctx context.Context, name string) error {
 	row, err := s.store.Get(ctx, name)
 	if err != nil {
 		return err
 	}
-	if IsManaged(row.ManagedBy) {
+	if RefusesWrite(ctx, row) {
 		return managedRefusal(row)
 	}
 	return s.store.Delete(ctx, name)

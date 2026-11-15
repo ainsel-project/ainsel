@@ -9,19 +9,23 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/auditevents"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // recordAuthEvent writes one audit-trail row best-effort. It is called from
 // the auth/user handlers next to the existing slog line. An audit row must
-// never become an availability dependency for the request it records: a nil
-// store (no DB wired) is a no-op, and a write failure is logged, never
-// returned. The row carries only the fields below — never a request body —
+// never become an availability dependency for the request it records: a write
+// failure is logged, never returned. The row carries only the fields below — never a request body —
 // so persisting a credential is structurally impossible.
 func (s *Server) recordAuthEvent(r *http.Request, eventType, actorSub, target, outcome string) {
-	if s.authEvents == nil {
-		return
-	}
+	writeAuthEvent(context.WithoutCancel(r.Context()), s.authEvents, r, eventType, actorSub, target, outcome)
+}
+
+// writeAuthEvent is recordAuthEvent without the Server, so the plugin credential
+// chain — built by a package-level constructor before the server exists (see
+// Deps) — records through the same path.
+func writeAuthEvent(ctx context.Context, store authEventsStore, r *http.Request, eventType, actorSub, target, outcome string) {
 	e := &auditevents.Event{
 		ActorSub:  actorSub,
 		EventType: eventType,
@@ -29,10 +33,7 @@ func (s *Server) recordAuthEvent(r *http.Request, eventType, actorSub, target, o
 		SourceIP:  sourceIP(r),
 		Outcome:   outcome,
 	}
-	// Detach from the request context so a client disconnect cannot drop the
-	// row, but keep the values for tracing.
-	ctx := context.WithoutCancel(r.Context())
-	if err := s.authEvents.Insert(ctx, e); err != nil {
+	if err := store.Insert(ctx, e); err != nil {
 		slog.Error("auth event insert failed", "event_type", eventType, "actor", actorSub, "error", err)
 	}
 }
@@ -91,24 +92,19 @@ type authEventItem struct {
 //
 // Non-admins get 401 (anonymous) or 403 (authenticated, not admin — including
 // the no-auth mode where no admin concept exists). Unparseable page/from/to
-// return 400. Missing store (no DB) returns 503.
+// return 400.
 func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !s.requireAdmin(w, r) {
 		return
 	}
-	if s.authEvents == nil {
-		writeError(w, http.StatusServiceUnavailable, "audit event store not configured")
-		return
-	}
-
 	q := r.URL.Query()
 	page, err := ParsePageParams(q)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -120,7 +116,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("from"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid from: must be RFC3339")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid from: must be RFC3339")
 			return
 		}
 		opts.Since = t
@@ -128,7 +124,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("to"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid to: must be RFC3339")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid to: must be RFC3339")
 			return
 		}
 		opts.Until = t
@@ -140,7 +136,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 		// Log the store detail server-side; the client gets a generic message so
 		// internal DB error text never reaches an API response body.
 		slog.Error("audit events list failed", "error", err)
-		writeError(w, http.StatusBadGateway, "failed to query audit events")
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query audit events")
 		return
 	}
 
@@ -156,7 +152,7 @@ func (s *Server) handleAuditAuthEvents(w http.ResponseWriter, r *http.Request) {
 			Outcome:    e.Outcome,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":      items,
 		"total":      total,
 		"page":       page.Page,

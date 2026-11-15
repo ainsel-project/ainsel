@@ -6,10 +6,8 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,9 +18,9 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
 	"github.com/ainsel-project/ainsel/services/hub/internal/chat"
 	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
-	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
@@ -35,8 +33,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// authzStore is the interface satisfied by *authz.Store and test doubles.
-type authzStore interface {
+// AuthzStore is the authorization store surface the API depends on: the user
+// registry, the group registry and the resource-group registry. Satisfied by
+// *authz.Store (Postgres), by authz.PermissiveStore (auth mode "none") and by
+// test doubles.
+//
+// A Server always has one: Deps validates it, so no handler branches on
+// "is authorization wired".
+type AuthzStore interface {
 	UpsertUser(ctx context.Context, sub, email, username string) (*authz.User, error)
 	GetUser(ctx context.Context, id string) (*authz.User, error)
 	ListUsers(ctx context.Context) ([]authz.User, error)
@@ -107,7 +111,7 @@ type Server struct {
 	chat                   *chat.Store
 	taskLogs               *tasklogs.Store
 	authEvents             authEventsStore
-	authzStore             authzStore
+	authzStore             AuthzStore
 	authzChecker           *authz.Checker
 	userTokens             *usertokens.Store
 	signIn                 signin.Store
@@ -162,7 +166,9 @@ type Server struct {
 	// rateLimitMW, when non-nil, is applied to every request before auth.
 	rateLimitMW func(http.Handler) http.Handler
 	// userInfoURL is the OIDC userinfo endpoint URL, used by handleUserSync.
-	userInfoURL    string
+	userInfoURL string
+	// defaultGroupID is Deps.DefaultGroupID; see resolveGroupID.
+	defaultGroupID string
 	userInfoClient *http.Client
 	// eventQueue is the PostgreSQL event queue store.
 	eventQueue *eventqueue.Store
@@ -184,7 +190,7 @@ type Server struct {
 
 	// identityTracker guards automatic identity persistence so it does not
 	// fire on every authenticated request. See identity_persist.go.
-	identityTracker *identityPersistTracker
+	identityTracker *IdentityPersistTracker
 
 	// llmCheckTimeout caps one upstream probe made by POST /api/v1/llm/check.
 	// New sets it to llmCheckDefaultTimeout; it is a field so a test can
@@ -192,37 +198,168 @@ type Server struct {
 	llmCheckTimeout time.Duration
 }
 
-// SetAuthZ wires the authorization store and checker.
-func (s *Server) SetAuthZ(store authzStore, checker *authz.Checker) {
-	s.authzStore = store
-	s.authzChecker = checker
+// Deps is the complete dependency set of a Server.
+//
+// cmd/hub fills one of these in a single literal and hands it to New. There is
+// no second phase of wiring: New refuses a Deps that is missing a required
+// field and names every missing one in the error, so a half-built server
+// cannot reach a request handler. That is what lets the handlers drop their
+// "is this dependency present" branches — see AuthzStore.
+//
+// Required versus optional is a statement about deployment, not about wiring
+// convenience. Everything the hub always has once HUB_DB_URL is set is
+// required, because cmd/hub refuses to start without a database. The optional
+// externals are supported deployment modes: Prometheus (HUB_PROMETHEUS_URL) and
+// plugin credentials (HUB_PLUGIN_CREDENTIAL_SECRET) are each off unless an
+// operator turns them on, and the handlers that use them keep their "not
+// configured" answers for that reason.
+type Deps struct {
+	// --- Kubernetes ---
+
+	Client       client.Client
+	Namespace    string
+	ConnectorCfg ConnectorConfig
+
+	// --- Authorization (required) ---
+
+	// AuthzStore is the user/group/resource-group registry. Auth mode "none"
+	// supplies authz.NewPermissiveStore() rather than nothing, so the store is
+	// never absent.
+	AuthzStore AuthzStore
+	// AuthzChecker answers the read/write/group guards. Auth mode "none"
+	// supplies a real Checker over the permissive store.
+	AuthzChecker *authz.Checker
+
+	// AuthMiddleware authenticates every /api/v1/* request. Required: auth mode
+	// "none" supplies a middleware that injects a synthetic admin caller
+	// (see cmd/hub's wireAuthPlan) instead of leaving the chain empty.
+	AuthMiddleware func(http.Handler) http.Handler
+
+	// --- Services (required) ---
+
+	Invocations invocations.Store
+	MCP         *mcpservers.Service
+	Personas    PersonaService
+	Skills      SkillService
+	// SkillDiscovery backs the read-only skill catalogue MCP. Optional: when
+	// nil, New uses Skills if it implements SkillDiscovery. The endpoint stays
+	// closed unless SkillsMCPToken is set as well, so a nil here is a feature
+	// toggle rather than a wiring gap.
+	SkillDiscovery SkillDiscovery
+
+	// --- Postgres-backed stores (required) ---
+
+	EventQueue      *eventqueue.Store
+	Chat            *chat.Store
+	TriggerStore    *triggers.Store
+	ChannelSvc      *channels.Service
+	ChannelTransfer *channels.Transfer
+	UserTokens      *usertokens.Store
+	SignIn          signin.Store
+	TaskLogs        *tasklogs.Store
+	AuditEvents     authEventsStore
+	// Telemetry answers the event metric panels from the hub's own records.
+	// Required as a store; whether it *answers* is decided per request by
+	// metricsBackend, which also weighs MetricsSource and Prom.
+	Telemetry *telemetry.Store
+
+	// --- Optional externals (deployment modes) ---
+
+	// Prom is the Prometheus client. nil means HUB_PROMETHEUS_URL was unset:
+	// raw PromQL and the Prometheus-backed panels answer "not configured".
+	Prom *prometheus.Client
+	// PluginCreds is the plugin credential issuer. nil means
+	// HUB_PLUGIN_CREDENTIAL_SECRET was unset and plugin credentials are off.
+	PluginCreds *plugincreds.Issuer
+	// PluginMCP overrides the plugin MCP client. Normally nil: the client is a
+	// lazily built HTTP client with a tool cache (see getPluginMCPClient), and
+	// only tests need to hand one in.
+	PluginMCP *pluginmcp.Client
+
+	// --- Configuration ---
+
+	// TaskStartTimeout is how long a task may sit unstarted before the derived
+	// run state calls it stuck. Zero applies DefaultTaskStartTimeout; a
+	// negative value disables the stuck flag.
+	TaskStartTimeout time.Duration
+	// SkillsMCPToken is HUB_SKILLS_MCP_TOKEN. Empty keeps the catalogue MCP
+	// closed rather than open. See requireCatalogueToken.
+	SkillsMCPToken string
+	// InternalValidateSecret is HUB_INTERNAL_VALIDATE_SECRET. Empty closes the
+	// internal endpoints that authenticate with it.
+	InternalValidateSecret string
+	// WSAllowedOrigins are Origins allowed to open /api/v1/ws in addition to
+	// same-origin. See wsOriginAllowed.
+	WSAllowedOrigins []string
+	// MetricsSource pins which backend answers the event metric panels, from
+	// HUB_METRICS_SOURCE. Empty means the default (the hub's own records).
+	MetricsSource string
+	// RateLimitRPS / RateLimitBurst configure the per-IP limiter. RPS <= 0
+	// disables it.
+	RateLimitRPS   float64
+	RateLimitBurst int
+	// LocalAuthSecret is the HS256 signing key for local session JWTs.
+	// Non-empty enables /api/v1/auth/login (auth.mode=local) and installs the
+	// per-username login throttle.
+	LocalAuthSecret []byte
+	// PasswordPolicy is the configured password rule set. nil means
+	// DefaultPasswordPolicy() — the historical behaviour.
+	PasswordPolicy *PasswordPolicy
+	// UserInfoURL is the OIDC userinfo endpoint used by handleUserSync. Empty
+	// in local-only and no-auth modes, which have no userinfo endpoint.
+	UserInfoURL string
+	// DefaultGroupID is the group an install with the group model switched off
+	// files resources under when the caller omits groupId.
+	//
+	// It is a deployment setting, not a fallback for a missing store: an install
+	// in auth mode "none" (authz.PermissiveStore) has exactly one group, so
+	// "no groupId" has a meaning there. With the group model on this is empty and
+	// a create without groupId is a 400 — the caller has to say who owns the
+	// resource. cmd/hub sets it from the resolved auth mode.
+	DefaultGroupID string
+
+	// IdentityTracker is the TTL guard behind NewIdentityPersistMiddleware.
+	// cmd/hub builds one, uses it to compose the auth chain, and passes it here
+	// so the admin surface (ClearUsername) can invalidate a sub the chain is
+	// otherwise holding back. Zero applies a fresh tracker, which is what a
+	// server that composes its chain after construction wants.
+	IdentityTracker *IdentityPersistTracker
 }
 
-// SetSignInStore wires the ChatGPT sign-in session store.
-func (s *Server) SetSignInStore(store signin.Store) {
-	s.signIn = store
-}
-
-// SetUserTokenStore wires the user token store.
-func (s *Server) SetUserTokenStore(store *usertokens.Store) {
-	s.userTokens = store
-}
-
-// SetSkillsMCPToken sets the bearer token accepted by the read-only skill
-// catalogue MCP (/api/internal/skills/mcp).
-func (s *Server) SetSkillsMCPToken(token string) {
-	s.skillsMCPToken = token
-}
-
-// SetInternalValidateSecret sets the shared secret for /api/internal/user-tokens/validate.
-func (s *Server) SetInternalValidateSecret(secret string) {
-	s.internalValidateSecret = secret
-}
-
-// SetPluginMCPClient sets the MCP client used to reach plugin MCP endpoints.
-// Used by tests and by wiring that needs a custom transport.
-func (s *Server) SetPluginMCPClient(c *pluginmcp.Client) {
-	s.pluginMCP = c
+// missingRequired names the Deps fields New refuses to build without, in
+// declaration order so the error reads like the struct.
+func (d Deps) missingRequired() []string {
+	present := []struct {
+		name string
+		ok   bool
+	}{
+		{"Client", d.Client != nil},
+		{"Namespace", d.Namespace != ""},
+		{"AuthzStore", d.AuthzStore != nil},
+		{"AuthzChecker", d.AuthzChecker != nil},
+		{"AuthMiddleware", d.AuthMiddleware != nil},
+		{"Invocations", d.Invocations != nil},
+		{"MCP", d.MCP != nil},
+		{"Personas", d.Personas != nil},
+		{"Skills", d.Skills != nil},
+		{"EventQueue", d.EventQueue != nil},
+		{"Chat", d.Chat != nil},
+		{"TriggerStore", d.TriggerStore != nil},
+		{"ChannelSvc", d.ChannelSvc != nil},
+		{"ChannelTransfer", d.ChannelTransfer != nil},
+		{"UserTokens", d.UserTokens != nil},
+		{"SignIn", d.SignIn != nil},
+		{"TaskLogs", d.TaskLogs != nil},
+		{"AuditEvents", d.AuditEvents != nil},
+		{"Telemetry", d.Telemetry != nil},
+	}
+	var missing []string
+	for _, p := range present {
+		if !p.ok {
+			missing = append(missing, p.name)
+		}
+	}
+	return missing
 }
 
 // getPluginMCPClient returns the plugin MCP client, building the default on
@@ -238,59 +375,23 @@ func (s *Server) getPluginMCPClient() *pluginmcp.Client {
 	return s.pluginMCP
 }
 
-// SetTriggerStore wires the trigger DB store for the /api/v1/triggers/* and /api/v1/cron-triggers/* endpoints.
-func (s *Server) SetTriggerStore(store *triggers.Store) {
-	s.triggerStore = store
-}
-
-// SetTaskStartTimeout overrides the stuck deadline used by the derived run
-// state (see deriveRunState). A non-positive value disables the stuck flag.
-func (s *Server) SetTaskStartTimeout(d time.Duration) {
-	s.taskStartTimeout = d
-}
-
-// SetChatStore wires the chat session store for the /api/v1/chat/* endpoints.
-func (s *Server) SetChatStore(store *chat.Store) {
-	s.chat = store
-}
-
-// SetTaskLogStore wires the task log store for the observability logs and
-// errors endpoints. When set, these endpoints serve structured log entries
-// from the hub's own database instead of requiring an external log backend.
-func (s *Server) SetTaskLogStore(store *tasklogs.Store) {
-	s.taskLogs = store
-}
-
-// SetAuditEventStore wires the auth-event audit store. When unset (e.g. a hub
-// without a database), the auth handlers skip row writes and the audit
-// endpoint answers 503 — behaviour is exactly as before the store existed.
-func (s *Server) SetAuditEventStore(store authEventsStore) {
-	s.authEvents = store
-}
-
-// SetAuthMiddleware installs an HTTP middleware that wraps every /api/v1/*
-// request. Pass nil (the default) to leave the API open. This follows the
-// same pattern as other optional wiring: keep the constructor signature stable.
-func (s *Server) SetAuthMiddleware(mw func(http.Handler) http.Handler) {
-	s.authMW = mw
-}
-
-// SetUserInfoURL configures the OIDC userinfo endpoint used by the username
-// sync handler. Must be called before the server starts serving.
-func (s *Server) SetUserInfoURL(endpoint string) {
-	s.userInfoURL = endpoint
-	s.userInfoClient = &http.Client{Timeout: 5 * time.Second}
-}
-
-// ErrInsecureAuthConfig is returned by ValidateAuthConfig when the server
-// has no auth middleware wired and the operator has not explicitly opted into
-// running without auth.
+// ErrInsecureAuthConfig is returned by ValidateAuthConfig when the hub would
+// serve the API with no authenticating middleware and the operator has not
+// explicitly opted into running without auth.
 var ErrInsecureAuthConfig = errors.New("api auth middleware is not configured")
 
-// ValidateAuthConfig fails fast when the API would be served without any auth
-// middleware and the operator has not explicitly opted into running without auth.
-func (s *Server) ValidateAuthConfig(allowInsecureNoAuth bool) error {
-	if s.authMW != nil {
+// ValidateAuthConfig fails fast when the hub would serve /api/v1/* with no
+// authenticating middleware and the operator has not explicitly opted into
+// running without auth.
+//
+// It takes the middleware rather than a Server because the answer is about the
+// deployment, not the struct: auth mode "none" hands New a middleware that
+// injects a synthetic admin caller, which is exactly what
+// HUB_ALLOW_INSECURE_NO_AUTH opts into. cmd/hub therefore passes the
+// *authenticating* middleware here — nil in mode none — and the identity
+// injector to Deps.
+func ValidateAuthConfig(mw func(http.Handler) http.Handler, allowInsecureNoAuth bool) error {
+	if mw != nil {
 		return nil
 	}
 	if allowInsecureNoAuth {
@@ -299,17 +400,23 @@ func (s *Server) ValidateAuthConfig(allowInsecureNoAuth bool) error {
 	return fmt.Errorf("%w: auth middleware is not configured; set HUB_ALLOW_INSECURE_NO_AUTH=true to override", ErrInsecureAuthConfig)
 }
 
-// AuthMiddlewareConfigured reports whether SetAuthMiddleware has been called
-// with a non-nil middleware.
+// AuthMiddlewareConfigured reports whether an auth middleware was installed.
+//
+// Every server built by New has one — mode "none" installs the synthetic-admin
+// injector — so this is true for a production server in every mode. The chat
+// handlers use it as the second half of "may a request with no caller identity
+// act as the shared local user": with a caller-injecting middleware there is
+// always a caller, and the branch only fires on a hand-built server that was
+// given no chain at all.
 func (s *Server) AuthMiddlewareConfigured() bool {
 	return s.authMW != nil
 }
 
-// Config carries optional dependencies for the API server.
-type Config struct {
-}
-
-// New creates a new API server with routes registered.
+// New builds a fully wired API server and registers every route on it.
+//
+// Construction is one step: Deps carries the whole dependency set, New
+// validates it, and there is no setter phase. A missing required dependency is
+// a startup error naming the field, never a nil a handler has to survive.
 //
 // Route table. Conventions (issue #265 — see also docs/conventions.md,
 // "Routing"):
@@ -331,17 +438,92 @@ type Config struct {
 //     converting it: a method-less pattern matches every method, so leaving it
 //     registered stops the mux from answering 405 at all.
 //
+// Every route group is registered unconditionally. The channel registry, the
+// persona service and the skill service are required Deps, so the last
+// "mounted only when wired" group is gone; the two groups still gated on
+// configuration (the skill catalogue MCP, the plugin credential endpoints) are
+// feature toggles, documented at their registration.
+//
 // The route inventory test (router_test.go) reads back every registration and
 // fails when one drifts from the snapshot or from these rules.
-func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promClient *prometheus.Client, invStore invocations.Store, mcp *mcpservers.Service, personaSvc *personas.Service, skillSvc SkillService, cfg *Config) *Server {
-	s := &Server{client: c, mux: http.NewServeMux(), ns: namespace, connectorCfg: connectorCfg, prom: promClient, invocations: invStore, mcp: mcp, skills: skillSvc}
+func New(deps Deps) (*Server, error) {
+	if missing := deps.missingRequired(); len(missing) > 0 {
+		return nil, fmt.Errorf("api.New: incomplete Deps, missing required field(s): %s", strings.Join(missing, ", "))
+	}
+
+	s := &Server{
+		client:                 deps.Client,
+		mux:                    http.NewServeMux(),
+		ns:                     deps.Namespace,
+		connectorCfg:           deps.ConnectorCfg,
+		prom:                   deps.Prom,
+		invocations:            deps.Invocations,
+		mcp:                    deps.MCP,
+		personas:               deps.Personas,
+		skills:                 deps.Skills,
+		triggerStore:           deps.TriggerStore,
+		channelSvc:             deps.ChannelSvc,
+		channelTransfer:        deps.ChannelTransfer,
+		chat:                   deps.Chat,
+		taskLogs:               deps.TaskLogs,
+		authEvents:             deps.AuditEvents,
+		authzStore:             deps.AuthzStore,
+		authzChecker:           deps.AuthzChecker,
+		userTokens:             deps.UserTokens,
+		signIn:                 deps.SignIn,
+		eventQueue:             deps.EventQueue,
+		telemetry:              deps.Telemetry,
+		pluginCreds:            deps.PluginCreds,
+		pluginMCP:              deps.PluginMCP,
+		internalValidateSecret: deps.InternalValidateSecret,
+		skillsMCPToken:         deps.SkillsMCPToken,
+		wsAllowedOrigins:       deps.WSAllowedOrigins,
+		metricsSource:          deps.MetricsSource,
+		userInfoURL:            deps.UserInfoURL,
+		passwordPolicy:         deps.PasswordPolicy,
+		defaultGroupID:         deps.DefaultGroupID,
+		authMW:                 deps.AuthMiddleware,
+	}
+
+	// Config defaults, applied here rather than at the call site so the zero
+	// value of Deps means "the historical behaviour" instead of "off".
+	s.taskStartTimeout = deps.TaskStartTimeout
+	if s.taskStartTimeout == 0 {
+		s.taskStartTimeout = DefaultTaskStartTimeout
+	}
+	s.llmCheckTimeout = llmCheckDefaultTimeout
+	if len(deps.LocalAuthSecret) > 0 {
+		s.localAuthSecret = deps.LocalAuthSecret
+		s.loginThrottle = newLoginThrottle()
+	}
+	if deps.UserInfoURL != "" {
+		s.userInfoClient = &http.Client{Timeout: 5 * time.Second}
+	}
+	if deps.RateLimitRPS > 0 {
+		s.rateLimitMW = RateLimitMiddleware(deps.RateLimitRPS, deps.RateLimitBurst)
+	}
+
+	// The read-only skill catalogue MCP. Deps.Skills is the concrete service,
+	// which satisfies SkillDiscovery; going through the narrower interface
+	// keeps Create/Update/Delete out of the catalogue's reach.
+	disc := deps.SkillDiscovery
+	if disc == nil {
+		if d, ok := deps.Skills.(SkillDiscovery); ok {
+			disc = d
+		}
+	}
+	if disc != nil {
+		s.skillMCPHandler = s.requireCatalogueToken(skillMCPServer(disc).ServeHTTP)
+	}
+
 	mux := s.routes()
 	s.router = jsonRouterErrors(s.mux)
 	s.wsHub = newWsHub()
 	s.observabilityCache = newPromCache(observabilityCacheTTL)
-	s.identityTracker = newIdentityPersistTracker()
-	s.taskStartTimeout = DefaultTaskStartTimeout
-	s.llmCheckTimeout = llmCheckDefaultTimeout
+	s.identityTracker = deps.IdentityTracker
+	if s.identityTracker == nil {
+		s.identityTracker = NewIdentityPersistTracker()
+	}
 	mux.HandleFunc("/health", s.health)
 	mux.HandleFunc("/api/v1/agents", s.handleAgents)
 	mux.HandleFunc("/api/v1/agents/", s.handleAgent)
@@ -408,25 +590,10 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	mux.HandleFunc("/api/v1/audit/auth-events", s.handleAuditAuthEvents)
 	mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
 	mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSession)
-	if personaSvc != nil {
-		// Assigned only when non-nil: a typed-nil *personas.Service in an
-		// interface field would pass a nil check and panic on use.
-		s.personas = personaSvc
-		RegisterPersonaRoutes(mux, personaSvc, &s.authzStore, &s.authzChecker)
-	}
-	if skillSvc != nil {
-		RegisterSkillRoutes(mux, skillSvc, &s.authzStore, &s.authzChecker)
-	}
-	return s
-}
-
-// ServeHTTP implements http.Handler.
-// SetRateLimiter installs a per-IP rate limiting middleware applied to all
-// requests. Pass rps=0 to disable (the default).
-func (s *Server) SetRateLimiter(rps float64, burst int) {
-	if rps > 0 {
-		s.rateLimitMW = RateLimitMiddleware(rps, burst)
-	}
+	s.registerChannelRoutes()
+	RegisterPersonaRoutes(mux, deps.Personas, deps.AuthzStore, deps.AuthzChecker, deps.DefaultGroupID)
+	RegisterSkillRoutes(mux, deps.Skills, deps.AuthzStore, deps.AuthzChecker, deps.DefaultGroupID)
+	return s, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -505,18 +672,6 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("failed to encode JSON response", "error", err)
-	}
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
 // writeAuthzError maps the authz store sentinel errors to their HTTP
 // responses: authz.ErrNotFound becomes 404 "<resource> not found" and
 // authz.ErrAlreadyExists becomes 409 "<resource> already exists". It
@@ -525,14 +680,14 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 //	if writeAuthzError(w, err, "user") {
 //		return
 //	}
-//	writeError(w, http.StatusInternalServerError, err.Error())
+//	httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 func writeAuthzError(w http.ResponseWriter, err error, resource string) bool {
 	switch {
 	case errors.Is(err, authz.ErrNotFound):
-		writeError(w, http.StatusNotFound, resource+" not found")
+		httpx.WriteError(w, http.StatusNotFound, resource+" not found")
 		return true
 	case errors.Is(err, authz.ErrAlreadyExists):
-		writeError(w, http.StatusConflict, resource+" already exists")
+		httpx.WriteError(w, http.StatusConflict, resource+" already exists")
 		return true
 	}
 	return false
@@ -548,24 +703,35 @@ func sanitizeLabelValue(v string) string {
 
 // --- Authorization helpers ---
 
+// resolveGroupID fills in the install's default group for a create that named
+// none. It returns "" when the deployment has no default group, which is what
+// makes a missing groupId a 400 rather than a silent filing.
+func (s *Server) resolveGroupID(id string) string {
+	if id != "" {
+		return id
+	}
+	return s.defaultGroupID
+}
+
 // requireRead checks that the authenticated user can read the resource.
 // Returns true if access is granted (caller should proceed).
+//
+// The checker is always present (Deps requires it), so there is no "authz not
+// wired, allow" branch: auth mode "none" gets a Checker over
+// authz.PermissiveStore, which answers every subject as admin.
 func (s *Server) requireRead(w http.ResponseWriter, r *http.Request, resourceType, resourceName string) bool {
-	if s.authzChecker == nil {
-		return true // authz not configured (dev mode)
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	ok, err := s.authzChecker.CanRead(r.Context(), u.Sub, resourceType, resourceName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -573,21 +739,18 @@ func (s *Server) requireRead(w http.ResponseWriter, r *http.Request, resourceTyp
 
 // requireWrite checks that the authenticated user can modify the resource.
 func (s *Server) requireWrite(w http.ResponseWriter, r *http.Request, resourceType, resourceName string) bool {
-	if s.authzChecker == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	ok, err := s.authzChecker.CanWrite(r.Context(), u.Sub, resourceType, resourceName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -595,21 +758,18 @@ func (s *Server) requireWrite(w http.ResponseWriter, r *http.Request, resourceTy
 
 // requireGroupOwner checks that the authenticated user is an owner of the group.
 func (s *Server) requireGroupOwner(w http.ResponseWriter, r *http.Request, groupID string) bool {
-	if s.authzChecker == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
 	ok, err := s.authzChecker.CanManageGroup(r.Context(), u.Sub, groupID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "group owner or admin required")
+		httpx.WriteError(w, http.StatusForbidden, "group owner or admin required")
 		return false
 	}
 	return true
@@ -621,9 +781,6 @@ func (s *Server) requireGroupOwner(w http.ResponseWriter, r *http.Request, group
 // is the wrapper for handlers that respond directly; the remaining guards
 // migrate to this shape the same way.
 func (s *Server) checkGroupWrite(r *http.Request, groupID string) error {
-	if s.authzChecker == nil {
-		return nil // authz not configured (dev mode)
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		return newAPIError(http.StatusUnauthorized, "unauthorized")
@@ -650,9 +807,6 @@ func (s *Server) requireGroupWrite(w http.ResponseWriter, r *http.Request, group
 
 // callerGroupIDs returns the group IDs for the authenticated user.
 func (s *Server) callerGroupIDs(r *http.Request) []string {
-	if s.authzStore == nil {
-		return nil
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		return nil
@@ -668,9 +822,6 @@ func (s *Server) callerGroupIDs(r *http.Request) []string {
 
 // callerIsAdmin returns true if the authenticated user is an admin.
 func (s *Server) callerIsAdmin(r *http.Request) bool {
-	if s.authzChecker == nil {
-		return false
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		return false
@@ -681,7 +832,7 @@ func (s *Server) callerIsAdmin(r *http.Request) bool {
 
 // filterByAccess filters a list of resource names to those accessible by the caller.
 func (s *Server) filterByAccess(r *http.Request, resourceType string, names []string) []string {
-	if s.authzStore == nil || s.callerIsAdmin(r) {
+	if s.callerIsAdmin(r) {
 		return names
 	}
 	groupIDs := s.callerGroupIDs(r)
@@ -708,12 +859,13 @@ func (s *Server) filterByAccess(r *http.Request, resourceType string, names []st
 // instead of post-filtering loaded rows. The result follows the same
 // nil-vs-empty contract as the persona/skill handlers' accessibleSet, and
 // it is pinned by the per-kind list_authz_parity_test.go files:
-//   - nil → unrestricted (authz not configured, or the caller is an admin)
+//   - nil → unrestricted (the caller is an admin, which in auth mode "none"
+//     is every caller)
 //   - empty non-nil → the caller may see nothing; lookup errors land here
 //     so the filter stays fail-closed
 //   - non-empty → exactly the accessible resource names
 func (s *Server) accessibleIDs(r *http.Request, resourceType string) []string {
-	if s.authzStore == nil || s.callerIsAdmin(r) {
+	if s.callerIsAdmin(r) {
 		return nil
 	}
 	groupIDs := s.callerGroupIDs(r)

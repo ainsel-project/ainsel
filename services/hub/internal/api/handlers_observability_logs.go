@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 )
 
@@ -52,10 +53,11 @@ type LogsResponse struct {
 //	?since=<duration>   Go duration string, overrides range.
 //	?limit=N            Max entries (default 500, max 1000).
 //
-// Returns 503 if the task log store is not configured.
+// The task log store is a required dependency (issue #264): a store failure is a
+// 502, and there is no unwired state to answer 503 with.
 func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -63,18 +65,13 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 
 	limit, err := parseLogsLimit(q.Get("limit"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	duration, err := parseLogsDuration(q.Get("since"), q.Get("range"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if s.taskLogs == nil {
-		writeError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -94,7 +91,7 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 		}
 	} else if scope := s.telemetryScopeFor(r); !scope.unrestricted {
 		if len(scope.agents) == 0 {
-			writeJSON(w, http.StatusOK, LogsResponse{
+			httpx.WriteJSON(w, http.StatusOK, LogsResponse{
 				Logs:  []LogLine{},
 				Total: 0,
 				Query: "task_logs",
@@ -104,9 +101,14 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 		opts.AgentNames = scope.agents
 	}
 
+	if !s.taskLogs.Ready() {
+		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		return
+	}
+
 	entries, err := s.taskLogs.List(r.Context(), opts)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to query logs: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to query logs: "+err.Error())
 		return
 	}
 
@@ -133,7 +135,7 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 		logs = append(logs, line)
 	}
 
-	writeJSON(w, http.StatusOK, LogsResponse{
+	httpx.WriteJSON(w, http.StatusOK, LogsResponse{
 		Logs:  logs,
 		Total: len(logs),
 		Query: "task_logs",

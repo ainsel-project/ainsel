@@ -9,6 +9,7 @@ import (
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/channels"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
@@ -72,15 +73,15 @@ type GroupResourceItem struct {
 // is a convenience view, not an authority.
 func (s *Server) handleGroupResources(w http.ResponseWriter, r *http.Request, groupID string) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if _, err := s.authzStore.GetGroup(r.Context(), groupID); err != nil {
 		if errors.Is(err, authz.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "group not found")
+			httpx.WriteError(w, http.StatusNotFound, "group not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -88,7 +89,7 @@ func (s *Server) handleGroupResources(w http.ResponseWriter, r *http.Request, gr
 	for _, resourceType := range groupResourceTypes {
 		items = append(items, s.groupResourcesOfType(r, groupID, resourceType)...)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // groupResourcesOfType returns the caller-visible resources of one type in the
@@ -204,9 +205,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "skill":
-		if s.skills == nil {
-			return out, nil
-		}
 		list, _, err := s.skills.List(ctx, skills.ListFilter{})
 		if err != nil {
 			return nil, err
@@ -217,9 +215,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "mcp-server":
-		if s.mcp == nil {
-			return out, nil
-		}
 		list, err := s.mcp.List(ctx)
 		if err != nil {
 			return nil, err
@@ -230,9 +225,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "channel":
-		if s.channelSvc == nil {
-			return out, nil
-		}
 		// Standalone (custom) channels only: derived channels have no
 		// resource-group rows of their own (see groupResourceTypes).
 		views, err := s.channelSvc.List(ctx, channels.KindCustom, time.Time{})
@@ -245,9 +237,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "trigger":
-		if s.triggerStore == nil {
-			return out, nil
-		}
 		all, _, err := s.triggerStore.ListTriggers(ctx, triggers.TriggerListOptions{})
 		if err != nil {
 			return nil, err
@@ -258,9 +247,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "cron-trigger":
-		if s.triggerStore == nil {
-			return out, nil
-		}
 		all, _, err := s.triggerStore.ListCronTriggers(ctx, triggers.CronTriggerListOptions{})
 		if err != nil {
 			return nil, err

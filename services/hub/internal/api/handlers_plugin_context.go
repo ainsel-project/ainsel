@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -16,7 +17,7 @@ import (
 // GET /api/v1/plugin-context
 func (s *Server) handlePluginContext(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -39,22 +40,22 @@ func (s *Server) handlePluginContext(w http.ResponseWriter, r *http.Request) {
 		for _, g := range pc.Groups {
 			resp.Groups = append(resp.Groups, pluginContextGroup{ID: g.ID, Name: s.groupName(r, g.ID), Role: g.Role})
 		}
-		writeJSON(w, http.StatusOK, resp)
+		httpx.WriteJSON(w, http.StatusOK, resp)
 		return
 	}
 
 	// Regular user (session or ainsel_ token)
 	u, ok := oidc.FromContext(ctx)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	resp, err := s.userPluginContext(r, u)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // pluginContextResponse is the body of GET /api/v1/plugin-context.
@@ -78,9 +79,6 @@ type pluginContextGroup struct {
 
 // groupName resolves a group's display name; unknown groups get "".
 func (s *Server) groupName(r *http.Request, id string) string {
-	if s.authzStore == nil {
-		return ""
-	}
 	g, err := s.authzStore.GetGroup(r.Context(), id)
 	if err != nil || g == nil {
 		return ""
@@ -92,7 +90,7 @@ func (s *Server) groupName(r *http.Request, id string) string {
 // POST /api/v1/plugin-context/visible
 func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -103,7 +101,7 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -120,13 +118,13 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 
 	requiredPerm, ok := resourceTypeMap[req.ResourceType]
 	if !ok {
-		writeError(w, http.StatusBadRequest, "unknown resourceType")
+		httpx.WriteError(w, http.StatusBadRequest, "unknown resourceType")
 		return
 	}
 
 	// Validate names length
 	if len(req.Names) < 1 || len(req.Names) > 500 {
-		writeError(w, http.StatusBadRequest, "names length must be 1-500")
+		httpx.WriteError(w, http.StatusBadRequest, "names length must be 1-500")
 		return
 	}
 
@@ -136,7 +134,7 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 	// For plugin credentials, check permission
 	if isPlugin && pc.Kind != "" {
 		if !contains(pc.Permissions, requiredPerm) {
-			writeError(w, http.StatusForbidden, fmt.Sprintf("plugin lacks permission %s", requiredPerm))
+			httpx.WriteError(w, http.StatusForbidden, fmt.Sprintf("plugin lacks permission %s", requiredPerm))
 			return
 		}
 	}
@@ -151,34 +149,31 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 		}
 		seen[name] = true
 
-		// Check if the user can read this resource
-		canRead := true
-		if s.authzChecker != nil {
-			var sub string
-			if isPlugin && pc.Kind != "" {
-				sub = pc.Sub
-			} else if u, ok := oidc.FromContext(ctx); ok {
-				sub = u.Sub
-			} else {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
-
-			ok, err := s.authzChecker.CanRead(ctx, sub, req.ResourceType, name)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			canRead = ok
+		// Check if the user can read this resource. The checker is always wired
+		// (mode "none" installs the permissive one), so there is no "no checker,
+		// allow everything" default left to start from.
+		var sub string
+		if isPlugin && pc.Kind != "" {
+			sub = pc.Sub
+		} else if u, ok := oidc.FromContext(ctx); ok {
+			sub = u.Sub
+		} else {
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+			return
 		}
-		// else: no checker (dev mode) → all visible
+
+		canRead, err := s.authzChecker.CanRead(ctx, sub, req.ResourceType, name)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
 		if canRead {
 			visible = append(visible, name)
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"visible": visible,
 	})
 }
@@ -196,7 +191,7 @@ func (s *Server) handleInternalPluginRoutes(w http.ResponseWriter, r *http.Reque
 	path := strings.TrimPrefix(r.URL.Path, "/api/internal/plugins/")
 	parts := strings.Split(path, "/")
 	if len(parts) != 2 || parts[0] == "" {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -206,7 +201,7 @@ func (s *Server) handleInternalPluginRoutes(w http.ResponseWriter, r *http.Reque
 	case "agent-mcp":
 		s.handlePluginAgentMCP(w, r, parts[0])
 	default:
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 	}
 }
 
@@ -215,7 +210,7 @@ func (s *Server) handleInternalPluginRoutes(w http.ResponseWriter, r *http.Reque
 // Requires the request to come from a verified endpoint
 func (s *Server) handleInternalPluginCredentials(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -223,7 +218,7 @@ func (s *Server) handleInternalPluginCredentials(w http.ResponseWriter, r *http.
 	path := strings.TrimPrefix(r.URL.Path, "/api/internal/plugins/")
 	parts := strings.Split(path, "/")
 	if len(parts) != 2 || parts[1] != "credentials" || parts[0] == "" {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 	pluginID := parts[0]
@@ -233,16 +228,16 @@ func (s *Server) handleInternalPluginCredentials(w http.ResponseWriter, r *http.
 	plugin, err := s.availablePlugin(ctx, pluginID)
 	if err != nil {
 		if err == errPluginUnavailable {
-			writeError(w, http.StatusNotFound, "not found")
+			httpx.WriteError(w, http.StatusNotFound, "not found")
 		} else {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		}
 		return
 	}
 
 	// Check: issuer is configured
 	if s.pluginCreds == nil {
-		writeError(w, http.StatusServiceUnavailable, "service unavailable")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "service unavailable")
 		return
 	}
 
@@ -255,7 +250,7 @@ func (s *Server) handleInternalPluginCredentials(w http.ResponseWriter, r *http.
 	// the namespace, and the plugin must still be enabled and Ready.
 	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -269,18 +264,18 @@ func (s *Server) handleInternalPluginCredentials(w http.ResponseWriter, r *http.
 	}
 
 	if !foundMatch {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
 	// Mint the credential
 	tok, exp, err := s.MintPluginBackgroundCredential(ctx, pluginID)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "service unavailable")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "service unavailable")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	httpx.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"token":     tok,
 		"expiresAt": exp.UTC().Format(time.RFC3339),
 	})

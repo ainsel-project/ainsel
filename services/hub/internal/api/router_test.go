@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
@@ -41,23 +42,22 @@ const routeConversionComplete = false
 type stubPersona struct{ PersonaService }
 
 // fullRouteServer builds a server with every route group registered, the way
-// production wiring does, so the inventory sees the whole surface.
+// production wiring does, so the inventory sees the whole surface. Every group
+// is now mounted by New itself — the channel, persona and skill groups are no
+// longer a second registration step — which is what makes this inventory a
+// check on Deps rather than on wiring order.
 func fullRouteServer(t *testing.T) *Server {
 	t.Helper()
-	// New takes the concrete persona service, so the persona group is mounted
-	// the way the wiring does it: on the server's own registration surface.
-	s := New(newFakeClient(), "test-ns", ConnectorConfig{}, nil, nil, nil, nil, newMockSkillService(), &Config{})
-	RegisterPersonaRoutes(s.routes(), &stubPersona{}, nil, nil)
-	// The channel routes are mounted by SetChannelService in wiring; the route
-	// registration does not touch the service, so nil is enough to mount them.
-	s.SetChannelService(nil, nil)
-	return s
+	deps := testDeps(t)
+	deps.Personas = &stubPersona{}
+	deps.Skills = newMockSkillService()
+	return newTestServer(t, deps)
 }
 
-// goldenRoutePatterns is the route inventory of New(...) plus the routes wired
-// by SetChannelService, RegisterPersonaRoutes and RegisterSkillRoutes. It is a
-// deliberate diff: converting a route group changes this list, and the diff is
-// the review of that group.
+// goldenRoutePatterns is the route inventory of New(Deps{...}) — every group it
+// registers, including the channel, persona and skill groups. It is a deliberate
+// diff: converting a route group changes this list, and the diff is the review of
+// that group.
 var goldenRoutePatterns = []string{
 	"/api/internal/agents/",
 	"/api/internal/chat/sessions",
@@ -380,7 +380,7 @@ func TestRouterErrorWrapperLeavesHandlerErrorsAlone(t *testing.T) {
 	})
 	jsonErr := http.NewServeMux()
 	jsonErr.HandleFunc("GET /json404", func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusNotFound, "agent not found")
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 	})
 
 	cases := []struct {
@@ -541,7 +541,7 @@ func TestReadAndWriteGuards(t *testing.T) {
 			called := ""
 			handler := func(w http.ResponseWriter, _ *http.Request, name string) {
 				called = name
-				writeJSON(w, http.StatusOK, map[string]string{"name": name})
+				httpx.WriteJSON(w, http.StatusOK, map[string]string{"name": name})
 			}
 
 			// No authz configured (dev mode): the guard lets the request through.
@@ -553,7 +553,10 @@ func TestReadAndWriteGuards(t *testing.T) {
 			}
 
 			// Authz configured, no caller in context: 401, handler untouched.
+			// The fixture's default caller comes off so the request really is
+			// anonymous.
 			called = ""
+			s.authMW = nil
 			s.authzChecker = authz.NewChecker(denyAuthzStore{}, authz.NewGroupCache(func(string) (map[string]authz.GroupRole, error) {
 				return nil, nil
 			}, time.Minute))
@@ -606,7 +609,7 @@ func TestInternalTaskGuard(t *testing.T) {
 	var got string
 	inner := func(w http.ResponseWriter, _ *http.Request, agentName string) {
 		got = agentName
-		writeJSON(w, http.StatusOK, map[string]string{"agent": agentName})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"agent": agentName})
 	}
 
 	s := testServer(t)
@@ -679,7 +682,10 @@ var internalTokenRoutes = []internalTokenRoute{
 	// The user-token validate route checks the token inline rather than through
 	// requireInternalToken, and reports an unwired store first: same status for
 	// both rows here, but a different code path, so it is listed explicitly.
-	{method: http.MethodPost, path: "/api/internal/user-tokens/validate", wantNoSecret: http.StatusServiceUnavailable, wantWrongToken: http.StatusServiceUnavailable},
+	// The user-token store is a required dependency (issue #264), so this route no
+	// longer answers 503 for an unwired store: an unconfigured or wrong internal
+	// secret is the 401 the handler itself raises.
+	{method: http.MethodPost, path: "/api/internal/user-tokens/validate", wantNoSecret: http.StatusUnauthorized, wantWrongToken: http.StatusUnauthorized},
 	// Exceptions — see the comment above.
 	{method: http.MethodPost, path: "/api/internal/plugins/github/credentials", wantNoSecret: http.StatusNotFound, wantWrongToken: http.StatusNotFound},
 	{method: http.MethodPost, path: "/api/internal/plugins/github/agent-mcp", wantNoSecret: http.StatusServiceUnavailable, wantWrongToken: http.StatusUnauthorized},

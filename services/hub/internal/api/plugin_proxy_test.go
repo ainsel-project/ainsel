@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	pluginpkg "github.com/ainsel-project/ainsel/shared/api/plugin"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -48,11 +49,11 @@ func TestPluginProxy_UIServedWithoutAuth(t *testing.T) {
 	// Create server with auth middleware that rejects everything
 	s := testServer(t, plugin)
 	registerPluginRoutes(s)
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, http.StatusUnauthorized, "always rejects")
+			httpx.WriteError(w, http.StatusUnauthorized, "always rejects")
 		})
-	})
+	}
 
 	// Test GET succeeds with auth-exempt
 	rec := httptest.NewRecorder()
@@ -166,7 +167,7 @@ func TestPluginProxy_APIForwardsCredential(t *testing.T) {
 		secret[i] = byte(i % 256)
 	}
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	// Set up auth middleware that injects a user context
 	testUser := &oidc.User{
@@ -174,12 +175,12 @@ func TestPluginProxy_APIForwardsCredential(t *testing.T) {
 		Username: "testuser",
 	}
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), testUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 
 	// Make authenticated request
 	rec := httptest.NewRecorder()
@@ -284,19 +285,19 @@ func TestPluginProxy_StripsSpoofedHeaders(t *testing.T) {
 		secret[i] = byte(i % 256)
 	}
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	testUser := &oidc.User{
 		Sub:      "user123",
 		Username: "testuser",
 	}
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), testUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/plugins/mem0/api/test", nil)
@@ -374,19 +375,19 @@ func TestPluginProxy_OnlyVerifiedEndpoints(t *testing.T) {
 		secret[i] = byte(i % 256)
 	}
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	testUser := &oidc.User{
 		Sub:      "user123",
 		Username: "testuser",
 	}
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), testUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/plugins/mem0/api/test", nil)
@@ -440,19 +441,19 @@ func TestPluginProxy_DisabledPlugin(t *testing.T) {
 				secret[i] = byte(i % 256)
 			}
 			issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-			s.SetPluginCredentialIssuer(issuer)
+			s.pluginCreds = issuer
 
 			testUser := &oidc.User{
 				Sub:      "user123",
 				Username: "testuser",
 			}
 
-			s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+			s.authMW = func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					ctx := oidc.ContextWithUser(r.Context(), testUser)
 					next.ServeHTTP(w, r.WithContext(ctx))
 				})
-			})
+			}
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest("GET", "/api/v1/plugins/mem0/api/test", nil)
@@ -488,19 +489,19 @@ func TestPluginProxy_NoSurface(t *testing.T) {
 		secret[i] = byte(i % 256)
 	}
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	testUser := &oidc.User{
 		Sub:      "user123",
 		Username: "testuser",
 	}
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), testUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/plugins/mem0/mcp", nil)
@@ -536,19 +537,19 @@ func TestPluginProxy_Unreachable(t *testing.T) {
 		secret[i] = byte(i % 256)
 	}
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	testUser := &oidc.User{
 		Sub:      "user123",
 		Username: "testuser",
 	}
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), testUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/plugins/mem0/api/test", nil)
@@ -592,12 +593,12 @@ func TestPluginProxy_CredentialsDisabled(t *testing.T) {
 		Username: "testuser",
 	}
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), testUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/plugins/mem0/api/test", nil)
@@ -629,7 +630,7 @@ func TestPluginProxy_ManagementRoutesUnchanged(t *testing.T) {
 		secret[i] = byte(i % 256)
 	}
 	issuer, _ := plugincreds.NewIssuer(secret, 5*time.Minute)
-	s.SetPluginCredentialIssuer(issuer)
+	s.pluginCreds = issuer
 
 	// Admin user
 	testUser := &oidc.User{
@@ -638,12 +639,12 @@ func TestPluginProxy_ManagementRoutesUnchanged(t *testing.T) {
 		Roles:    []string{"admin"},
 	}
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := oidc.ContextWithUser(r.Context(), testUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	})
+	}
 
 	// GET /api/v1/plugins/mem0 should return plugin info
 	rec := httptest.NewRecorder()
@@ -683,13 +684,16 @@ func TestPluginProxy_DevModeForwardsWithoutCredential(t *testing.T) {
 	plugin.Status.VerifiedEndpoints = []string{upstream.Listener.Addr().String()}
 
 	s := testServer(t, plugin)
+	// Dev mode is "no caller": the fixture's default caller would make the proxy
+	// mint a user credential instead of forwarding bare.
+	s.authMW = nil
 	registerPluginRoutes(s)
 
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/plugins/mem0/api/memories", nil))
 
 	if rec.Code != http.StatusOK || !called {
-		t.Fatalf("got %d (upstream called=%v), want 200 forwarded", rec.Code, called)
+		t.Fatalf("got %d (upstream called=%v) body=%s, want 200 forwarded", rec.Code, called, rec.Body.String())
 	}
 	if gotPath != "/api/memories" || gotCred != "" {
 		t.Fatalf("upstream saw path %q credential %q", gotPath, gotCred)

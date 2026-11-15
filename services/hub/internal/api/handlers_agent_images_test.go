@@ -32,7 +32,7 @@ func TestAgentImages_EmptyList(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -75,7 +75,7 @@ func TestAgentImages_CreateValid(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -118,7 +118,7 @@ func TestAgentImages_CreateMissingImageURL(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -136,7 +136,7 @@ func TestAgentImages_CreateMissingDisplayName(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -170,7 +170,7 @@ func TestAgentImages_ToolCount(t *testing.T) {
 	// Verify GET returns correct toolCount.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-tools001", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -189,7 +189,7 @@ func TestAgentImages_ToolCount(t *testing.T) {
 	// Verify LIST also returns correct toolCount.
 	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images", nil)
 	listRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(listRec, listReq)
+	s.ServeHTTP(listRec, listReq)
 
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 on list, got %d: %s", listRec.Code, listRec.Body.String())
@@ -219,7 +219,7 @@ func TestAgentImages_GetNotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/does-not-exist", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -247,7 +247,7 @@ func TestAgentImages_GetExisting(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-abc12345", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -298,7 +298,7 @@ func TestUpdateAgentImage_AddDescription(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-upd00001", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -350,7 +350,7 @@ func TestUpdateAgentImage_StaleEnabledSkillsFieldIgnored(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-stale001", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 (stale enabledSkills ignored), got %d: %s", rec.Code, rec.Body.String())
@@ -408,7 +408,7 @@ func TestUpdateAgentImage_RemoveToolReferencedByAgent(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-tooltest1", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
@@ -459,7 +459,7 @@ func TestDeleteAgentImage_OK(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/agent-images/img-del00001", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
@@ -468,7 +468,7 @@ func TestDeleteAgentImage_OK(t *testing.T) {
 	// Verify the image is gone.
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-del00001", nil)
 	getRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(getRec, getReq)
+	s.ServeHTTP(getRec, getReq)
 	if getRec.Code != http.StatusNotFound {
 		t.Errorf("expected 404 after delete, got %d", getRec.Code)
 	}
@@ -506,7 +506,7 @@ func TestDeleteAgentImage_RejectsWhenAgentReferences(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/agent-images/img-nodlt001", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
@@ -542,7 +542,7 @@ func TestDeleteAgentImage_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/agent-images/img-missing1", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -574,7 +574,7 @@ func TestAgentImages_CreateWithEnv(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -616,7 +616,7 @@ func TestAgentImages_GetReturnsEnv(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-envtest1", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -651,7 +651,7 @@ func TestAgentImages_UpdateEnv(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-envupd01", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -684,7 +684,7 @@ func TestAgentImages_UpdateNilEnvPreservesExisting(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-envprs01", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -742,7 +742,7 @@ func TestAgentImages_UpdateToolEnabled(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-test", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -801,7 +801,7 @@ func TestAgentImages_UpdateToolDisabled(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-dis", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -841,7 +841,7 @@ func TestAgentImages_CreateWithSecretEnv(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -899,7 +899,7 @@ func TestAgentImages_GetSecretEnvRedacted(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-sec01", nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -957,7 +957,7 @@ func TestAgentImages_UpdateSecretEnvPreservesValue(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secupd01", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1010,7 +1010,7 @@ func TestAgentImages_UpdateSecretEnvOverwritesValue(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secow01", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1054,7 +1054,7 @@ func TestAgentImages_UpdateSecretEnvRotateWithoutFlag(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secrot01", strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1080,7 +1080,7 @@ func TestAgentImages_UpdateSecretEnvRotateWithoutFlag(t *testing.T) {
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-secrot01", nil)
 	getRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(getRec, getReq)
+	s.ServeHTTP(getRec, getReq)
 	if strings.Contains(getRec.Body.String(), "new-secret") {
 		t.Errorf("GET must not echo the rotated secret, got: %s", getRec.Body.String())
 	}
@@ -1108,7 +1108,7 @@ func TestAgentImages_UpdateSecretEnvExplicitDeclassify(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secdecl01", strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1152,7 +1152,7 @@ func TestAgentImages_UpdateSidecarSecretEnvRotateWithoutFlag(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secscrot01", strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1199,7 +1199,7 @@ func TestAgentImages_UpdateSecretEnvMCPShape(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secmcp01", strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1251,7 +1251,7 @@ func TestAgentImages_UpdateSecretEnvFlagFlipGuard(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secflip01", strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1268,7 +1268,7 @@ func TestAgentImages_UpdateSecretEnvFlagFlipGuard(t *testing.T) {
 	// The masking view must still hide the preserved value.
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent-images/img-secflip01", nil)
 	getRec := httptest.NewRecorder()
-	s.mux.ServeHTTP(getRec, getReq)
+	s.ServeHTTP(getRec, getReq)
 	if !strings.Contains(getRec.Body.String(), `"value":""`) {
 		t.Errorf("GET should not echo the stored secret value, got: %s", getRec.Body.String())
 	}
@@ -1314,7 +1314,7 @@ func TestAgentImages_UpdateSidecarSecretEnvPreserved(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-secsc01", strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1361,7 +1361,7 @@ func TestAgentImages_CreateWithMCPServerReference(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -1404,7 +1404,7 @@ func TestAgentImages_CreateRejectsMissingMCPServer(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -1433,7 +1433,7 @@ func TestAgentImages_UpdateWithMCPServerReference(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-mcpupd01", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1460,7 +1460,7 @@ func TestAgentImages_CreateHasNoDefaultMCPServers(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -1502,7 +1502,7 @@ func TestAgentImages_CreateIgnoresEnabledSkills(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-images", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())

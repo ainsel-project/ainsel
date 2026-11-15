@@ -99,7 +99,7 @@ describe('Spine', () => {
       'Personas',
       'Connectors',
       'Docs',
-      'MCPs',
+      'MCP Servers',
       'Skills',
     ]
     for (const name of expected) {
@@ -118,7 +118,7 @@ describe('Spine', () => {
 
     const section = screen.getByText('Library').closest('div')?.parentElement
     expect(section).not.toBeNull()
-    for (const name of ['Images', 'Personas', 'Skills', 'MCPs']) {
+    for (const name of ['Images', 'Personas', 'Skills', 'MCP Servers']) {
       expect(
         within(section as HTMLElement).getByRole('link', { name: new RegExp(name, 'i') }),
       ).toBeInTheDocument()
@@ -149,6 +149,29 @@ describe('Spine', () => {
     const links = screen.getAllByRole('link', { name: /Plugins/i })
     expect(links).toHaveLength(1)
     expect(links[0]).toHaveAttribute('href', '/plugins')
+  })
+
+  // Issue #291: plugins are used day to day, so the entry belongs to the
+  // Operations block; Admin keeps only platform-configuration entries.
+  it('groups Plugins under Operations instead of Admin', () => {
+    renderAt('/dashboard')
+
+    const operations = screen.getByText('Operations').closest('div')?.parentElement
+    expect(operations).not.toBeNull()
+    expect(
+      within(operations as HTMLElement).getByRole('link', { name: /Plugins/i }),
+    ).toBeInTheDocument()
+
+    const admin = screen.getByText('Admin').closest('div')?.parentElement
+    expect(admin).not.toBeNull()
+    expect(
+      within(admin as HTMLElement).queryByRole('link', { name: /Plugins/i }),
+    ).not.toBeInTheDocument()
+    for (const name of ['Users', 'Groups', 'Connectors', 'Audit']) {
+      expect(
+        within(admin as HTMLElement).getByRole('link', { name: new RegExp(name, 'i') }),
+      ).toBeInTheDocument()
+    }
   })
 
   // Plugin navigation lives in the plugins workspace sidebar now (issue #211):

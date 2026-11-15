@@ -13,9 +13,9 @@ every later upgrade. It fails the upgrade when it cannot migrate something
 success over a half-migrated cluster — set `migrations.skillsShape.enabled` to
 false to run the command yourself instead:
 
-  kubectl exec deploy/hub-backend -n <namespace> -- /hub migrate-skills-shape -n <namespace>
+  kubectl exec deploy/hub -n <namespace> -- /hub migrate-skills-shape -n <namespace>
 
-RBAC: the hub-backend ServiceAccount already has get/list/patch on
+RBAC: the hub ServiceAccount already has get/list/patch on
 ainsel.dev/agents, so no extra grants are needed.
 */ -}}
 {{- $migrations := .Values.migrations | default dict }}
@@ -46,7 +46,7 @@ spec:
         app.kubernetes.io/component: migration
     spec:
       restartPolicy: Never
-      serviceAccountName: hub-backend
+      serviceAccountName: hub
       {{- with .Values.hub.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}

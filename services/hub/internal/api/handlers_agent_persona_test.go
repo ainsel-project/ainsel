@@ -90,7 +90,7 @@ func newAgentPersonaServer(t *testing.T, svc PersonaService, displayName string)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("setup: create agent: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -126,7 +126,7 @@ func doAgentPersona(t *testing.T, s *Server, method, agentName string, body any)
 	req := httptest.NewRequest(method, "/api/v1/agents/"+agentName+"/persona", rdr)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -367,14 +367,17 @@ func TestAgentPersona_PUT_UnknownAgentIs404(t *testing.T) {
 	}
 }
 
-func TestAgentPersona_NoServiceIs503(t *testing.T) {
+// The persona service is a required dependency (issue #264), so the endpoint has
+// no "service not wired" 503 left to answer: an unknown agent is a 404 even on a
+// server whose persona service is the inert default.
+func TestAgentPersona_UnknownAgentIs404Not503(t *testing.T) {
 	img := testAgentImage("img-1", "git")
 	s := testServer(t, img)
 	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
 
 	rec := doAgentPersona(t, s, http.MethodGet, "a-whatever", nil)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 without a persona service, got %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
 	}
 }
 
@@ -409,7 +412,7 @@ func TestUpdateAgent_RepointAwayReclaimsOwnedPersona(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+id, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -437,7 +440,7 @@ func TestUpdateAgent_SamePersonaKeepsOwned(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+id, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -463,7 +466,7 @@ func TestDeleteAgent_ReclaimsOwnedPersona(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/agents/"+id, nil)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 200/204, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -503,7 +506,7 @@ func createAgentWithPersonaText(t *testing.T, s *Server, persona *AgentPersonaCr
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	return rec
 }
 

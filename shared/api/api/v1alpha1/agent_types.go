@@ -69,10 +69,13 @@ type AgentSpec struct {
 	// "helm", "gitops", or "plugin". Any non-empty value other than "user"
 	// marks the resource externally managed: the hub REST API refuses every
 	// mutation with 409 Conflict and the console renders it read-only, so a
-	// resource has exactly one authoring source. Empty means console-managed
+	// resource has exactly one authoring source. The one caller that passes is
+	// the plugin a "plugin-<id>" value names. Empty means console-managed
 	// (equivalent to "user"); no default is set so existing CRs keep their
-	// meaning. Only the external manager (kubectl/GitOps/Helm) sets or clears
-	// it — the hub API never accepts a client-supplied value.
+	// meaning. External managers (kubectl/GitOps/Helm) set or clear it directly;
+	// the hub REST API accepts it only as the create-time stamp a plugin-authenticated
+	// caller writes for itself ("plugin-<id>", derived from the caller identity,
+	// never from another manager's name) and never accepts it on update.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9.-]{0,62}$`
 	ManagedBy      string               `json:"managedBy,omitempty"`

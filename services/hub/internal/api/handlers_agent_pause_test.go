@@ -62,7 +62,7 @@ func TestPauseAgentSubresource(t *testing.T) {
 		bytes.NewReader([]byte(`{"duration":"2h"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -96,7 +96,7 @@ func TestPauseAgentIndefinite(t *testing.T) {
 	s := pauseTestServer(t, pausedTestAgent("worker", nil))
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/agents/worker/pause", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/agents/worker/pause", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -135,7 +135,7 @@ func TestPauseAgentRejectsBadRequests(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/worker/pause", bytes.NewReader([]byte(tc.body)))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
-			s.mux.ServeHTTP(rec, req)
+			s.ServeHTTP(rec, req)
 			if rec.Code != tc.want {
 				t.Errorf("status = %d, want %d (body %s)", rec.Code, tc.want, rec.Body.String())
 			}
@@ -146,7 +146,7 @@ func TestPauseAgentRejectsBadRequests(t *testing.T) {
 func TestPauseAgentNotFound(t *testing.T) {
 	s := pauseTestServer(t)
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/agents/ghost/pause", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/agents/ghost/pause", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
@@ -157,7 +157,7 @@ func TestResumeAgentClearsPause(t *testing.T) {
 	s := pauseTestServer(t, pausedTestAgent("worker", &agentv1alpha1.AgentPause{PausedUntil: &until}))
 
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/v1/agents/worker/pause", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/v1/agents/worker/pause", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}

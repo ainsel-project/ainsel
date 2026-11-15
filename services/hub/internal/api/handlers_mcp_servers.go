@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,9 +30,10 @@ type mcpServerDTO struct {
 	Description  string `json:"description,omitempty"`
 	URL          string `json:"url"`
 	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
-	// ManagedBy names the row's author ("user", "helm", "plugin", ...).
-	// Read-only: the write request shape has no managedBy field, so the hub
-	// never accepts a client-supplied value and preserves the stored one.
+	// ManagedBy names the row's author ("user", "helm", "plugin", "plugin-<id>",
+	// ...). Read-only on update: the hub always preserves the stored value. The
+	// one way in is create, where a plugin caller may stamp its own
+	// "plugin-<id>" value (see mcpServerWriteRequest).
 	ManagedBy string    `json:"managedBy"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -44,6 +46,11 @@ type mcpServerWriteRequest struct {
 	Description  string `json:"description,omitempty"`
 	URL          string `json:"url"`
 	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
+	// ManagedBy stamps this row's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the row stays console-owned). It is
+	// ignored on update — the stored value is always preserved.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 func toMCPDTO(m *mcpservers.MCPServer) mcpServerDTO {
@@ -75,19 +82,15 @@ func validateTokenFromEnv(v string) error {
 }
 
 func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
-	if s.mcp == nil {
-		writeError(w, http.StatusServiceUnavailable, "mcp service not configured")
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
 		servers, err := s.mcp.List(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		// Filter to resources the caller can access.
-		if s.authzStore != nil && !s.callerIsAdmin(r) {
+		if !s.callerIsAdmin(r) {
 			names := make([]string, len(servers))
 			for i, m := range servers {
 				names[i] = m.Name
@@ -105,30 +108,35 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 		for _, m := range servers {
 			out = append(out, toMCPDTO(m))
 		}
-		writeJSON(w, http.StatusOK, out)
+		httpx.WriteJSON(w, http.StatusOK, out)
 	case http.MethodPost:
 		var req mcpServerWriteRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, "invalid body: "+err.Error())
 			return
 		}
 		if req.URL == "" {
-			writeError(w, http.StatusBadRequest, "url is required")
+			httpx.WriteError(w, http.StatusBadRequest, "url is required")
 			return
 		}
 		if err := validateTokenFromEnv(req.TokenFromEnv); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		// Validate group membership for resource creation.
-		if s.authzChecker != nil {
-			if req.GroupID == "" {
-				writeError(w, http.StatusBadRequest, "groupId is required")
-				return
-			}
-			if !s.requireGroupWrite(w, r, req.GroupID) {
-				return
-			}
+		req.GroupID = s.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+			return
+		}
+		if !s.requireGroupWrite(w, r, req.GroupID) {
+			return
+		}
+		// Author stamping (issue #190): only a plugin caller naming itself gets a
+		// managed row; every other caller stays "user" as before.
+		managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+		if writeCreateManagedBy(w, mbErr) {
+			return
 		}
 		m := &mcpservers.MCPServer{
 			Name:         req.Name,
@@ -136,28 +144,27 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			Description:  req.Description,
 			URL:          req.URL,
 			TokenFromEnv: req.TokenFromEnv,
+			ManagedBy:    managedBy,
 		}
 		if err := s.mcp.Create(r.Context(), m); err != nil {
 			if errors.Is(err, mcpservers.ErrAlreadyExists) {
-				writeError(w, http.StatusConflict, err.Error())
+				httpx.WriteError(w, http.StatusConflict, err.Error())
 				return
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		if s.authzStore != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := s.authzStore.SetResourceGroup(r.Context(), "mcp-server", m.Name, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", m.Name)
-			}
+		groupID := req.GroupID
+		if groupID == "" {
+			groupID = "legacy"
+		}
+		if err := s.authzStore.SetResourceGroup(r.Context(), "mcp-server", m.Name, groupID, false); err != nil {
+			slog.Error("set resource group on create", "error", err, "resource", m.Name)
 		}
 
 		saved, _ := s.mcp.Get(r.Context(), m.Name)
-		writeJSON(w, http.StatusCreated, toMCPDTO(saved))
+		httpx.WriteJSON(w, http.StatusCreated, toMCPDTO(saved))
 	default:
 		w.Header().Set("Allow", "GET, POST")
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -165,10 +172,6 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
-	if s.mcp == nil {
-		writeError(w, http.StatusServiceUnavailable, "mcp service not configured")
-		return
-	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/mcp-servers/")
 
 	// Handle sub-route /:name/tools
@@ -183,7 +186,7 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 
 	name := rest
 	if name == "" || strings.Contains(name, "/") {
-		writeError(w, http.StatusBadRequest, "missing or invalid name")
+		httpx.WriteError(w, http.StatusBadRequest, "missing or invalid name")
 		return
 	}
 
@@ -204,37 +207,38 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 		m, err := s.mcp.Get(r.Context(), name)
 		if err != nil {
 			if errors.Is(err, mcpservers.ErrNotFound) {
-				writeError(w, http.StatusNotFound, err.Error())
+				httpx.WriteError(w, http.StatusNotFound, err.Error())
 				return
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, toMCPDTO(m))
+		httpx.WriteJSON(w, http.StatusOK, toMCPDTO(m))
 	case http.MethodPut:
 		var req mcpServerWriteRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, "invalid body: "+err.Error())
 			return
 		}
 		existing, err := s.mcp.Get(r.Context(), name)
 		if err != nil {
 			if errors.Is(err, mcpservers.ErrNotFound) {
-				writeError(w, http.StatusNotFound, err.Error())
+				httpx.WriteError(w, http.StatusNotFound, err.Error())
 				return
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if mcpservers.IsManaged(existing.ManagedBy) {
+		if mcpservers.RefusesWrite(r.Context(), existing) {
 			// The row and the endpoint it points at both belong to their author:
 			// rewriting them would send every agent that attached the server to
-			// somewhere the author never served.
-			writeError(w, http.StatusConflict, managedMessage(existing))
+			// somewhere the author never served. The plugin the row names is that
+			// author, so it passes.
+			httpx.WriteError(w, http.StatusConflict, managedMessage(existing))
 			return
 		}
 		if err := validateTokenFromEnv(req.TokenFromEnv); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		existing.DisplayName = req.DisplayName
@@ -243,11 +247,11 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 		// tokenFromEnv is not a secret; PUT fully replaces it (empty unsets).
 		existing.TokenFromEnv = req.TokenFromEnv
 		if err := s.mcp.Update(r.Context(), existing); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		saved, _ := s.mcp.Get(r.Context(), name)
-		writeJSON(w, http.StatusOK, toMCPDTO(saved))
+		httpx.WriteJSON(w, http.StatusOK, toMCPDTO(saved))
 	case http.MethodDelete:
 		// Plugin ownership is answered before the agent-image reference check.
 		// The row cannot be deleted either way, and naming the owning plugin is
@@ -256,23 +260,23 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 		existing, err := s.mcp.Get(r.Context(), name)
 		if err != nil {
 			if errors.Is(err, mcpservers.ErrNotFound) {
-				writeError(w, http.StatusNotFound, err.Error())
+				httpx.WriteError(w, http.StatusNotFound, err.Error())
 				return
 			}
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if mcpservers.IsManaged(existing.ManagedBy) {
-			writeError(w, http.StatusConflict, managedMessage(existing))
+			httpx.WriteError(w, http.StatusConflict, managedMessage(existing))
 			return
 		}
 		affectedImages, err := s.agentImagesReferencingMCPServer(r.Context(), name)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if len(affectedImages) > 0 {
-			writeJSON(w, http.StatusConflict, map[string]interface{}{
+			httpx.WriteJSON(w, http.StatusConflict, map[string]interface{}{
 				"error":          "mcp server referenced by agent image(s)",
 				"affectedImages": affectedImages,
 			})
@@ -281,20 +285,18 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 		if err := s.mcp.Delete(r.Context(), name); err != nil {
 			switch {
 			case errors.Is(err, mcpservers.ErrNotFound):
-				writeError(w, http.StatusNotFound, err.Error())
+				httpx.WriteError(w, http.StatusNotFound, err.Error())
 			case errors.Is(err, mcpservers.ErrManaged):
-				writeError(w, http.StatusConflict, err.Error())
+				httpx.WriteError(w, http.StatusConflict, err.Error())
 			case errors.Is(err, mcpservers.ErrPluginManaged):
-				writeError(w, http.StatusConflict, err.Error())
+				httpx.WriteError(w, http.StatusConflict, err.Error())
 			default:
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			}
 			return
 		}
-		if s.authzStore != nil {
-			if err := s.authzStore.DeleteResourceGroup(r.Context(), "mcp-server", name); err != nil {
-				slog.Error("delete ownership", "error", err, "resource", name)
-			}
+		if err := s.authzStore.DeleteResourceGroup(r.Context(), "mcp-server", name); err != nil {
+			slog.Error("delete ownership", "error", err, "resource", name)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -407,16 +409,16 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request, na
 	m, err := s.mcp.Get(r.Context(), name)
 	if err != nil {
 		if errors.Is(err, mcpservers.ErrNotFound) {
-			writeError(w, http.StatusNotFound, err.Error())
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	tools, err := listMCPTools(r.Context(), m.URL, s.mcpBearerForServer(r.Context(), m.Name, m.TokenFromEnv))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to list tools: "+err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "failed to list tools: "+err.Error())
 		return
 	}
 
@@ -428,5 +430,5 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request, na
 	for _, t := range tools {
 		out = append(out, toolDTO(t))
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }

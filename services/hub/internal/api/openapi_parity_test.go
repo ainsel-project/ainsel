@@ -89,6 +89,8 @@ func readOpenAPISpec(t *testing.T) []byte {
 		}
 		dir = parent
 	}
+	// #nosec G304 -- the path is always the repo's openapi/hub.yaml, found
+	// by walking up from the test working directory; it is not user input.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)

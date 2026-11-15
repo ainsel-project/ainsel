@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/localauth"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -25,11 +26,11 @@ import (
 func gatedTestServer(t *testing.T) (*Server, *fakeAuthzStore) {
 	t.Helper()
 	s, store := localAuthTestServer(t)
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { next.ServeHTTP(w, r) })
-	})
+	}
 	s.mux.HandleFunc("/api/v1/agents", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
 	})
 	return s, store
 }
@@ -133,19 +134,13 @@ func TestPasswordGateSkipsEveryoneElse(t *testing.T) {
 // The gate must be inert where local auth is not wired, so `oidc` and `none`
 // deployments see no extra store read and no new failure mode.
 func TestPasswordGateInertWithoutLocalAuth(t *testing.T) {
-	t.Run("no authz store", func(t *testing.T) {
-		s, store := gatedTestServer(t)
-		seedFlaggedLocalUser(t, store, "alice", false, true)
-		s.authzStore = nil
-		rec := doJSON(t, s, http.MethodGet, "/api/v1/agents", nil, asUser("local:alice", "alice"))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
-		}
-	})
+	// There is no "no authz store" server any more (issue #264): Deps requires
+	// the store, so the gate can always look the flag up. What the gate can
+	// still be inert about is a request that never carried a caller.
 	t.Run("no auth middleware", func(t *testing.T) {
 		s, store := gatedTestServer(t)
 		seedFlaggedLocalUser(t, store, "alice", false, true)
-		s.SetAuthMiddleware(nil)
+		s.authMW = nil
 		rec := doJSON(t, s, http.MethodGet, "/api/v1/agents", nil, asUser("local:alice", "alice"))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
@@ -323,11 +318,11 @@ func TestAuthMeUnauthorized(t *testing.T) {
 func TestForcedChangeEndToEnd(t *testing.T) {
 	s, store := localAuthTestServer(t)
 	seedFlaggedLocalUser(t, store, "admin", true, true)
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return localauth.NewMiddleware(testLocalSecret, store)(s.IdentityPersistMiddleware(next))
-	})
+	}
 	s.mux.HandleFunc("/api/v1/agents", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"ok": "handler reached"})
 	})
 
 	rec := doJSON(t, s, http.MethodPost, "/api/v1/auth/login", map[string]string{

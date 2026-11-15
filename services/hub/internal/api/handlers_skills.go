@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
@@ -31,65 +32,57 @@ type SkillService interface {
 // SkillSummary.
 var skillSortAllowed = []string{"name", "id", "usedBy", "updatedAt", "createdAt"}
 
+// skillHandlers groups the skill endpoints with their service dependency and
+// the authorization pair they guard with. Both arrive by value at
+// registration: New validates Deps and then registers this group, so the
+// handlers cannot be built against a half-wired server.
 type skillHandlers struct {
-	svc           SkillService
-	authzStorePtr *authzStore
-	checkerPtr    **authz.Checker
+	svc     SkillService
+	store   AuthzStore
+	checker *authz.Checker
+	// defaultGroupID mirrors Server.resolveGroupID: an install with the group
+	// model off files a group-less create in its one group instead of 400-ing.
+	defaultGroupID string
 }
 
-func (h *skillHandlers) getAuthzStore() authzStore {
-	if h.authzStorePtr == nil {
-		return nil
+func (h *skillHandlers) resolveGroupID(id string) string {
+	if id != "" {
+		return id
 	}
-	return *h.authzStorePtr
-}
-
-func (h *skillHandlers) getChecker() *authz.Checker {
-	if h.checkerPtr == nil {
-		return nil
-	}
-	return *h.checkerPtr
+	return h.defaultGroupID
 }
 
 func (h *skillHandlers) requireRead(w http.ResponseWriter, r *http.Request, id string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanRead(r.Context(), u.Sub, "skill", id)
+	ok, err := h.checker.CanRead(r.Context(), u.Sub, "skill", id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
 }
 
 func (h *skillHandlers) requireWrite(w http.ResponseWriter, r *http.Request, id string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWrite(r.Context(), u.Sub, "skill", id)
+	ok, err := h.checker.CanWrite(r.Context(), u.Sub, "skill", id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -97,40 +90,32 @@ func (h *skillHandlers) requireWrite(w http.ResponseWriter, r *http.Request, id 
 
 // requireGroupWrite checks the caller can create resources in the group.
 func (h *skillHandlers) requireGroupWrite(w http.ResponseWriter, r *http.Request, groupID string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWriteGroup(r.Context(), u.Sub, groupID)
+	ok, err := h.checker.CanWriteGroup(r.Context(), u.Sub, groupID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "writer or owner of the group required")
+		httpx.WriteError(w, http.StatusForbidden, "writer or owner of the group required")
 		return false
 	}
 	return true
 }
 
 // accessibleSet returns the set of skill IDs the caller can read.
-// Returns nil if access control is not configured or the caller is an admin.
+// Returns nil when the caller is an admin — which, in auth mode "none", is
+// every caller.
 func (h *skillHandlers) accessibleSet(r *http.Request) map[string]bool {
-	store := h.getAuthzStore()
-	c := h.getChecker()
-	if store == nil || c == nil {
-		return nil
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		return map[string]bool{}
 	}
-	admin, _ := c.IsAdmin(r.Context(), u.Sub)
+	admin, _ := h.checker.IsAdmin(r.Context(), u.Sub)
 	if admin {
 		return nil
 	}
@@ -140,10 +125,10 @@ func (h *skillHandlers) accessibleSet(r *http.Request) map[string]bool {
 		groupIDs = ids
 	} else {
 		// Fall back to store lookup for user callers
-		groupIDs, _ = store.UserGroupIDs(r.Context(), u.Sub)
+		groupIDs, _ = h.store.UserGroupIDs(r.Context(), u.Sub)
 	}
 	includePublic := r.URL.Query().Get("includePublic") == "true"
-	names, err := store.ListResourcesByGroups(r.Context(), "skill", groupIDs, includePublic)
+	names, err := h.store.ListResourcesByGroups(r.Context(), "skill", groupIDs, includePublic)
 	if err != nil {
 		return map[string]bool{}
 	}
@@ -151,8 +136,8 @@ func (h *skillHandlers) accessibleSet(r *http.Request) map[string]bool {
 }
 
 // RegisterSkillRoutes wires the skill endpoints into the given mux.
-func RegisterSkillRoutes(mux routeRegistrar, svc SkillService, authzStorePtr *authzStore, checkerPtr **authz.Checker) {
-	h := &skillHandlers{svc: svc, authzStorePtr: authzStorePtr, checkerPtr: checkerPtr}
+func RegisterSkillRoutes(mux routeRegistrar, svc SkillService, store AuthzStore, checker *authz.Checker, defaultGroupID string) {
+	h := &skillHandlers{svc: svc, store: store, checker: checker, defaultGroupID: defaultGroupID}
 	mux.HandleFunc("/api/v1/skills", h.handleCollection)
 	mux.HandleFunc("/api/v1/skills/", h.handleItem)
 }
@@ -162,13 +147,13 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 	case http.MethodGet:
 		page, err := ParsePageParams(r.URL.Query())
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		q := r.URL.Query()
 		sortParams, err := ParseSortParams(q, skillSortAllowed)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		filter := skills.ListFilter{
@@ -188,7 +173,7 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 		// alone, without querying.
 		if set := h.accessibleSet(r); set != nil {
 			if len(set) == 0 {
-				writeJSON(w, http.StatusOK, map[string]any{
+				httpx.WriteJSON(w, http.StatusOK, map[string]any{
 					"items":      []skills.SkillSummary{},
 					"total":      0,
 					"page":       page.Page,
@@ -217,7 +202,7 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 			if items == nil {
 				items = []skills.SkillSummary{}
 			}
-			writeJSON(w, http.StatusOK, map[string]any{
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{
 				"items":      items,
 				"total":      total,
 				"page":       page.Page,
@@ -239,7 +224,7 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 		if items == nil {
 			items = []skills.SkillSummary{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{
 			"items":      items,
 			"total":      total,
 			"page":       page.Page,
@@ -249,35 +234,28 @@ func (h *skillHandlers) handleCollection(w http.ResponseWriter, r *http.Request)
 	case http.MethodPost:
 		var req skills.CreateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
-		if h.getChecker() != nil {
-			if req.GroupID == "" {
-				writeError(w, http.StatusBadRequest, "groupId is required")
-				return
-			}
-			if !h.requireGroupWrite(w, r, req.GroupID) {
-				return
-			}
+		req.GroupID = h.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+			return
+		}
+		if !h.requireGroupWrite(w, r, req.GroupID) {
+			return
 		}
 		sk, err := h.svc.Create(r.Context(), req)
 		if err != nil {
 			h.writeSkillError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := h.getAuthzStore().SetResourceGroup(r.Context(), "skill", sk.ID, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", sk.ID)
-			}
+		if err := h.store.SetResourceGroup(r.Context(), "skill", sk.ID, req.GroupID, false); err != nil {
+			slog.Error("set resource group on create", "error", err, "resource", sk.ID)
 		}
-		writeJSON(w, http.StatusCreated, sk)
+		httpx.WriteJSON(w, http.StatusCreated, sk)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -352,14 +330,14 @@ func (h *skillHandlers) handleItem(w http.ResponseWriter, r *http.Request) {
 			h.writeSkillError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, sk)
+		httpx.WriteJSON(w, http.StatusOK, sk)
 	case http.MethodPut:
 		if !h.requireWrite(w, r, id) {
 			return
 		}
 		var req skills.UpdateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
 		sk, err := h.svc.Update(r.Context(), id, req)
@@ -367,7 +345,7 @@ func (h *skillHandlers) handleItem(w http.ResponseWriter, r *http.Request) {
 			h.writeSkillError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, sk)
+		httpx.WriteJSON(w, http.StatusOK, sk)
 	case http.MethodDelete:
 		if !h.requireWrite(w, r, id) {
 			return
@@ -376,14 +354,12 @@ func (h *skillHandlers) handleItem(w http.ResponseWriter, r *http.Request) {
 			h.writeSkillError(w, err)
 			return
 		}
-		if h.getAuthzStore() != nil {
-			if err := h.getAuthzStore().DeleteResourceGroup(r.Context(), "skill", id); err != nil {
-				slog.Error("delete ownership", "error", err, "resource", id)
-			}
+		if err := h.store.DeleteResourceGroup(r.Context(), "skill", id); err != nil {
+			slog.Error("delete ownership", "error", err, "resource", id)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -407,15 +383,15 @@ func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request
 			}
 			refs, err := h.svc.ListAssignments(r.Context(), skillID)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			if refs == nil {
 				refs = []skills.Referrer{}
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"items": refs})
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": refs})
 		default:
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
 		return
 	}
@@ -429,7 +405,7 @@ func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request
 		}
 		// Check method first so unsupported methods get 405 rather than 401/403.
 		if r.Method != http.MethodPut && r.Method != http.MethodDelete {
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		// Authz: require write on the agent resource — an assignment writes
@@ -464,22 +440,18 @@ func (h *skillHandlers) handleAssignments(w http.ResponseWriter, r *http.Request
 
 // requireAgentWrite checks the caller can modify the named agent.
 func (h *skillHandlers) requireAgentWrite(w http.ResponseWriter, r *http.Request, agentName string) bool {
-	c := h.getChecker()
-	if c == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
 	}
-	ok, err := c.CanWrite(r.Context(), u.Sub, "agent", agentName)
+	ok, err := h.checker.CanWrite(r.Context(), u.Sub, "agent", agentName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
 	return true
@@ -488,37 +460,37 @@ func (h *skillHandlers) requireAgentWrite(w http.ResponseWriter, r *http.Request
 func (h *skillHandlers) writeSkillError(w http.ResponseWriter, err error) {
 	var verr *skills.ValidationError
 	if errors.As(err, &verr) {
-		writeError(w, http.StatusBadRequest, verr.Error())
+		httpx.WriteError(w, http.StatusBadRequest, verr.Error())
 		return
 	}
 	var inUse *skills.ErrInUse
 	if errors.As(err, &inUse) {
-		writeJSON(w, http.StatusConflict, map[string]any{
+		httpx.WriteJSON(w, http.StatusConflict, map[string]any{
 			"error":     "skill in use",
 			"referrers": inUse.Referrers,
 		})
 		return
 	}
 	if errors.Is(err, skills.ErrIDTaken) {
-		writeError(w, http.StatusConflict, "skill ID already in use")
+		httpx.WriteError(w, http.StatusConflict, "skill ID already in use")
 		return
 	}
 	var pmErr skills.PluginManagedError
 	if errors.As(err, &pmErr) {
 		// The error message is the exact 409 wording ("managed by plugin <id>"),
 		// same contract as plugin-owned MCP servers.
-		writeError(w, http.StatusConflict, pmErr.Error())
+		httpx.WriteError(w, http.StatusConflict, pmErr.Error())
 		return
 	}
 	var mgErr skills.ManagedError
 	if errors.As(err, &mgErr) {
 		// Same 409 contract for rows managed by any other external author.
-		writeError(w, http.StatusConflict, mgErr.Error())
+		httpx.WriteError(w, http.StatusConflict, mgErr.Error())
 		return
 	}
 	if errors.Is(err, skills.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "internal error: "+err.Error())
+	httpx.WriteError(w, http.StatusInternalServerError, "internal error: "+err.Error())
 }

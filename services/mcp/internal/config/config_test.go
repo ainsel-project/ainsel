@@ -15,7 +15,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("OIDC_AUDIENCE", "")
 	t.Setenv("OIDC_SIGNING_ALGS", " ES256, EdDSA ")
 	t.Setenv("OIDC_SCOPES", "openid profile groups")
-	t.Setenv("HUB_URL", "http://hub-backend.test:8080")
+	t.Setenv("HUB_URL", "http://hub.test:8080")
 	t.Setenv("PLUGIN_TOOLS_POLL_INTERVAL", "45s")
 
 	cfg := config.Load()
@@ -31,8 +31,8 @@ func TestLoadFromEnv(t *testing.T) {
 	if cfg.OIDCScopes != "openid profile groups" {
 		t.Errorf("OIDCScopes = %q; want %q", cfg.OIDCScopes, "openid profile groups")
 	}
-	if cfg.HubURL != "http://hub-backend.test:8080" {
-		t.Errorf("HubURL = %q; want http://hub-backend.test:8080", cfg.HubURL)
+	if cfg.HubURL != "http://hub.test:8080" {
+		t.Errorf("HubURL = %q; want http://hub.test:8080", cfg.HubURL)
 	}
 	if cfg.PluginToolsPollInterval != 45*time.Second {
 		t.Errorf("PluginToolsPollInterval = %v; want 45s", cfg.PluginToolsPollInterval)
@@ -53,6 +53,13 @@ func TestPluginToolsPollIntervalDefaults(t *testing.T) {
 	t.Setenv("PLUGIN_TOOLS_POLL_INTERVAL", "0s")
 	if got := config.Load().PluginToolsPollInterval; got != 15*time.Second {
 		t.Errorf("PluginToolsPollInterval with a non-positive value = %v; want 15s", got)
+	}
+}
+
+func TestHubURLDefault(t *testing.T) {
+	t.Setenv("HUB_URL", "")
+	if got := config.Load().HubURL; got != "http://hub.ainsel.svc.cluster.local:8080" {
+		t.Errorf("HubURL default = %q; want http://hub.ainsel.svc.cluster.local:8080", got)
 	}
 }
 

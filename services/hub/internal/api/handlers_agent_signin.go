@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,15 +85,15 @@ func toSignInStatus(s signin.Session) signInStatusResponse {
 func writeSignInError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, signin.ErrNotFound):
-		writeError(w, http.StatusNotFound, "no sign-in session")
+		httpx.WriteError(w, http.StatusNotFound, "no sign-in session")
 	case errors.Is(err, signin.ErrLive):
-		writeError(w, http.StatusConflict, err.Error())
+		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, signin.ErrClosed):
-		writeError(w, http.StatusGone, "this sign-in has ended; start a new one")
+		httpx.WriteError(w, http.StatusGone, "this sign-in has ended; start a new one")
 	case errors.Is(err, signin.ErrWrongState):
-		writeError(w, http.StatusConflict, "the sign-in is not ready for this step yet")
+		httpx.WriteError(w, http.StatusConflict, "the sign-in is not ready for this step yet")
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
@@ -103,14 +104,10 @@ func writeSignInError(w http.ResponseWriter, err error) {
 //	DELETE /api/v1/agents/{name}/chatgpt-sign-in           cancel
 //	POST   /api/v1/agents/{name}/chatgpt-sign-in/redirect  paste the redirect URL
 func (s *Server) handleAgentSignIn(w http.ResponseWriter, r *http.Request, name string, redirect bool) {
-	if s.signIn == nil {
-		writeError(w, http.StatusServiceUnavailable, "ChatGPT sign-in needs the hub database")
-		return
-	}
 	ctx := r.Context()
 	if redirect {
 		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		s.submitSignInRedirect(ctx, w, r, name)
@@ -125,7 +122,7 @@ func (s *Server) handleAgentSignIn(w http.ResponseWriter, r *http.Request, name 
 			writeSignInError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, toSignInStatus(sess))
+		httpx.WriteJSON(w, http.StatusOK, toSignInStatus(s.settleEndedSignIn(ctx, name, sess)))
 	case http.MethodDelete:
 		if err := s.signIn.Cancel(ctx, name); err != nil {
 			writeSignInError(w, err)
@@ -133,7 +130,7 @@ func (s *Server) handleAgentSignIn(w http.ResponseWriter, r *http.Request, name 
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -141,21 +138,21 @@ func (s *Server) startSignIn(ctx context.Context, w http.ResponseWriter, name st
 	var agent agentv1alpha1.Agent
 	if err := s.client.Get(ctx, types.NamespacedName{Namespace: s.ns, Name: name}, &agent); err != nil {
 		if apierrors.IsNotFound(err) {
-			writeError(w, http.StatusNotFound, "agent not found")
+			httpx.WriteError(w, http.StatusNotFound, "agent not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !agent.UsesChatGPTSignIn() {
-		writeError(w, http.StatusBadRequest, "this agent does not use ChatGPT sign-in: choose it as the OpenAI auth method first")
+		httpx.WriteError(w, http.StatusBadRequest, "this agent does not use ChatGPT sign-in: choose it as the OpenAI auth method first")
 		return
 	}
 	// The sign-in pod's own token: kept in a Secret the operator mounts into
 	// that pod alone, stored here only as a hash.
 	podToken, err := randomToken()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create the sign-in token")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create the sign-in token")
 		return
 	}
 	sess, err := s.signIn.Start(ctx, name, hashToken(podToken))
@@ -165,7 +162,7 @@ func (s *Server) startSignIn(ctx context.Context, w http.ResponseWriter, name st
 	}
 	if err := s.putSignInPodSecret(ctx, &agent, podToken); err != nil {
 		_ = s.signIn.Cancel(ctx, name)
-		writeError(w, http.StatusInternalServerError, "failed to store the sign-in token: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to store the sign-in token: "+err.Error())
 		return
 	}
 	// Only the annotation changes: the operator reacts to it, and no spec
@@ -178,22 +175,22 @@ func (s *Server) startSignIn(ctx context.Context, w http.ResponseWriter, name st
 	agent.Annotations[signInSessionAnnotation] = sess.ID
 	if err := s.client.Update(ctx, &agent); err != nil {
 		_ = s.signIn.Cancel(ctx, name)
-		writeError(w, http.StatusInternalServerError, "failed to request the sign-in pod: "+err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to request the sign-in pod: "+err.Error())
 		return
 	}
 	slog.Info("chatgpt sign-in started", "agent", name, "session", sess.ID)
-	writeJSON(w, http.StatusCreated, toSignInStatus(sess))
+	httpx.WriteJSON(w, http.StatusCreated, toSignInStatus(sess))
 }
 
 func (s *Server) submitSignInRedirect(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	var req signInRedirectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	pasted := strings.TrimSpace(req.RedirectURL)
 	if !strings.HasPrefix(pasted, signInCallbackPrefix) {
-		writeError(w, http.StatusBadRequest, "the pasted address must start with "+signInCallbackPrefix+
+		httpx.WriteError(w, http.StatusBadRequest, "the pasted address must start with "+signInCallbackPrefix+
 			": copy the whole address from the page that did not load after signing in")
 		return
 	}
@@ -202,11 +199,15 @@ func (s *Server) submitSignInRedirect(ctx context.Context, w http.ResponseWriter
 		writeSignInError(w, err)
 		return
 	}
+	if sess.State == signin.StateExchanging {
+		httpx.WriteError(w, http.StatusConflict, "the address was already received; the sign-in is finishing")
+		return
+	}
 	// At the paste step, check the address the way the pod will. At any
 	// other step the store answers why a paste is not possible (409/404).
 	if sess.State == signin.StateAwaitingRedirect {
 		if msg := callbackProblem(pasted, sess.AuthURL); msg != "" {
-			writeError(w, http.StatusBadRequest, msg)
+			httpx.WriteError(w, http.StatusBadRequest, msg)
 			return
 		}
 	}
@@ -217,6 +218,38 @@ func (s *Server) submitSignInRedirect(ctx context.Context, w http.ResponseWriter
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// settleEndedSignIn ends a live session whose sign-in pod is already gone.
+// The pod reports its own outcome, but one that is evicted, runs out of
+// memory or cannot reach the hub leaves the session open until it expires.
+// The operator records every finished sign-in Job on the Agent: the session
+// it handled, and the time of a successful sign-in.
+func (s *Server) settleEndedSignIn(ctx context.Context, name string, sess signin.Session) signin.Session {
+	if !sess.State.Live() {
+		return sess
+	}
+	var agent agentv1alpha1.Agent
+	if err := s.client.Get(ctx, types.NamespacedName{Namespace: s.ns, Name: name}, &agent); err != nil {
+		return sess
+	}
+	st := agent.Status.ChatGPTSignIn
+	if st == nil || st.HandledSession != sess.ID {
+		return sess
+	}
+	ok := st.SignedInAt != nil && !st.SignedInAt.Time.Before(sess.CreatedAt)
+	msg := ""
+	if !ok {
+		msg = "the sign-in pod stopped before finishing; start a new sign-in"
+	}
+	if err := s.signIn.Finish(ctx, name, sess.ID, ok, msg); err != nil {
+		slog.Warn("could not settle an ended chatgpt sign-in", "agent", name, "session", sess.ID, "error", err)
+		return sess
+	}
+	if got, err := s.signIn.Get(ctx, name, sess.ID); err == nil {
+		return got
+	}
+	return sess
+}
+
 // handleInternalSignIn serves the sign-in pod, behind X-Internal-Token
 // (checked by handleInternalAgent):
 //
@@ -224,14 +257,10 @@ func (s *Server) submitSignInRedirect(ctx context.Context, w http.ResponseWriter
 //	GET  /api/internal/agents/{name}/chatgpt-sign-in/{session}/redirect
 //	POST /api/internal/agents/{name}/chatgpt-sign-in/{session}/result
 func (s *Server) handleInternalSignIn(w http.ResponseWriter, r *http.Request, path string) {
-	if s.signIn == nil {
-		writeError(w, http.StatusServiceUnavailable, "ChatGPT sign-in needs the hub database")
-		return
-	}
 	agent, rest, _ := strings.Cut(path, "/chatgpt-sign-in/")
 	id, verb, ok := strings.Cut(rest, "/")
 	if agent == "" || id == "" || !ok {
-		writeError(w, http.StatusNotFound, "not found")
+		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 	ctx := r.Context()
@@ -242,18 +271,18 @@ func (s *Server) handleInternalSignIn(w http.ResponseWriter, r *http.Request, pa
 	}
 	given := r.Header.Get("X-Sign-In-Token")
 	if given == "" || subtle.ConstantTimeCompare([]byte(hashToken(given)), []byte(sess.PodTokenHash)) != 1 {
-		writeError(w, http.StatusForbidden, "this call needs the sign-in pod's token")
+		httpx.WriteError(w, http.StatusForbidden, "this call needs the sign-in pod's token")
 		return
 	}
 	switch {
 	case verb == "auth-url" && r.Method == http.MethodPost:
 		var req signInAuthURLRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 			return
 		}
 		if !strings.HasPrefix(req.URL, signInAuthURLPrefix) {
-			writeError(w, http.StatusBadRequest, "authorization URL must start with "+signInAuthURLPrefix)
+			httpx.WriteError(w, http.StatusBadRequest, "authorization URL must start with "+signInAuthURLPrefix)
 			return
 		}
 		if err := s.signIn.SetAuthURL(ctx, agent, id, req.URL); err != nil {
@@ -271,11 +300,11 @@ func (s *Server) handleInternalSignIn(w http.ResponseWriter, r *http.Request, pa
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeJSON(w, http.StatusOK, signInRedirectRequest{RedirectURL: url})
+		httpx.WriteJSON(w, http.StatusOK, signInRedirectRequest{RedirectURL: url})
 	case verb == "result" && r.Method == http.MethodPost:
 		var req signInResultRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 			return
 		}
 		msg := req.Error
@@ -289,7 +318,7 @@ func (s *Server) handleInternalSignIn(w http.ResponseWriter, r *http.Request, pa
 		slog.Info("chatgpt sign-in finished", "agent", agent, "session", id, "ok", req.OK)
 		w.WriteHeader(http.StatusNoContent)
 	default:
-		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown sign-in call %s %s", r.Method, verb))
+		httpx.WriteError(w, http.StatusNotFound, fmt.Sprintf("unknown sign-in call %s %s", r.Method, verb))
 	}
 }
 
