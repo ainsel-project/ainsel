@@ -113,9 +113,18 @@ set -- "$@" --provider "$PI_PROVIDER" --model "$MODEL"
 # turns it into SignInRequired and holds the queue, and the task stays
 # pending because nothing fetched or nacked it. Any other failure exits as
 # usual and the Job retries the pod.
+#
+# The check runs in the background with a trap for the same reason pi does
+# (see below): as PID 1, sh would drop the pod's SIGTERM during a foreground
+# check, and the pod would hang until the grace period's SIGKILL. Stopped
+# here, the task was never fetched, so it stays pending.
 if [ "${AINSEL_AUTH_METHOD:-}" = chatgpt-sign-in ]; then
   AINSEL_PI_ROOT="$(npm root -g)" \
-    node /usr/local/share/pi-extensions/ainsel-chatgpt-auth/check.mjs || exit $?
+    node /usr/local/share/pi-extensions/ainsel-chatgpt-auth/check.mjs &
+  check_pid=$!
+  trap 'kill -TERM "$check_pid" 2>/dev/null; exit 143' TERM
+  wait "$check_pid" || exit $?
+  trap - TERM
 fi
 
 echo "entrypoint: exec pi $*" >&2

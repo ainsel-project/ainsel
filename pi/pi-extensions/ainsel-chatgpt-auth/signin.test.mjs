@@ -215,6 +215,31 @@ test("a successful login exits 0 even if the hub has closed the session", async 
 	}
 });
 
+test("signs in over a half-written auth.json", async () => {
+	// Pi's login reads the stored credentials before it writes, so a file a
+	// killed pod left half-written would fail every sign-in. The sign-in pod
+	// holds the volume alone and clears it first.
+	const { hub, dir, opts } = await setup();
+	await writeFile(join(dir, "auth.json"), '{"openai": {"type":"oauth","acc');
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.deepEqual(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")), {});
+	} finally {
+		await hub.close();
+	}
+});
+
+test("leaves a readable auth.json alone", async () => {
+	const { hub, dir, opts } = await setup();
+	await writeFile(join(dir, "auth.json"), '{"anthropic": {"type":"api_key"}}');
+	try {
+		assert.equal(await runSignIn(opts), 0);
+		assert.deepEqual(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")), { anthropic: { type: "api_key" } });
+	} finally {
+		await hub.close();
+	}
+});
+
 // refusing wraps fetch so the first n calls fail the way a restarting hub
 // behind its Service does: the connection is refused, nothing was sent.
 function refusing(n) {

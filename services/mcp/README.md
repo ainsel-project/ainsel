@@ -28,8 +28,8 @@ up-to-date reference — including args, read/write mode, and example
 usage — is [`docs/mcp.md`](../../docs/mcp.md). Summary of what's
 registered in [`internal/mcp/server.go`](internal/mcp/server.go):
 
-- **Agents:** `list_agents`, `get_agent`, `update_agent` (display name,
-  description, LLM config).
+- **Agents:** `list_agents`, `get_agent`, `create_agent`, `update_agent`
+  (full hub update surface), `delete_agent`.
 - **Triggers:** `list_triggers`, `get_trigger`, `create_trigger`,
   `update_trigger`, `delete_trigger`.
 - **Cron triggers:** `list_cron_triggers`, `get_cron_trigger`,

@@ -15,8 +15,8 @@ name: PR sign-off
 # tracks (issue #4). So bot-authored PRs pass here with a note rather than
 # blocking the auto-merge path.
 #
-# Squash-merge means the trailers stay on the PR's commit list rather than
-# landing on `main`. That is still the record (it is what a DCO app checks), and
+# Merge commits do not carry the trailers onto `main`, so they stay on the PR's
+# commit list. That is still the record (it is what a DCO app checks), and
 # an author who wants it on the merge commit adds the line to the PR body.
 #
 # No third-party action: the commit list comes from the API with the runner
