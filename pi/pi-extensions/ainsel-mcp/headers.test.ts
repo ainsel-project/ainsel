@@ -49,4 +49,29 @@ describe("pluginHeaders", () => {
 		const h = pluginHeaders("not a url", { AGENT_NAME: "reviewer" });
 		assert.deepStrictEqual(h, {});
 	});
+
+	it("returns agent + invocation headers for the hub's platform agent endpoint", () => {
+		const h = pluginHeaders("http://hub:8080/api/internal/agent-mcp", {
+			AGENT_NAME: "reviewer",
+			AINSEL_INVOCATION_ID: "inv-1",
+		});
+		assert.deepStrictEqual(h, {
+			"X-Ainsel-Agent": "reviewer",
+			"X-Ainsel-Invocation-Id": "inv-1",
+		});
+	});
+
+	// The platform endpoint is matched exactly, not by prefix: the hub serves one
+	// path there, and attributing a call to a path the hub does not answer would
+	// hand the agent's identity to whatever does.
+	it("returns no headers for a path under the platform agent endpoint", () => {
+		for (const url of [
+			"http://hub:8080/api/internal/agent-mcp/extra",
+			"http://hub:8080/api/internal/agent-mcp-evil",
+			"http://hub:8080/x/api/internal/agent-mcp",
+		]) {
+			const h = pluginHeaders(url, { AGENT_NAME: "reviewer", AINSEL_INVOCATION_ID: "inv-1" });
+			assert.deepStrictEqual(h, {}, `expected no headers for ${url}`);
+		}
+	});
 });
