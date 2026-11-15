@@ -374,16 +374,6 @@ func TestManagedNamedManager_AgentMutations(t *testing.T) {
 		t.Errorf("update changed the marker: %q", a.Spec.ManagedBy)
 	}
 
-	// Pause/resume is the plugin's own too.
-	rec = doManaged(t, s, pluginCaller("forgejo"), http.MethodPost, "/api/v1/agents/mine/pause", `{}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("own plugin pause: status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	rec = doManaged(t, s, pluginCaller("forgejo"), http.MethodDelete, "/api/v1/agents/mine/pause", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("own plugin resume: status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-
 	// Everyone else keeps the 409, on every operation.
 	for _, tc := range []struct {
 		caller *plugincreds.Caller
@@ -394,8 +384,6 @@ func TestManagedNamedManager_AgentMutations(t *testing.T) {
 	} {
 		for _, op := range []struct{ method, path, body string }{
 			{http.MethodPut, "/api/v1/agents/mine", update},
-			{http.MethodPost, "/api/v1/agents/mine/pause", `{}`},
-			{http.MethodDelete, "/api/v1/agents/mine/pause", ""},
 			{http.MethodDelete, "/api/v1/agents/mine", ""},
 		} {
 			rec := doManaged(t, s, tc.caller, op.method, op.path, op.body)

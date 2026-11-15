@@ -44,7 +44,7 @@ func (s *Server) read(resourceType string, h namedContextHandler) http.HandlerFu
 
 // write guards a route with requireWrite on the `{name}` path value.
 //
-//	mux.HandleFunc("PUT /api/v1/agents/{name}", s.write("agent", s.pauseAgent))
+//	mux.HandleFunc("PUT /api/v1/agents/{name}", s.write("agent", s.updateAgent))
 func (s *Server) write(resourceType string, h namedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")

@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useUrlFilters } from '../../hooks/useUrlFilters'
 import { useEventsPage } from '../../api/events'
-import type { ActivityEntry, ActivityStatus, ListEventsParams } from '../../api/events'
+import type { ActivityEntry, ActivityMatchResult, RunStateFilter } from '../../api/events'
 import { useConnectorNames } from '../../api/connectors'
 import { useTriggers } from '../../api/triggers'
 import { useAgents } from '../../api/agents'
@@ -12,20 +12,27 @@ import { Input } from '../../primitives/Input'
 import { Select } from '../../primitives/Select'
 import { Titleblock } from '../../layout/Titleblock'
 import { resolveSinceParam } from '../../utils/time'
+import {
+  hasLegacyActivityParams,
+  readActivityParam,
+  renameLegacyActivityParams,
+} from '../../utils/activityParams'
 import { ActivityRow } from './ActivityRow'
 
-const STATUS_OPTIONS = [
+// Match filter values — the answer to "did this event match a subscription?".
+const MATCH_OPTIONS = [
   { value: 'matched', label: 'Matched' },
   { value: 'unmatched', label: 'Unmatched' },
   { value: 'error', label: 'Error' },
 ] as const
 
-// Outcome filter values. These mirror the derived run state reported per
-// match (see frontend/src/api/events.ts); an event matches the filter when
-// any of its tasks has the selected outcome. queued and running are split on
-// the same started predicate the rows render: queued has no worker yet,
-// running is being worked on.
-const OUTCOME_OPTIONS = [
+// Run-state filter values — the answer to "what state is this run in right
+// now?". These mirror the derived run state reported per match (see
+// frontend/src/api/events.ts); an event matches the filter when any of its
+// tasks has the selected state. queued and running are split on the same
+// started predicate the rows render: queued has no worker yet, running is being
+// worked on — neither is finished, which is why this axis is not an "outcome".
+const STATE_OPTIONS = [
   { value: 'queued', label: 'Queued' },
   { value: 'running', label: 'Running' },
   { value: 'success', label: 'Success' },
@@ -42,18 +49,18 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 // agent overview's daily stats link here with `since=today`) and resolves to
 // local midnight via the shared sentinel in utils/time.
 type ActivityFilters = {
-  status?: string
-  outcome?: string
+  match?: string
+  runState?: string
   connector?: string
   agent?: string
   since?: string
   page?: string
 }
 
-const FILTER_KEYS = ['status', 'outcome', 'connector', 'agent', 'since'] as const
+const FILTER_KEYS = ['match', 'runState', 'connector', 'agent', 'since'] as const
 
-const STATUS_VALUES: readonly string[] = STATUS_OPTIONS.map((o) => o.value)
-const OUTCOME_VALUES: readonly string[] = OUTCOME_OPTIONS.map((o) => o.value)
+const MATCH_VALUES: readonly string[] = MATCH_OPTIONS.map((o) => o.value)
+const STATE_VALUES: readonly string[] = STATE_OPTIONS.map((o) => o.value)
 
 // Hand-edited or stale URLs with an unknown enum value fall back to "any",
 // mirroring the pageSize and range guards elsewhere.
@@ -63,16 +70,31 @@ const oneOf = (values: readonly string[], v: string | undefined): string =>
 export function Activity() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
+  const [params, setParams] = useSearchParams()
+
   const { filters, setFilters } = useUrlFilters<ActivityFilters>(FILTER_KEYS)
-  const filterStatus = oneOf(STATUS_VALUES, filters.status)
-  const filterOutcome = oneOf(OUTCOME_VALUES, filters.outcome)
+  // The retired spellings are read as a fallback here, so the first request
+  // already carries the folded value; the rewrite below only tidies the URL.
+  const filterMatch = oneOf(MATCH_VALUES, readActivityParam(params, 'match'))
+  const filterRunState = oneOf(STATE_VALUES, readActivityParam(params, 'runState'))
   const filterConnector = filters.connector ?? ''
   const filterAgent = filters.agent ?? ''
   // Only the `today` sentinel bounds the query; unknown values fall back to
   // "any", like the enum filters above.
   const sinceParam = resolveSinceParam(filters.since)
 
-  const [params, setParams] = useSearchParams()
+  // One-time rename of retired filter params onto the current names.
+  useEffect(() => {
+    if (!hasLegacyActivityParams(params)) return
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        renameLegacyActivityParams(next)
+        return next
+      },
+      { replace: true },
+    )
+  }, [params, setParams])
   const searchQuery = params.get('q') ?? ''
   const page = Math.max(1, Number(params.get('page')) || 1)
   const pageSizeParam = Number(params.get('pageSize'))
@@ -80,18 +102,18 @@ export function Activity() {
     ? pageSizeParam
     : 25
 
-  // Pagination and all dropdown filters (status/connector/agent via their
-  // own parameters, outcome via joined invocation status) are server-side so
+  // Pagination and all dropdown filters (match/connector/agent via their own
+  // parameters, run state via joined invocation status) are server-side so
   // the full event history is queryable, not just the most recent window.
   // Free-text search (which relies on resolved display names) still applies
   // client-side to the loaded page.
   const { data, isLoading, error } = useEventsPage({
     limit: pageSize,
     offset: (page - 1) * pageSize,
-    status: filterStatus ? (filterStatus as ActivityStatus) : undefined,
+    match: filterMatch ? (filterMatch as ActivityMatchResult) : undefined,
     connector: filterConnector || undefined,
     agent: filterAgent || undefined,
-    outcome: filterOutcome ? (filterOutcome as ListEventsParams['outcome']) : undefined,
+    runState: filterRunState ? (filterRunState as RunStateFilter) : undefined,
     since: sinceParam,
   })
   const { connectorNameById } = useConnectorNames()
@@ -138,10 +160,10 @@ export function Activity() {
   }
 
   // Filter changes keep resetting page to 1 (one URL patch each).
-  const handleFilterStatus = (v: string) => setFilters({ status: v, page: '1' })
+  const handleFilterMatch = (v: string) => setFilters({ match: v, page: '1' })
   const handleFilterConnector = (v: string) => setFilters({ connector: v, page: '1' })
   const handleFilterAgent = (v: string) => setFilters({ agent: v, page: '1' })
-  const handleFilterOutcome = (v: string) => setFilters({ outcome: v, page: '1' })
+  const handleFilterRunState = (v: string) => setFilters({ runState: v, page: '1' })
 
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
@@ -242,7 +264,7 @@ export function Activity() {
   const localFilterActive = searchTerms.length > 0
   const anyFilterActive =
     localFilterActive ||
-    filterStatus !== '' ||
+    filterMatch !== '' ||
     filterConnector !== '' ||
     filterAgent !== '' ||
     sinceParam !== undefined
@@ -276,23 +298,23 @@ export function Activity() {
             />
           </div>
           <div className="field">
-            <span className="label">Status</span>
+            <span className="label">Match</span>
             <Select
-              aria-label="Filter by status"
-              value={filterStatus}
-              onChange={handleFilterStatus}
-              options={STATUS_OPTIONS}
-              emptyLabel="Any status"
+              aria-label="Filter by match"
+              value={filterMatch}
+              onChange={handleFilterMatch}
+              options={MATCH_OPTIONS}
+              emptyLabel="Any match"
             />
           </div>
           <div className="field">
-            <span className="label">Outcome</span>
+            <span className="label">State</span>
             <Select
-              aria-label="Filter by outcome"
-              value={filterOutcome}
-              onChange={handleFilterOutcome}
-              options={OUTCOME_OPTIONS}
-              emptyLabel="Any outcome"
+              aria-label="Filter by state"
+              value={filterRunState}
+              onChange={handleFilterRunState}
+              options={STATE_OPTIONS}
+              emptyLabel="Any state"
             />
           </div>
           <div className="field">
@@ -346,7 +368,7 @@ export function Activity() {
                       <th>Connector</th>
                       <th>Trigger</th>
                       <th>Agent</th>
-                      <th>Status</th>
+                      <th>Match</th>
                     </tr>
                   </thead>
                   <tbody>

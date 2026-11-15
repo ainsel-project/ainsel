@@ -54,7 +54,7 @@ const sampleEvents = [
   },
 ]
 
-// mockFetch simulates the hub /events API: it applies the status, outcome,
+// mockFetch simulates the hub /events API: it applies the match, run state,
 // connector and agent filters server-side, sorts newest-first, and paginates
 // via limit/offset. total reflects all filtered events, not just the page.
 function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
@@ -63,26 +63,26 @@ function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
     vi.fn((url: string) => {
       if (url.includes('/events')) {
         const q = new URL(url, 'http://localhost').searchParams
-        const status = q.get('status') ?? ''
+        const match = q.get('match') ?? ''
         const connector = q.get('connector') ?? ''
         const agent = q.get('agent') ?? ''
-        const outcome = q.get('outcome') ?? ''
+        const runState = q.get('runState') ?? ''
         const since = q.get('since') ?? ''
         const limit = Number(q.get('limit') ?? '100')
         const offset = Number(q.get('offset') ?? '0')
 
         const filtered = events
           .filter((e) => {
-            if (status && e.status !== status) return false
+            if (match && e.status !== match) return false
             if (connector && e.connector !== connector) return false
             if (since && new Date(e.timestamp as string).getTime() < Date.parse(since)) return false
             if (agent) {
               const matches = (e.matches ?? []) as { agent: string }[]
               if (!matches.some((m) => m.agent === agent)) return false
             }
-            if (outcome) {
+            if (runState) {
               const matches = (e.matches ?? []) as { runStatus?: string }[]
-              if (!matches.some((m) => m.runStatus === outcome)) return false
+              if (!matches.some((m) => m.runStatus === runState)) return false
             }
             return true
           })
@@ -157,16 +157,16 @@ describe('Activity', () => {
   describe('URL-persisted filters', () => {
     it('restores dropdown filters from the URL and sends them to the events API', async () => {
       const { container } = renderActivity(
-        '/activity?status=unmatched&connector=c-333&agent=infra-bot',
+        '/activity?match=unmatched&connector=c-333&agent=infra-bot',
       )
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
 
-      expect(screen.getByLabelText(/filter by status/i)).toHaveValue('unmatched')
+      expect(screen.getByLabelText(/filter by match/i)).toHaveValue('unmatched')
       expect(screen.getByLabelText(/filter by connector/i)).toHaveValue('c-333')
       expect(screen.getByLabelText(/filter by agent/i)).toHaveValue('infra-bot')
 
       const q = lastEventsUrl()
-      expect(q.get('status')).toBe('unmatched')
+      expect(q.get('match')).toBe('unmatched')
       expect(q.get('connector')).toBe('c-333')
       expect(q.get('agent')).toBe('infra-bot')
 
@@ -176,12 +176,50 @@ describe('Activity', () => {
       expect(rows[0].textContent).toContain('Docs Public')
     })
 
-    it('restores the outcome filter from the URL', async () => {
-      renderActivity('/activity?outcome=failure')
+    it('restores the state filter from the URL', async () => {
+      renderActivity('/activity?runState=failure')
+      await waitFor(() => expect(screen.getByLabelText(/filter by state/i)).toHaveValue('failure'))
+      expect(lastEventsUrl().get('runState')).toBe('failure')
+    })
+
+    // `status`/`outcome` were the old names of these two axes (#328). Old links
+    // keep working, and the URL settles on the current spelling so a later
+    // clear cannot re-activate the retired one.
+    it('reads retired status/outcome params, filters with them, and rewrites the URL', async () => {
+      const { search } = renderActivity('/activity?status=matched&outcome=failure')
+      await waitFor(() => expect(screen.getByLabelText(/filter by match/i)).toHaveValue('matched'))
+      expect(screen.getByLabelText(/filter by state/i)).toHaveValue('failure')
+
+      // The request already carries the current names — no silently widened filter.
+      const q = lastEventsUrl()
+      expect(q.get('match')).toBe('matched')
+      expect(q.get('runState')).toBe('failure')
+      expect(q.get('status')).toBeNull()
+      expect(q.get('outcome')).toBeNull()
+
+      await waitFor(() => {
+        expect(search.current).toBe('?match=matched&runState=failure')
+      })
+    })
+
+    it('prefers the current param name when both spellings are in the URL', async () => {
+      const { search } = renderActivity('/activity?match=unmatched&status=matched')
       await waitFor(() =>
-        expect(screen.getByLabelText(/filter by outcome/i)).toHaveValue('failure'),
+        expect(screen.getByLabelText(/filter by match/i)).toHaveValue('unmatched'),
       )
-      expect(lastEventsUrl().get('outcome')).toBe('failure')
+      expect(lastEventsUrl().get('match')).toBe('unmatched')
+      await waitFor(() => expect(search.current).toBe('?match=unmatched'))
+    })
+
+    it('does not resurrect a retired param when a folded filter is cleared', async () => {
+      const { search } = renderActivity('/activity?status=error')
+      await waitFor(() => expect(screen.getByLabelText(/filter by match/i)).toHaveValue('error'))
+
+      await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), '')
+      await waitFor(() => {
+        expect(search.current).not.toContain('status')
+        expect(search.current).not.toContain('match')
+      })
     })
 
     it('resolves since=today to local midnight for the events API', async () => {
@@ -228,43 +266,43 @@ describe('Activity', () => {
 
     it('keeps unrelated URL params when filters change', async () => {
       const { search } = renderActivity('/activity?q=pull_request&page=2&pageSize=50')
-      await waitFor(() => expect(screen.getByLabelText(/filter by status/i)).toBeInTheDocument())
-      await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'error')
-      await waitFor(() => expect(search.current).toContain('status=error'))
+      await waitFor(() => expect(screen.getByLabelText(/filter by match/i)).toBeInTheDocument())
+      await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), 'error')
+      await waitFor(() => expect(search.current).toContain('match=error'))
       expect(search.current).toContain('q=pull_request')
       expect(search.current).toContain('pageSize=50')
     })
 
     it('resets page to 1 when a filter changes', async () => {
       const { search } = renderActivity('/activity?page=3')
-      await waitFor(() => expect(screen.getByLabelText(/filter by status/i)).toBeInTheDocument())
-      await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'matched')
-      await waitFor(() => expect(search.current).toContain('status=matched'))
+      await waitFor(() => expect(screen.getByLabelText(/filter by match/i)).toBeInTheDocument())
+      await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), 'matched')
+      await waitFor(() => expect(search.current).toContain('match=matched'))
       expect(search.current).toContain('page=1')
     })
 
     it('removes the filter param from the URL when cleared', async () => {
-      const { container, search } = renderActivity('/activity?status=error')
+      const { container, search } = renderActivity('/activity?match=error')
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
-      expect(screen.getByLabelText(/filter by status/i)).toHaveValue('error')
+      expect(screen.getByLabelText(/filter by match/i)).toHaveValue('error')
 
-      await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), '')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), '')
       await waitFor(() => {
         expect(container.querySelectorAll('tbody tr.activity-row').length).toBe(3)
       })
-      expect(search.current).not.toContain('status')
+      expect(search.current).not.toContain('match')
     })
 
     it('falls back to "any" for invalid enum values in the URL', async () => {
-      const { container } = renderActivity('/activity?status=bogus&outcome=nope')
+      const { container } = renderActivity('/activity?match=bogus&runState=nope')
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
 
-      expect(screen.getByLabelText(/filter by status/i)).toHaveValue('')
-      expect(screen.getByLabelText(/filter by outcome/i)).toHaveValue('')
+      expect(screen.getByLabelText(/filter by match/i)).toHaveValue('')
+      expect(screen.getByLabelText(/filter by state/i)).toHaveValue('')
 
       const q = lastEventsUrl()
-      expect(q.get('status')).toBeNull()
-      expect(q.get('outcome')).toBeNull()
+      expect(q.get('match')).toBeNull()
+      expect(q.get('runState')).toBeNull()
       // All events load since no filter is applied.
       expect(container.querySelectorAll('tbody tr.activity-row').length).toBe(3)
     })
@@ -305,10 +343,10 @@ describe('Activity', () => {
     expect(matchRow.textContent).toMatch(/Doc Writer/)
   })
 
-  it('filters by status via the events API', async () => {
+  it('filters by match via the events API', async () => {
     const { container } = renderWithProviders(<Activity />, { route: '/activity' })
     await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
-    await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'error')
+    await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), 'error')
     await waitFor(() => {
       const body = container.querySelector('tbody') as HTMLElement
       expect(body.textContent).toContain('Infra Tooling')
@@ -541,7 +579,7 @@ describe('Activity', () => {
     expect(rows.length).toBe(3)
   })
 
-  it('search matches connector names and status', async () => {
+  it('search matches connector names and the match result', async () => {
     const { container } = renderWithProviders(<Activity />, { route: '/activity' })
     await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
 
@@ -555,12 +593,12 @@ describe('Activity', () => {
     })
   })
 
-  it('search combines with status filter', async () => {
+  it('search combines with the match filter', async () => {
     const { container } = renderWithProviders(<Activity />, { route: '/activity' })
     await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
 
-    // Filter by status=matched first
-    await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'matched')
+    // Filter by match=matched first
+    await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), 'matched')
     // Then search for something in the error event's payload
     const searchInput = screen.getByLabelText(/search events/i)
     await userEvent.type(searchInput, 'push')
@@ -657,13 +695,13 @@ describe('Activity', () => {
     })
   })
 
-  it('agent filter combines with status filter using AND logic', async () => {
+  it('agent filter combines with the match filter using AND logic', async () => {
     const { container } = renderWithProviders(<Activity />, { route: '/activity' })
     await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
 
-    // Filter by agent=doc-writer AND status=error → no results (e1 is matched, not error)
+    // Filter by agent=doc-writer AND match=error → no results (e1 is matched, not error)
     await userEvent.selectOptions(screen.getByLabelText(/filter by agent/i), 'doc-writer')
-    await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'error')
+    await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), 'error')
 
     await waitFor(() => {
       expect(container.querySelector('tbody tr')).toBeNull()
@@ -671,10 +709,10 @@ describe('Activity', () => {
     })
   })
 
-  describe('outcome filter', () => {
-    // o1: single successful run; o2: single failed run; o3: mixed outcomes in
+  describe('state filter', () => {
+    // o1: single successful run; o2: single failed run; o3: mixed run states in
     // one event; o4: unmatched event without any runs.
-    const outcomeEvents = [
+    const stateEvents = [
       {
         id: 'o1',
         timestamp: new Date(now - 30_000).toISOString(),
@@ -707,14 +745,14 @@ describe('Activity', () => {
       },
     ]
 
-    beforeEach(() => mockFetch(outcomeEvents))
+    beforeEach(() => mockFetch(stateEvents))
 
-    it('renders an outcome filter dropdown with all run states', async () => {
+    it('renders the state filter dropdown with all run states', async () => {
       renderWithProviders(<Activity />, { route: '/activity' })
-      const outcomeSelect = await screen.findByLabelText(/filter by outcome/i)
-      const options = Array.from(outcomeSelect.querySelectorAll('option'))
-      expect(options.map((o) => o.textContent)).toContain('Any outcome')
-      // queued and running are separate outcomes (#422): no worker yet vs
+      const stateSelect = await screen.findByLabelText(/filter by state/i)
+      const options = Array.from(stateSelect.querySelectorAll('option'))
+      expect(options.map((o) => o.textContent)).toContain('Any state')
+      // queued and running are separate states (#422): no worker yet vs
       // being worked on.
       expect(
         options
@@ -727,7 +765,7 @@ describe('Activity', () => {
     it('filters by success to show only events with a successful run', async () => {
       const { container } = renderWithProviders(<Activity />, { route: '/activity' })
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'success')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'success')
       await waitFor(() => {
         const rows = container.querySelectorAll('tbody tr.activity-row')
         expect(rows.length).toBe(2)
@@ -741,7 +779,7 @@ describe('Activity', () => {
     it('filters by failure to show only events with a failed run', async () => {
       const { container } = renderWithProviders(<Activity />, { route: '/activity' })
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'failure')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'failure')
       await waitFor(() => {
         const rows = container.querySelectorAll('tbody tr.activity-row')
         expect(rows.length).toBe(2)
@@ -752,14 +790,14 @@ describe('Activity', () => {
       expect(body.textContent).not.toContain('Monorepo Connector') // o1
     })
 
-    it('sends the outcome filter to the events API', async () => {
+    it('sends the state filter to the events API', async () => {
       renderWithProviders(<Activity />, { route: '/activity' })
-      await waitFor(() => expect(screen.getByLabelText(/filter by outcome/i)).toBeInTheDocument())
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'failure')
+      await waitFor(() => expect(screen.getByLabelText(/filter by state/i)).toBeInTheDocument())
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'failure')
       await waitFor(() => {
         const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls as [string][]
         const lastEventsCall = calls.filter(([u]) => u.includes('/events')).at(-1)
-        expect(new URL(lastEventsCall![0], 'http://localhost').searchParams.get('outcome')).toBe(
+        expect(new URL(lastEventsCall![0], 'http://localhost').searchParams.get('runState')).toBe(
           'failure',
         )
       })
@@ -793,7 +831,7 @@ describe('Activity', () => {
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
       expect(screen.queryByText('No events match the filter.')).toBeNull()
 
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'failure')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'failure')
       await waitFor(() => {
         const rows = container.querySelectorAll('tbody tr.activity-row')
         expect(rows.length).toBe(1)
@@ -802,58 +840,58 @@ describe('Activity', () => {
       })
     })
 
-    it('includes an event when any of its matches has the selected outcome', async () => {
+    it('includes an event when any of its matches has the selected state', async () => {
       const { container } = renderWithProviders(<Activity />, { route: '/activity' })
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
       // o3 has one success and one failure match, so it appears for both filters
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'success')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'success')
       await waitFor(() => {
         const body = container.querySelector('tbody') as HTMLElement
         expect(body.textContent).toContain('Docs Public')
       })
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'failure')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'failure')
       await waitFor(() => {
         const body = container.querySelector('tbody') as HTMLElement
         expect(body.textContent).toContain('Docs Public')
       })
     })
 
-    it('excludes events without runs (e.g. unmatched) when an outcome is selected', async () => {
+    it('excludes events without runs (e.g. unmatched) when a state is selected', async () => {
       const { container } = renderWithProviders(<Activity />, { route: '/activity' })
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'success')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'success')
       await waitFor(() => {
         const rows = container.querySelectorAll('tbody tr.activity-row')
         for (const row of rows) expect(row.textContent).not.toContain('SKIP')
       })
     })
 
-    it('selecting Any outcome resets the filter', async () => {
+    it('selecting Any state resets the filter', async () => {
       const { container } = renderWithProviders(<Activity />, { route: '/activity' })
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'failure')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'failure')
       await waitFor(() => {
         expect(container.querySelectorAll('tbody tr.activity-row').length).toBe(2)
       })
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), '')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), '')
       await waitFor(() => {
         expect(container.querySelectorAll('tbody tr.activity-row').length).toBe(4)
       })
     })
 
-    it('outcome filter combines with status filter using AND logic', async () => {
+    it('state filter combines with the match filter using AND logic', async () => {
       const { container } = renderWithProviders(<Activity />, { route: '/activity' })
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
-      // o2 is the only error-status event; it has a failure run but no success run
-      await userEvent.selectOptions(screen.getByLabelText(/filter by outcome/i), 'success')
-      await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'error')
+      // o2 is the only error-match event; it has a failure run but no success run
+      await userEvent.selectOptions(screen.getByLabelText(/filter by state/i), 'success')
+      await userEvent.selectOptions(screen.getByLabelText(/filter by match/i), 'error')
       await waitFor(() => {
         expect(container.querySelector('tbody tr')).toBeNull()
         expect(screen.getByText('No events match the filter.')).toBeInTheDocument()
       })
     })
 
-    it('search matches run outcome terms', async () => {
+    it('search matches run state terms', async () => {
       const { container } = renderWithProviders(<Activity />, { route: '/activity' })
       await waitFor(() => expect(container.querySelector('tbody tr')).not.toBeNull())
       const searchInput = screen.getByLabelText(/search events/i)

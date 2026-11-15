@@ -12,10 +12,9 @@ import (
 // task Job and no pod starts. The tasks pile up as a backlog - the queue-depth
 // fields show what is waiting - and drain in id order when the window opens.
 //
-// Pause and working hours are two axes of the same question ("may this agent be
-// handed work?") and either one holds the queue: pause is a human pressing a
-// button, working hours is the schedule the agent's people keep. Unlike pause there
-// is no manual lift - the window is what ends the hold.
+// There is no manual lift: the window is what ends the hold. To stop an agent
+// outright, set `spec.scaling.replicas: 0` - that holds dispatch until it is
+// raised again.
 //
 // Nothing is exempt. A chat message sent at 23:00 to an agent configured for
 // 09:00-17:00 is stored, queued, and answered when the window opens. That is the

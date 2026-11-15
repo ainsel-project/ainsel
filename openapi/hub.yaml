@@ -224,47 +224,6 @@ paths:
         '204': { description: 'Deleted.' }
         default:
           $ref: '#/components/responses/Error'
-  /api/v1/agents/{name}/pause:
-    post:
-      operationId: pauseAgent
-      x-mcp-tool: pause_agent
-      summary: Record a pause on the agent
-      description: >-
-        Not enforced: the pause was withheld at the legacy next-task claim
-        endpoint, which is gone, so a paused agent keeps working. Use
-        `replicas: 0` to stop dispatch. Slated for removal (#249).
-      parameters:
-        - $ref: '#/components/parameters/resourceName'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PauseRequest'
-      responses:
-        '200':
-          description: 'The agent, with `paused: true`.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Agent'
-        default:
-          $ref: '#/components/responses/Error'
-    delete:
-      operationId: resumeAgent
-      x-mcp-tool: resume_agent
-      summary: Lift any pause and nudge the queue
-      parameters:
-        - $ref: '#/components/parameters/resourceName'
-      responses:
-        '200':
-          description: 'The agent, with `paused: false`.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Agent'
-        default:
-          $ref: '#/components/responses/Error'
   /api/v1/agents/{name}/persona:
     get:
       operationId: getAgentPersona
@@ -500,7 +459,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createConnector
-      x-mcp-not-exposed: "planned in #326 PR-2 (create_connector)"
+      x-mcp-tool: create_connector
       summary: Create a connector
       description: >-
         The hub generates the id (`c-…`), which is also the CR name and the
@@ -560,7 +519,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       operationId: deleteConnector
-      x-mcp-not-exposed: "planned in #326 PR-2 (delete_connector)"
+      x-mcp-tool: delete_connector
       summary: Delete a connector (its webhook secret is deleted too)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1203,8 +1162,16 @@ paths:
         - name: subject
           in: query
           schema: { type: string }
+        - name: match
+          in: query
+          description: >-
+            Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          schema: { type: string, enum: [matched, unmatched, error] }
         - name: status
           in: query
+          deprecated: true
+          description: >-
+            Retired alias of `match`, accepted for one release; `match` wins when both are sent.
           schema: { type: string, enum: [matched, unmatched, error] }
       responses:
         '200':
@@ -1499,7 +1466,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createMCPServer
-      x-mcp-not-exposed: "planned in #326 PR-2 (create_mcp_server)"
+      x-mcp-tool: create_mcp_server
       summary: Register a new MCP server
       description: >-
         Console callers always get a `"user"` row — a `managedBy` they send is
@@ -1545,7 +1512,7 @@ paths:
           $ref: '#/components/responses/Error'
     put:
       operationId: updateMCPServer
-      x-mcp-not-exposed: "planned in #326 PR-2 (update_mcp_server)"
+      x-mcp-tool: update_mcp_server
       summary: Update an MCP server
       description: >-
         The stored `managedBy` is preserved and cannot be changed here. Changing
@@ -1570,7 +1537,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       operationId: deleteMCPServer
-      x-mcp-not-exposed: "planned in #326 PR-2 (delete_mcp_server)"
+      x-mcp-tool: delete_mcp_server
       summary: Delete an MCP server
       parameters:
         - $ref: '#/components/parameters/resourceName'
@@ -1962,13 +1929,28 @@ paths:
         - name: agent
           in: query
           schema: { type: string }
+        - name: match
+          in: query
+          description: >-
+            Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          schema: { type: string, enum: [matched, unmatched, error] }
         - name: status
           in: query
-          description: Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          deprecated: true
+          description: >-
+            Retired alias of `match`, accepted for one release; `match` wins when both are sent.
           schema: { type: string, enum: [matched, unmatched, error] }
+        - name: runState
+          in: query
+          description: >-
+            Filter on the hub-derived run state — the state this run is in right now — applied in SQL.
+          schema: { type: string, enum: [queued, running, success, failure, timeout] }
         - name: outcome
           in: query
-          description: Filter on the hub-derived run state, applied in SQL.
+          deprecated: true
+          description: >-
+            Retired alias of `runState`, accepted for one release; `runState` wins when both are sent.
+            It was the wrong word for `queued` and `running`, which are not finished at all.
           schema: { type: string, enum: [queued, running, success, failure, timeout] }
         - $ref: '#/components/parameters/sinceParam'
       responses:
@@ -2634,7 +2616,7 @@ paths:
   /api/v1/groups:
     get:
       operationId: listGroups
-      x-mcp-not-exposed: "planned in #326 PR-4 (list_groups)"
+      x-mcp-tool: list_groups
       summary: List authz groups
       description: A bare JSON array — this list is not paginated.
       responses:
@@ -2650,7 +2632,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createGroup
-      x-mcp-not-exposed: "planned in #326 PR-4 (create_group)"
+      x-mcp-tool: create_group
       summary: Create an authz group
       requestBody:
         required: true
@@ -2670,7 +2652,7 @@ paths:
   /api/v1/groups/{id}:
     get:
       operationId: getGroup
-      x-mcp-not-exposed: "planned in #326 PR-4 (get_group)"
+      x-mcp-tool: get_group
       summary: Fetch one group with its members (any authenticated user)
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -3569,10 +3551,8 @@ components:
         replicas:
           type: integer
           description: >-
-            The concurrency cap — at most this many task Jobs in flight. 0 pauses
+            The concurrency cap — at most this many task Jobs in flight. 0 stops
             dispatch (work keeps queueing).
-        paused: { type: boolean }
-        pausedUntil: { type: string, format: date-time, description: 'Absent on a running agent and on an indefinite pause.' }
         memory:
           $ref: '#/components/schemas/MemoryConfig'
         status:
@@ -3742,12 +3722,6 @@ components:
         anthropic: { type: object }
         google: { type: object }
         customProvider: { type: object }
-    PauseRequest:
-      type: object
-      description: An absent body means an indefinite pause. `duration` and `until` together is 400.
-      properties:
-        duration: { type: string, description: 'Go duration string from now (`30m`, `8h`, `168h`).' }
-        until: { type: string, format: date-time, description: 'Must be in the future.' }
     AgentPersonaView:
       type: object
       properties:
@@ -4459,8 +4433,9 @@ components:
     ActivityEntry:
       type: object
       description: >-
-        One event with its routing outcome. `status` is derived from the event's
-        tasks — no tasks is `unmatched`, any failed task is `error`.
+        One event with its match result and runs. `status` is the match result,
+        derived from the event's tasks — no tasks is `unmatched`, any failed task is
+        `error`. Each match carries the derived `runState`.
       properties:
         id: { type: string }
         timestamp: { type: string, description: 'RFC 3339.' }

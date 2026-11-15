@@ -158,7 +158,6 @@ describe('SignInBanner', () => {
   const signInAgent = {
     id: 'a1',
     name: 'writer',
-    paused: false,
     llm: { model: 'gpt-5', provider: 'openai' },
     openAI: { authMethod: 'ChatGPTSignIn', keyStored: false },
     status: { ready: false, signInRequired: true, signInReason: 'SignInExpired' },

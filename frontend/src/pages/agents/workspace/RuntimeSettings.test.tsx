@@ -26,7 +26,6 @@ const agent = {
   },
   persona: { id: 'p1' },
   replicas: 2,
-  paused: false,
 } as AgentResponse
 
 function putBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> | undefined {

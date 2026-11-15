@@ -122,7 +122,7 @@ func (a *AgentTools) CreateAgentTool() mcp.Tool {
 		mcp.WithString("skills", mcp.Description("JSON array of skill IDs (list_skills). Skills are chosen per agent: omitted or [] means the agent runs with no skills.")),
 		mcp.WithString("mcp_servers", mcp.Description("JSON array of MCP server registry names (list_mcp_servers). Each name must exist and its tokenFromEnv must name a variable the operator actually injects — a created agent whose token cannot resolve fails at runtime. Omit to inherit the image's mcpServers; [] connects to none.")),
 		mcp.WithString("env", mcp.Description("JSON array of {name, value, secret} environment overrides on top of the image's env. Set secret to true to store the value as sensitive; a secret entry requires a non-empty value on create.")),
-		mcp.WithNumber("replicas", mcp.Description("Max number of task jobs running at once for this agent. 0 stops task delivery (a concurrency cap, not the pause subresource — see pause_agent).")),
+		mcp.WithNumber("replicas", mcp.Description("Max number of task jobs running at once for this agent. 0 stops task delivery; queued tasks stay queued and drain in id order when the cap goes back up.")),
 		mcp.WithString("working_hours", mcp.Description("JSON object {timezone, days, start, end}: weekly window inside which the hub hands this agent work. timezone is an IANA zone (e.g. Europe/Berlin); days are cron weekday numbers (0/7 Sunday); start/end are \"HH:MM\", an end earlier than start closes next day.")),
 		mcp.WithString("memory", mcp.Description("JSON object {enabled, provider} for the agent's memory backend.")),
 		mcp.WithString("ollama_cloud_api_key", mcp.Description("Ollama Cloud API key; stored as a secret, never returned.")),
@@ -321,67 +321,9 @@ func (a *AgentTools) DeleteAgent(ctx context.Context, req mcp.CallToolRequest) (
 	return mcp.NewToolResultText(fmt.Sprintf("agent %s deleted", name)), nil
 }
 
-func (a *AgentTools) PauseAgentTool() mcp.Tool {
-	return mcp.NewTool("pause_agent",
-		mcp.WithDescription("Withhold task delivery for an agent (the /pause subresource, not replicas: 0). Queued tasks accumulate as a backlog and drain on resume; interactive chat is not gated. Note: the hub currently records the pause but the per-task job path does not enforce it (slated for removal in favour of replicas: 0, issue #249). Omit both duration and until for an indefinite pause that must be lifted with resume_agent."),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Agent ID (e.g. a-director)")),
-		mcp.WithString("duration", mcp.Description("Pause length as a Go duration string measured from now (e.g. 30m, 8h). Mutually exclusive with until.")),
-		mcp.WithString("until", mcp.Description("RFC3339 timestamp at which the pause ends; must be in the future. Mutually exclusive with duration.")),
-	)
-}
-
-func (a *AgentTools) PauseAgent(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args, _ := req.Params.Arguments.(map[string]any)
-	name, _ := args["name"].(string)
-	if name == "" {
-		return mcp.NewToolResultError("name is required"), nil
-	}
-	duration, _ := args["duration"].(string)
-	until, _ := args["until"].(string)
-	if duration != "" && until != "" {
-		return mcp.NewToolResultError("specify either duration or until, not both"), nil
-	}
-	body := map[string]any{}
-	if duration != "" {
-		body["duration"] = duration
-	}
-	if until != "" {
-		body["until"] = until
-	}
-	bodyData, err := json.Marshal(body)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to encode request: %v", err)), nil
-	}
-	respBody, err := hubPost(ctx, a.HTTPClient, a.HubURL, "/api/v1/agents/"+name+"/pause", bytes.NewReader(bodyData))
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to pause agent %s: %v", name, err)), nil
-	}
-	return mcp.NewToolResultText(string(respBody)), nil
-}
-
-func (a *AgentTools) ResumeAgentTool() mcp.Tool {
-	return mcp.NewTool("resume_agent",
-		mcp.WithDescription("Lift a pause on an agent so task delivery resumes and the backlog drains (the /pause subresource; also clears an expiring pause early)."),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Agent ID (e.g. a-director)")),
-	)
-}
-
-func (a *AgentTools) ResumeAgent(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args, _ := req.Params.Arguments.(map[string]any)
-	name, _ := args["name"].(string)
-	if name == "" {
-		return mcp.NewToolResultError("name is required"), nil
-	}
-	respBody, err := hubDelete(ctx, a.HTTPClient, a.HubURL, "/api/v1/agents/"+name+"/pause")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to resume agent %s: %v", name, err)), nil
-	}
-	return mcp.NewToolResultText(string(respBody)), nil
-}
-
 func (a *AgentTools) UpdateAgentTool() mcp.Tool {
 	return mcp.NewTool("update_agent",
-		mcp.WithDescription("Update an agent. Omitted arguments are left unchanged; an argument that is present is applied, including empty strings and empty arrays where the hub defines them as clearing (description, skills, env, working_hours: {}). Secrets are accepted on write and never echoed back: an env entry for a currently-secret name sent as {name, value: \"\", secret: true} keeps the stored value, and a provider *_api_key argument with a non-empty value rotates the key. The agent ID (name argument) is the immutable identity; renames go through display_name. Pausing is not a field here — use pause_agent / resume_agent (replicas: 0 also stops task delivery as a side-effect)."),
+		mcp.WithDescription("Update an agent. Omitted arguments are left unchanged; an argument that is present is applied, including empty strings and empty arrays where the hub defines them as clearing (description, skills, env, working_hours: {}). Secrets are accepted on write and never echoed back: an env entry for a currently-secret name sent as {name, value: \"\", secret: true} keeps the stored value, and a provider *_api_key argument with a non-empty value rotates the key. The agent ID (name argument) is the immutable identity; renames go through display_name. replicas: 0 stops task delivery; queued tasks stay queued and drain in id order when the cap goes back up."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Agent ID (e.g. a-director)")),
 		mcp.WithString("display_name", mcp.Description("New user-facing agent name (e.g. agent-developer). Updates the agent's label and its channel name; does not change the agent ID.")),
 		mcp.WithString("description", mcp.Description("New one-line description shown in the console and on the agent's channel")),
@@ -397,7 +339,7 @@ func (a *AgentTools) UpdateAgentTool() mcp.Tool {
 		mcp.WithString("skills", mcp.Description("JSON array of skill IDs (list_skills). Replaces the full list: omit to preserve, [] to clear (the agent then runs with no skills).")),
 		mcp.WithString("mcp_servers", mcp.Description("JSON array of MCP server registry names (list_mcp_servers); each must exist and its tokenFromEnv must name a variable the operator actually injects. Replaces the selection: omit to keep inheriting the image's mcpServers, [] to connect to none.")),
 		mcp.WithString("env", mcp.Description("JSON array of {name, value, secret} environment overrides. Replaces the full list: omit to preserve, [] to clear (the agent runs on the image's env alone). The API never returns secret values (they read back as \"\"), so resend a secret entry as {name, value: \"\", secret: true} to keep the stored value; an entry without secret: true on a secret name blanks it. Rotating a secret sends a non-empty value.")),
-		mcp.WithNumber("replicas", mcp.Description("Max number of task jobs running at once for this agent. 0 stops task delivery (a concurrency cap, not the pause subresource — see pause_agent).")),
+		mcp.WithNumber("replicas", mcp.Description("Max number of task jobs running at once for this agent. 0 stops task delivery; queued tasks stay queued and drain in id order when the cap goes back up.")),
 		mcp.WithString("working_hours", mcp.Description("JSON object {timezone, days, start, end}: weekly window inside which the hub hands this agent work (timezone an IANA zone; days are cron weekday numbers, 0/7 Sunday; start/end \"HH:MM\", an end earlier than start closes next day). Send {} to clear the window.")),
 		mcp.WithString("memory", mcp.Description("JSON object {enabled, provider} for the agent's memory backend.")),
 		mcp.WithString("ollama_cloud_api_key", mcp.Description("Rotate the Ollama Cloud API key; stored as a secret, never returned. Omit to keep the stored key.")),
