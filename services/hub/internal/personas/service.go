@@ -159,7 +159,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Persona, erro
 		Description: req.Description,
 		Text:        req.Text,
 		OwnerAgent:  req.OwnerAgent,
-		ManagedBy:   req.ManagedBy,
+		// Resolved here so the value the caller gets back is the value the row
+		// holds; Store.Create applies the same rule for direct store callers.
+		ManagedBy: resolveManagedBy(req.ManagedBy),
 	}
 	if err := s.store.Create(ctx, p); err != nil {
 		return nil, err
