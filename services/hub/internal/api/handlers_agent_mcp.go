@@ -546,6 +546,8 @@ func (s *Server) agentMCPGetTokenUsage(ctx context.Context, req mcp.CallToolRequ
 					CacheReadTokens:  row.CacheReadTokens,
 					CacheWriteTokens: row.CacheWriteTokens,
 					CacheReported:    row.CacheReported,
+					CostUSD:          row.CostUSD,
+					CostReported:     row.CostReported,
 				})
 				return toolResultJSON(out)
 			}

@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/invocations"
+	"github.com/ainsel-project/ainsel/services/hub/internal/tasklogs"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -74,7 +76,7 @@ func doPlatformMCP(t *testing.T, s *Server, headers map[string]string) (int, str
 	if err != nil {
 		t.Fatalf("do: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var sb strings.Builder
 	buf := make([]byte, 4096)
 	for {
@@ -364,6 +366,93 @@ func TestPlatformAgentMCPUnwiredStoresAnswerNotConfigured(t *testing.T) {
 		if !strings.Contains(txt, "not configured") {
 			t.Errorf("%s unwired = %q, want a plain 'not configured' answer", c.tool, txt)
 		}
+	}
+}
+
+// get_token_usage answers "what did this cost", and the named-agent branch must
+// answer it with the same figures the aggregate answer gives: the priced cost,
+// plus the flag saying whether cost was ever reported (issue #75). Dropping the
+// two fields there made a priced run read as a measured zero to the one agent
+// that asked about itself, while the same tool without `agent` reported the real
+// cost — two answers to one question.
+func TestPlatformAgentMCPGetTokenUsageReportsCostForOneAgent(t *testing.T) {
+	pool := dbtest.Open(t)
+	s := platformMCPServer(t)
+	store := tasklogs.NewStore(pool)
+	s.SetTaskLogStore(store)
+	ctx := context.Background()
+	seed := func(agent string, cost *float64) {
+		t.Helper()
+		if err := store.InsertConversation(ctx, &tasklogs.ConversationMessage{
+			AgentName: agent, Role: "assistant", Content: "done",
+			InputTokens: 100, OutputTokens: 10, CostUSD: cost,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", agent, err)
+		}
+	}
+	seed("reviewer", fptr(0.25))
+	seed("writer", fptr(0.01))
+	seed("unpriced", nil)
+
+	type usage struct {
+		InputTokens  int64   `json:"inputTokens"`
+		TotalTokens  float64 `json:"totalTokens"`
+		CostUSD      float64 `json:"costUSD"`
+		CostReported bool    `json:"costReported"`
+	}
+	decode := func(res *mcp.CallToolResult) (string, usage, []map[string]any) {
+		t.Helper()
+		if res.IsError {
+			t.Fatalf("tool errored: %s", textOf(t, res))
+		}
+		var out struct {
+			Agent   string           `json:"agent"`
+			Usage   usage            `json:"usage"`
+			ByAgent []map[string]any `json:"byAgent"`
+		}
+		if err := json.Unmarshal([]byte(textOf(t, res)), &out); err != nil {
+			t.Fatalf("decode: %v: %s", err, textOf(t, res))
+		}
+		return out.Agent, out.Usage, out.ByAgent
+	}
+
+	agent, u, _ := decode(platformCall(t, s, "get_token_usage", map[string]any{"agent": "reviewer"}))
+	if agent != "reviewer" {
+		t.Errorf("agent = %q, want the one asked for", agent)
+	}
+	if u.InputTokens != 100 || u.TotalTokens != 110 {
+		t.Errorf("named usage = %+v, want reviewer's 100 input / 110 total only", u)
+	}
+	if !u.CostReported || u.CostUSD <= 0 {
+		t.Errorf("named usage of a priced run = %+v, want costUSD > 0 and costReported true", u)
+	}
+
+	// An agent whose runs never reported a cost must read as "not reported", not
+	// as a measured zero — the same rule the aggregate path follows.
+	_, silent, _ := decode(platformCall(t, s, "get_token_usage", map[string]any{"agent": "unpriced"}))
+	if silent.CostReported || silent.CostUSD != 0 {
+		t.Errorf("unpriced agent usage = %+v, want costUSD 0 with costReported false", silent)
+	}
+
+	// The aggregate answer and the named answer agree: same tool, one question.
+	_, total, byAgent := decode(platformCall(t, s, "get_token_usage", nil))
+	if !total.CostReported || total.CostUSD <= 0 {
+		t.Errorf("aggregate usage = %+v, want the reported cost", total)
+	}
+	var reviewerRow map[string]any
+	for _, row := range byAgent {
+		if row["AgentName"] == "reviewer" {
+			reviewerRow = row
+		}
+	}
+	if reviewerRow == nil {
+		t.Fatalf("byAgent rows missing reviewer: %v", byAgent)
+	}
+	if cost, _ := reviewerRow["CostUSD"].(float64); cost <= 0 {
+		t.Errorf("byAgent reviewer CostUSD = %v, want the reported cost", reviewerRow["CostUSD"])
+	}
+	if reported, _ := reviewerRow["CostReported"].(bool); !reported {
+		t.Errorf("byAgent reviewer CostReported = %v, want true", reviewerRow["CostReported"])
 	}
 }
 
