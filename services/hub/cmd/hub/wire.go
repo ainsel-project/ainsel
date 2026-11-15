@@ -107,6 +107,18 @@ func wireMCP(pool *pgxpool.Pool) *mcpservers.Service {
 // operator and cheap enough to do by listing rather than watching.
 const pluginSyncInterval = 30 * time.Second
 
+// agentMCPEnabledEnv opts a cluster into the platform read plane. One flag
+// gates both halves of the feature on purpose: the endpoint and the registry row
+// that points agents at it. A row for a plane that answers 503 would be worse
+// than no row — an agent would attach a server that refuses it and read that as
+// a broken platform.
+const agentMCPEnabledEnv = "HUB_AGENT_MCP_ENABLED"
+
+// agentMCPEnabled reports whether the platform read plane is opted in.
+func agentMCPEnabled() bool {
+	return os.Getenv(agentMCPEnabledEnv) == "true"
+}
+
 // wirePluginSync builds the syncer that keeps plugin MCP servers registered for
 // agents and plugin skills registered in the skill registry, or nil when it
 // cannot do its job. HUB_SELF_URL is required: it is the hub's own in-cluster
@@ -228,6 +240,16 @@ func wireAPIServer(c *container, cfg containerConfig) *api.Server {
 		slog.Info("skill catalogue MCP disabled (HUB_SKILLS_MCP_TOKEN not set)")
 	}
 	srv.SetSkillDiscovery(c.skillSvc)
+
+	// The platform read plane. Off unless an operator opts in; when off, the
+	// endpoint answers 503 and no registry row is written for it, so nothing
+	// advertises it to agents.
+	if agentMCPEnabled() {
+		srv.SetAgentMCPEnabled(true)
+		slog.Info("platform agent MCP enabled", "path", api.AgentMCPPath)
+	} else {
+		slog.Info("platform agent MCP disabled (" + agentMCPEnabledEnv + " not true)")
+	}
 
 	// This block reports the validate credential only. The catalogue has its
 	// own token and its own line above; naming it here would tie two

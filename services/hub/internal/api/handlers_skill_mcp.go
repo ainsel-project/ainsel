@@ -54,6 +54,7 @@ func (s *Server) SetSkillDiscovery(d SkillDiscovery) {
 	if d == nil {
 		return
 	}
+	s.skillDiscovery = d
 	s.skillMCPHandler = s.requireCatalogueToken(skillMCPServer(d).ServeHTTP)
 }
 

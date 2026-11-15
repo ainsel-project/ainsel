@@ -3105,6 +3105,47 @@ paths:
               schema: { type: string }
         default:
           $ref: '#/components/responses/Error'
+  /api/internal/agent-mcp:
+    post:
+      operationId: servePlatformAgentMCP
+      summary: The platform's read-only tool plane, as a stateless MCP endpoint for agent runtimes
+      description: >-
+        Off unless `HUB_AGENT_MCP_ENABLED=true`, in which case the endpoint
+        answers 503 — configured-off, never open. Same credential as the plugin
+        agent endpoints: the internal secret as a bearer token, plus
+        `X-Ainsel-Agent` (required, DNS-label shaped) and optionally
+        `X-Ainsel-Invocation-Id`. The mounted tool set is the capability
+        allow-list and contains no mutating tool: agents read platform state
+        here (agents, invocations, logs, metrics, token usage, channels, MCP
+        servers, skills) and change nothing. A failure of one call is reported
+        as a tool result with `isError`.
+      tags: [internal]
+      security:
+        - internalToken: []
+      parameters:
+        - name: X-Ainsel-Agent
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Ainsel-Invocation-Id
+          in: header
+          schema: { type: string, pattern: '^[A-Za-z0-9._:-]{1,128}$' }
+      responses:
+        '200':
+          description: The platform MCP session for that agent.
+          content:
+            'application/json':
+              schema: { type: object }
+            'text/event-stream':
+              schema: { type: string }
+        '503':
+          description: The plane is disabled, or no internal secret is configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api/internal/skills/mcp:
     post:
       operationId: serveSkillsMCP

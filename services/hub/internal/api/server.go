@@ -136,6 +136,14 @@ type Server struct {
 	// separate from internalValidateSecret on purpose: that one is the
 	// cluster-wide internal credential. See requireCatalogueToken.
 	skillsMCPToken string
+	// skillDiscovery is the catalogue reader SetSkillDiscovery was given. The
+	// platform agent plane reuses it so the two surfaces that answer the same
+	// question share one implementation; s.skills is deliberately not used
+	// there, because SkillService carries Create/Update/Delete.
+	skillDiscovery SkillDiscovery
+	// agentMCPEnabled gates the platform read plane at AgentMCPPath. Off by
+	// default: see SetAgentMCPEnabled.
+	agentMCPEnabled bool
 
 	// wsAllowedOrigins lists Origins permitted to open /api/v1/ws in addition
 	// to same-origin requests. See SetWSAllowedOrigins.
@@ -211,6 +219,14 @@ func (s *Server) SetUserTokenStore(store *usertokens.Store) {
 // catalogue MCP (/api/internal/skills/mcp).
 func (s *Server) SetSkillsMCPToken(token string) {
 	s.skillsMCPToken = token
+}
+
+// SetAgentMCPEnabled turns the platform read plane at AgentMCPPath on or off.
+// Off until an operator opts in, so a hub that never configured the feature
+// answers 503 there rather than serving platform state to anything in the
+// namespace that carries the internal secret.
+func (s *Server) SetAgentMCPEnabled(enabled bool) {
+	s.agentMCPEnabled = enabled
 }
 
 // SetInternalValidateSecret sets the shared secret for /api/internal/user-tokens/validate.
@@ -383,6 +399,7 @@ func New(c client.Client, namespace string, connectorCfg ConnectorConfig, promCl
 	mux.HandleFunc("/api/v1/observability/metrics/query", s.handleObservabilityMetricsQuery)
 	mux.HandleFunc("/api/internal/events", s.handleIngestEvent)
 	mux.HandleFunc(skillMCPPath, s.handleSkillMCP)
+	mux.HandleFunc(AgentMCPPath, s.handleAgentMCP)
 	mux.HandleFunc("/api/internal/agents/", s.handleInternalAgent)
 	mux.HandleFunc("/api/v1/queue/info", s.handleQueueInfo)
 	mux.HandleFunc("/api/v1/queue/recent", s.handleQueueRecent)
