@@ -269,6 +269,22 @@ Env entries are `{name, value, secret?}`. The API never returns secret values (t
 | `list_mcp_servers` | read | MCP servers in the registry: URLs and the tools each exposes. |
 | `get_mcp_server` | read | One MCP server entry: URL, transport, tool names, non-secret auth config. |
 
+### Groups
+
+A group is the access-control container agents, triggers, connectors and
+other resources belong to. Its **id** is the value `groupId` arguments
+(`create_agent`, `create_trigger`, `create_channel`, …) expect — which is why
+these tools exist: a from-scratch setup no longer needs a REST call to find or
+make one. The hub does the authorization: any authenticated caller may list
+and read groups and becomes the owner of a group it creates; changing a group
+is owner-only and is not exposed here.
+
+| Tool | Mode | What it answers |
+|------|------|-----------------|
+| `list_groups` | read | All groups (id, name, description). The hub returns them as a bare array with no pagination, so the tool caps the list itself and reports `truncated`/`hint`. Empty on hubs with access control disabled. |
+| `get_group` | read | One group by id, with its members and roles (`{"group": …, "members": …}`). |
+| `create_group` | write | Create a group (`name`, optional `description`); the caller becomes its owner and the response carries the id to use as `groupId`. Names are unique — a duplicate is refused. Updating, deleting and membership are not exposed over MCP. |
+
 ### Plugins
 
 A plugin is third-party code the platform routes events to. It is **deployed
@@ -361,6 +377,7 @@ limits** when the caller does not pass an explicit parameter:
 | `list_personas` | `pageSize=50` | `page`, `pageSize` |
 | `list_skills` | `pageSize=50` | `page`, `pageSize` |
 | `list_mcp_servers` | `pageSize=50` | `page`, `pageSize` |
+| `list_groups` | 50 (local cap — the hub endpoint has no pagination) | `limit` |
 | `list_plugins` | `pageSize=50` | `page`, `pageSize` |
 | `list_invocations` | `limit=50` | `limit` |
 | `get_recent_errors` | `limit=50` | `limit` |
