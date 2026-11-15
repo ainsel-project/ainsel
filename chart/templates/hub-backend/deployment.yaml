@@ -113,6 +113,9 @@ spec:
             # agent operator is given as HUB_URL.
             - name: HUB_SELF_URL
               value: "http://hub-backend.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.hub.port | default 8080 }}"
+            {{- /* dig so the default holds when an older values.yaml has no agentMCP block */}}
+            - name: HUB_AGENT_MCP_ENABLED
+              value: {{ dig "agentMCP" "enabled" false .Values.hub | quote }}
             - name: PLATFORM_EXTERNAL_URL
               value: {{ .Values.hub.platformExternalUrl | default (printf "https://%s%s" .Values.hub.ingress.host (.Values.ui.basePath | default "")) | quote }}
             - name: CONNECTOR_IMAGE_WEBHOOK
