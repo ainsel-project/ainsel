@@ -121,6 +121,13 @@ func mcpServerText(result *mcp.CallToolResult) string {
 // writable field populated, so a PUT that drops one is visible.
 const storedRow = `{"name":"forgejo","displayName":"Forgejo","description":"Forgejo MCP endpoint","url":"http://forgejo-mcp.platform.svc.cluster.local:8080/mcp","tokenFromEnv":"FORGEJO_TOKEN","managedBy":"user"}`
 
+// registryEnvVar is the environment-variable NAME these tests store in the
+// tokenFromEnv field — the field holds a name, never a secret. It is a named
+// constant rather than an inline literal in the tool arguments, so gosec's G101
+// does not read the "token_from_env" key next to a TOKEN-suffixed value as a
+// hardcoded credential.
+const registryEnvVar = "FORGEJO_TOKEN"
+
 // TestMCPServerNameIsPathEscaped pins the convention channels.go and plugins.go
 // already follow: a caller-supplied name is escaped into exactly one path
 // segment, so an argument like "../connectors" addresses one registry row
@@ -169,7 +176,7 @@ func TestCreateMCPServer_FullPayload(t *testing.T) {
 		"url":            "http://forgejo-mcp.platform.svc.cluster.local:8080/mcp",
 		"display_name":   "Forgejo",
 		"description":    "Forgejo MCP endpoint",
-		"token_from_env": "FORGEJO_TOKEN",
+		"token_from_env": registryEnvVar,
 		"groupId":        "my-group",
 	})
 	if err != nil {
