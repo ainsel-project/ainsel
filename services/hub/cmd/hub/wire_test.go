@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/api"
+	"github.com/ainsel-project/ainsel/services/hub/internal/selfsync"
 )
 
 func TestWireMetricsSource(t *testing.T) {
@@ -127,5 +128,38 @@ func TestPasswordPolicyFromEnv(t *testing.T) {
 				t.Fatalf("error %q must name %s", err, tc.wantErrName)
 			}
 		})
+	}
+}
+
+// The hub registers its own endpoint by joining a configured base URL to a path
+// constant, and the operator only injects the platform credential into a server
+// whose URL is exactly one of the hub's agent endpoints. Two packages, two
+// spellings of one path — which is why this assertion exists: a drift here makes
+// every agent's platform tools fail authentication, and nothing else fails.
+func TestSelfRegistrationPathMatchesTheRegisteredRoute(t *testing.T) {
+	if selfsync.AgentMCPEndpointPath != api.AgentMCPPath {
+		t.Errorf("registered route = %q, self-registration writes %q", api.AgentMCPPath, selfsync.AgentMCPEndpointPath)
+	}
+}
+
+// The plane is opt-in, and one flag has to gate both halves of it: an endpoint
+// that answers 503 while a registry row advertises it is worse than no row,
+// because an agent reads the refusal as a broken platform rather than as an
+// operator choice.
+func TestSelfRegistrationRequiresTheEnabledPlane(t *testing.T) {
+	t.Setenv("HUB_SELF_URL", "http://hub-backend.test-ns.svc.cluster.local:8080")
+	t.Setenv(agentMCPEnabledEnv, "")
+	if s := wireSelfSync(&container{}); s != nil {
+		t.Error("a disabled plane must not register the hub's endpoint")
+	}
+
+	t.Setenv(agentMCPEnabledEnv, "true")
+	if s := wireSelfSync(&container{}); s == nil {
+		t.Error("an enabled plane with HUB_SELF_URL set must register the hub's endpoint")
+	}
+
+	t.Setenv("HUB_SELF_URL", "")
+	if s := wireSelfSync(&container{}); s != nil {
+		t.Error("without HUB_SELF_URL there is no address to register")
 	}
 }

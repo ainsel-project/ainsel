@@ -20,6 +20,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/prometheus"
+	"github.com/ainsel-project/ainsel/services/hub/internal/selfsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	"github.com/ainsel-project/ainsel/services/hub/internal/usertokens"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
@@ -117,6 +118,37 @@ const agentMCPEnabledEnv = "HUB_AGENT_MCP_ENABLED"
 // agentMCPEnabled reports whether the platform read plane is opted in.
 func agentMCPEnabled() bool {
 	return os.Getenv(agentMCPEnabledEnv) == "true"
+}
+
+// wireSelfSync builds the syncer that registers the hub's own agent-facing MCP
+// endpoint in the registry, or nil when it cannot do its job. It is the sibling
+// of wirePluginSync and shares its requirements: HUB_SELF_URL, because the row
+// is the hub's own address plus a path, and the plane being enabled, because a
+// registered endpoint that refuses its callers is a trap rather than a feature.
+func wireSelfSync(c *container) *selfsync.Syncer {
+	if !agentMCPEnabled() {
+		return nil
+	}
+	selfURL := os.Getenv("HUB_SELF_URL")
+	if selfURL == "" {
+		slog.Info("platform registry sync disabled: HUB_SELF_URL not set")
+		return nil
+	}
+	s := selfsync.New(c.mcpSvc, selfURL)
+	s.SetResourceVisibility(c.authzStore)
+	slog.Info("platform registry sync enabled", "selfURL", selfURL, "interval", pluginSyncInterval)
+	return s
+}
+
+// runSelfSyncLoop is the background loop main.go starts. A disabled plane is one
+// log line at most and no work, so the loop never has to know why.
+func runSelfSyncLoop(ctx context.Context, c *container) error {
+	s := wireSelfSync(c)
+	if s == nil {
+		return nil
+	}
+	s.Run(ctx, pluginSyncInterval)
+	return nil
 }
 
 // wirePluginSync builds the syncer that keeps plugin MCP servers registered for
