@@ -107,15 +107,10 @@ func registerPluginRoutes(s *Server) {
 	s.routes().HandleFunc("/api/v1/plugins/", s.handlePlugin)
 }
 
-// requirePluginAdmin gates the plugin write surface. With no authz configured
-// (the dev-mode escape hatch) the caller counts as admin, matching
-// requireRead/requireWrite — deliberately different from the users handler's
-// requireAdmin, which fails closed in dev mode: the user-management surface
-// predates that convention and must keep its behaviour.
+// requirePluginAdmin gates the plugin write surface. The checker is always
+// present (Deps requires it), so "is the caller an admin" is a store question —
+// in auth mode "none" the permissive store answers yes for every caller.
 func (s *Server) requirePluginAdmin(w http.ResponseWriter, r *http.Request) bool {
-	if s.authzChecker == nil {
-		return true
-	}
 	u, ok := oidc.FromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
@@ -129,22 +124,14 @@ func (s *Server) requirePluginAdmin(w http.ResponseWriter, r *http.Request) bool
 	return true
 }
 
-// pluginsCallerIsAdmin decides which read shape the caller gets. Same rule as
-// requireAdmin: admin, or anyone at all when authz is not configured.
+// pluginsCallerIsAdmin decides which read shape the caller gets.
 func (s *Server) pluginsCallerIsAdmin(r *http.Request) bool {
-	if s.authzChecker == nil {
-		return true
-	}
 	return s.callerIsAdmin(r)
 }
 
-// requirePluginReader accepts a reader: any caller when authz is off, any
-// authenticated caller otherwise. The admin/public *shape* is decided later
-// by pluginsCallerIsAdmin.
+// requirePluginReader accepts any authenticated caller. The admin/public
+// *shape* is decided later by pluginsCallerIsAdmin.
 func (s *Server) requirePluginReader(w http.ResponseWriter, r *http.Request) bool {
-	if s.authzChecker == nil {
-		return true
-	}
 	if _, ok := oidc.FromContext(r.Context()); !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return false
@@ -450,8 +437,7 @@ func (s *Server) approvePluginPermissions(ctx context.Context, w http.ResponseWr
 }
 
 // setPluginGroupAccess records which groups' background identity the plugin
-// may act for. Group ids are checked against the authz store when one is
-// wired; with no store (dev mode) the check is skipped, like elsewhere.
+// may act for. Group ids are checked against the authz store.
 func (s *Server) setPluginGroupAccess(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
 	var req struct {
 		Groups []string `json:"groups"`
@@ -468,19 +454,17 @@ func (s *Server) setPluginGroupAccess(ctx context.Context, w http.ResponseWriter
 		return
 	}
 
-	if s.authzStore != nil {
-		for _, g := range req.Groups {
-			grp, err := s.authzStore.GetGroup(ctx, g)
-			if errors.Is(err, authz.ErrNotFound) || (err == nil && grp == nil) {
-				httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("group %q does not exist", g))
-				return
-			}
-			if err != nil {
-				// A broken store is not a missing group — reporting it as one
-				// would send the admin to re-create a group that still exists.
-				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
+	for _, g := range req.Groups {
+		grp, err := s.authzStore.GetGroup(ctx, g)
+		if errors.Is(err, authz.ErrNotFound) || (err == nil && grp == nil) {
+			httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("group %q does not exist", g))
+			return
+		}
+		if err != nil {
+			// A broken store is not a missing group — reporting it as one
+			// would send the admin to re-create a group that still exists.
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 	}
 

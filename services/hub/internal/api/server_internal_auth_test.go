@@ -6,26 +6,29 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
+	"github.com/ainsel-project/ainsel/services/hub/internal/eventqueue"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 )
 
 // newInternalAuthServer builds a minimal Server wired like production for the
 // internal-ingest paths: an OIDC-style auth middleware that rejects /api/v1/*
 // requests without a bearer token, plus the handler-level X-Internal-Token
-// check on the canonical /api/internal/* endpoints. The event queue is left nil
-// so a request that reaches handleIngestEvent with a valid internal token
-// deterministically returns 503 (proving it got past routing/auth).
-func newInternalAuthServer() *Server {
+// check on the canonical /api/internal/* endpoints. The event queue is present
+// but unreachable (issue #264 makes it a required dependency), so a request that
+// gets past routing/auth fails on it rather than panicking.
+func newInternalAuthServer(t *testing.T) *Server {
 	s := &Server{
 		mux:                    http.NewServeMux(),
 		internalValidateSecret: "test-secret",
+		eventQueue:             eventqueue.NewStore(deadPool(t)),
 	}
 	// Only the canonical internal path is registered; the legacy
 	// /api/v1/internal/* aliases are intentionally not supported.
 	s.mux.HandleFunc("/api/internal/events", s.handleIngestEvent)
 
 	// Mimic the OIDC middleware: reject anything without an authenticated user.
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := oidc.FromContext(r.Context()); !ok {
 				http.Error(w, "missing bearer token", http.StatusUnauthorized)
@@ -33,7 +36,7 @@ func newInternalAuthServer() *Server {
 			}
 			next.ServeHTTP(w, r)
 		})
-	})
+	}
 	return s
 }
 
@@ -52,14 +55,17 @@ func doInternal(s *Server, path, internalToken string) *httptest.ResponseRecorde
 // middleware: it carries the /api/internal/ prefix, not /api/v1/, so an internal
 // caller presenting only X-Internal-Token reaches the handler.
 func TestInternalIngestBypassesOIDC(t *testing.T) {
-	s := newInternalAuthServer()
+	s := newInternalAuthServer(t)
 
 	rec := doInternal(s, "/api/internal/events", "test-secret")
 	if rec.Code == http.StatusUnauthorized {
 		t.Fatalf("/api/internal/events was rejected by auth middleware (got 401); internal paths must bypass OIDC")
 	}
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 (reached handler, queue nil), got %d: %s", rec.Code, rec.Body.String())
+	// The event queue is a required dependency (issue #264), so the handler
+	// answers instead of reporting itself unwired: a 400 on the empty body is
+	// what "got past the auth middleware" looks like now.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 (reached handler), got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -67,7 +73,7 @@ func TestInternalIngestBypassesOIDC(t *testing.T) {
 // middleware does not leave the internal endpoint open: the handler-level
 // X-Internal-Token check must still reject token-less callers.
 func TestInternalIngestStillRequiresToken(t *testing.T) {
-	s := newInternalAuthServer()
+	s := newInternalAuthServer(t)
 
 	rec := doInternal(s, "/api/internal/events", "")
 	if rec.Code != http.StatusUnauthorized {
@@ -85,7 +91,7 @@ func TestInternalIngestStillRequiresToken(t *testing.T) {
 // /api/v1/* path and rejected by the auth middleware rather than reaching the
 // internal ingest handler.
 func TestLegacyInternalPathNotSupported(t *testing.T) {
-	s := newInternalAuthServer()
+	s := newInternalAuthServer(t)
 
 	rec := doInternal(s, "/api/v1/internal/events", "test-secret")
 	if rec.Code == http.StatusServiceUnavailable {
@@ -99,7 +105,7 @@ func TestLegacyInternalPathNotSupported(t *testing.T) {
 // TestNonInternalPathsStillRequireAuth verifies the OIDC middleware still
 // applies to regular /api/v1/* endpoints.
 func TestNonInternalPathsStillRequireAuth(t *testing.T) {
-	s := newInternalAuthServer()
+	s := newInternalAuthServer(t)
 	// A non-internal route; the auth middleware should reject before dispatch.
 	s.mux.HandleFunc("/api/v1/agents", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -115,10 +121,16 @@ func TestNonInternalPathsStillRequireAuth(t *testing.T) {
 
 // newAgentTaskAuthServer builds a Server with internal agent task routes
 // registered alongside the OIDC-style auth middleware, mimicking production.
-func newAgentTaskAuthServer() *Server {
+func newAgentTaskAuthServer(t *testing.T) *Server {
 	s := &Server{
 		mux:                    http.NewServeMux(),
 		internalValidateSecret: "test-secret",
+		// The task queue and the authz pair are part of a Server (issue #264), so
+		// this hand-built server carries them too. The queue answers connection
+		// errors rather than panicking; the permissive pair answers admin.
+		eventQueue:   eventqueue.NewStore(deadPool(t)),
+		authzStore:   authz.NewPermissiveStore(),
+		authzChecker: authz.NewChecker(authz.NewPermissiveStore(), nil),
 	}
 	s.mux.HandleFunc("/api/internal/agents/", s.handleInternalAgent)
 	// Production still exposes /api/v1/agents/ for CRUD; it is registered here
@@ -127,7 +139,7 @@ func newAgentTaskAuthServer() *Server {
 	// handlers.
 	s.mux.HandleFunc("/api/v1/agents/", s.handleAgent)
 
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := oidc.FromContext(r.Context()); !ok {
 				http.Error(w, "missing bearer token", http.StatusUnauthorized)
@@ -135,7 +147,7 @@ func newAgentTaskAuthServer() *Server {
 			}
 			next.ServeHTTP(w, r)
 		})
-	})
+	}
 	return s
 }
 
@@ -143,7 +155,7 @@ func newAgentTaskAuthServer() *Server {
 // endpoint under /api/internal/ is reachable with X-Internal-Token alone,
 // without an OIDC bearer token.
 func TestInternalAgentTaskFetchBypassesOIDC(t *testing.T) {
-	s := newAgentTaskAuthServer()
+	s := newAgentTaskAuthServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/tasks/1", nil)
 	req.Header.Set("X-Internal-Token", "test-secret")
@@ -158,7 +170,7 @@ func TestInternalAgentTaskFetchBypassesOIDC(t *testing.T) {
 // TestInternalAgentAckBypassesOIDC verifies that the ack endpoint under
 // /api/internal/ is reachable with X-Internal-Token alone.
 func TestInternalAgentAckBypassesOIDC(t *testing.T) {
-	s := newAgentTaskAuthServer()
+	s := newAgentTaskAuthServer(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/agents/a-refiner/tasks/task-1/ack", strings.NewReader("{}"))
 	req.Header.Set("X-Internal-Token", "test-secret")
@@ -174,7 +186,7 @@ func TestInternalAgentAckBypassesOIDC(t *testing.T) {
 // does not skip the handler-level token validation: a wrong
 // X-Internal-Token must still return 401.
 func TestInternalAgentTaskFetchRejectsBadToken(t *testing.T) {
-	s := newAgentTaskAuthServer()
+	s := newAgentTaskAuthServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/tasks/1", nil)
 	req.Header.Set("X-Internal-Token", "wrong-secret")
@@ -189,7 +201,7 @@ func TestInternalAgentTaskFetchRejectsBadToken(t *testing.T) {
 // TestInternalAgentTaskFetchRejectsNoToken verifies that a task fetch
 // request without X-Internal-Token is rejected by the handler.
 func TestInternalAgentTaskFetchRejectsNoToken(t *testing.T) {
-	s := newAgentTaskAuthServer()
+	s := newAgentTaskAuthServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner/tasks/1", nil)
 	rec := httptest.NewRecorder()
@@ -207,7 +219,7 @@ func TestInternalAgentTaskFetchRejectsNoToken(t *testing.T) {
 func TestInternalAgentNextTaskReturns404(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
-			s := newAgentTaskAuthServer()
+			s := newAgentTaskAuthServer(t)
 
 			req := httptest.NewRequest(method, "/api/internal/agents/a-refiner/next-task?timeout=1s", nil)
 			req.Header.Set("X-Internal-Token", "test-secret")
@@ -224,7 +236,7 @@ func TestInternalAgentNextTaskReturns404(t *testing.T) {
 // TestInternalAgentUnknownPathReturns404 verifies that non-task paths
 // under /api/internal/agents/ return 404 (CRUD is not exposed internally).
 func TestInternalAgentUnknownPathReturns404(t *testing.T) {
-	s := newAgentTaskAuthServer()
+	s := newAgentTaskAuthServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/internal/agents/a-refiner", nil)
 	req.Header.Set("X-Internal-Token", "test-secret")
@@ -282,7 +294,7 @@ func TestInternalAgentTaskRoutesRequireToken(t *testing.T) {
 					{"authenticated user, wrong token", "wrong-secret", true},
 				} {
 					t.Run(tc.name, func(t *testing.T) {
-						s := newAgentTaskAuthServer()
+						s := newAgentTaskAuthServer(t)
 
 						req := httptest.NewRequest(route.method, path, strings.NewReader("{}"))
 						if tc.token != "" {
@@ -324,7 +336,7 @@ func TestInternalAgentTaskRoutesAcceptValidToken(t *testing.T) {
 		{"nack", http.MethodPost, "/api/internal/agents/a-refiner/tasks/1/nack"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newAgentTaskAuthServer()
+			s := newAgentTaskAuthServer(t)
 
 			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}"))
 			req.Header.Set("X-Internal-Token", "test-secret")
@@ -335,10 +347,11 @@ func TestInternalAgentTaskRoutesAcceptValidToken(t *testing.T) {
 				t.Fatalf("valid X-Internal-Token rejected with %d (%s); the runner must stay able to ack/nack",
 					rec.Code, strings.TrimSpace(rec.Body.String()))
 			}
-			// eventQueue is nil, so the handler's own precondition answers 503 —
-			// proof that it got past authentication.
-			if rec.Code != http.StatusServiceUnavailable {
-				t.Fatalf("status = %d, want 503 (past auth, event queue not configured)", rec.Code)
+			// The queue is a required dependency (issue #264), so "not configured"
+			// is a startup failure now. Here the queue exists but is unreachable, so
+			// the handler answers 500 — proof that it got past authentication.
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500 (past auth, unreachable event queue)", rec.Code)
 			}
 		})
 	}
@@ -358,7 +371,7 @@ func TestInternalAgentRoutesFailClosedWithoutSecret(t *testing.T) {
 		{http.MethodPost, "/api/internal/agents/a-refiner/tasks/1/nack"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
-			s := newAgentTaskAuthServer()
+			s := newAgentTaskAuthServer(t)
 			s.internalValidateSecret = "" // secret not configured
 
 			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}"))
@@ -400,7 +413,7 @@ func TestLegacyAgentTaskRoutesReturn404(t *testing.T) {
 	}
 	for _, route := range routes {
 		t.Run(route.name, func(t *testing.T) {
-			s := newAgentTaskAuthServer()
+			s := newAgentTaskAuthServer(t)
 
 			req := httptest.NewRequest(route.method, route.path, strings.NewReader("{}"))
 			req.Header.Set("X-Internal-Token", "test-secret")

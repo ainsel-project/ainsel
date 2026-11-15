@@ -28,11 +28,11 @@ func TestValidateAuthConfig(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			s := &Server{}
+			var mw func(http.Handler) http.Handler
 			if tc.withAuthMW {
-				s.SetAuthMiddleware(passthrough)
+				mw = passthrough
 			}
-			err := s.ValidateAuthConfig(tc.allowInsecure)
+			err := ValidateAuthConfig(mw, tc.allowInsecure)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -54,7 +54,7 @@ func TestAuthMiddlewareConfigured(t *testing.T) {
 	if s.AuthMiddlewareConfigured() {
 		t.Fatalf("expected false on fresh server")
 	}
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler { return next })
+	s.authMW = func(next http.Handler) http.Handler { return next }
 	if !s.AuthMiddlewareConfigured() {
 		t.Fatalf("expected true after SetAuthMiddleware")
 	}

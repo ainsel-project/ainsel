@@ -822,3 +822,15 @@ func TestKeepAliveIntervalProblem(t *testing.T) {
 		}
 	}
 }
+
+// Switching back to an API key leaves no use for a sign-in pod: it is
+// stopped instead of holding the volume, and dispatch, until its deadline.
+func TestSignInJobStoppedOnSwitchToAPIKey(t *testing.T) {
+	agent := requestSignIn(signInJobModeAgent(7))
+	live := buildSignInJob(agent, jobModeDeployment(), testSession)
+	agent.Spec.OpenAI.AuthMethod = ainselv1alpha1.OpenAIAuthMethodAPIKey
+	_, c := runSync(t, agent, live)
+	if n := len(signInJobs(listTaskJobs(t, c))); n != 0 {
+		t.Fatalf("sign-in jobs after switching to an API key = %d, want the running one stopped", n)
+	}
+}

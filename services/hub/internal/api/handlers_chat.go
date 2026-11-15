@@ -120,12 +120,8 @@ func (s *Server) handleChatSession(w http.ResponseWriter, r *http.Request) {
 
 // requireChatSessionAccess authorises a /api/v1/ caller against a single
 // session and returns it. It writes the error response and reports false when
-// access is denied, the session is missing, or the chat store is unwired.
+// access is denied or the session is missing.
 func (s *Server) requireChatSessionAccess(w http.ResponseWriter, r *http.Request, id string) (*chat.Session, bool) {
-	if s.chat == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
-		return nil, false
-	}
 	sess, err := s.chat.GetSession(r.Context(), id)
 	if errors.Is(err, chat.ErrSessionNotFound) {
 		httpx.WriteError(w, http.StatusNotFound, "session not found")
@@ -178,10 +174,6 @@ func (s *Server) chatListOwnerFilter(r *http.Request) (string, bool) {
 }
 
 func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request) {
-	if s.chat == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
-		return
-	}
 	var req chat.CreateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -223,10 +215,6 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request) {
 // agent sidecar on /api/internal/chat/sessions, and admins. The /api/v1/
 // entry point computes it via chatListOwnerFilter.
 func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request, ownerFilter string) {
-	if s.chat == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
-		return
-	}
 	page, err := ParsePageParams(r.URL.Query())
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
@@ -270,10 +258,6 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request, ownerF
 }
 
 func (s *Server) getChatSession(w http.ResponseWriter, r *http.Request, id string) {
-	if s.chat == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
-		return
-	}
 	sess, err := s.chat.GetSession(r.Context(), id)
 	if errors.Is(err, chat.ErrSessionNotFound) {
 		httpx.WriteError(w, http.StatusNotFound, "session not found")
@@ -288,10 +272,6 @@ func (s *Server) getChatSession(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) updateChatSession(w http.ResponseWriter, r *http.Request, id string) {
-	if s.chat == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
-		return
-	}
 	var req chat.UpdateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -324,10 +304,6 @@ func (s *Server) updateChatSession(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s *Server) deleteChatSession(w http.ResponseWriter, r *http.Request, id string) {
-	if s.chat == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
-		return
-	}
 	if err := s.chat.DeleteSession(r.Context(), id); errors.Is(err, chat.ErrSessionNotFound) {
 		httpx.WriteError(w, http.StatusNotFound, "session not found")
 		return
@@ -339,10 +315,6 @@ func (s *Server) deleteChatSession(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s *Server) addChatMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
-	if s.chat == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "chat not configured")
-		return
-	}
 	var req chat.CreateMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())

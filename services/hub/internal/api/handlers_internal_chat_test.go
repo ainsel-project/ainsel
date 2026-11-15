@@ -21,11 +21,11 @@ func newInternalChatServer(t *testing.T) *Server {
 	s.mux.HandleFunc("/api/internal/chat/sessions/", s.handleInternalChatSession)
 	// Reject everything that reaches the auth middleware, like OIDC does
 	// for requests without a bearer token.
-	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+	s.authMW = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "missing bearer token", http.StatusUnauthorized)
 		})
-	})
+	}
 	return s
 }
 
@@ -50,14 +50,16 @@ func doInternalChat(s *Server, method, path, token, body string) *httptest.Respo
 func TestInternalChatBypassesOIDC(t *testing.T) {
 	s := newInternalChatServer(t)
 
-	rec := doInternalChat(s, http.MethodGet, "/api/internal/chat/sessions", "test-secret", "")
-	// Chat store is nil, so past auth the handler answers 503 — anything
-	// but 401 proves the request bypassed the OIDC middleware.
+	// POST is rejected by the method guard, so the request never reaches the
+	// store: a 405 here proves the request got past the auth middleware, which
+	// is the whole point. The chat store is a required dependency (issue #264),
+	// so there is no "not configured" 503 to answer with any more.
+	rec := doInternalChat(s, http.MethodPost, "/api/internal/chat/sessions", "test-secret", "")
 	if rec.Code == http.StatusUnauthorized {
 		t.Fatalf("internal chat endpoint was rejected by auth middleware (got 401); internal paths must bypass OIDC")
 	}
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 (chat not configured) past auth, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 past auth, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

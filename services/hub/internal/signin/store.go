@@ -39,8 +39,11 @@ func (s State) Live() bool {
 	return s == StateWaitingForPod || s == StateAwaitingRedirect || s == StateExchanging
 }
 
-// TTL bounds a session. The sign-in Job's own deadline is longer, so an
-// abandoned session expires here first and the pod sees it closed.
+// TTL bounds each wait of a session: for the pod to post the authorization
+// URL, and again from then on for the user to sign in, so time spent waiting
+// for a running task does not eat into the user's. The sign-in Job's own
+// deadline is longer, so an abandoned session expires here first and the pod
+// sees it closed.
 const TTL = 10 * time.Minute
 
 // Retention is how long finished sessions are kept for the console to read
@@ -85,8 +88,8 @@ type Store interface {
 	Latest(ctx context.Context, agent string) (Session, error)
 	// Get returns one session of the agent, or ErrNotFound.
 	Get(ctx context.Context, agent, id string) (Session, error)
-	// SetAuthURL records the authorization URL and moves the session from
-	// waiting_for_pod to awaiting_redirect.
+	// SetAuthURL records the authorization URL, moves the session from
+	// waiting_for_pod to awaiting_redirect and restarts its TTL.
 	SetAuthURL(ctx context.Context, agent, id, url string) error
 	// SubmitRedirect stores the pasted redirect URL on the agent's live
 	// session, which must be awaiting_redirect.

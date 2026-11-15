@@ -17,10 +17,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// pluginCallerKey is the context key for PluginCaller
-type pluginCallerKey struct{}
 
 // statusCaptureWriter wraps an http.ResponseWriter to capture the status code
 type statusCaptureWriter struct {
@@ -48,31 +46,21 @@ func (w *statusCaptureWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
-// PluginCaller describes the authenticated plugin caller and their effective permissions/groups.
-type PluginCaller struct {
-	PluginID     string
-	Kind         string
-	Sub          string
-	Username     string
-	Permissions  []string
-	Groups       []plugincreds.GroupGrant
-	InvocationID string
-}
+// PluginCaller describes the authenticated plugin caller and their effective
+// permissions/groups. The type lives in plugincreds so the DB-backed
+// registry guards (personas, MCP servers, skills) can read it from a request
+// context without importing this package.
+type PluginCaller = plugincreds.Caller
 
 // PluginCallerFrom retrieves the PluginCaller from the request context
 func PluginCallerFrom(ctx context.Context) (*PluginCaller, bool) {
-	pc, ok := ctx.Value(pluginCallerKey{}).(*PluginCaller)
-	return pc, ok
+	return plugincreds.CallerFrom(ctx)
 }
 
-// SetPluginCredentialIssuer wires the plugin credential issuer for minting and verifying tokens.
-func (s *Server) SetPluginCredentialIssuer(issuer *plugincreds.Issuer) {
-	s.pluginCreds = issuer
-}
-
-// PluginCredentialMiddleware wraps an existing auth chain. Requests with a bearer
-// token that looks like a plugin credential are verified and handled here; all
-// others pass through to the fallback chain unchanged. The middleware enforces:
+// PluginCredentialChain recognises a plugin credential on any request and
+// handles it without falling through to the caller-authenticating chain. A
+// request whose bearer token does not look like a plugin credential goes to the
+// fallback chain unchanged. The chain enforces:
 // - Token verification (401 if invalid)
 // - Plugin CR exists and is Ready (401 if missing/disabled/not ready, 503 on other errors)
 // - Effective permissions = token permissions ∩ current spec.approvedPermissions
@@ -80,7 +68,28 @@ func (s *Server) SetPluginCredentialIssuer(issuer *plugincreds.Issuer) {
 // - Route gate (403 if not available or permission lacks)
 // - User kind only: disabledGuard
 // - Audit write requests
-func (s *Server) PluginCredentialMiddleware(disabledGuard, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+//
+// It is a value built by NewPluginCredentialChain rather than a Server method
+// because the auth chain is composed before the server it terminates in (see
+// Deps). issuer may be nil: HUB_PLUGIN_CREDENTIAL_SECRET is a deployment mode,
+// and a chain with no issuer rejects every credential rather than being absent
+// from the chain.
+type PluginCredentialChain struct {
+	issuer *plugincreds.Issuer
+	client client.Client
+	ns     string
+	audit  authEventsStore
+}
+
+// NewPluginCredentialChain builds the chain. client and ns are what the Plugin
+// CR lookup needs; audit records plugin API writes and rejections.
+func NewPluginCredentialChain(issuer *plugincreds.Issuer, c client.Client, ns string, audit authEventsStore) *PluginCredentialChain {
+	return &PluginCredentialChain{issuer: issuer, client: c, ns: ns, audit: audit}
+}
+
+// Middleware wraps the caller-authenticating chain. disabledGuard runs inside it
+// for user-kind callers only.
+func (p *PluginCredentialChain) Middleware(disabledGuard, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check for plugin credential bearer token
@@ -91,20 +100,36 @@ func (s *Server) PluginCredentialMiddleware(disabledGuard, fallback func(http.Ha
 			}
 
 			// Plugin credential: handle it here and never reach fallback
-			s.handlePluginCredential(w, r, next, disabledGuard, token)
+			p.handle(w, r, next, disabledGuard, token)
 		})
 	}
 }
 
-// handlePluginCredential verifies and processes a plugin credential request
-func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, next http.Handler, disabledGuard func(http.Handler) http.Handler, token string) {
+// PluginCredentialMiddleware is the Server-bound form of
+// PluginCredentialChain.Middleware, for tests that assemble a Server by hand.
+// Production wiring builds the chain before the server exists (see Deps).
+//
+// The chain is built inside the returned middleware rather than here, so a test
+// that assembles the server and only then sets an issuer is still honoured: the
+// Server-bound form keeps the late binding the setter-based wiring had.
+func (s *Server) PluginCredentialMiddleware(disabledGuard, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			chain := NewPluginCredentialChain(s.pluginCreds, s.client, s.ns, s.authEvents)
+			chain.Middleware(disabledGuard, fallback)(next).ServeHTTP(w, r)
+		})
+	}
+}
+
+// handle verifies and processes one plugin credential request.
+func (p *PluginCredentialChain) handle(w http.ResponseWriter, r *http.Request, next http.Handler, disabledGuard func(http.Handler) http.Handler, token string) {
 	// Verify token
-	if s.pluginCreds == nil {
+	if p.issuer == nil {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	claims, err := s.pluginCreds.Verify(token)
+	claims, err := p.issuer.Verify(token)
 	if err != nil {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -113,8 +138,8 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 	// Load Plugin CR
 	ctx := r.Context()
 	var plugin connectorv1alpha1.Plugin
-	pluginKey := types.NamespacedName{Name: claims.PluginID, Namespace: s.ns}
-	if err := s.client.Get(ctx, pluginKey, &plugin); err != nil {
+	pluginKey := types.NamespacedName{Name: claims.PluginID, Namespace: p.ns}
+	if err := p.client.Get(ctx, pluginKey, &plugin); err != nil {
 		if apierrors.IsNotFound(err) {
 			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 			return
@@ -171,7 +196,7 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 		Groups:       effectiveGroups,
 		InvocationID: claims.InvocationID,
 	}
-	ctx = context.WithValue(ctx, pluginCallerKey{}, pc)
+	ctx = plugincreds.WithCaller(ctx, pc)
 
 	// For agent and plugin kinds, set the principal (no groups for agent, groups from spec for plugin/agent)
 	if claims.Kind == plugincreds.KindAgent || claims.Kind == plugincreds.KindPlugin {
@@ -214,13 +239,13 @@ func (s *Server) handlePluginCredential(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Audit non-GET/HEAD writes
-	if s.authEvents != nil && !isReadMethod(r.Method) {
+	if !isReadMethod(r.Method) {
 		target := fmt.Sprintf("%s %s %s", claims.PluginID, r.Method, r.URL.Path)
 		outcome := auditevents.OutcomeSuccess
 		if wrappedWriter.status >= 400 {
 			outcome = auditevents.OutcomeFailure
 		}
-		s.recordAuthEvent(r, auditevents.TypePluginAPIWrite, claims.Sub, target, outcome)
+		writeAuthEvent(context.WithoutCancel(r.Context()), p.audit, r, auditevents.TypePluginAPIWrite, claims.Sub, target, outcome)
 	}
 }
 
@@ -240,10 +265,8 @@ func (s *Server) MintUserPluginCredential(ctx context.Context, pluginID string, 
 		return "", time.Time{}, errors.New("no user")
 	}
 	admin := false
-	if s.authzChecker != nil {
-		if admin, err = s.authzChecker.IsAdmin(ctx, u.Sub); err != nil {
-			return "", time.Time{}, err
-		}
+	if admin, err = s.authzChecker.IsAdmin(ctx, u.Sub); err != nil {
+		return "", time.Time{}, err
 	}
 
 	claims := plugincreds.Claims{
@@ -273,14 +296,12 @@ func (s *Server) MintAgentPluginCredential(ctx context.Context, pluginID, agentN
 
 	// Get agent's owning group
 	var groups []plugincreds.GroupGrant
-	if s.authzStore != nil {
-		rg, err := s.authzStore.GetResourceGroup(ctx, "agent", agentName)
-		switch {
-		case err == nil && rg != nil && rg.GroupID != "":
-			groups = []plugincreds.GroupGrant{{ID: rg.GroupID, Role: string(authz.RoleReader)}}
-		case err != nil && !errors.Is(err, authz.ErrNotFound):
-			return "", time.Time{}, err
-		}
+	rg, err := s.authzStore.GetResourceGroup(ctx, "agent", agentName)
+	switch {
+	case err == nil && rg != nil && rg.GroupID != "":
+		groups = []plugincreds.GroupGrant{{ID: rg.GroupID, Role: string(authz.RoleReader)}}
+	case err != nil && !errors.Is(err, authz.ErrNotFound):
+		return "", time.Time{}, err
 	}
 
 	claims := plugincreds.Claims{

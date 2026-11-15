@@ -246,23 +246,6 @@ func (c *promCache) set(key string, value interface{}) {
 	}
 }
 
-// SetTelemetryStore wires the store that reads the hub's own records for the
-// event metric panels. It is the backend those panels ask first (see
-// metricsBackend); Prometheus answers them only when the hub has no database,
-// or when SetMetricsSource pins the counters.
-func (s *Server) SetTelemetryStore(store *telemetry.Store) {
-	s.telemetry = store
-}
-
-// SetMetricsSource pins which backend answers the event metric panels. The two
-// values are MetricsSourceRecords and MetricsSourcePrometheus; anything else,
-// including the unset zero value, means the default (records). cmd/hub warns at
-// startup about a value it did not recognise, so a typo cannot silently move an
-// install onto the other backend.
-func (s *Server) SetMetricsSource(source string) {
-	s.metricsSource = source
-}
-
 // handleObservability dispatches to the observability sub-handlers on the
 // canonical /api/v1/observability/metrics/* paths.
 //
@@ -315,7 +298,7 @@ func (s *Server) handleObservabilityMetricsQuery(w http.ResponseWriter, r *http.
 	// With no authz wired there is no notion of admin and the whole API is open
 	// by design, so the check passes through exactly as requireRead does.
 	// requireAdmin alone would fail closed here and break local development.
-	if s.authzChecker != nil && !s.requireAdmin(w, r) {
+	if !s.requireAdmin(w, r) {
 		return
 	}
 	query := r.URL.Query().Get("query")
@@ -477,8 +460,8 @@ func (s *Server) summaryFromPrometheus(ctx context.Context, rng *rangeOption, ra
 		// With a range set, the Errors card counts error-level task logs in
 		// the window (what the errors page lists) instead of the
 		// hub_routing_errors_total counter. The counter remains the source on
-		// the range-less path and when no log store is configured.
-		if m.Name == "routing_errors" && rng != nil && s.taskLogs != nil {
+		// the range-less path and when no records backend is Ready.
+		if m.Name == "routing_errors" && rng != nil && s.taskLogs.Ready() {
 			count, err := s.taskLogs.CountByLevelSince(ctx, tasklogs.LevelError, time.Now().UTC().Add(-rng.Duration))
 			if err != nil {
 				return MetricsSummary{}, fmt.Errorf("failed to count error task logs: %s", err.Error())

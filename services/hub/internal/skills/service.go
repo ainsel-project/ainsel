@@ -64,7 +64,9 @@ func (e PluginManagedError) Unwrap() error { return ErrPluginManaged }
 // value names an external author whose resource the console must not mutate.
 // The rule is value-agnostic on purpose: "plugin" is only the value the hub's
 // own syncer writes today, but "helm" or "gitops" rows are protected by the
-// same rule without another code change.
+// same rule without another code change. The single exception — the plugin
+// named by a "plugin-<id>" value may still write its own rows — is enforced by
+// RefusesWrite, not here.
 func IsManaged(managedBy string) bool {
 	return managedBy != "" && managedBy != ManagedByUser
 }
@@ -380,12 +382,13 @@ func (s *Service) SearchForDiscovery(ctx context.Context, query string, tags []s
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Skill, error) {
 	// The stored row's owner decides: an externally managed row is refused,
 	// so the mapping from a plugin (or any other author) to its shipped skill
-	// has exactly one author.
+	// has exactly one author. The one caller that passes is the plugin a
+	// "plugin-<id>" row names — a created-only plugin is its rows' sole writer.
 	row, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if IsManaged(row.ManagedBy) {
+	if RefusesWrite(ctx, row) {
 		return nil, managedRefusal(row)
 	}
 	if req.Name != nil {
@@ -467,7 +470,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if IsManaged(row.ManagedBy) {
+	if RefusesWrite(ctx, row) {
 		return managedRefusal(row)
 	}
 	if s.agents != nil {

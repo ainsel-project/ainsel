@@ -53,7 +53,8 @@ type LogsResponse struct {
 //	?since=<duration>   Go duration string, overrides range.
 //	?limit=N            Max entries (default 500, max 1000).
 //
-// Returns 503 if the task log store is not configured.
+// The task log store is a required dependency (issue #264): a store failure is a
+// 502, and there is no unwired state to answer 503 with.
 func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -71,11 +72,6 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 	duration, err := parseLogsDuration(q.Get("since"), q.Get("range"))
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if s.taskLogs == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
 		return
 	}
 
@@ -103,6 +99,11 @@ func (s *Server) handleObservabilityLogs(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		opts.AgentNames = scope.agents
+	}
+
+	if !s.taskLogs.Ready() {
+		httpx.WriteError(w, http.StatusServiceUnavailable, logStoreRequiredMessage)
+		return
 	}
 
 	entries, err := s.taskLogs.List(r.Context(), opts)

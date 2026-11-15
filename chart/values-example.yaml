@@ -15,7 +15,7 @@ agentOperator:
     tag: latest
     pullPolicy: IfNotPresent
 
-connectorOperator:
+eventGatewayOperator:
   image:
     repository: ainsel-k8s-event-source-gateway-operator
     tag: latest
@@ -49,7 +49,7 @@ hub:
       # nginx.ingress.kubernetes.io/ssl-redirect: "true"
       # nginx.ingress.kubernetes.io/auth-url: http://authelia.auth.svc.cluster.local:9091/authelia/api/authz/auth-request
       # nginx.ingress.kubernetes.io/auth-signin: https://ainsel.example.com/authelia/?rd=$scheme://$host$request_uri
-ui:
+frontend:
   enabled: true
   basePath: /ainsel
   image:

@@ -1,0 +1,244 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hub
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub
+spec:
+  replicas: {{ .Values.hub.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ainsel-hub
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ainsel-hub
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: hub
+        {{- with .Values.hub.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.hub.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: hub
+      enableServiceLinks: false
+      {{- with .Values.hub.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.hub.priorityClassName }}
+      priorityClassName: {{ .Values.hub.priorityClassName }}
+      {{- end }}
+      initContainers:
+        - name: wait-postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 60); do
+                if pg_isready -h postgres.{{ .Values.namespace }}.svc.cluster.local -U "$POSTGRES_USER" -d "$POSTGRES_DB"; then
+                  exit 0
+                fi
+                echo "waiting for postgres (attempt $i/60)..."
+                sleep 2
+              done
+              echo "postgres did not become ready within 2 minutes"
+              exit 1
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.auth.existingSecret | default "ainsel-hub-db" }}
+                  key: username
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.auth.existingSecret | default "ainsel-hub-db" }}
+                  key: database
+      containers:
+        - name: hub
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}"
+          imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+          {{- with .Values.hub.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.hub.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.hub.metricsPort }}
+              protocol: TCP
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HUB_NAMESPACE
+              value: {{ .Values.hub.namespace | default .Values.namespace | quote }}
+            - name: HUB_PORT
+              value: "{{ .Values.hub.port }}"
+            - name: HUB_METRICS_PORT
+              value: "{{ .Values.hub.metricsPort }}"
+            # The hub's own in-cluster address. The plugin registry syncer builds
+            # its agent MCP URLs from it, so agents reach a plugin's tools through
+            # the hub rather than learning each plugin's Service. Same address the
+            # agent operator is given as HUB_URL.
+            - name: HUB_SELF_URL
+              value: "http://hub.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.hub.port | default 8080 }}"
+            - name: PLATFORM_EXTERNAL_URL
+              value: {{ .Values.hub.platformExternalUrl | default (printf "https://%s%s" .Values.hub.ingress.host (.Values.frontend.basePath | default "")) | quote }}
+            - name: CONNECTOR_IMAGE_WEBHOOK
+              value: "{{ include "ainsel.image" (dict "root" . "repo" .Values.hub.connectorImages.webhook.repository "tag" .Values.hub.connectorImages.webhook.tag "digest" .Values.hub.connectorImages.webhook.digest) }}"
+            {{- if .Values.observability.prometheus.url }}
+            - name: HUB_PROMETHEUS_URL
+              value: {{ .Values.observability.prometheus.url | quote }}
+            {{- end }}
+            - name: HUB_METRICS_SOURCE
+              value: {{ .Values.observability.metricsSource | default "postgres" | quote }}
+            {{- $authEvents := .Values.hub.authEvents | default dict }}
+            {{- /* dig (not default) so an explicit 0 is honored: 0 disables that retention lever */}}
+            - name: HUB_AUTH_EVENT_RETENTION_DAYS
+              value: {{ dig "retentionDays" 90 $authEvents | quote }}
+            - name: HUB_AUTH_EVENT_MAX_ROWS
+              value: {{ dig "maxRows" 100000 $authEvents | quote }}
+            - name: HUB_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.auth.existingSecret | default "ainsel-hub-db" }}
+                  key: dsn
+            {{- $authMode := .Values.auth.mode | default "" }}
+            {{- if not (or (eq $authMode "") (eq $authMode "oidc") (eq $authMode "local") (eq $authMode "oidc+local") (eq $authMode "none")) }}
+            {{- fail (printf "auth.mode must be one of oidc, local, oidc+local, none (got %q)" $authMode) }}
+            {{- end }}
+            {{- if and (eq $authMode "oidc") (not .Values.auth.oidcIssuer) }}
+            {{- fail "auth.mode=oidc requires auth.oidcIssuer and an audience/client ID" }}
+            {{- end }}
+            {{- if and (eq $authMode "oidc+local") (not .Values.auth.oidcIssuer) }}
+            {{- fail "auth.mode=oidc+local requires auth.oidcIssuer and an audience/client ID" }}
+            {{- end }}
+            {{- if $authMode }}
+            - name: HUB_AUTH_MODE
+              value: {{ $authMode | quote }}
+            {{- end }}
+            {{- if or (eq $authMode "local") (eq $authMode "oidc+local") }}
+            - name: HUB_LOCAL_ADMIN_USER
+              value: {{ .Values.auth.local.adminUser | quote }}
+            - name: HUB_LOCAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.local.adminPasswordSecret | default "ainsel-local-admin" }}
+                  key: password
+            - name: HUB_LOCAL_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.local.jwtSecretSecret | default "ainsel-local-jwt" }}
+                  key: secret
+            {{- $pwPolicy := .Values.auth.local.passwordPolicy | default dict }}
+            - name: HUB_LOCAL_PASSWORD_MIN_LENGTH
+              value: {{ $pwPolicy.minLength | default 8 | quote }}
+            {{- with $pwPolicy.requireCharacterClasses }}
+            - name: HUB_LOCAL_PASSWORD_CHARACTER_CLASSES
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.auth.oidcIssuer }}
+            - name: OIDC_ISSUER
+              value: {{ .Values.auth.oidcIssuer | quote }}
+            {{- end }}
+            {{- $audience := .Values.auth.oidcAudience | default .Values.auth.oidcProjectId | default .Values.auth.oidcClientId }}
+            {{- if and .Values.auth.oidcIssuer (not $audience) }}
+            {{- fail "OIDC requires auth.oidcAudience or auth.oidcClientId" }}
+            {{- end }}
+            {{- if $audience }}
+            - name: OIDC_AUDIENCE
+              value: {{ $audience | quote }}
+            {{- end }}
+            {{- if not (eq $authMode "local") }}
+            - name: OIDC_SIGNING_ALGS
+              value: {{ .Values.auth.oidcSigningAlgs | quote }}
+            {{- end }}
+            {{- with include "ainsel.oidcRolesClaim" . }}
+            - name: OIDC_ROLES_CLAIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if or (eq $authMode "none") (and (not $authMode) (not .Values.auth.oidcIssuer) (or .Values.auth.allowInsecureNoAuth (include "ainsel.localMode" .))) }}
+            - name: HUB_ALLOW_INSECURE_NO_AUTH
+              value: "true"
+            {{- end }}
+            {{- if .Values.auth.internalValidateSecret }}
+            - name: HUB_INTERNAL_VALIDATE_SECRET
+              value: {{ .Values.auth.internalValidateSecret | quote }}
+            {{- end }}
+            {{- if .Values.auth.skillsMcpToken }}
+            # Bearer token for the read-only skill catalogue MCP. Separate
+            # from HUB_INTERNAL_VALIDATE_SECRET on purpose: that one is the
+            # cluster-wide internal credential, and reusing it here would
+            # make it a bearer token for a second endpoint. Unset means the
+            # endpoint answers 503 rather than open.
+            - name: HUB_SKILLS_MCP_TOKEN
+              value: {{ .Values.auth.skillsMcpToken | quote }}
+            {{- end }}
+            - name: HUB_PLUGIN_CREDENTIAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.plugins.credentialSecretName | default "ainsel-plugin-credentials" }}
+                  key: secret
+            {{- with .Values.hub.defaultAgentImage }}
+            {{- if .enabled }}
+            - name: HUB_DEFAULT_AGENT_IMAGE
+              value: "{{ include "ainsel.image" (dict "root" $ "repo" .repository "tag" (.tag | default $.Chart.AppVersion) "digest" .digest) }}"
+            {{- end }}
+            {{- end }}
+            {{- with .Values.hub.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.hub.resources | nindent 12 }}
+          {{- with .Values.hub.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      {{- with .Values.hub.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

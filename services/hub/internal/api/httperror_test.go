@@ -232,15 +232,26 @@ func TestResolveMCPRequest_ExplicitEmptySelection(t *testing.T) {
 	}
 }
 
-func TestResolveMCPRequest_ServiceNotConfigured(t *testing.T) {
-	s := testServer(t) // s.mcp is nil
+// The MCP service is a required dependency (issue #264), so an unresolvable
+// name is no longer the 503 "mcp service not configured" the old nil-service
+// path answered. It is still a 400, not a 404: the resource the request
+// addresses is the agent being written, and the unknown registry name is a bad
+// field of its body. docs/api-reference.md documents the agent MCP selection as
+// "unknown names -> 400", and the sibling write paths in handlers_agents.go and
+// handlers_agent_images.go answer the same way.
+//
+// This needs a real registry: with no store behind the service the lookup fails
+// as an internal error rather than a miss, which is the 500 branch.
+func TestResolveMCPRequest_UnknownServerIs400(t *testing.T) {
+	s := testServer(t)
+	s.mcp = mcpServiceForTest(t)
 	_, err := s.resolveMCPRequest(context.Background(), &AgentMCPRequest{Servers: []string{"github"}})
 	var ae *apiError
 	if !errors.As(err, &ae) {
 		t.Fatalf("expected an *apiError, got %v", err)
 	}
-	if ae.Status != http.StatusServiceUnavailable || ae.Msg != "mcp service not configured" {
-		t.Errorf("expected 503 'mcp service not configured', got %d %q", ae.Status, ae.Msg)
+	if ae.Status != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d %q", ae.Status, ae.Msg)
 	}
 }
 
@@ -352,7 +363,7 @@ func TestCreateAgent_ValidationErrorWritesExactlyOnce(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := &countingResponseWriter{}
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 
 	if rec.writes != 1 {
 		t.Errorf("expected exactly one WriteHeader, got %d (body %q)", rec.writes, rec.body.String())
@@ -387,7 +398,7 @@ func TestUpdateAgent_ValidationErrorWritesExactlyOnce(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -402,7 +413,7 @@ func TestUpdateAgent_ValidationErrorWritesExactlyOnce(t *testing.T) {
 	ureq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+created.ID, bytes.NewReader(ubody))
 	ureq.Header.Set("Content-Type", "application/json")
 	urec := &countingResponseWriter{}
-	s.mux.ServeHTTP(urec, ureq)
+	s.ServeHTTP(urec, ureq)
 
 	if urec.writes != 1 {
 		t.Errorf("expected exactly one WriteHeader, got %d (body %q)", urec.writes, urec.body.String())

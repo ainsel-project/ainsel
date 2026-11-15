@@ -34,6 +34,22 @@ type UpdateRequest struct {
 	Text        *string
 }
 
+// resolveManagedBy maps an empty author to the console default.
+//
+// personas.managed_by is TEXT NOT NULL DEFAULT 'user' (migration 0033), and
+// Postgres does not apply a column default to a statement that supplies an
+// explicit NULL, which is what a NULLIF of an empty string produces. So the
+// default has to be resolved in Go before the INSERT: otherwise every internal
+// caller that creates a persona without a stamp (Service.EnsureOwned's
+// copy-on-write path) fails with a not-null violation instead of writing the
+// console default.
+func resolveManagedBy(managedBy string) string {
+	if managedBy == "" {
+		return ManagedByUser
+	}
+	return managedBy
+}
+
 // Create inserts a new persona along with its initial version (1) in a
 // single transaction. Populates p.CurrentVersion, p.CreatedAt, p.UpdatedAt.
 func (s *Store) Create(ctx context.Context, p *Persona) error {
@@ -44,13 +60,14 @@ func (s *Store) Create(ctx context.Context, p *Persona) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	now := time.Now().UTC()
+	p.ManagedBy = resolveManagedBy(p.ManagedBy)
 	// Insert persona with placeholder current_version_id=0; bound to the
 	// real version id before commit (deferrable FK lets the row exist
 	// with a dangling reference until COMMIT).
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO personas (id, name, description, current_version_id, owner_agent, created_at, updated_at)
-		 VALUES ($1, $2, $3, 0, NULLIF($4, ''), $5, $5)`,
-		p.ID, p.Name, p.Description, p.OwnerAgent, now,
+		`INSERT INTO personas (id, name, description, current_version_id, owner_agent, managed_by, created_at, updated_at)
+		 VALUES ($1, $2, $3, 0, NULLIF($4, ''), $5, $6, $6)`,
+		p.ID, p.Name, p.Description, p.OwnerAgent, p.ManagedBy, now,
 	); err != nil {
 		if pgutil.IsUniqueViolation(err) {
 			return ErrNameTaken
@@ -80,7 +97,6 @@ func (s *Store) Create(ctx context.Context, p *Persona) error {
 	}
 
 	p.CurrentVersion = 1
-	p.ManagedBy = ManagedByUser
 	p.CreatedAt = now
 	p.UpdatedAt = now
 	return nil

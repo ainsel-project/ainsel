@@ -65,7 +65,7 @@ func (s *Server) handleAgentImagePath(w http.ResponseWriter, r *http.Request) {
 		if !s.requireWrite(w, r, "agent-image", name) {
 			return
 		}
-		s.deleteAgentImage(ctx, w, name)
+		s.deleteAgentImage(r, w, name)
 	default:
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -89,7 +89,7 @@ func (s *Server) listAgentImages(ctx context.Context, w http.ResponseWriter, r *
 	})
 
 	// Filter to resources the caller can access.
-	if s.authzStore != nil && !s.callerIsAdmin(r) {
+	if !s.callerIsAdmin(r) {
 		names := make([]string, len(list.Items))
 		for i, img := range list.Items {
 			names[i] = img.Name
@@ -143,15 +143,21 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		return
 	}
 
+	// Author stamping (issue #190): only a plugin caller naming itself gets a
+	// managed image; every other caller stays "user" as before.
+	managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+	if writeCreateManagedBy(w, mbErr) {
+		return
+	}
+
 	// Validate group membership for resource creation.
-	if s.authzChecker != nil {
-		if req.GroupID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-			return
-		}
-		if !s.requireGroupWrite(w, r, req.GroupID) {
-			return
-		}
+	req.GroupID = s.resolveGroupID(req.GroupID)
+	if req.GroupID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+		return
+	}
+	if !s.requireGroupWrite(w, r, req.GroupID) {
+		return
 	}
 
 	id := generateID("img")
@@ -164,6 +170,7 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 	img.APIVersion = "ainsel.dev/v1alpha1"
 	img.Kind = "AgentImage"
+	img.Spec.ManagedBy = crManagedBy(managedBy)
 
 	img.Spec.DisplayName = req.DisplayName
 	img.Spec.Description = req.Description
@@ -172,10 +179,6 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		img.Spec.Env = append(img.Spec.Env, agentv1alpha1.AgentImageEnvVar{Name: e.Name, Value: e.Value, Secret: e.Secret})
 	}
 	if len(req.MCPServers) > 0 {
-		if s.mcp == nil {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
-			return
-		}
 		for _, name := range req.MCPServers {
 			mcpServer, err := s.mcp.Get(ctx, name)
 			if err != nil {
@@ -209,14 +212,12 @@ func (s *Server) createAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	// Assign the image to the creator's chosen group.
-	if s.authzStore != nil {
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(r.Context(), "agent-image", id, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", id)
-		}
+	groupID := req.GroupID
+	if groupID == "" {
+		groupID = "legacy"
+	}
+	if err := s.authzStore.SetResourceGroup(r.Context(), "agent-image", id, groupID, false); err != nil {
+		slog.Error("set resource group on create", "error", err, "resource", id)
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, toSimpleAgentImageResponse(img))

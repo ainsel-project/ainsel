@@ -18,7 +18,7 @@ import (
 // skillMCPPath serves a read-only MCP view of the whole skill catalogue.
 //
 // It lives under /api/internal/ on purpose. The hub publishes only
-// /api/v1/* through its ingress (chart/templates/hub-backend/ingress.yaml
+// /api/v1/* through its ingress (chart/templates/hub/ingress.yaml
 // restricts the capture group to `v1` for exactly that reason), and
 // serveHTTPInner runs the user-auth middleware only for /api/v1/* paths.
 // So this endpoint is unreachable from outside the cluster and is not
@@ -46,16 +46,6 @@ const (
 	skillSearchDefaultLimit = 20
 	skillSearchMaxLimit     = 50
 )
-
-// SetSkillDiscovery wires the catalogue and builds its MCP handler. Called
-// from wiring before the server starts serving, so the handler is never
-// mutated while requests are in flight.
-func (s *Server) SetSkillDiscovery(d SkillDiscovery) {
-	if d == nil {
-		return
-	}
-	s.skillMCPHandler = s.requireCatalogueToken(skillMCPServer(d).ServeHTTP)
-}
 
 // skillMCPServer builds the MCP server for the catalogue. Two tools: find
 // something, then read it. Nothing here writes.

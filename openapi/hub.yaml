@@ -37,7 +37,10 @@
 #     body that sets `message`.
 #   - `managedBy`: any value other than "" or "user" marks the resource
 #     externally managed, and then *every* mutation answers 409
-#     {"error": "<kind> is managed by <manager>"}. It is never a request field.
+#     {"error": "<kind> is managed by <manager>"} — except for the plugin a
+#     "plugin-<id>" value names, which remains the sole writer of its own rows.
+#     It is never an update request field; on create it is accepted only as a
+#     plugin-authenticated caller's own stamp (see `ManagedByCreateStamp`).
 #   - 503 means "a dependency this panel needs is unconfigured" and the `error`
 #     text names it; 502 means an upstream (Prometheus, Forgejo, the database,
 #     an MCP server) failed.
@@ -56,7 +59,7 @@ info:
     name: Apache-2.0
 servers:
   - url: /
-    description: The hub, in-cluster (http://hub-backend.<namespace>.svc:8080) or behind the ingress rewrite.
+    description: The hub, in-cluster (http://hub.<namespace>.svc:8080) or behind the ingress rewrite.
 tags:
   - name: internal
     description: >-
@@ -1431,8 +1434,10 @@ paths:
       operationId: createMCPServer
       summary: Register a new MCP server
       description: >-
-        `managedBy` must be empty or `"user"` (the hub forces it to `"user"`);
-        externally managed entries cannot be created here.
+        Console callers always get a `"user"` row — a `managedBy` they send is
+        ignored. A plugin-authenticated caller may stamp its own
+        `"plugin-<plugin id>"`; any other value is a 400. Rows under any other
+        manager cannot be created here.
       requestBody:
         required: true
         content:
@@ -3280,8 +3285,20 @@ components:
       type: string
       description: >-
         The external system that authors this resource ("gitops", "helm",
-        "plugin"). Empty or "user" means console-managed; any other value makes
-        every mutation answer 409. Never a request field.
+        "plugin", or the "plugin-<id>" a plugin stamped on its own create).
+        Empty or "user" means console-managed; any other value makes every
+        mutation answer 409, except for the plugin the value names. Never an
+        update request field; see `ManagedByCreateStamp` for the create-time
+        exception.
+    ManagedByCreateStamp:
+      type: string
+      description: >-
+        Create-only. A plugin-authenticated caller may send its own
+        "plugin-<plugin id>" to record itself as this resource's author. The hub
+        composes the accepted value from the credential and answers 400 on any
+        other value, so the body can never name a different manager; a
+        non-plugin caller's value is ignored and the row stays "user". The
+        stored value is never accepted on update, not even by the owning plugin.
     Referrer:
       type: object
       description: One agent blocking a delete.
@@ -3517,6 +3534,8 @@ components:
         anthropic: { type: object }
         google: { type: object }
         customProvider: { type: object }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
     AgentUpdateRequest:
       type: object
       description: All fields optional; only present fields are applied. `managedBy` is never accepted.
@@ -3698,11 +3717,13 @@ components:
       type: object
       description: >-
         POST requires `name` and `image`; PUT accepts any subset. `managedBy` is
-        never accepted.
+        accepted on POST only, and only as the calling plugin's own stamp.
       properties:
         name: { type: string }
         description: { type: string }
         image: { type: string }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
         runtime:
           type: object
           properties:
@@ -3781,6 +3802,8 @@ components:
       properties:
         name: { type: string }
         description: { type: string }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
         type: { type: string }
         url: { type: string }
         webhookPath: { type: string }
@@ -4647,6 +4670,10 @@ components:
         updatedAt: { type: string, format: date-time }
     MCPServerWriteRequest:
       type: object
+      description: >-
+        POST requires `name` and `url`; PUT accepts any subset. `managedBy` is
+        accepted on POST only, and only as the calling plugin's own stamp — on PUT
+        the stored value is always preserved.
       required: [name, url]
       properties:
         name: { type: string }
@@ -4655,6 +4682,8 @@ components:
         description: { type: string }
         url: { type: string }
         tokenFromEnv: { type: string, maxLength: 64, description: 'Env-var name shape; empty means anonymous.' }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
     MCPServerTool:
       type: object
       properties:
@@ -4702,11 +4731,14 @@ components:
       type: object
       description: >-
         POST requires `name` and `text`; PUT accepts any subset. `text` <= 100000
-        chars, `name` <= 200, `description` <= 2000.
+        chars, `name` <= 200, `description` <= 2000. `ownerAgent` is never a
+        request field — the hub sets it on its own copy-on-write path.
       properties:
         name: { type: string, maxLength: 200 }
         description: { type: string, maxLength: 2000 }
         text: { type: string, maxLength: 100000 }
+        managedBy:
+          $ref: '#/components/schemas/ManagedByCreateStamp'
     PersonaVersion:
       type: object
       properties:

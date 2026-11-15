@@ -30,9 +30,10 @@ type mcpServerDTO struct {
 	Description  string `json:"description,omitempty"`
 	URL          string `json:"url"`
 	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
-	// ManagedBy names the row's author ("user", "helm", "plugin", ...).
-	// Read-only: the write request shape has no managedBy field, so the hub
-	// never accepts a client-supplied value and preserves the stored one.
+	// ManagedBy names the row's author ("user", "helm", "plugin", "plugin-<id>",
+	// ...). Read-only on update: the hub always preserves the stored value. The
+	// one way in is create, where a plugin caller may stamp its own
+	// "plugin-<id>" value (see mcpServerWriteRequest).
 	ManagedBy string    `json:"managedBy"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -45,6 +46,11 @@ type mcpServerWriteRequest struct {
 	Description  string `json:"description,omitempty"`
 	URL          string `json:"url"`
 	TokenFromEnv string `json:"tokenFromEnv,omitempty"`
+	// ManagedBy stamps this row's author at create. A plugin-authenticated
+	// caller may name itself ("plugin-<its id>"); any other value is a 400 and
+	// every other caller's value is ignored (the row stays console-owned). It is
+	// ignored on update — the stored value is always preserved.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 func toMCPDTO(m *mcpservers.MCPServer) mcpServerDTO {
@@ -76,10 +82,6 @@ func validateTokenFromEnv(v string) error {
 }
 
 func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
-	if s.mcp == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
 		servers, err := s.mcp.List(r.Context())
@@ -88,7 +90,7 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Filter to resources the caller can access.
-		if s.authzStore != nil && !s.callerIsAdmin(r) {
+		if !s.callerIsAdmin(r) {
 			names := make([]string, len(servers))
 			for i, m := range servers {
 				names[i] = m.Name
@@ -122,14 +124,19 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Validate group membership for resource creation.
-		if s.authzChecker != nil {
-			if req.GroupID == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
-				return
-			}
-			if !s.requireGroupWrite(w, r, req.GroupID) {
-				return
-			}
+		req.GroupID = s.resolveGroupID(req.GroupID)
+		if req.GroupID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "groupId is required")
+			return
+		}
+		if !s.requireGroupWrite(w, r, req.GroupID) {
+			return
+		}
+		// Author stamping (issue #190): only a plugin caller naming itself gets a
+		// managed row; every other caller stays "user" as before.
+		managedBy, mbErr := resolveCreateManagedBy(requestCaller(r), req.ManagedBy)
+		if writeCreateManagedBy(w, mbErr) {
+			return
 		}
 		m := &mcpservers.MCPServer{
 			Name:         req.Name,
@@ -137,6 +144,7 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			Description:  req.Description,
 			URL:          req.URL,
 			TokenFromEnv: req.TokenFromEnv,
+			ManagedBy:    managedBy,
 		}
 		if err := s.mcp.Create(r.Context(), m); err != nil {
 			if errors.Is(err, mcpservers.ErrAlreadyExists) {
@@ -147,14 +155,12 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if s.authzStore != nil {
-			groupID := req.GroupID
-			if groupID == "" {
-				groupID = "legacy"
-			}
-			if err := s.authzStore.SetResourceGroup(r.Context(), "mcp-server", m.Name, groupID, false); err != nil {
-				slog.Error("set resource group on create", "error", err, "resource", m.Name)
-			}
+		groupID := req.GroupID
+		if groupID == "" {
+			groupID = "legacy"
+		}
+		if err := s.authzStore.SetResourceGroup(r.Context(), "mcp-server", m.Name, groupID, false); err != nil {
+			slog.Error("set resource group on create", "error", err, "resource", m.Name)
 		}
 
 		saved, _ := s.mcp.Get(r.Context(), m.Name)
@@ -166,10 +172,6 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
-	if s.mcp == nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
-		return
-	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/mcp-servers/")
 
 	// Handle sub-route /:name/tools
@@ -227,10 +229,11 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if mcpservers.IsManaged(existing.ManagedBy) {
+		if mcpservers.RefusesWrite(r.Context(), existing) {
 			// The row and the endpoint it points at both belong to their author:
 			// rewriting them would send every agent that attached the server to
-			// somewhere the author never served.
+			// somewhere the author never served. The plugin the row names is that
+			// author, so it passes.
 			httpx.WriteError(w, http.StatusConflict, managedMessage(existing))
 			return
 		}
@@ -292,10 +295,8 @@ func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		if s.authzStore != nil {
-			if err := s.authzStore.DeleteResourceGroup(r.Context(), "mcp-server", name); err != nil {
-				slog.Error("delete ownership", "error", err, "resource", name)
-			}
+		if err := s.authzStore.DeleteResourceGroup(r.Context(), "mcp-server", name); err != nil {
+			slog.Error("delete ownership", "error", err, "resource", name)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:

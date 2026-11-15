@@ -44,7 +44,7 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		httpx.WriteError(w, http.StatusNotFound, "agent image not found")
 		return
 	}
-	if isManagedCR(existing.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, existing.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent image", existing.Spec.ManagedBy)
 		return
 	}
@@ -131,10 +131,6 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	if req.MCPServers != nil {
-		if s.mcp == nil {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "mcp service not configured")
-			return
-		}
 		newMCPServers := make([]agentv1alpha1.AgentImageMCPServer, 0, len(*req.MCPServers))
 		for _, name := range *req.MCPServers {
 			mcpServer, err := s.mcp.Get(ctx, name)
@@ -193,7 +189,8 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 	httpx.WriteJSON(w, http.StatusOK, toSimpleAgentImageResponse(existing))
 }
 
-func (s *Server) deleteAgentImage(ctx context.Context, w http.ResponseWriter, name string) {
+func (s *Server) deleteAgentImage(r *http.Request, w http.ResponseWriter, name string) {
+	ctx := r.Context()
 	var img agentv1alpha1.AgentImage
 	if err := s.client.Get(ctx, types.NamespacedName{Name: name, Namespace: s.ns}, &img); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -203,7 +200,7 @@ func (s *Server) deleteAgentImage(ctx context.Context, w http.ResponseWriter, na
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if isManagedCR(img.Spec.ManagedBy) {
+	if isManagedCRForRequest(r, img.Spec.ManagedBy) {
 		writeManagedConflict(w, "agent image", img.Spec.ManagedBy)
 		return
 	}
@@ -230,10 +227,8 @@ func (s *Server) deleteAgentImage(ctx context.Context, w http.ResponseWriter, na
 		return
 	}
 
-	if s.authzStore != nil {
-		if err := s.authzStore.DeleteResourceGroup(ctx, "agent-image", name); err != nil {
-			slog.Error("delete ownership", "error", err, "resource", name)
-		}
+	if err := s.authzStore.DeleteResourceGroup(ctx, "agent-image", name); err != nil {
+		slog.Error("delete ownership", "error", err, "resource", name)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

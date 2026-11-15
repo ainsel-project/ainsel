@@ -205,9 +205,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "skill":
-		if s.skills == nil {
-			return out, nil
-		}
 		list, _, err := s.skills.List(ctx, skills.ListFilter{})
 		if err != nil {
 			return nil, err
@@ -218,9 +215,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "mcp-server":
-		if s.mcp == nil {
-			return out, nil
-		}
 		list, err := s.mcp.List(ctx)
 		if err != nil {
 			return nil, err
@@ -231,9 +225,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "channel":
-		if s.channelSvc == nil {
-			return out, nil
-		}
 		// Standalone (custom) channels only: derived channels have no
 		// resource-group rows of their own (see groupResourceTypes).
 		views, err := s.channelSvc.List(ctx, channels.KindCustom, time.Time{})
@@ -246,9 +237,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "trigger":
-		if s.triggerStore == nil {
-			return out, nil
-		}
 		all, _, err := s.triggerStore.ListTriggers(ctx, triggers.TriggerListOptions{})
 		if err != nil {
 			return nil, err
@@ -259,9 +247,6 @@ func (s *Server) resolveGroupResourceNames(ctx context.Context, resourceType str
 			}
 		}
 	case "cron-trigger":
-		if s.triggerStore == nil {
-			return out, nil
-		}
 		all, _, err := s.triggerStore.ListCronTriggers(ctx, triggers.CronTriggerListOptions{})
 		if err != nil {
 			return nil, err

@@ -48,7 +48,7 @@ func postAgentReq(t *testing.T, s *Server, req any) (int, string) {
 	hreq := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, hreq)
+	s.ServeHTTP(rec, hreq)
 	return rec.Code, rec.Body.String()
 }
 
@@ -58,7 +58,7 @@ func putAgentReq(t *testing.T, s *Server, id string, req any) (int, string) {
 	hreq := httptest.NewRequest(http.MethodPut, "/api/v1/agents/"+id, bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, hreq)
+	s.ServeHTTP(rec, hreq)
 	return rec.Code, rec.Body.String()
 }
 

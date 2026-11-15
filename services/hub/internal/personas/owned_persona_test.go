@@ -169,6 +169,41 @@ func TestEnsureOwned_CreatesThenUpdates(t *testing.T) {
 	}
 }
 
+// EnsureOwned is an internal Create caller: it never sets ManagedBy, so the
+// copy-on-write persona has to land on the console default instead of an
+// explicit NULL in the NOT NULL managed_by column (#190 review). A regression
+// here is a 500 on inline persona editing, not a wrong value.
+func TestEnsureOwned_InternalCreateIsConsoleOwned(t *testing.T) {
+	svc, cleanup := newTestService(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+
+	text := "copy-on-write"
+	created, err := svc.EnsureOwned(ctx, "a-9", "Agent Nine (own)", personas.UpdateRequest{Text: &text})
+	if err != nil {
+		t.Fatalf("EnsureOwned (create): %v", err)
+	}
+	if created.ManagedBy != personas.ManagedByUser {
+		t.Fatalf("EnsureOwned created managedBy = %q, want %q", created.ManagedBy, personas.ManagedByUser)
+	}
+
+	// The row itself holds 'user' — the INSERT wrote the default, it did not
+	// violate the NOT NULL constraint.
+	stored, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if stored.ManagedBy != personas.ManagedByUser {
+		t.Errorf("stored managedBy = %q, want %q", stored.ManagedBy, personas.ManagedByUser)
+	}
+
+	// And the console stays its author: the copy-on-write persona is writable.
+	edited := "edited"
+	if _, err := svc.Update(ctx, created.ID, personas.UpdateRequest{Text: &edited}); err != nil {
+		t.Errorf("console Update of a copy-on-write persona: %v", err)
+	}
+}
+
 func TestEnsureOwned_PrefersRequestNameOverDefault(t *testing.T) {
 	svc, cleanup := newTestService(t, nil)
 	defer cleanup()
