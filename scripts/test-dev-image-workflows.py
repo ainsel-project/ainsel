@@ -362,19 +362,20 @@ def check_caller(path: Path) -> list[str]:
 def check_pi_base(got: dict[str, str], event: str, ref: str) -> list[str]:
     """A variant must not FROM a tag that does not exist when it builds.
 
-    buildx resolves FROM from the registry, not the runner's image store, so a
-    build-only run has no :<sha> of its own to build on. Getting this wrong fails
-    the build (learned from run 35830189618); the alternative - falling back to a
-    floating tag - builds something whose base is not the one just compiled, which
-    is only acceptable when nothing is being published from it.
+    The variants always build on the :<sha> the base step of the same job produced:
+    a publishing run pushed it to the registry, a build-only run has it in the
+    runner's image store because that run uses the docker buildx driver. Nothing
+    reads :dev, so a namespace with no published base yet - a fork, or the first
+    runs under ghcr.io/ainsel-project - still builds. Getting this wrong fails the
+    build (learned from run 35830189618, and from run 43652356016 where the :dev
+    fallback hit a 403 on a package that did not exist yet).
     """
-    published = got.get("publish") == "true"
-    want = SHA[:7] if published else "dev"
+    want = SHA[:7]
     got_base = got.get("base_tag")
     if got_base != want:
         return [
             f"{event} on {ref}: variants build on base_tag={got_base!r}, want {want!r} "
-            f"({'this run pushed :<sha>' if published else 'nothing was pushed, so :<sha> does not exist'})"
+            "(the base step of this same job names that tag, on every run)"
         ]
     return []
 
@@ -420,6 +421,18 @@ def check_pi_workflow() -> list[str]:
     doc = yaml.safe_load(path.read_text())
     steps = doc["jobs"]["build"]["steps"]
     problems: list[str] = []
+    # The base a build-only variant needs does not exist in the registry yet, so it
+    # has to come from the runner's image store - which only the docker driver reads.
+    buildx = next((s for s in steps if "setup-buildx-action" in str(s.get("uses", ""))), None)
+    if buildx is None:
+        problems.append("no setup-buildx-action step - nothing builds the base the variants need")
+    else:
+        driver = str((buildx.get("with") or {}).get("driver", ""))
+        if "steps.meta.outputs.publish" not in driver:
+            problems.append(
+                f"buildx driver={driver!r} - a build-only run needs the docker driver, "
+                "or the variants cannot resolve the :<sha> the base step built in this job"
+            )
     for name in ("Build and push Go variant", "Build and push .NET MAUI variant"):
         step = next((s for s in steps if s.get("name") == name), None)
         if step is None:

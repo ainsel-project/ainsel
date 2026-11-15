@@ -109,22 +109,19 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           # The variants FROM this run's base, never a floating tag: a build tagged
           # with its own SHA must not silently contain whatever :dev happens to be.
-          # Only possible once the base has reached the registry - buildx resolves
-          # FROM there, not from the runner's image store, so a build-only run (a PR,
-          # or a dispatch without publish) has no :<sha> of its own to build on and
-          # falls back to :dev.
+          # That :<sha> is the one tag the base step names in every run, published or
+          # not, so it is the only one a variant may build on - which is also what
+          # pi/README.md and CONTRIBUTING.md document.
           #
-          # That :dev is read from the same namespace as everything else here, which
-          # means a fork's variant builds need its own base published once first - a
-          # merge to its main, or one `publish` dispatch. Before, they silently read
-          # the upstream account's :dev, which is the coupling this namespace removes.
-          # A fork that wants PR builds sooner points vars.IMAGE_NAMESPACE at a
-          # namespace where a base already exists.
-          if [ "$publish" = "true" ]; then
-            echo "base_tag=${short_sha}" >> "$GITHUB_OUTPUT"
-          else
-            echo "base_tag=dev" >> "$GITHUB_OUTPUT"
-          fi
+          # Resolving it needs no registry access. A build-only run builds with the
+          # docker buildx driver (see `Set up Docker Buildx`), which reads FROM from
+          # the runner's image store where the base step just loaded it; a publishing
+          # run uses docker-container and pulls the :<sha> it pushed a step earlier.
+          # Nothing reads :dev, so a namespace with no base published yet - a fork,
+          # or this repo's first runs under ghcr.io/ainsel-project, where no package
+          # exists at all - still builds. Falling back to :dev instead failed with a
+          # 403 on the anonymous token request (run 43652356016).
+          echo "base_tag=${short_sha}" >> "$GITHUB_OUTPUT"
           {
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
@@ -155,6 +152,12 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          # A build-only run needs the runner's own image store: the variants build
+          # on the :<sha> the base step produced in this same job, and only the
+          # docker driver resolves a FROM from there instead of from the registry.
+          # A publishing run keeps docker-container, which is what can push.
+          driver: ${{ steps.meta.outputs.publish == 'true' && 'docker-container' || 'docker' }}
 
       # ---------- Base image (ainsel-pi) -----------------------------------
       - name: Build and push base image
