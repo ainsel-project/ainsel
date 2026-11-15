@@ -1206,7 +1206,7 @@ Delete a custom channel.
 
 ### GET /api/v1/channels/{id}/events
 
-The channel's timeline — events born in it plus events transferred into it. Query parameters: `limit` (default 100, max 500), `offset`, `since`, `agent`, `subject`, `status`. Same envelope as [`GET /api/v1/events`](#get-apiv1events).
+The channel's timeline — events born in it plus events transferred into it. Query parameters: `limit` (default 100, max 500), `offset`, `since`, `agent`, `subject`, `match` (retired alias: `status`). Same envelope as [`GET /api/v1/events`](#get-apiv1events).
 
 ### POST /api/v1/channels/{id}/bridges
 
@@ -1824,7 +1824,14 @@ List recent events (the console's Activity page), newest first.
 
 **Access:** scoped to the caller. An event is visible when the caller can read the connector that ingested it *or* any agent it was routed to. `connector` and `agent` filters naming a resource the caller cannot read return an empty page rather than `403`, so the parameters cannot be used to probe which resources exist. Because the scope is applied in SQL, `total` counts only rows the caller may see, so pagination stays truthful. Admins see everything.
 
-**Query parameters:** `limit` (default `100`, max `500`), `offset`, `connector`, `agent`, `status` (`matched` | `unmatched` | `error`), `outcome` (`queued` | `running` | `success` | `failure` | `timeout`), `since` (RFC3339).
+**Query parameters:** `limit` (default `100`, max `500`), `offset`, `connector`, `agent`, `match` (`matched` | `unmatched` | `error`), `runState` (`queued` | `running` | `success` | `failure` | `timeout`), `since` (RFC3339).
+
+The two filter axes are named after the question they answer: `match` — did the
+event match a subscription? — and `runState` — what state is this run in right
+now? Their retired names, `status` and `outcome`, are still accepted as aliases
+for one release (`status` → `match`, `outcome` → `runState`); the current name
+wins when both are sent, and a retired name with an invalid value still returns
+`400` rather than being ignored. They will be removed in a later release.
 
 **Response:** `200 OK`
 ```json
@@ -1844,8 +1851,9 @@ List recent events (the console's Activity page), newest first.
 }
 ```
 
-`status` is derived from the event's tasks: no tasks → `unmatched`, any failed
-task → `error`, otherwise `matched`. `matches` entries carry the raw invocation
+`status` in the response is the match result, derived from the event's tasks: no
+tasks → `unmatched`, any failed task → `error`, otherwise `matched`. `matches`
+entries carry the raw invocation
 status (`runStatus`, within retention) plus the hub-derived `runState` —
 `queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
 from the task row, the start evidence (claim or first conversation row) and the
@@ -1855,13 +1863,13 @@ agent's API id (its resource name), the route key for
 `GET /api/v1/agents/{id}` — so callers can link the match without assuming
 `agent` is the id. `timeout` only occurs when no task backs
 the match and the invocation record itself is terminal; rows with nothing behind
-them at all are `unknown`. `outcome` filters on that derived state in SQL, so
-the console's Outcome filter walks the whole history, not just the loaded page.
+them at all are `unknown`. `runState` filters on that derived state in SQL, so
+the console's State filter walks the whole history, not just the loaded page.
 A task with no invocation record still matches `queued`/`running` (the task is
 the evidence). Note that terminal filter values stay invocation-derived in SQL
 while the rendered state makes the task authoritative: a retried task that
 completed while an older invocation record says `failure` renders `success` yet
-still matches `outcome=failure`.
+still matches `runState=failure`.
 
 **Status codes:** `200`, `400` (invalid parameters), `500`, `503` (event queue not configured).
 
