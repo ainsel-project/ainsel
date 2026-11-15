@@ -156,6 +156,14 @@ and **control** it. Below is the full tool surface, grouped by area.
 Read tools are safe to call freely; mutation tools change platform state
 and should be used deliberately.
 
+> This server is for **you** — a human at a laptop or a console operator. AInsel's
+> own agents do not get it. They get a separate, read-only plane served by the hub
+> at `/api/internal/agent-mcp`, which mounts the read half of this list and no
+> mutation at all: an agent may read that a trigger is paused, but cannot pause
+> one. That split is what keeps an agent from changing the platform it runs on —
+> see
+> [`administrator-guide.md`](administrator-guide.md#plugins).
+
 ### Workflows & agents
 
 | Tool | Mode | What it answers |

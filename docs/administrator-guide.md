@@ -1022,6 +1022,50 @@ base of every URL the syncer writes, and the chart gives it the same address the
 agent operator gets as `HUB_URL`. Without it the sync is off and plugins serve no
 agent tools.
 
+**The platform's own tools for AInsel's agents.** The same shape, one row, for the
+platform itself. With `hub.agentMCP.enabled: true` the hub serves
+`POST /api/internal/agent-mcp` and registers a row named `ainsel` — URL
+`<HUB_SELF_URL>/api/internal/agent-mcp`, bearer from
+`HUB_INTERNAL_VALIDATE_SECRET`, `managedBy: hub` — so an agent attaches the
+platform's state the way it attaches a plugin's tools:
+
+```yaml
+spec:
+  mcpServers:
+    - name: ainsel
+      url: http://hub-backend.<namespace>.svc.cluster.local:8080/api/internal/agent-mcp
+      tokenFromEnv: HUB_INTERNAL_VALIDATE_SECRET
+```
+
+What it offers is the read half of what you can see in the console: `list_agents`,
+`get_agent`, `list_invocations`, `get_invocation`, `get_agent_logs`,
+`get_recent_errors`, `get_token_usage`, `get_agent_metrics`, `query_metrics`,
+`get_platform_health`, `list_mcp_servers`, `list_channels`, `get_channel_events`,
+`search_skills`, `get_skill`. The skill tools are the catalogue endpoint's own, so the two surfaces
+cannot drift.
+
+Two properties are the reason this is safe to hand to an agent, and both are
+pinned by tests rather than by intent:
+
+- **It has no writes.** The mounted tool set is the capability allow-list, and a
+  golden test fails CI if a mutating tool is ever added to it. An agent may read
+  that a trigger is paused; it cannot pause one. That is what removes the
+  self-modification problem — an agent changing platform state is an agent
+  changing its own future behaviour, and there is no guard for that yet. Writes
+  stay with you, on AInsel's own MCP server (see
+  [`mcp.md`](mcp.md#what-you-can-do-with-the-agent)).
+- **It is not a second view of the registry.** The `ainsel` row is `managedBy: hub`,
+  so the console treats it as platform-owned: not editable, not deletable, and not
+  claimable by a `PUT /api/v1/mcp-servers/ainsel`. The syncer that writes it only
+  ever writes that one row — it never prunes, and it will not adopt a row of the
+  same name that someone else created; a foreign `ainsel` row is left alone and
+  reported.
+
+The flag gates the endpoint and the row together, and it is off by default. A row
+for an endpoint that answers 503 is worse than no row: an agent would attach a
+server that refuses it and read that as a broken platform rather than as a choice
+you made.
+
 **Plugin-shipped skills.** A manifest may declare up to 20 skills. Each one
 becomes a row in the skill registry with id and name `<pluginId>-<skill name>`,
 the tag `plugin:<pluginId>`, and `managedBy: plugin`. Its body is fetched from

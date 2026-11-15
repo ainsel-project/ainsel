@@ -902,6 +902,54 @@ invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id`, `404 plugin not found`
 plugin is indistinguishable from one never installed), `502 plugin unreachable`,
 `503 internal endpoints disabled`.
 
+### POST /api/internal/agent-mcp
+
+The platform's own state, served as a stateless MCP streamable-HTTP endpoint for
+agent runtimes. This is where the `ainsel` row of the MCP registry points: the same
+shape as the plugin endpoint above, for the hub's own data instead of a plugin's.
+It is off unless `HUB_AGENT_MCP_ENABLED=true` (chart: `hub.agentMCP.enabled`).
+
+**Auth:** `Authorization: Bearer <HUB_INTERNAL_VALIDATE_SECRET>` — the same
+credential as the plugin agent endpoint, because the same runtime attaches both —
+plus `X-Ainsel-Agent: <agent name>` (required, DNS-label shaped) and optionally
+`X-Ainsel-Invocation-Id` (`^[A-Za-z0-9._:-]{1,128}$`). The pi runtime sends both
+headers to URLs whose path starts with `/api/internal/plugins/` or equals
+`/api/internal/agent-mcp`, and to no other URL.
+
+**Tools:** the read half of the console — `list_agents`, `get_agent`,
+`list_invocations`, `get_invocation`, `get_agent_logs`, `get_recent_errors`,
+`get_token_usage`, `get_agent_metrics`, `query_metrics`, `get_platform_health`,
+`list_mcp_servers`, `list_channels`, `get_channel_events`, `search_skills`,
+`get_skill`. The mounted
+set is the capability allow-list: it contains no mutating tool, and a golden test
+fails when one is added. An agent may read that a trigger is paused; it cannot
+pause one. Writes stay on AInsel's own MCP server (`/mcp`), which an agent is not
+given. `search_skills` and `get_skill` are the catalogue endpoint's own tool
+bodies, so the two surfaces cannot drift; `get_agent` masks `secret: true` env
+values, as the console-facing agent view does; `get_agent_metrics` reads whichever
+metrics backend the console's agents panel reads, so the two cannot disagree.
+
+What is not mounted is the operator plane's freeform `query_logs` (LogQL) and
+PromQL passthroughs. The hub restricts its own raw-query endpoint to admins for a
+reason stated in its own comment — a raw query reads outside the AInsel namespace
+and can cost more than the caller's whole context — and an agent-facing plane has
+no more right to it than a user session does. Agents get named metrics with a
+bounded window instead.
+
+A store the hub does not run answers `"the <thing> is not configured on this
+hub"` rather than an empty result: "this hub has no log table" is a different fact
+from "nothing failed", and an empty array would let an agent conclude the latter.
+
+**Errors:** `503 platform agent MCP disabled` (the flag is off) or `503
+internal endpoints disabled` (no internal secret configured), `401 unauthorized`,
+`400 missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id`. A failure of
+one call is a tool result with `isError`, not a transport error.
+
+**Row ownership.** The row is `managedBy: hub`, so the console refuses to edit or
+delete it and `PUT /api/v1/mcp-servers/ainsel` cannot claim it. The syncer writes
+that one row and nothing else: it never prunes, and it leaves a foreign row of the
+same name alone and says so in the log.
+
 ### GET /api/v1/plugin-context
 
 Returns the authenticated caller's context: their identity, effective permissions,
