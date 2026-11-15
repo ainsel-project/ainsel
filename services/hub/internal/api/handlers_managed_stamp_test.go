@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -488,6 +489,23 @@ func TestManagedNamedManager_MCPServerMutations(t *testing.T) {
 	s.mux.HandleFunc("/api/v1/mcp-servers", s.handleMCPServers)
 	s.mux.HandleFunc("/api/v1/mcp-servers/", s.handleMCPServer)
 
+	// The guard is a DB-backed one, so the rows have to exist: an unseeded
+	// registry answers 404 and the 409 under test is never reached.
+	for _, row := range []*mcpservers.MCPServer{
+		{Name: "mine", DisplayName: "Mine", URL: "http://mcp.test/mine", ManagedBy: "plugin-forgejo"},
+		{Name: "theirs", DisplayName: "Theirs", URL: "http://mcp.test/theirs", ManagedBy: "plugin-github"},
+	} {
+		if err := s.mcp.Upsert(t.Context(), row); err != nil {
+			t.Fatalf("seed %s: %v", row.Name, err)
+		}
+	}
+
+	// The author keeps writing its own row.
+	rec := doManaged(t, s, pluginCaller("forgejo"), http.MethodPut, "/api/v1/mcp-servers/mine", `{"url":"http://mcp.test/mine"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("own plugin PUT: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
 	for _, caller := range []*plugincreds.Caller{nil, pluginCaller("github")} {
 		rec := doManaged(t, s, caller, http.MethodPut, "/api/v1/mcp-servers/mine", `{"url":"http://evil.test"}`)
 		if rec.Code != http.StatusConflict {
@@ -497,5 +515,9 @@ func TestManagedNamedManager_MCPServerMutations(t *testing.T) {
 		if rec.Code != http.StatusConflict {
 			t.Errorf("DELETE as %v: status = %d, want 409", caller, rec.Code)
 		}
+	}
+	rec = doManaged(t, s, pluginCaller("forgejo"), http.MethodDelete, "/api/v1/mcp-servers/theirs", "")
+	if rec.Code != http.StatusConflict {
+		t.Errorf("own plugin DELETE of another plugin's row: status = %d, want 409", rec.Code)
 	}
 }
