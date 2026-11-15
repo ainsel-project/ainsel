@@ -149,8 +149,9 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 		}
 		seen[name] = true
 
-		// Check if the user can read this resource
-		canRead := true
+		// Check if the user can read this resource. The checker is always wired
+		// (mode "none" installs the permissive one), so there is no "no checker,
+		// allow everything" default left to start from.
 		var sub string
 		if isPlugin && pc.Kind != "" {
 			sub = pc.Sub
@@ -161,12 +162,11 @@ func (s *Server) handlePluginContextVisible(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		ok, err := s.authzChecker.CanRead(ctx, sub, req.ResourceType, name)
+		canRead, err := s.authzChecker.CanRead(ctx, sub, req.ResourceType, name)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		canRead = ok
 
 		if canRead {
 			visible = append(visible, name)
