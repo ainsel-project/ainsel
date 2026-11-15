@@ -117,6 +117,7 @@ func (m *MemStore) SetAuthURL(_ context.Context, agent, id, url string) error {
 	}
 	s.AuthURL = url
 	s.State = StateAwaitingRedirect
+	s.ExpiresAt = m.now().Add(TTL)
 	return nil
 }
 

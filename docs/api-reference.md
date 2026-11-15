@@ -284,7 +284,8 @@ agent.
 ### POST /api/v1/agents/{name}/chatgpt-sign-in
 
 Start a ChatGPT sign-in for an agent with `openAI.authMethod: ChatGPTSignIn`. The hub
-records a session (10 minutes) and sets the annotation `ainsel.dev/chatgpt-sign-in-session`
+records a session (10 minutes to start the pod, then another 10 from the moment the link
+appears) and sets the annotation `ainsel.dev/chatgpt-sign-in-session`
 on the Agent; the operator then runs a short sign-in pod on the agent's credential volume,
 once no task is running. The pod posts OpenAI's authorization link, the user signs in, the
 browser lands on a `http://127.0.0.1:1455/auth/callback?...` page that does not load, and
@@ -300,7 +301,9 @@ database. Gated by `write` on the agent; so are the calls below.
 ### GET /api/v1/agents/{name}/chatgpt-sign-in
 
 The agent's latest sign-in session (same shape), `404` if there is none. Never includes the
-pasted address.
+pasted address. A live session whose sign-in pod already ended without reporting (the
+operator recorded the session as handled on the Agent) is closed here: `succeeded` if the
+operator recorded a sign-in since the session started, otherwise `failed`.
 
 ### POST /api/v1/agents/{name}/chatgpt-sign-in/redirect
 
@@ -308,13 +311,15 @@ Body `{"redirectUrl": "http://127.0.0.1:1455/auth/callback?code=...&state=..."}`
 **Response:** `202 Accepted`. `400` unless it is exactly the callback the sign-in pod can use:
 `http://127.0.0.1:1455/auth/callback` with a `code`, a `client_id` and the `state` of the link
 this session showed (an error from OpenAI, or an address from an earlier attempt, is a `400`
-too). The session stays open for another paste. `409` before the authorization link is ready,
-`404` without a live session. The address is handed to the sign-in pod once and then
+too). The session stays open for another paste. `409` before the authorization link is ready
+or once an address was already received, `404` without a live session. The address is handed to the sign-in pod once and then
 deleted.
 
 ### DELETE /api/v1/agents/{name}/chatgpt-sign-in
 
-Cancel the live sign-in. **Response:** `204 No Content`.
+Cancel the live sign-in. **Response:** `204 No Content`. Switching the agent to another
+auth method or provider (`PUT /api/v1/agents/{name}`) cancels it too and removes the
+annotation; the operator stops a sign-in pod that is still running.
 
 Starting a sign-in also writes a token for that session to the Secret
 `<agent>-chatgpt-sign-in` (owned by the Agent), which the operator mounts into the
@@ -323,7 +328,9 @@ sign-in pod only. The pod uses internal routes behind `X-Internal-Token` **and**
 the internal token):
 `POST /api/internal/agents/{name}/chatgpt-sign-in/{session}/auth-url` (`{"url"}`, must start
 with `https://auth.openai.com/`), `GET …/redirect` (`204` until pasted, then `200` once,
-`410` once the session has ended) and `POST …/result` (`{"ok", "error"}`). An exchange
+`410` once the session has ended) and `POST …/result` (`{"ok", "error"}`). The pod retries
+a call for about a minute while the hub refuses connections (a restart); only the result
+post, which is safe to repeat, is also retried on a timeout or `5xx`. An exchange
 that has started is not cancelled and may finish after the session's 10 minutes.
 
 ### GET /api/v1/agents/{name}/persona

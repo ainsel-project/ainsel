@@ -1403,6 +1403,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
+	wasSignIn := existing.UsesChatGPTSignIn()
 	if err := s.applyAgentRequest(ctx, agentApplyInput{
 		spec: &existing.Spec,
 		req:  &req,
@@ -1411,6 +1412,13 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	}); err != nil {
 		writeErr(w, err)
 		return
+	}
+	// Leaving ChatGPT sign-in ends a pending sign-in with it: the operator
+	// no longer runs the pod, and a request left behind would start one if
+	// the agent ever switched back.
+	endSignIn := wasSignIn && !existing.UsesChatGPTSignIn()
+	if endSignIn {
+		delete(existing.Annotations, signInSessionAnnotation)
 	}
 
 	// Stamp the hub-managed updated-at annotation so the list API can surface
@@ -1423,6 +1431,11 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 	if err := s.client.Update(ctx, &existing); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if endSignIn && s.signIn != nil {
+		if err := s.signIn.Cancel(ctx, name); err != nil {
+			slog.Warn("could not cancel the chatgpt sign-in of an agent that left it", "agent", name, "error", err)
+		}
 	}
 
 	// Re-pointing away from the agent's own persona orphans it — owned
