@@ -3257,6 +3257,7 @@ paths:
   /api/internal/agent-mcp:
     post:
       operationId: servePlatformAgentMCP
+      x-mcp-not-exposed: "internal /api/internal/* surface, authenticated by X-Internal-Token and not published by the ingress"
       summary: The platform's read-only tool plane, as a stateless MCP endpoint for agent runtimes
       description: >-
         Off unless `HUB_AGENT_MCP_ENABLED=true`, in which case the endpoint
