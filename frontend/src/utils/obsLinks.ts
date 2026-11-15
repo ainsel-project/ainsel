@@ -12,7 +12,8 @@ function buildSearch(params: Record<string, string | undefined>): string {
 export function eventsLink(
   opts: {
     filters?: EventFilter[]
-    status?: string
+    /** Activity match axis: `matched` | `unmatched` | `error`. */
+    match?: string
     connector?: string
     agent?: string
     range?: string
@@ -20,7 +21,7 @@ export function eventsLink(
 ): string {
   return `/observability/events${buildSearch({
     q: opts.filters?.length ? encodeEventFilters(opts.filters) : undefined,
-    status: opts.status,
+    match: opts.match,
     connector: opts.connector,
     agent: opts.agent,
     range: opts.range,

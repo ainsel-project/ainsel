@@ -131,7 +131,7 @@ describe('ErrorsDetail', () => {
         'href',
         expect.stringContaining('/observability/events'),
       )
-      expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('status=error'))
+      expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('match=error'))
     })
   })
 })

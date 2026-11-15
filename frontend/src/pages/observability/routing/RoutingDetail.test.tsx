@@ -174,7 +174,7 @@ describe('RoutingDetail', () => {
         'href',
         expect.stringContaining('/observability/events'),
       )
-      expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('status=matched'))
+      expect(link.closest('a')).toHaveAttribute('href', expect.stringContaining('match=matched'))
     })
   })
 })

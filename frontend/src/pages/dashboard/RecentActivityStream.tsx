@@ -11,9 +11,11 @@ import { Panel } from '../../primitives/Panel'
 import { Tag } from '../../primitives/Tag'
 import { formatRelative } from '../../utils/time'
 
-function StatusTag({ status }: { status: ActivityEntry['status'] }) {
-  if (status === 'matched') return <Tag variant="ok">MATCH</Tag>
-  if (status === 'error') return <Tag variant="err">ERR</Tag>
+// The event's match result — the same axis the Activity toolbar's Match
+// filter narrows.
+function MatchTag({ match }: { match: ActivityEntry['status'] }) {
+  if (match === 'matched') return <Tag variant="ok">MATCH</Tag>
+  if (match === 'error') return <Tag variant="err">ERR</Tag>
   return <Tag variant="stale">SKIP</Tag>
 }
 
@@ -92,7 +94,7 @@ export function RecentActivityStream() {
                   </>
                 ) : null}
               </span>
-              <StatusTag status={e.status} />
+              <MatchTag match={e.status} />
             </div>
           ))
         )

@@ -6,8 +6,8 @@ describe('eventsLink', () => {
     expect(eventsLink()).toBe('/observability/events')
   })
 
-  it('appends status param', () => {
-    expect(eventsLink({ status: 'error' })).toBe('/observability/events?status=error')
+  it('appends the match param', () => {
+    expect(eventsLink({ match: 'error' })).toBe('/observability/events?match=error')
   })
 
   it('appends agent param', () => {
@@ -21,8 +21,8 @@ describe('eventsLink', () => {
   })
 
   it('omits params with undefined values', () => {
-    const url = eventsLink({ status: undefined, connector: 'abc' })
-    expect(url).not.toContain('status')
+    const url = eventsLink({ match: undefined, connector: 'abc' })
+    expect(url).not.toContain('match')
     expect(url).toContain('connector=abc')
   })
 

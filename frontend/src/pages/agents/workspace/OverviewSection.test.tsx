@@ -142,7 +142,7 @@ describe('OverviewSection', () => {
     )
   })
 
-  it('counts the five run states 1:1 with the Activity outcome filters', async () => {
+  it('counts the five run states 1:1 with the Activity state filters', async () => {
     // Fixtures carry task payloads: under effectiveRunState a bare
     // { status: 'running' } with no task is `unknown`, not a live run.
     const invocations = [
@@ -186,10 +186,10 @@ describe('OverviewSection', () => {
     await waitFor(() => expect(valueOf('Runs today').querySelector('a')).not.toBeNull())
     const expected: [string, string][] = [
       ['Runs today', '/activity?agent=a1&since=today'],
-      ['Failures today', '/activity?agent=a1&since=today&outcome=failure'],
-      ['Timeouts today', '/activity?agent=a1&since=today&outcome=timeout'],
-      ['Running now', '/activity?agent=a1&since=today&outcome=running'],
-      ['Queued now', '/activity?agent=a1&since=today&outcome=queued'],
+      ['Failures today', '/activity?agent=a1&since=today&runState=failure'],
+      ['Timeouts today', '/activity?agent=a1&since=today&runState=timeout'],
+      ['Running now', '/activity?agent=a1&since=today&runState=running'],
+      ['Queued now', '/activity?agent=a1&since=today&runState=queued'],
     ]
     for (const [label, href] of expected) {
       expect(valueOf(label).querySelector('a')).toHaveAttribute('href', href)
