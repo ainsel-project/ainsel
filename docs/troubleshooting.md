@@ -9,7 +9,7 @@ This guide covers the most common failure modes when operating AInsel. Use `<nam
 Check the hub logs first:
 
 ```bash
-kubectl logs -n <namespace> deploy/ainsel-hub
+kubectl logs -n <namespace> deploy/hub
 ```
 
 Common causes and fixes:
@@ -22,8 +22,8 @@ Common causes and fixes:
 After fixing the root cause, rollout-restart the deployment:
 
 ```bash
-kubectl rollout restart -n <namespace> deploy/ainsel-hub
-kubectl rollout status -n <namespace> deploy/ainsel-hub
+kubectl rollout restart -n <namespace> deploy/hub
+kubectl rollout status -n <namespace> deploy/hub
 ```
 
 ---
@@ -40,7 +40,7 @@ kubectl describe webhookconnector <name> -n <namespace>
 The `Ready` condition must be `True`. If it is not, the operator has not yet provisioned the receiver Deployment and Ingress — check operator logs:
 
 ```bash
-kubectl logs -n <namespace> deploy/k8s-event-source-gateway-operator
+kubectl logs -n <namespace> deploy/event-gateway-operator
 ```
 
 Check the webhook-receiver pod logs for incoming requests (the receiver Deployment is named `connector-<id>`, e.g. `connector-c-0c4b01e3`):
@@ -74,7 +74,7 @@ kubectl describe trigger <name> -n <namespace>
 Inspect hub logs for routing decisions. The hub logs each event it receives and whether it matched a trigger:
 
 ```bash
-kubectl logs -n <namespace> deploy/ainsel-hub | grep -i trigger
+kubectl logs -n <namespace> deploy/hub | grep -i trigger
 ```
 
 Look for lines indicating an event was received but no trigger matched — this usually means the event type or filter does not align with what is being sent. Adjust the trigger's `filters` via the UI or API (match on the derived `type`/`action` fields and payload paths — there is no separate `eventType` field).
@@ -82,7 +82,7 @@ Look for lines indicating an event was received but no trigger matched — this 
 Verify the connector is publishing events to the event queue by checking the `hub_events_consumed_total` metric:
 
 ```bash
-kubectl exec -n <namespace> deploy/ainsel-hub -- curl -s http://localhost:8080/metrics | grep hub_events_consumed_total
+kubectl exec -n <namespace> deploy/hub -- curl -s http://localhost:8080/metrics | grep hub_events_consumed_total
 ```
 
 A counter that never increments means events are not reaching the hub. Re-check the connector and hub connectivity.
@@ -189,18 +189,18 @@ kubectl describe mcpserver <name> -n <namespace>
 Look for connection errors in the hub logs:
 
 ```bash
-kubectl logs -n <namespace> deploy/ainsel-hub | grep -i mcp
+kubectl logs -n <namespace> deploy/hub | grep -i mcp
 ```
 
 Verify the MCP server URL is reachable from inside the cluster by exec-ing into the hub pod:
 
 ```bash
-kubectl exec -n <namespace> deploy/ainsel-hub -- curl -sv <mcp-server-url>/health
+kubectl exec -n <namespace> deploy/hub -- curl -sv <mcp-server-url>/health
 ```
 
 If the URL is not reachable, confirm the MCP server Deployment is running and that the Service name and port are correct. If the MCP server is external to the cluster, verify network policies and egress rules allow the connection.
 
-Remember that MCP servers are reached from **two** clients: hub-backend (tool discovery for AgentImages — the "Refresh MCP Tools" action — and the hub MCP registry) and agent pods at runtime. Both need ingress to the server, and agents additionally need egress if the server is in-cluster and not on 443/TCP. With `networkPolicy.enabled: true`, an in-cluster MCP server without an allow rule is silently unreachable — connections are rejected rather than timing out. See [Network Policies](network-policies.md) for the policy inventory and a verification recipe.
+Remember that MCP servers are reached from **two** clients: the hub (tool discovery for AgentImages — the "Refresh MCP Tools" action — and the hub MCP registry) and agent pods at runtime. Both need ingress to the server, and agents additionally need egress if the server is in-cluster and not on 443/TCP. With `networkPolicy.enabled: true`, an in-cluster MCP server without an allow rule is silently unreachable — connections are rejected rather than timing out. See [Network Policies](network-policies.md) for the policy inventory and a verification recipe.
 
 ---
 
@@ -237,12 +237,12 @@ Check it from outside the pod — the hub image is distroless and has no shell, 
 
 ```bash
 # Is the variable on the hub deployment at all? No output = not configured.
-kubectl -n <namespace> get deploy hub-backend -o json \
+kubectl -n <namespace> get deploy hub -o json \
   | jq -r '.spec.template.spec.containers[].env[]?
       | select(.name=="HUB_PROMETHEUS_URL") | .value'
 
 # What did the hub record about it at startup?
-kubectl -n <namespace> logs deploy/hub-backend | grep -i prometheus
+kubectl -n <namespace> logs deploy/hub | grep -i prometheus
 ```
 
 Logs are JSON, so the unconfigured state reads:
@@ -265,7 +265,7 @@ observability:
 
 ```bash
 helm upgrade ainsel ./chart -n <namespace> -f values.yaml
-kubectl rollout status -n <namespace> deploy/hub-backend
+kubectl rollout status -n <namespace> deploy/hub
 ```
 
 The hub reads `HUB_PROMETHEUS_URL` once, while wiring itself up, so a pod that started
@@ -275,8 +275,8 @@ it finished. If the panels are still empty after that, force fresh pods and re-r
 log:
 
 ```bash
-kubectl rollout restart -n <namespace> deploy/hub-backend
-kubectl -n <namespace> logs deploy/hub-backend | grep -i prometheus
+kubectl rollout restart -n <namespace> deploy/hub
+kubectl -n <namespace> logs deploy/hub | grep -i prometheus
 ```
 
 The last command is the ground truth: `prometheus client configured` means the hub has
@@ -291,7 +291,7 @@ metrics response repeats it in `source`:
 ```
 
 ```bash
-kubectl -n <namespace> get deploy hub-backend -o json \
+kubectl -n <namespace> get deploy hub -o json \
   | jq -r '.spec.template.spec.containers[].env[]?
       | select(.name=="HUB_METRICS_SOURCE") | .value'
 ```
@@ -316,7 +316,7 @@ Anything other than `postgres` or `prometheus` is ignored with a
   intermittent across reloads. Ask each running pod what it actually has:
 
   ```bash
-  kubectl -n <namespace> get pods -l app.kubernetes.io/component=hub-backend -o json \
+  kubectl -n <namespace> get pods -l app.kubernetes.io/component=hub -o json \
     | jq -r '.items[] | .metadata.name + "  " + ( [.spec.containers[].env[]?
         | select(.name=="HUB_PROMETHEUS_URL") | .value]
         | if length == 0 then "(unset)" else join(",") end )'
@@ -340,7 +340,7 @@ ServiceMonitor or PodMonitor — see [Observability](observability).
 The hub exposes a health endpoint that checks all internal subsystems (database, operator connectivity):
 
 ```bash
-kubectl exec -n <namespace> deploy/ainsel-hub -- curl -s http://localhost:8080/api/v1/platform/health
+kubectl exec -n <namespace> deploy/hub -- curl -s http://localhost:8080/api/v1/platform/health
 ```
 
 A healthy response returns `200 OK` with a JSON body listing each subsystem and its status. Any subsystem showing `"status": "unhealthy"` indicates where to investigate next.
@@ -363,9 +363,9 @@ kubectl describe agent <name> -n <namespace>
 kubectl describe trigger <name> -n <namespace>
 
 # Recent logs from all platform components
-kubectl logs -n <namespace> deploy/ainsel-hub --tail=100
-kubectl logs -n <namespace> deploy/ainsel-agent-operator --tail=100
-kubectl logs -n <namespace> deploy/k8s-event-source-gateway-operator --tail=100
+kubectl logs -n <namespace> deploy/hub --tail=100
+kubectl logs -n <namespace> deploy/agent-operator --tail=100
+kubectl logs -n <namespace> deploy/event-gateway-operator --tail=100
 
 # Events in the namespace (often the fastest way to find the root cause)
 kubectl get events -n <namespace> --sort-by='.lastTimestamp'

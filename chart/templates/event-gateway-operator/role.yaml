@@ -1,12 +1,12 @@
-{{- if .Values.connectorOperator.enabled }}
+{{- if .Values.eventGatewayOperator.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ .Release.Name }}-k8s-event-source-gateway-operator
+  name: {{ .Release.Name }}-event-gateway-operator
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: k8s-event-source-gateway-operator
+    app.kubernetes.io/component: event-gateway-operator
 rules:
   - apiGroups: ["ainsel.dev"]
     resources: ["webhookconnectors", "webhookconnectors/status"]

@@ -1,12 +1,12 @@
-{{- if .Values.ui.enabled }}
+{{- if .Values.frontend.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: hub-frontend
+  name: frontend
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "ainsel.labels" . | nindent 4 }}
-    app.kubernetes.io/component: hub-frontend
+    app.kubernetes.io/component: frontend
 spec:
   type: ClusterIP
   ports:
@@ -15,6 +15,6 @@ spec:
       targetPort: http
       protocol: TCP
   selector:
-    app.kubernetes.io/name: ainsel-hub-frontend
+    app.kubernetes.io/name: ainsel-frontend
     app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}

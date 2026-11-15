@@ -74,42 +74,12 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: hub-backend
+  name: frontend
   namespace: ainsel
   labels:
     app.kubernetes.io/part-of: ainsel
     app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: hub-backend
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /api/$2
-    nginx.ingress.kubernetes.io/use-regex: "true"
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - ainsel.example.com
-      secretName: hub-tls
-  rules:
-    - host: ainsel.example.com
-      http:
-        paths:
-          - path: /ainsel/api(/|$)(v1(/.*)?)
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: hub-backend
-                port:
-                  name: http
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: hub-frontend
-  namespace: ainsel
-  labels:
-    app.kubernetes.io/part-of: ainsel
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: hub-frontend
+    app.kubernetes.io/component: frontend
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/use-regex: "true"
@@ -127,6 +97,36 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: hub-frontend
+                name: frontend
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hub
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: hub
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /api/$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ainsel.example.com
+      secretName: hub-tls
+  rules:
+    - host: ainsel.example.com
+      http:
+        paths:
+          - path: /ainsel/api(/|$)(v1(/.*)?)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: hub
                 port:
                   name: http

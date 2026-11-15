@@ -56,7 +56,7 @@ info:
     name: Apache-2.0
 servers:
   - url: /
-    description: The hub, in-cluster (http://hub-backend.<namespace>.svc:8080) or behind the ingress rewrite.
+    description: The hub, in-cluster (http://hub.<namespace>.svc:8080) or behind the ingress rewrite.
 tags:
   - name: internal
     description: >-
