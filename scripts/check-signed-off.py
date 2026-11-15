@@ -18,10 +18,10 @@ Merge commits are skipped. Their content is other people's commits, each with
 its own assertion, and a merge of `main` into a feature branch is not the merge
 author's work to certify.
 
-Squash-merge means the trailers do not land on `main` — they stay on the PR's
-commit list, which is where the record lives. Authors who want the assertion on
-the merge commit put a `Signed-off-by:` line in the PR body, which GitHub
-appends to the squashed message.
+Neither a merge commit nor a squash carries the trailers onto `main` — they stay
+on the PR's commit list, which is where the record lives. Authors who want the
+assertion on the merge commit put a `Signed-off-by:` line in the PR body, which
+GitHub appends to the merge message.
 """
 
 import json
@@ -165,8 +165,9 @@ Fix it:
 Then push. If a commit is not yours to certify, it should not be on this
 branch — rebase it out and let its author submit it.
 
-(Record note: squash-merge does not carry trailers onto main. Add a
-'Signed-off-by:' line to the PR body if you want it on the merge commit too.)""",
+(Record note: neither a merge commit nor a squash carries trailers onto main.
+Add a 'Signed-off-by:' line to the PR body if you want it on the merge commit
+too.)""",
         file=sys.stderr,
     )
     return 1

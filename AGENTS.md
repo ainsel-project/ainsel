@@ -46,12 +46,16 @@ errors, control-plane health, Docker Hub tag retention). The index with
 
 - **Open every PR against `main`.** `main` is the default branch, the
   integration line and the release line — the only PR target. Branch from
-  `origin/main`, open the PR against `main`, and squash-merge so the PR title
-  becomes the commit subject on the trunk. Never commit directly to `main`:
+  `origin/main` and open the PR against `main`. PRs merge into `main` as merge
+  commits carrying their branch commits. Never commit directly to `main`:
   branch protection is the only guard keeping unreviewed work off the release
-  line, and it is what makes every commit on `main` a reviewed one.
+  line, and PR review is what makes every commit on `main` a reviewed one.
 - **Conventional Commits** for every commit: `feat:`, `fix:`, `chore:`,
   `docs:`, `refactor:`, `test:`, `perf:`. Imperative, lowercase, no trailing period.
+  The changelog is written from the branch commits that land on `main`, **not**
+  from PR titles — a commit release-please cannot parse is missing from the
+  release with no error, which is what
+  [`.github/workflows/pr-commits.yml`](.github/workflows/pr-commits.yml) blocks.
 - **One topic per PR.** Don't bundle unrelated changes — open separate PRs.
 - **Sync before editing:** `git fetch origin` and check for divergence on
   your branch. Multiple agents work in this repo; local state goes stale.

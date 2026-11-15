@@ -41,7 +41,11 @@ parses these commits on `main` to compute the next version and to write
 `CHANGELOG.md`. The subject becomes the changelog entry verbatim, so write it
 for someone reading a changelog, not for someone reviewing a diff. A commit
 whose subject does not parse is left out of the changelog and does not bump the
-version.
+version. PR titles are not a fallback: `release-please-config.json` sets
+`include-pull-requests: false`, so a change whose commits are all
+non-conventional ships silently and unlisted. A breaking-change marker has to
+sit on the commit too (`!` or a `BREAKING CHANGE:` footer) — one that lives only
+in the PR title or body is invisible to the tool.
 
 ### Sign-off
 
@@ -72,9 +76,9 @@ branch is not the merge author's work to certify. PRs authored by an app
 (`dependabot[bot]` and friends) pass with a note: an app cannot certify origin,
 and blocking it would also stop Dependabot's auto-merge path.
 
-Squash-merge does not carry the trailers onto `main`; the record lives on the
-PR's commit list, which is what the check reads. Add a `Signed-off-by:` line to
-the PR body if you want it on the merge commit as well.
+Neither a merge commit nor a squash carries the trailers onto `main`; the record
+lives on the PR's commit list, which is what the check reads. Add a
+`Signed-off-by:` line to the PR body if you want it on the merge commit as well.
 
 ### Versioning
 
@@ -107,13 +111,16 @@ pins a single image tag per component.
 - Feature work happens on `<type>/<short-description>` branches
   (e.g., `feat/github-connector`, `fix/webhook-timeout`,
   `docs/architecture-update`), cut from `origin/main`.
-- Open PRs against `main` and squash-merge them, so the PR title becomes
-  the commit subject.
-- **Squash-merging each PR is what keeps release-please correct.** It
-  derives the version and `CHANGELOG.md` from the conventional commits
-  reachable on `main`; one squashed PR commit carries exactly one
-  conventional subject, which is what it needs. What stays forbidden is any
-  merge onto `main` that collapses several PRs into a single
+- Open PRs against `main`. They merge as merge commits carrying their branch
+  commits, so the branch commits — not the PR title — are what lands on the
+  trunk.
+- **Conventional commits on every branch commit is what keeps release-please
+  correct.** It derives the version and `CHANGELOG.md` from the conventional
+  commits reachable on `main`, and `include-pull-requests: false` turns off the
+  PR-title fallback that used to duplicate entries. Each branch commit
+  contributes at most one entry; a subject it cannot parse contributes nothing,
+  which is what `.github/workflows/pr-commits.yml` blocks. What stays forbidden
+  is any merge onto `main` that collapses several PRs into a single
   non-conventional commit — release-please would then see no features and
   no fixes to release.
 - Always `git pull --rebase` before pushing.
