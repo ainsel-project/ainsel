@@ -34,7 +34,8 @@ registered in [`internal/mcp/server.go`](internal/mcp/server.go):
   `update_trigger`, `delete_trigger`.
 - **Cron triggers:** `list_cron_triggers`, `get_cron_trigger`,
   `create_cron_trigger`, `update_cron_trigger`, `delete_cron_trigger`.
-- **Connectors:** `list_connectors`, `get_connector`, `update_connector`.
+- **Connectors:** `list_connectors`, `get_connector`, `create_connector`,
+  `update_connector`, `delete_connector`.
 - **Channels:** `list_channels`, `get_channel`, `list_channel_subscriptions`,
   `get_channel_events`, `create_channel`, `update_channel`,
   `delete_channel`, `attach_channel_bridge`, `detach_channel_bridge`.
@@ -51,6 +52,7 @@ registered in [`internal/mcp/server.go`](internal/mcp/server.go):
   containers `groupId` arguments refer to. Update, delete and membership stay
   on the hub REST API.
 - **MCP servers / GitHub apps:** `list_mcp_servers`, `get_mcp_server`,
+  `create_mcp_server`, `update_mcp_server`, `delete_mcp_server`,
   `list_github_apps`, `get_github_app`.
 - **Plugins:** `list_plugins`, `get_plugin`, `install_plugin`,
   `uninstall_plugin`, `enable_plugin`, `disable_plugin`,
