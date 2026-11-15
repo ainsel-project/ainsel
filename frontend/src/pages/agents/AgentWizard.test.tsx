@@ -465,7 +465,7 @@ describe('AgentWizard', () => {
     await user.click(await screen.findByRole('button', { name: /create agent/i }))
     await waitFor(() => expect(postBody(fetchMock)).toBeDefined())
     // The cap is the only scaling number the hub takes now, and the form
-    // always sends it as a concrete value (0 pauses the agent).
+    // always sends it as a concrete value (0 stops dispatch).
     expect(postBody(fetchMock)?.replicas).toBe(1)
     expect(postBody(fetchMock)).not.toHaveProperty('minReplicas')
   })

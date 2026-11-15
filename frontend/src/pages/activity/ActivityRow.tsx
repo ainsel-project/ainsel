@@ -19,9 +19,11 @@ type ActivityRowProps = {
 
 const EMPTY_NAMES = new Map<string, string>()
 
-function StatusTag({ status }: { status: ActivityEntry['status'] }) {
-  if (status === 'matched') return <Tag variant="ok">MATCH</Tag>
-  if (status === 'error') return <Tag variant="err">ERR</Tag>
+// The event's match result — the same axis the toolbar's Match filter narrows.
+// The run's own state is a separate axis, rendered by RunStateTag.
+function MatchTag({ match }: { match: ActivityEntry['status'] }) {
+  if (match === 'matched') return <Tag variant="ok">MATCH</Tag>
+  if (match === 'error') return <Tag variant="err">ERR</Tag>
   return <Tag variant="stale">SKIP</Tag>
 }
 
@@ -182,7 +184,7 @@ export function ActivityRow({
         <td>{hasMatches ? <TriggerLinks matches={matches} names={triggerNames} /> : '—'}</td>
         <td>{hasMatches ? <AgentLinks matches={matches} names={agentNames} /> : '—'}</td>
         <td>
-          <StatusTag status={entry.status} />
+          <MatchTag match={entry.status} />
         </td>
         {tokens !== undefined ? (
           <td className="num">{tokens > 0 ? tokens.toLocaleString() : '—'}</td>

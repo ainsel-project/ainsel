@@ -30,7 +30,7 @@ func TestScalingProblem(t *testing.T) {
 	}{
 		{"nil scaling is nothing to say", nil, ""},
 		{"a plain cap", &agentv1alpha1.AgentScaling{Replicas: i32(3)}, ""},
-		{"zero cap pauses the agent, which is allowed", &agentv1alpha1.AgentScaling{Replicas: i32(0)}, ""},
+		{"zero cap stops dispatch, which is allowed", &agentv1alpha1.AgentScaling{Replicas: i32(0)}, ""},
 		{"negative cap", &agentv1alpha1.AgentScaling{Replicas: i32(-2)}, "replicas must not be negative"},
 	}
 	for _, tc := range tests {
@@ -81,6 +81,49 @@ func createAgent(t *testing.T, s *Server, req SimpleAgentCreateRequest) SimpleAg
 		t.Fatalf("decode create response: %v (%s)", err, body)
 	}
 	return out
+}
+
+// The pause feature is removed (#249). A client that still sends the old
+// request fields is accepted and the fields ignored — the typed request simply
+// has no place for them — and no response carries `paused`/`pausedUntil`, so a
+// stale console cannot read an agent as held.
+func TestAgentResponse_CarriesNoPauseFields(t *testing.T) {
+	s := newAgentServer(t)
+
+	body := `{"name":"Stale Client","imageRef":{"name":"img-1"},` +
+		`"llm":{"model":"glm-5.1:cloud","provider":"ollama-cloud"},` +
+		`"pause":{"pausedUntil":"2030-01-01T00:00:00Z"},"paused":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create agent: got %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "paused") {
+		t.Errorf("create response carries a pause field: %s", rec.Body.String())
+	}
+
+	var created SimpleAgentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	getRec := httptest.NewRecorder()
+	s.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/api/v1/agents/"+created.ID, nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get agent: got %d, want 200: %s", getRec.Code, getRec.Body.String())
+	}
+	if strings.Contains(getRec.Body.String(), "paused") {
+		t.Errorf("get response carries a pause field: %s", getRec.Body.String())
+	}
+
+	var stored agentv1alpha1.Agent
+	if err := s.client.Get(context.Background(), agentKey(created.ID), &stored); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if stored.Spec.Scaling != nil && stored.Spec.Scaling.Replicas != nil && *stored.Spec.Scaling.Replicas != 1 {
+		t.Errorf("stale pause body changed replicas: %v", stored.Spec.Scaling.Replicas)
+	}
 }
 
 func TestCreateAgent_ConcurrencyCapRoundTrip(t *testing.T) {
@@ -162,8 +205,8 @@ func TestUpdateAgent_ConcurrencyCapUpdate(t *testing.T) {
 }
 
 // The UI needs the operator's account of its task Jobs, not just the ready pod
-// count: with zero pods, "paused" and "cannot schedule" look identical
-// otherwise.
+// count: with zero pods, "dispatch stopped" and "cannot schedule" look
+// identical otherwise.
 func TestAgentResponse_ExposesOperatorJobAccount(t *testing.T) {
 	s := newAgentServer(t)
 

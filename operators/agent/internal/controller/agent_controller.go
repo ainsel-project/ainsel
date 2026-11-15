@@ -336,15 +336,6 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if scale.RequeueAfter > 0 && scale.RequeueAfter < requeue {
 		requeue = scale.RequeueAfter
 	}
-	// A pause that expires on its own must be looked at again when it lapses,
-	// so status.paused (the kubectl/UI display mirror) self-clears without any
-	// external trigger. Task delivery itself gates on spec.pause at read time
-	// and never waits for this reconcile.
-	if p := agent.Spec.Pause; p != nil && p.PausedUntil != nil {
-		if rem := time.Until(p.PausedUntil.Time); rem > 0 && rem < requeue {
-			requeue = rem
-		}
-	}
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
@@ -671,8 +662,8 @@ func (r *AgentReconciler) reconcileServiceMonitor(ctx context.Context, agent *ai
 }
 
 func (r *AgentReconciler) updateStatus(ctx context.Context, agent *ainselv1alpha1.Agent, deploy *appsv1.Deployment, scale ScaleDecision) error {
-	// Record what the dispatcher decided, so a reader can tell a paused agent
-	// from one whose task Jobs cannot get scheduled.
+	// Record what the dispatcher decided, so a reader can tell an agent whose
+	// dispatch is stopped from one whose task Jobs cannot get scheduled.
 	agent.Status.Scaling = &ainselv1alpha1.AgentScalingStatus{
 		Desired: scale.Replicas,
 		Reason:  scale.Reason,
@@ -754,12 +745,6 @@ func (r *AgentReconciler) updateStatus(ctx context.Context, agent *ainselv1alpha
 
 	agent.Status.ObservedGeneration = agent.Generation
 
-	// Mirror the effective pause state for `kubectl get agents` and UIs. The
-	// authoritative gate evaluates spec.pause at read time in the hub; this is
-	// display state and may lag until the next reconcile (which is scheduled
-	// for the expiry moment when the pause is time-bounded).
-	agent.Status.Paused = agent.IsPaused(time.Now())
-
 	return r.patchStatus(ctx, agent)
 }
 
@@ -774,9 +759,6 @@ func (r *AgentReconciler) patchStatus(ctx context.Context, agent *ainselv1alpha1
 		"replicas":           agent.Status.Replicas,
 		"conditions":         agent.Status.Conditions,
 		"observedGeneration": agent.Status.ObservedGeneration,
-		// Explicit bool: omitempty would drop `false` from the merge patch
-		// and a resumed agent would keep reporting the paused mirror.
-		"paused": agent.Status.Paused,
 	}
 	// The scaling decision is written key by key instead of marshalling the struct:
 	// every field of it is omitempty in the Go type, so a zero would drop out of the

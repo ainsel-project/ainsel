@@ -217,45 +217,6 @@ paths:
         '204': { description: 'Deleted.' }
         default:
           $ref: '#/components/responses/Error'
-  /api/v1/agents/{name}/pause:
-    post:
-      operationId: pauseAgent
-      summary: Record a pause on the agent
-      description: >-
-        Not enforced: the pause was withheld at the legacy next-task claim
-        endpoint, which is gone, so a paused agent keeps working. Use
-        `replicas: 0` to stop dispatch. Slated for removal (#249).
-      parameters:
-        - $ref: '#/components/parameters/resourceName'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PauseRequest'
-      responses:
-        '200':
-          description: 'The agent, with `paused: true`.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Agent'
-        default:
-          $ref: '#/components/responses/Error'
-    delete:
-      operationId: resumeAgent
-      summary: Lift any pause and nudge the queue
-      parameters:
-        - $ref: '#/components/parameters/resourceName'
-      responses:
-        '200':
-          description: 'The agent, with `paused: false`.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Agent'
-        default:
-          $ref: '#/components/responses/Error'
   /api/v1/agents/{name}/persona:
     get:
       operationId: getAgentPersona
@@ -1148,8 +1109,16 @@ paths:
         - name: subject
           in: query
           schema: { type: string }
+        - name: match
+          in: query
+          description: >-
+            Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          schema: { type: string, enum: [matched, unmatched, error] }
         - name: status
           in: query
+          deprecated: true
+          description: >-
+            Retired alias of `match`, accepted for one release; `match` wins when both are sent.
           schema: { type: string, enum: [matched, unmatched, error] }
       responses:
         '200':
@@ -1872,13 +1841,28 @@ paths:
         - name: agent
           in: query
           schema: { type: string }
+        - name: match
+          in: query
+          description: >-
+            Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          schema: { type: string, enum: [matched, unmatched, error] }
         - name: status
           in: query
-          description: Derived from the event's tasks — no tasks is unmatched, any failed task is error.
+          deprecated: true
+          description: >-
+            Retired alias of `match`, accepted for one release; `match` wins when both are sent.
           schema: { type: string, enum: [matched, unmatched, error] }
+        - name: runState
+          in: query
+          description: >-
+            Filter on the hub-derived run state — the state this run is in right now — applied in SQL.
+          schema: { type: string, enum: [queued, running, success, failure, timeout] }
         - name: outcome
           in: query
-          description: Filter on the hub-derived run state, applied in SQL.
+          deprecated: true
+          description: >-
+            Retired alias of `runState`, accepted for one release; `runState` wins when both are sent.
+            It was the wrong word for `queued` and `running`, which are not finished at all.
           schema: { type: string, enum: [queued, running, success, failure, timeout] }
         - $ref: '#/components/parameters/sinceParam'
       responses:
@@ -3420,10 +3404,8 @@ components:
         replicas:
           type: integer
           description: >-
-            The concurrency cap — at most this many task Jobs in flight. 0 pauses
+            The concurrency cap — at most this many task Jobs in flight. 0 stops
             dispatch (work keeps queueing).
-        paused: { type: boolean }
-        pausedUntil: { type: string, format: date-time, description: 'Absent on a running agent and on an indefinite pause.' }
         memory:
           $ref: '#/components/schemas/MemoryConfig'
         status:
@@ -3593,12 +3575,6 @@ components:
         anthropic: { type: object }
         google: { type: object }
         customProvider: { type: object }
-    PauseRequest:
-      type: object
-      description: An absent body means an indefinite pause. `duration` and `until` together is 400.
-      properties:
-        duration: { type: string, description: 'Go duration string from now (`30m`, `8h`, `168h`).' }
-        until: { type: string, format: date-time, description: 'Must be in the future.' }
     AgentPersonaView:
       type: object
       properties:
@@ -4310,8 +4286,9 @@ components:
     ActivityEntry:
       type: object
       description: >-
-        One event with its routing outcome. `status` is derived from the event's
-        tasks — no tasks is `unmatched`, any failed task is `error`.
+        One event with its match result and runs. `status` is the match result,
+        derived from the event's tasks — no tasks is `unmatched`, any failed task is
+        `error`. Each match carries the derived `runState`.
       properties:
         id: { type: string }
         timestamp: { type: string, description: 'RFC 3339.' }

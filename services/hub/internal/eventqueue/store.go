@@ -586,23 +586,24 @@ type EventFilter struct {
 	Channels []string
 	// Since limits results to events received at or after this time.
 	Since time.Time
-	// Status filters by derived activity status: "matched", "unmatched" or
-	// "error". Any other value applies no filter; callers are expected to
-	// validate.
-	Status string
-	// Outcome filters by derived run status: "queued", "running", "success",
-	// "failure" or "timeout". Any other value applies no filter; callers are
-	// expected to validate.
+	// Match filters by the derived activity match result: "matched",
+	// "unmatched" or "error" — did the event route to an agent, and did any of
+	// its tasks fail? Any other value applies no filter; callers are expected
+	// to validate.
+	Match string
+	// State filters by the derived run state: "queued", "running", "success",
+	// "failure" or "timeout" — where the run is right now. Any other value
+	// applies no filter; callers are expected to validate.
 	//
 	// "queued" and "running" are task-derived — they use the same started
 	// predicate the rows render (claimed, or a conversation row exists), so
 	// the filter and the rendered rows can never disagree, and they work in
 	// per-task Job mode where the task row stays "pending" for the whole run.
 	// "queued" is not started and not terminal; "running" is started and not
-	// terminal. The terminal outcomes stay invocation-derived via
+	// terminal. The terminal states stay invocation-derived via
 	// agent_tasks → invocations; tasks whose invocation record was pruned or
-	// never created match no terminal outcome.
-	Outcome string
+	// never created match no terminal state.
+	State string
 	// Agent limits results to events routed to this agent.
 	Agent string
 	// Agents limits results to events routed to any of these agents. Combined
@@ -659,7 +660,7 @@ func (f EventFilter) conditions() (conds []string, args []any) {
 		}
 		conds = append(conds, "("+strings.Join(or, " OR ")+")")
 	}
-	switch f.Status {
+	switch f.Match {
 	case "unmatched":
 		conds = append(conds,
 			"NOT EXISTS (SELECT 1 FROM agent_tasks t WHERE t.event_id = e.id)")
@@ -671,13 +672,13 @@ func (f EventFilter) conditions() (conds []string, args []any) {
 		conds = append(conds,
 			"EXISTS (SELECT 1 FROM agent_tasks t WHERE t.event_id = e.id AND t.status = 'failed')")
 	}
-	// Outcome filter. "queued"/"running" partition the non-terminal tasks on
+	// Run-state filter. "queued"/"running" partition the non-terminal tasks on
 	// the started predicate (claim or first conversation row) — the same
 	// evidence TasksForEvents loads, so the filter and the rendered rows can
-	// never disagree. Terminal outcomes join agent_tasks to invocations on the
+	// never disagree. Terminal states join agent_tasks to invocations on the
 	// stored id, as before.
-	if f.Outcome != "" {
-		switch f.Outcome {
+	if f.State != "" {
+		switch f.State {
 		case "queued":
 			conds = append(conds,
 				`EXISTS (SELECT 1 FROM agent_tasks t WHERE t.event_id = e.id
@@ -694,7 +695,7 @@ func (f EventFilter) conditions() (conds []string, args []any) {
 						OR EXISTS (SELECT 1 FROM task_conversations tc
 							WHERE tc.invocation_id = t.invocation_id AND t.invocation_id <> '')))`)
 		default:
-			args = append(args, f.Outcome)
+			args = append(args, f.State)
 			conds = append(conds, fmt.Sprintf(
 				`EXISTS (SELECT 1 FROM agent_tasks t JOIN invocations i ON i.id = t.invocation_id
 					WHERE t.event_id = e.id AND i.status = $%d)`, len(args)))

@@ -1,4 +1,4 @@
--- A queued task whose agent cannot run it (paused, scaled to zero, waiting for
+-- A queued task whose agent cannot run it (dispatch stopped, scaled to zero, waiting for
 -- a person) waited forever: the sender was never told and a task picked up days
 -- later might no longer be relevant (issue #236). EnqueueTask now stamps each
 -- task with a pickup deadline (TASK_EXPIRY_SECONDS, default 1 day; 0 disables,

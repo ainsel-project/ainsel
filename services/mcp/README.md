@@ -29,7 +29,7 @@ usage — is [`docs/mcp.md`](../../docs/mcp.md). Summary of what's
 registered in [`internal/mcp/server.go`](internal/mcp/server.go):
 
 - **Agents:** `list_agents`, `get_agent`, `create_agent`, `update_agent`
-  (full hub update surface), `delete_agent`, `pause_agent`, `resume_agent`.
+  (full hub update surface), `delete_agent`.
 - **Triggers:** `list_triggers`, `get_trigger`, `create_trigger`,
   `update_trigger`, `delete_trigger`.
 - **Cron triggers:** `list_cron_triggers`, `get_cron_trigger`,
@@ -48,6 +48,9 @@ registered in [`internal/mcp/server.go`](internal/mcp/server.go):
   `delete_persona`.
 - **Skills:** `list_skills`, `get_skill`, `create_skill`,
   `update_skill`, `delete_skill`.
+- **Groups:** `list_groups`, `get_group`, `create_group` — the access-control
+  containers `groupId` arguments refer to. Update, delete and membership stay
+  on the hub REST API.
 - **MCP servers / GitHub apps:** `list_mcp_servers`, `get_mcp_server`,
   `create_mcp_server`, `update_mcp_server`, `delete_mcp_server`,
   `list_github_apps`, `get_github_app`.

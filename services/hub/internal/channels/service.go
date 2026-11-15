@@ -278,7 +278,7 @@ func (s *Service) Events(ctx context.Context, id string, q EventQuery) ([]eventq
 	if filter.Agent == "" {
 		filter.Agent = q.Agent
 	}
-	filter.Status = q.Status
+	filter.Match = q.Match
 	filter.Subject = q.Subject
 	limit := q.Limit
 	if limit <= 0 {

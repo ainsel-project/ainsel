@@ -51,7 +51,7 @@ const llmSchema = z.object({
 })
 
 // Concurrency cap: the operator keeps at most this many per-task Jobs
-// running. 0 pauses the agent. Always sent as a concrete number, like
+// running. 0 stops dispatch. Always sent as a concrete number, like
 // `vision`, because the hub reads an absent value on update as
 // "leave unchanged".
 const replicasSchema = z.coerce.number().int().min(0).optional()

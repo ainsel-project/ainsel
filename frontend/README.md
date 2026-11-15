@@ -102,11 +102,17 @@ refresh and can be shared:
 
 | Route | Parameters |
 | --- | --- |
-| `/activity` | `q`, `page`, `pageSize`, `status`, `outcome`, `connector`, `agent` |
+| `/activity` | `q`, `page`, `pageSize`, `match`, `runState`, `connector`, `agent`, `since` |
 | `/observability` | `range`, `agent`, `level` |
+| `/observability/events` | `range`, `q`, `page`, `match`, `connector`, `agent` |
 | `/observability/errors` | `range`, `severity`, `source` |
 
-Unknown enum values in the URL (e.g. `?status=bogus`) fall back to "any".
+Unknown enum values in the URL (e.g. `?match=bogus`) fall back to "any".
+
+`/activity` and `/observability/events` still read the retired filter names for
+one release — `status` for `match`, `outcome` for `runState` — and rewrite the
+URL onto the current spelling, so an old link keeps its filter instead of
+silently widening to "any".
 
 ## Reference
 

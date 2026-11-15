@@ -152,11 +152,11 @@ describe('TriggersSection', () => {
     expect(within(table).getByText('on-doc-issue')).toBeInTheDocument()
   })
 
-  it('pauses a schedule through the cron update endpoint', async () => {
+  it('disables a schedule through the cron update endpoint', async () => {
     const fetchMock = stubTriggers()
     renderTriggers()
     const table = await screen.findByRole('table')
-    await userEvent.click(within(table).getByRole('button', { name: 'Pause' }))
+    await userEvent.click(within(table).getByRole('button', { name: 'Disable' }))
     await waitFor(() => {
       const put = fetchMock.mock.calls.find(
         ([url, init]) => String(url).includes('/cron-triggers/cr-1') && init?.method === 'PUT',

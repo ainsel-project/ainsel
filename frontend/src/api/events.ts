@@ -4,7 +4,10 @@ import type { RunState } from './invocations'
 
 export type { RunState }
 
-export type ActivityStatus = 'matched' | 'unmatched' | 'error'
+/** The event's match result — did it route to an agent, and did any task fail?
+ *  The other axis on the activity page is `runState` (see RunState), which
+ *  answers where the run is right now. */
+export type ActivityMatchResult = 'matched' | 'unmatched' | 'error'
 
 export type RunStatus = 'running' | 'success' | 'failure' | 'timeout'
 
@@ -35,21 +38,26 @@ export type ActivityEntry = {
   /** Channel the event was born in. Absent on history recorded before the
    *  channel registry existed and on direct (cron/chat) births. */
   channelId?: string
-  status: ActivityStatus
+  status: ActivityMatchResult
   matches?: ActivityMatch[]
   payload?: unknown
 }
 
+/** The run states the activity list can be filtered by: every RunState except
+ *  `unknown`, which is the absence of a state rather than one. */
+export type RunStateFilter = Exclude<RunState, 'unknown'>
+
 export type ListEventsParams = {
   limit?: number
   offset?: number
-  status?: ActivityStatus
+  /** Did the event match a subscription? */
+  match?: ActivityMatchResult
   connector?: string
   agent?: string
   /** Derived run state of any of the event's tasks, filtered in SQL on the
    *  same started predicate the rows render, so the whole history is walked
    *  and the filter cannot disagree with the table. */
-  outcome?: 'queued' | 'running' | 'success' | 'failure' | 'timeout'
+  runState?: RunStateFilter
   since?: string
 }
 
@@ -102,10 +110,10 @@ export function useEventsPage(params: ListEventsParams) {
       'page',
       params.limit ?? null,
       params.offset ?? null,
-      params.status ?? null,
+      params.match ?? null,
       params.connector ?? null,
       params.agent ?? null,
-      params.outcome ?? null,
+      params.runState ?? null,
       params.since ?? null,
     ],
     queryFn: () => listEventsPage(params),
