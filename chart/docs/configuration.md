@@ -41,7 +41,7 @@ Per-component resource requests/limits by tier (CPU/memory):
 | agentOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
 | eventGatewayOperator | 50m/64Mi → 200m/256Mi | 100m/128Mi → 400m/512Mi | 300m/512Mi → 1/2Gi |
 | hub | 50m/128Mi → 200m/256Mi | 200m/512Mi → 500m/1Gi | 500m/1Gi → 2/4Gi |
-| ui | 10m/16Mi → 100m/64Mi | 50m/64Mi → 100m/128Mi | 100m/128Mi → 200m/256Mi |
+| frontend | 10m/16Mi → 100m/64Mi | 50m/64Mi → 100m/128Mi | 100m/128Mi → 200m/256Mi |
 | postgres | 50m/256Mi → 500m/512Mi | 200m/512Mi → 1/2Gi | 500m/1Gi → 2/4Gi |
 | mcp | 50m/64Mi → 200m/128Mi | 100m/128Mi → 400m/256Mi | 300m/256Mi → 1/1Gi |
 
@@ -52,7 +52,7 @@ CPU/memory tiers; scale them independently.
 
 ### Common scheduling & security overrides
 
-Every component block (`agentOperator`, `eventGatewayOperator`, `hub`, `ui`,
+Every component block (`agentOperator`, `eventGatewayOperator`, `hub`, `frontend`,
 `postgres`, `mcp`) accepts the same tail of standard Kubernetes overrides,
 written `<component>.<key>`:
 
@@ -64,14 +64,14 @@ written `<component>.<key>`:
 | `<component>.affinity` | object | `{}` | Affinity rules |
 | `<component>.podAnnotations` | object | `{}` | Extra pod annotations |
 | `<component>.podLabels` | object | `{}` | Extra pod labels |
-| `<component>.podSecurityContext` | object | see `values.yaml` | Pod-level securityContext (`runAsNonRoot`, seccomp `RuntimeDefault`; empty for `ui`/`postgres`) |
-| `<component>.securityContext` | object | see `values.yaml` | Container-level securityContext (runAsUser 65532, no privilege escalation, drop all capabilities; empty for `ui`/`postgres`) |
+| `<component>.podSecurityContext` | object | see `values.yaml` | Pod-level securityContext (`runAsNonRoot`, seccomp `RuntimeDefault`; empty for `frontend`/`postgres`) |
+| `<component>.securityContext` | object | see `values.yaml` | Container-level securityContext (runAsUser 65532, no privilege escalation, drop all capabilities; empty for `frontend`/`postgres`) |
 | `<component>.imagePullSecrets` | list | `[]` | Pull secrets for the component's images |
 | `<component>.priorityClassName` | string | `""` | PriorityClass for the pods |
 | `<component>.extraEnv` | list | `[]` | Extra container env entries (`{name, value}` or `{name, valueFrom}`) |
 | `<component>.extraVolumes` | list | `[]` | Extra pod volumes |
 | `<component>.extraVolumeMounts` | list | `[]` | Extra mounts on the main container |
-| `<component>.serviceAccount.annotations` | object | `{}` | Annotations on the rendered ServiceAccount. **Only exists on `agentOperator`, `eventGatewayOperator`, `hub`, and `mcp`** — `ui` and `postgres` do not render a ServiceAccount |
+| `<component>.serviceAccount.annotations` | object | `{}` | Annotations on the rendered ServiceAccount. **Only exists on `agentOperator`, `eventGatewayOperator`, `hub`, and `mcp`** — `frontend` and `postgres` do not render a ServiceAccount |
 
 ### Agent Operator
 
@@ -259,7 +259,7 @@ handled there.
 | `auth.oidcScopes` | string | `""` | Space-separated scopes; standard default `openid profile email offline_access`, or explicit legacy project scope |
 | `auth.oidcRolesClaim` | string | `""` | JWT role/group claim: exact key first, then dotted nested path (e.g. `realm_access.roles`). Empty reads the top-level `groups` claim, or `urn:zitadel:iam:org:project:roles` when `oidcProjectId` is set. Informational; hub DB manages permissions |
 | `auth.oidcProjectId` | string | `""` | Optional legacy Zitadel project audience/scope compatibility |
-| `auth.allowInsecureNoAuth` | bool | `false` | Run the hub backend **without** auth middleware (`HUB_ALLOW_INSECURE_NO_AUTH=true`). Only effective when `oidcIssuer` is empty. For local/air-gapped testing ONLY: every `/api/v1/*` endpoint becomes open to any caller. Never enable on a reachable host without an external auth proxy in front of the ingress. You normally do not need to set this by hand: when no ingress is enabled anywhere (hub/ui/mcp) and no OIDC issuer is set, the chart detects "local mode" and enables it automatically (see `values-quickstart.yaml`) |
+| `auth.allowInsecureNoAuth` | bool | `false` | Run the hub backend **without** auth middleware (`HUB_ALLOW_INSECURE_NO_AUTH=true`). Only effective when `oidcIssuer` is empty. For local/air-gapped testing ONLY: every `/api/v1/*` endpoint becomes open to any caller. Never enable on a reachable host without an external auth proxy in front of the ingress. You normally do not need to set this by hand: when no ingress is enabled anywhere (hub/frontend/mcp) and no OIDC issuer is set, the chart detects "local mode" and enables it automatically (see `values-quickstart.yaml`) |
 | `auth.internalValidateSecret` | string | `""` | Shared secret between hub and the MCP service protecting the `/api/internal/user-tokens/validate` endpoint. When unset, user-token auth is disabled and OIDC remains the only MCP auth |
 | `auth.skillsMcpToken` | string | `""` | Bearer token for the read-only skill catalogue MCP (`/api/internal/skills/mcp`, in-cluster). Agents get it as a normal secret env entry on their AgentImage and reference it from `spec.mcpServers[].tokenFromEnv`. Deliberately separate from `internalValidateSecret`: that one is the cluster-wide internal credential and must not become a bearer token for a second endpoint. Unset leaves the catalogue endpoint answering 503 — opt-in per instance |
 | `auth.local.adminUser` | string | `admin` | Username of the bootstrapped admin account (created on first start, `mode: local` and `mode: oidc+local`) |

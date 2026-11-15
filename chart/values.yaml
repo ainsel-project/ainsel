@@ -14,7 +14,7 @@
 #   agentOperator:     requests 100m/128Mi  limits 400m/512Mi
 #   eventGatewayOperator: requests 100m/128Mi  limits 400m/512Mi
 #   hub:               requests 200m/512Mi  limits 500m/1Gi
-#   ui:                requests 50m/64Mi    limits 100m/128Mi
+#   frontend:          requests 50m/64Mi    limits 100m/128Mi
 #   postgres:          requests 200m/512Mi  limits 1/2Gi
 #   mcp:               requests 100m/128Mi  limits 400m/256Mi
 #
@@ -22,7 +22,7 @@
 #   agentOperator:     requests 300m/512Mi  limits 1/2Gi
 #   eventGatewayOperator: requests 300m/512Mi  limits 1/2Gi
 #   hub:               requests 500m/1Gi    limits 2/4Gi
-#   ui:                requests 100m/128Mi  limits 200m/256Mi
+#   frontend:          requests 100m/128Mi  limits 200m/256Mi
 #   postgres:          requests 500m/1Gi    limits 2/4Gi
 #   mcp:               requests 300m/256Mi  limits 1/1Gi
 #
@@ -487,7 +487,7 @@ auth:
   # external auth proxy in front of the ingress.
   #
   # You normally do not need to set this by hand: when no ingress is enabled
-  # anywhere (hub/ui/mcp) and no OIDC issuer is set, the chart detects
+  # anywhere (hub/frontend/mcp) and no OIDC issuer is set, the chart detects
   # "local mode" and enables it automatically (see values-quickstart.yaml).
   allowInsecureNoAuth: false
   # internalValidateSecret is a shared secret between hub and the MCP
