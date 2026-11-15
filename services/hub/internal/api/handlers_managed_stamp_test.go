@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
@@ -44,7 +45,7 @@ func pluginCaller(id string) *plugincreds.Caller {
 func doManaged(t *testing.T, s *Server, caller *plugincreds.Caller, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, managedCallerReq(t, caller, method, path, body))
+	s.authMW(s.mux).ServeHTTP(rec, managedCallerReq(t, caller, method, path, body))
 	return rec
 }
 
@@ -300,7 +301,7 @@ func TestManagedStamp_PersonaCreate(t *testing.T) {
 		t.Helper()
 		s := testServer(t)
 		stub := &stubManagedPersonaService{}
-		RegisterPersonaRoutes(s.mux, stub, nil, nil)
+		RegisterPersonaRoutes(s.mux, stub, authz.NewPermissiveStore(), authz.NewChecker(authz.NewPermissiveStore(), nil), "legacy")
 		return s, stub
 	}
 	body := `{"name":"p","text":"You are...","managedBy":"%s"}`
