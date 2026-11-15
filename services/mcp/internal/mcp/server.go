@@ -38,8 +38,6 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	s.AddTool(agents.UpdateAgentTool(), agents.UpdateAgent)
 	s.AddTool(agents.CreateAgentTool(), agents.CreateAgent)
 	s.AddTool(agents.DeleteAgentTool(), agents.DeleteAgent)
-	s.AddTool(agents.PauseAgentTool(), agents.PauseAgent)
-	s.AddTool(agents.ResumeAgentTool(), agents.ResumeAgent)
 
 	triggers := tools.NewTriggerTools(b.HubURL)
 	s.AddTool(triggers.ListTriggersTool(), triggers.ListTriggers)

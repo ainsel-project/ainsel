@@ -841,9 +841,9 @@ func TestSignInWaitsForKeepAlive(t *testing.T) {
 	}
 }
 
-// A paused agent (replicas: 0) runs none of its queued tasks, so nothing
-// else would refresh the sign-in: the keep-alive still runs.
-func TestKeepAliveRunsForPausedAgentWithQueuedTasks(t *testing.T) {
+// An agent with replicas: 0 runs none of its queued tasks, so nothing else
+// would refresh the sign-in: the keep-alive still runs.
+func TestKeepAliveRunsWithZeroReplicasAndQueuedTasks(t *testing.T) {
 	agent := signedIn(signInJobModeAgent(7), time.Now().Add(-25*time.Hour))
 	agent.Spec.Scaling.Replicas = ptr.To(int32(0))
 	r, c := keepAliveReconciler(t, agent)

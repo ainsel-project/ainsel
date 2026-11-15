@@ -163,11 +163,9 @@ and should be used deliberately.
 | `summarize_workflows` | read | Agent-centric joined view: every agent with its triggers, connector, event type, filters, tools, MCPs. Orphaned triggers listed separately. |
 | `list_agents` | read | All agents and their status. |
 | `get_agent` | read | One agent: config, persona, pod state. |
-| `update_agent` | write | Update any agent field the hub's `PUT /api/v1/agents/{name}` accepts: `display_name`, `description`, LLM config (`model`, `max_turns`, `temperature`, `context_window`, `vision`, `model_license`), `image`, `persona_id`, `enabled_tools`, `skills`, `mcp_servers`, `env`, `replicas`, `working_hours`, `memory`, and provider API keys (`openai_api_key`, `anthropic_api_key`, `custom_provider_url`, …). Omitted arguments are unchanged; present ones are applied — `skills: []` clears, `working_hours: {}` clears the window, `replicas: 0` stops task delivery. A secret `env` entry resent as `{name, value: "", secret: true}` keeps its stored value; secrets are never returned. The agent ID is immutable; renaming never recreates the agent or its channel. Pausing is not a field here — see `pause_agent`. |
+| `update_agent` | write | Update any agent field the hub's `PUT /api/v1/agents/{name}` accepts: `display_name`, `description`, LLM config (`model`, `max_turns`, `temperature`, `context_window`, `vision`, `model_license`), `image`, `persona_id`, `enabled_tools`, `skills`, `mcp_servers`, `env`, `replicas`, `working_hours`, `memory`, and provider API keys (`openai_api_key`, `anthropic_api_key`, `custom_provider_url`, …). Omitted arguments are unchanged; present ones are applied — `skills: []` clears, `working_hours: {}` clears the window, `replicas: 0` stops task delivery. A secret `env` entry resent as `{name, value: "", secret: true}` keeps its stored value; secrets are never returned. The agent ID is immutable; renaming never recreates the agent or its channel. |
 | `create_agent` | write | Create an agent: display `name`, `groupId`, `image`, `model` + `provider` (required), plus optional `description`, LLM overrides, `persona_id` or `persona_text` (inline instructions become a persona owned by the agent), `enabled_tools`, `skills`, `mcp_servers`, `env` (secret entries need a non-empty value on create), `replicas`, `working_hours`, `memory`, and provider API keys. The hub assigns the `a-`-prefixed agent ID and returns it. |
 | `delete_agent` | write | Delete an agent — final: pods, task queue and the agent's owned persona go away. Externally managed agents (`managedBy`) are refused with 409. |
-| `pause_agent` | write | Withhold task delivery via the hub's `/pause` subresource: optional `duration` (e.g. `30m`) or `until` (RFC3339), neither means indefinite. Queued tasks backlog and drain on resume; interactive chat is not gated. (The hub records the pause but the per-task job path does not enforce it yet — see issue #249; `replicas: 0` is the enforced cap.) |
-| `resume_agent` | write | Lift a pause, clearing the backlog. |
 
 ### Triggers
 
@@ -203,7 +201,7 @@ supported. Example: `"0 9 * * 1-5"` fires at 09:00 on weekdays.
 |------|------|-----------------|
 | `list_connectors` | read | All connectors and their status. |
 | `get_connector` | read | One connector: configuration and health. |
-| `update_connector` | write | Update a connector's display name (`display_name`) or pause/resume it (`disabled`). The connector ID and webhook endpoint are immutable; renaming never recreates the connector or its channel. |
+| `update_connector` | write | Update a connector's display name (`display_name`) or disable/enable it (`disabled`). The connector ID and webhook endpoint are immutable; renaming never recreates the connector or its channel. |
 
 ### Channels
 

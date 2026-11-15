@@ -185,45 +185,6 @@ describe('AgentList', () => {
     expect(screen.getByText('Pending')).toBeInTheDocument()
   })
 
-  it('marks a paused agent as Paused, not Ready or broken', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) => {
-        if (url.includes('/agents')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                items: [
-                  {
-                    id: 'a1',
-                    name: 'doc-writer',
-                    llm: { model: 'claude-opus-4-7', provider: 'ollama-cloud' },
-                    imageRef: { name: 'claude-tooling-base:1.4' },
-                    paused: true,
-                    pausedUntil: new Date(Date.now() + 3600_000).toISOString(),
-                    status: { ready: true, replicas: 1 },
-                  },
-                ],
-                total: 1,
-                page: 1,
-                pageSize: 20,
-                totalPages: 1,
-              }),
-              { status: 200 },
-            ),
-          )
-        }
-        return Promise.resolve(new Response('[]', { status: 200 }))
-      }),
-    )
-
-    renderWithProviders(<AgentList />, { route: '/agents' })
-
-    expect(await screen.findByText('doc-writer')).toBeInTheDocument()
-    expect(screen.getByText('Paused')).toBeInTheDocument()
-    expect(screen.queryByText('Ready')).not.toBeInTheDocument()
-  })
-
   // --- roster filters (#153) ---------------------------------------------
 
   const groupsResponse = [
@@ -300,7 +261,6 @@ describe('AgentList', () => {
                     name: 'subscriber',
                     llm: { model: 'gpt-5', provider: 'openai' },
                     imageRef: { name: 'img' },
-                    paused: false,
                     status: {
                       ready: false,
                       desired: 0,

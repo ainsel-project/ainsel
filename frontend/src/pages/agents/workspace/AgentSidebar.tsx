@@ -47,7 +47,7 @@ export function AgentSidebar({ selectedId }: AgentSidebarProps) {
                 className="agent-sidebar-link"
                 aria-current={a.id === selectedId ? 'page' : undefined}
               >
-                <Dot state={!a.paused && a.status?.ready ? 'ok' : 'warn'} />
+                <Dot state={a.status?.ready ? 'ok' : 'warn'} />
                 <span className="agent-sidebar-name">{a.name}</span>
               </NavLink>
             </li>
