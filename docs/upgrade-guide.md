@@ -214,6 +214,32 @@ vocabulary, matching the code layout (`operators/agent`, `operators/event-gatewa
 - **Changed: in-cluster service DNS.** The hub is now reached as
   `http://hub.<namespace>.svc.cluster.local:8080` (was `hub-backend.…`). Update
   any custom manifests, scripts or dashboards that hard-coded the old names.
+- **Action: delete the old Ingresses before upgrading** (ingress-nginx). The new
+  `hub` and `frontend` Ingresses claim the same host and path as `hub-backend` and
+  `hub-frontend`, and Helm creates them before it deletes the old ones.
+  ingress-nginx's admission webhook refuses an Ingress whose host and path are
+  already taken, so the upgrade fails (`... is already defined in ingress
+  <namespace>/hub-backend`) and `--atomic` rolls it back. Remove the pair first;
+  the upgrade recreates the routes, so the console and API are unreachable only
+  until it does:
+  ```bash
+  kubectl delete ingress hub-backend hub-frontend -n <namespace> --ignore-not-found
+  ```
+- **Action: rewrite the hub address stored on agents and images.** The hub copies
+  an MCP registry row's URL into each Agent and AgentImage that attaches it (a
+  snapshot), and images carry the hub's URL in their env. Those copies still name
+  `hub-backend.<namespace>.svc`, a Service the upgrade deletes, so plugin tools
+  and hub calls fail in every task pod. After the upgrade, rewrite them in place:
+  ```bash
+  for kind in agents agentimages; do
+    for name in $(kubectl get "$kind" -n <namespace> -o json \
+        | jq -r '.items[] | select((.spec | tostring) | test("hub-backend\\.<namespace>\\.svc")) | .metadata.name'); do
+      kubectl get "$kind" "$name" -n <namespace> -o json \
+        | jq '.spec |= walk(if type == "string" then gsub("hub-backend\\.<namespace>\\.svc"; "hub.<namespace>.svc") else . end)' \
+        | kubectl replace -f -
+    done
+  done
+  ```
 - **Unchanged:** container image repositories (e.g. `dpinsel/ainsel-hub-backend`),
   the `ainsel-mcp` and `postgres` resources, secret names (`ainsel-hub-db`,
   `ainsel-local-admin`, `ainsel-local-jwt`, `ainsel-plugin-credentials`), and the
