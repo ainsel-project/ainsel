@@ -142,7 +142,7 @@ describe('OverviewSection', () => {
     )
   })
 
-  it('counts the five run states 1:1 with the Activity outcome filters', async () => {
+  it('counts the five run states 1:1 with the Activity state filters', async () => {
     // Fixtures carry task payloads: under effectiveRunState a bare
     // { status: 'running' } with no task is `unknown`, not a live run.
     const invocations = [
@@ -186,10 +186,10 @@ describe('OverviewSection', () => {
     await waitFor(() => expect(valueOf('Runs today').querySelector('a')).not.toBeNull())
     const expected: [string, string][] = [
       ['Runs today', '/activity?agent=a1&since=today'],
-      ['Failures today', '/activity?agent=a1&since=today&outcome=failure'],
-      ['Timeouts today', '/activity?agent=a1&since=today&outcome=timeout'],
-      ['Running now', '/activity?agent=a1&since=today&outcome=running'],
-      ['Queued now', '/activity?agent=a1&since=today&outcome=queued'],
+      ['Failures today', '/activity?agent=a1&since=today&runState=failure'],
+      ['Timeouts today', '/activity?agent=a1&since=today&runState=timeout'],
+      ['Running now', '/activity?agent=a1&since=today&runState=running'],
+      ['Queued now', '/activity?agent=a1&since=today&runState=queued'],
     ]
     for (const [label, href] of expected) {
       expect(valueOf(label).querySelector('a')).toHaveAttribute('href', href)
@@ -344,62 +344,15 @@ describe('OverviewSection', () => {
     await waitFor(() => expect(valueOf('Image Input')).toHaveTextContent('Text only'))
   })
 
-  it('shows the paused tag with the resume time', async () => {
-    const until = new Date(Date.now() + 3600_000).toISOString()
-    stubAgent({ ...baseAgent, paused: true, pausedUntil: until })
+  // The pause feature is gone (#249): nothing in the overview offers it. Stopping
+  // an agent is `replicas: 0`, which the runtime section edits; the overview says
+  // nothing about it.
+  it('offers no pause or resume control', async () => {
+    stubAgent({ ...baseAgent, replicas: 0, status: { ready: true, desired: 0 } })
     renderOverview()
-    expect(await screen.findByText(/Paused/)).toBeInTheDocument()
-  })
-
-  describe('pause / resume', () => {
-    it('offers Pause on a running agent and posts the chosen duration', async () => {
-      const pauseCalls: { url: string; body: string }[] = []
-      stubAgent(baseAgent, (url, init) => {
-        if (init?.method === 'POST' && url.includes('/pause')) {
-          pauseCalls.push({ url, body: String(init.body ?? '') })
-          return json({})
-        }
-        return undefined
-      })
-      renderOverview()
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Pause' }))
-      // The modal's confirm button shares the trigger's name; scope to the dialog.
-      const dialog = await screen.findByRole('dialog')
-      await userEvent.click(await within(dialog).findByRole('button', { name: 'Pause' }))
-
-      await waitFor(() => expect(pauseCalls).toHaveLength(1))
-      expect(pauseCalls[0].url).toContain('/api/v1/agents/a1/pause')
-      expect(JSON.parse(pauseCalls[0].body)).toEqual({ duration: '8h' })
-    })
-
-    it('offers the pause presets with the existing confirm copy', async () => {
-      renderOverview()
-      await userEvent.click(await screen.findByRole('button', { name: 'Pause' }))
-      const group = await screen.findByRole('radiogroup', { name: 'Pause duration' })
-      for (const label of ['30 minutes', '8 hours', '24 hours', '7 days', 'Indefinite']) {
-        expect(within(group).getByRole('radio', { name: label })).toBeInTheDocument()
-      }
-      expect(screen.getByText('Pause agent?')).toBeInTheDocument()
-    })
-
-    it('shows the paused state and resumes via DELETE', async () => {
-      const until = new Date(Date.now() + 3600_000).toISOString()
-      const delCalls: string[] = []
-      stubAgent({ ...baseAgent, paused: true, pausedUntil: until }, (url, init) => {
-        if (init?.method === 'DELETE' && url.includes('/pause')) {
-          delCalls.push(url)
-          return json({})
-        }
-        return undefined
-      })
-      renderOverview()
-
-      expect(await screen.findByText(/Paused/)).toBeInTheDocument()
-      await userEvent.click(await screen.findByRole('button', { name: 'Resume' }))
-      await waitFor(() => expect(delCalls).toHaveLength(1))
-      expect(delCalls[0]).toContain('/api/v1/agents/a1/pause')
-    })
+    await screen.findByRole('heading', { name: /doc-writer/ })
+    expect(screen.queryByRole('button', { name: /pause|resume/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Paused/)).not.toBeInTheDocument()
   })
 
   describe('delete', () => {

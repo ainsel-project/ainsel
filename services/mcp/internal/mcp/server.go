@@ -38,8 +38,6 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	s.AddTool(agents.UpdateAgentTool(), agents.UpdateAgent)
 	s.AddTool(agents.CreateAgentTool(), agents.CreateAgent)
 	s.AddTool(agents.DeleteAgentTool(), agents.DeleteAgent)
-	s.AddTool(agents.PauseAgentTool(), agents.PauseAgent)
-	s.AddTool(agents.ResumeAgentTool(), agents.ResumeAgent)
 
 	triggers := tools.NewTriggerTools(b.HubURL)
 	s.AddTool(triggers.ListTriggersTool(), triggers.ListTriggers)
@@ -58,7 +56,9 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	connectors := tools.NewConnectorTools(b.HubURL)
 	s.AddTool(connectors.ListConnectorsTool(), connectors.ListConnectors)
 	s.AddTool(connectors.GetConnectorTool(), connectors.GetConnector)
+	s.AddTool(connectors.CreateConnectorTool(), connectors.CreateConnector)
 	s.AddTool(connectors.UpdateConnectorTool(), connectors.UpdateConnector)
+	s.AddTool(connectors.DeleteConnectorTool(), connectors.DeleteConnector)
 
 	// Channels are the streams events live in: one per connector, one per agent
 	// inbox, plus custom grouping channels. The subscription list answers
@@ -94,6 +94,9 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	mcpServers := tools.NewMCPServerTools(b.HubURL)
 	s.AddTool(mcpServers.ListMCPServersTool(), mcpServers.ListMCPServers)
 	s.AddTool(mcpServers.GetMCPServerTool(), mcpServers.GetMCPServer)
+	s.AddTool(mcpServers.CreateMCPServerTool(), mcpServers.CreateMCPServer)
+	s.AddTool(mcpServers.UpdateMCPServerTool(), mcpServers.UpdateMCPServer)
+	s.AddTool(mcpServers.DeleteMCPServerTool(), mcpServers.DeleteMCPServer)
 
 	// Plugins are third-party code the platform routes to. Registration is
 	// separate from deployment (the operator ships the workload), and use is
@@ -124,6 +127,14 @@ func New(log *slog.Logger, b Backends) *server.MCPServer {
 	s.AddTool(skills.CreateSkillTool(), skills.CreateSkill)
 	s.AddTool(skills.UpdateSkillTool(), skills.UpdateSkill)
 	s.AddTool(skills.DeleteSkillTool(), skills.DeleteSkill)
+
+	// Groups are the access-control containers every groupId argument points
+	// at, so creating resources from scratch needs them. Read + create only —
+	// group update, delete and membership stay on the hub REST API.
+	groups := tools.NewGroupTools(b.HubURL)
+	s.AddTool(groups.ListGroupsTool(), groups.ListGroups)
+	s.AddTool(groups.GetGroupTool(), groups.GetGroup)
+	s.AddTool(groups.CreateGroupTool(), groups.CreateGroup)
 
 	errs := tools.NewErrorTools(b.HubURL)
 	s.AddTool(errs.GetRecentErrorsTool(), errs.GetRecentErrors)

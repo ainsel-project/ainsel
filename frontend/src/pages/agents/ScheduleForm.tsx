@@ -212,7 +212,7 @@ export function ScheduleForm({ agentId, trigger, onClose, onSaved }: ScheduleFor
               aria-label="Enabled"
             />
             <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-3)' }}>
-              {enabled ? 'Schedule is active' : 'Paused (no fires)'}
+              {enabled ? 'Schedule is active' : 'Disabled (no fires)'}
             </span>
           </div>
         </Field>

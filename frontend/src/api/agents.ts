@@ -94,13 +94,6 @@ export type AgentSummary = {
   /** RFC3339 timestamp of the last hub-mediated write (falls back to
    *  creation time for agents that predate the annotation). */
   updatedAt?: string
-  /** True while task delivery is withheld: routed tasks pile up as a
-   *  backlog and drain on resume. Ingestion and interactive chat keep
-   *  working while paused. */
-  paused: boolean
-  /** When an expiring pause ends (RFC3339). Absent for a running agent and
-   *  for an indefinite pause, which must be resumed explicitly. */
-  pausedUntil?: string
   /** The weekly window inside which the hub hands this agent work. Absent
    *  means any hour. Outside it, tasks queue and drain when it opens. */
   workingHours?: AgentWorkingHours
@@ -166,8 +159,6 @@ export type AgentRequest = Omit<
   | 'status'
   | 'mcp'
   | 'env'
-  | 'paused'
-  | 'pausedUntil'
   | 'workingHours'
   | 'hoursOpen'
   | 'hoursClosesAt'
@@ -230,30 +221,6 @@ export function deleteAgent(id: string) {
   return request<void>(`/agents/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-/** Pause options accepted by POST /agents/{id}/pause. Neither field = an
- *  indefinite pause that must be lifted explicitly. */
-export type PauseAgentRequest = {
-  /** Go duration string from now, e.g. '30m', '8h'. Mutually exclusive with until. */
-  duration?: string
-  /** RFC3339 timestamp when the pause ends. Mutually exclusive with duration. */
-  until?: string
-}
-
-/** Withhold task delivery: queued tasks wait as a backlog and drain on resume. */
-export function pauseAgent(id: string, body: PauseAgentRequest = {}) {
-  return request<AgentResponse>(`/agents/${encodeURIComponent(id)}/pause`, {
-    method: 'POST',
-    body,
-  })
-}
-
-/** Lift the pause; the backlog drains in id order. */
-export function resumeAgent(id: string) {
-  return request<AgentResponse>(`/agents/${encodeURIComponent(id)}/pause`, {
-    method: 'DELETE',
-  })
-}
-
 export function useAgents(params: ListAgentsParams = {}) {
   return useQuery({
     queryKey: ['agents', params],
@@ -290,22 +257,6 @@ export function useDeleteAgent() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: deleteAgent,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
-  })
-}
-
-export function usePauseAgent() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, body }: { id: string; body?: PauseAgentRequest }) => pauseAgent(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
-  })
-}
-
-export function useResumeAgent() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: resumeAgent,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
   })
 }

@@ -13,9 +13,9 @@ import (
 )
 
 // Working hours are read the way a person reads a timesheet: as wall-clock time
-// in the agent's zone, evaluated at read time. Like IsPaused this needs no
-// timers - the same object reads open at 08:59 and closed at 18:00 - and unlike
-// a timer it cannot be missed by a restarting hub.
+// in the agent's zone, evaluated at read time. That needs no timers - the same
+// object reads open at 08:59 and closed at 18:00 - and unlike a timer it cannot
+// be missed by a restarting hub.
 //
 // The cost of read-time evaluation is that the answer depends on the machine's
 // notion of "now", so the zone has to be resolved per call. time.LoadLocation

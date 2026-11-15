@@ -76,11 +76,6 @@ PRs with file-level feedback, classify and label incoming issues, answer
 mentions in issue and PR comments, and pick up a labeled issue, branch,
 implement the change, and open the PR back for review.
 
-An agent can also be **paused** — from the console, the API, or by editing
-the CR: while paused, its tasks accumulate as a backlog that drains in order
-on resume, so nothing is lost
-([API reference](docs/api-reference.md#post-apiv1agentsnamepause)).
-
 ![The AInsel operations console: active agents, platform connectors, routing
 rules and error state across the top; the connector table with its webhook
 endpoints and readiness below that; a 24-hour event throughput chart and a

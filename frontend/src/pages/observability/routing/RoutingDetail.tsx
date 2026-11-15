@@ -141,7 +141,7 @@ export function RoutingDetail() {
       align: 'right',
       cell: (_r) => (
         <Link
-          to={eventsLink({ status: 'matched', range })}
+          to={eventsLink({ match: 'matched', range })}
           className="label"
           style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
           onClick={(e) => e.stopPropagation()}

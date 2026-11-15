@@ -570,8 +570,8 @@ export function AgentWizard() {
                     error={errors.replicas?.message}
                     hint={
                       signIn
-                        ? 'ChatGPT sign-in runs one task at a time. 0 pauses the agent.'
-                        : 'Up to this many tasks run at once, each in its own container. 0 pauses the agent.'
+                        ? 'ChatGPT sign-in runs one task at a time. 0 stops dispatch.'
+                        : 'Up to this many tasks run at once, each in its own container. 0 stops dispatch: tasks stay queued.'
                     }
                   >
                     <Input
