@@ -39,6 +39,20 @@ func TestWireMetricsSource(t *testing.T) {
 // the oidc+local coexistence mode (issue #114). Only the error paths are
 // exercised: they all return before any network or container access, so no
 // live OIDC issuer or database is needed.
+// wireAuthPlanForTest drops the returned plan so the guard tests read as error
+// checks. wireAuthPlan is the successor of the old wireAuthMiddleware (issue
+// #264): the chain is now composed before the server exists.
+func wireAuthPlanForTest(ctx context.Context, c *container, cfg containerConfig) error {
+	// newContainer resolves the mode before wiring the chain; mirror that here.
+	mode, err := resolveAuthMode()
+	if err != nil {
+		return err
+	}
+	c.authMode = mode
+	_, err = wireAuthPlan(ctx, c, cfg)
+	return err
+}
+
 func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 	setEnv := func(t *testing.T, key, val string) {
 		t.Setenv(key, val)
@@ -48,7 +62,7 @@ func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 		setEnv(t, "HUB_AUTH_MODE", "bogus")
 		setEnv(t, "OIDC_ISSUER", "")
 		setEnv(t, "OIDC_AUDIENCE", "")
-		err := wireAuthMiddleware(context.Background(), &container{}, containerConfig{})
+		err := wireAuthPlanForTest(context.Background(), &container{}, containerConfig{})
 		if err == nil || !strings.Contains(err.Error(), "oidc+local") {
 			t.Fatalf("expected invalid-mode error to mention oidc+local, got: %v", err)
 		}
@@ -59,7 +73,7 @@ func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 		setEnv(t, "OIDC_ISSUER", "")
 		setEnv(t, "OIDC_AUDIENCE", "")
 		setEnv(t, "HUB_LOCAL_JWT_SECRET", "0123456789abcdef0123456789abcdef")
-		err := wireAuthMiddleware(context.Background(), &container{}, containerConfig{})
+		err := wireAuthPlanForTest(context.Background(), &container{}, containerConfig{})
 		if err == nil || !strings.Contains(err.Error(), "OIDC_ISSUER") {
 			t.Fatalf("expected issuer/audience requirement error, got: %v", err)
 		}
@@ -70,7 +84,7 @@ func TestWireAuthMiddlewareOIDCPlusLocalGuards(t *testing.T) {
 		setEnv(t, "OIDC_ISSUER", "https://idp.test/")
 		setEnv(t, "OIDC_AUDIENCE", "ainsel")
 		setEnv(t, "HUB_LOCAL_JWT_SECRET", "")
-		err := wireAuthMiddleware(context.Background(), &container{}, containerConfig{})
+		err := wireAuthPlanForTest(context.Background(), &container{}, containerConfig{})
 		if err == nil || !strings.Contains(err.Error(), "HUB_LOCAL_JWT_SECRET") {
 			t.Fatalf("expected HUB_LOCAL_JWT_SECRET requirement error, got: %v", err)
 		}
