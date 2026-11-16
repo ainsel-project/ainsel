@@ -10,7 +10,7 @@
 import { capToolResultContent, truncateWithMarker } from "./caps.ts";
 import { resolveToolResultMaxChars } from "./config.ts";
 import { redactSecrets } from "./redaction.ts";
-import { finiteNumberOrUndefined, hasRecordableUsage } from "./usage.ts";
+import { costOf, finiteNumberOrUndefined, hasRecordableUsage } from "./usage.ts";
 import { logError } from "./logging.ts";
 import type { PiContentBlock, PiMessage } from "./pi-types.ts";
 
@@ -43,7 +43,10 @@ export interface ConversationPayload {
 	// costUsd mirrors pi's usage.cost.total for the message, priced from the
 	// model's cost block in models.json (spec.llm.cost). The hub sums it into
 	// the by-event and summary cost figures (issue #281) and uses its presence
-	// to tell an unpriced model from a free run (issue #75).
+	// to tell an unpriced model from a free run (issue #75). It is omitted for
+	// every message of a model the operator declared unpriced (AINSEL_LLM_PRICED
+	// "false"), so a pi-computed $0.00 never reads as a measurement — see
+	// costOf and issue #339.
 	costUsd?: number;
 	stopReason: string;
 	// Subject labels the token tables group by (issue #410): the same
@@ -116,7 +119,7 @@ export function toConversationPayloads(messages: PiMessage[] | null | undefined,
 				// reported" (issue #75).
 				const cacheRead = finiteNumberOrUndefined(m.usage?.cacheRead);
 				const cacheWrite = finiteNumberOrUndefined(m.usage?.cacheWrite);
-				const costUsd = finiteNumberOrUndefined(m.usage?.cost?.total);
+				const costUsd = costOf(m.usage);
 				out.push({
 					...base,
 					role: "assistant",
@@ -151,7 +154,7 @@ export function toConversationPayloads(messages: PiMessage[] | null | undefined,
 				// stores NULL — "not reported".
 				const sysCacheRead = finiteNumberOrUndefined(m.usage?.cacheRead);
 				const sysCacheWrite = finiteNumberOrUndefined(m.usage?.cacheWrite);
-				const sysCostUsd = finiteNumberOrUndefined(m.usage?.cost?.total);
+				const sysCostUsd = costOf(m.usage);
 				out.push({
 					...base,
 					role: "system",

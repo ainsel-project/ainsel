@@ -90,8 +90,22 @@ export function resolveModelEnv(env: NodeJS.ProcessEnv = process.env): string {
 	return env.AINSEL_LLM_MODEL?.trim() || env.OLLAMA_CLOUD_MODEL?.trim() || "";
 }
 
-
-
+/**
+ * Resolve the operator's pricing declaration, `AINSEL_LLM_PRICED` (issue #339).
+ * The agent-operator writes `"true"` when the model has a price (`spec.llm.cost`
+ * is set — including an explicit all-zero price — or the provider is one of pi's
+ * built-ins, whose own catalog supplies the rates) and `"false"` when it does
+ * not. Only the literal `"false"` (case- and whitespace-tolerant) means
+ * unpriced: unset or unparseable values resolve to *priced* — fail open, so a
+ * new runner against an old operator, or a custom agent image built outside
+ * this repo, keeps reporting what it reports today instead of silently
+ * blanking the cost of agents that are priced. The declaration only ever
+ * suppresses pi's arithmetic zero — a non-zero figure pi computed from a rate it
+ * does have stays reported (see costOf).
+ */
+export function resolveLlmPriced(env: NodeJS.ProcessEnv = process.env): boolean {
+	return env.AINSEL_LLM_PRICED?.trim().toLowerCase() !== "false";
+}
 
 export function requiredEnv(name: string): string {
 	const v = process.env[name];

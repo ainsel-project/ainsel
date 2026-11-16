@@ -63,6 +63,7 @@ When the Agent controller creates a Deployment for an Agent CR, it sets these en
 | `AGENT_NAME` | `metadata.name` | Agent name |
 | `PI_PROVIDER` | `spec.llm.provider` | Pi provider key resolved from the explicit provider (`ollama-api-key`, `opencode`, `alibaba-cloud`; Pi's built-in `openai`, `anthropic`, `google`; `ainsel-custom` for custom). There is no fallback: an empty or unknown provider fails the reconcile with `Ready=False` / `InvalidLLMProvider` (issue #96) |
 | `AINSEL_LLM_MODEL` | `spec.llm.model` | LLM model — the canonical, provider-neutral runtime contract |
+| `AINSEL_LLM_PRICED` | `spec.llm.cost != nil \|\| built-in provider` | Pricing declaration for the runner (issue #339): `"true"` when the model has a price — `spec.llm.cost` is set (an explicit all-zero price stays a measured free run) or the provider is one of Pi's built-ins, whose own catalog supplies the rates; `"false"` otherwise, so the runner reports that usage as unpriced instead of a measured `$0.00`. Written explicitly in both directions; the runner treats an unset value as priced (fail open) |
 | `OLLAMA_CLOUD_MODEL` | `spec.llm.model` | Transitional alias of `AINSEL_LLM_MODEL`, dual-written with the same value for one release so old runtime images keep working (issue #96). Remove after the alias window |
 | `OLLAMA_CLOUD_MAX_TURNS` | `spec.llm.maxTurns` | Tool-loop turn cap (legacy name; a provider-neutral rename is a known follow-up) |
 | `HUB_URL` | Operator env (`HUB_URL`) | Hub API the runtime polls for tasks |

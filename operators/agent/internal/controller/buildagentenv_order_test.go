@@ -91,8 +91,10 @@ func TestBuildAgentEnv_AppendOrder(t *testing.T) {
 	// Expected sequence: platform block, llmProviderEnv, enabledToolsEnv,
 	// imageProfileEnv (reserved names skipped, in declaration order), mcpEnv.
 	want := []string{
-		// platform block
+		// platform block (AINSEL_LLM_PRICED joins the model contract vars,
+		// issue #339 — the runner reads it next to AINSEL_LLM_MODEL)
 		"AGENT_NAME", "PI_PROVIDER", "AINSEL_LLM_MODEL", "OLLAMA_CLOUD_MODEL",
+		"AINSEL_LLM_PRICED",
 		"AGENT_PERSONA_PATH", "HUB_URL", "HUB_INTERNAL_VALIDATE_SECRET",
 		// llmProviderEnv
 		"OLLAMA_API_KEY", "OPENCODE_API_KEY", "ALIBABA_CLOUD_API_KEY",

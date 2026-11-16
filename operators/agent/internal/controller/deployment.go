@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -340,6 +341,18 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 		// independently). Remove the alias one release after this lands.
 		{Name: "AINSEL_LLM_MODEL", Value: agent.Spec.LLM.Model},
 		{Name: "OLLAMA_CLOUD_MODEL", Value: agent.Spec.LLM.Model},
+		// AINSEL_LLM_PRICED declares the operator's pricing intent to the
+		// runner (issue #339). Pi prices every message from the model's cost
+		// block, so a model rendered without one reports a measured $0.00 —
+		// the runner needs to be told that the omission means "unpriced" so it
+		// can omit costUsd (and the agent_cost_usd_total series) and the hub
+		// stores NULL, "not reported". Priced means the Agent spec carries
+		// spec.llm.cost (including an explicit all-zero price) or the provider
+		// is one of Pi's built-ins, whose own catalog supplies the rates.
+		// Written explicitly in both directions; the runner treats an unset
+		// value as priced (fail open, so a new runner against an old operator
+		// keeps reporting what it reports today).
+		{Name: "AINSEL_LLM_PRICED", Value: strconv.FormatBool(llmPriced(agent, pp))},
 		{Name: "AGENT_PERSONA_PATH", Value: "/etc/agent/persona.md"},
 		{Name: "HUB_URL", Value: resolveHubURL()},
 		// HUB_INTERNAL_VALIDATE_SECRET authenticates the runner
@@ -365,6 +378,16 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 
 	envs = append(envs, mcpEnv(ctx, agent, img, plan, imageEnvNames)...)
 	return envs, nil
+}
+
+// llmPriced reports whether the agent's model has a price the runner may
+// report as a measurement (issue #339): either the Agent spec declares
+// spec.llm.cost — an explicit all-zero price stays a deliberate measured
+// zero — or the provider is one of Pi's built-ins, whose own catalog
+// supplies the rates even when the spec omits the cost block. Consumed by
+// buildAgentEnv to render AINSEL_LLM_PRICED.
+func llmPriced(agent *ainselv1alpha1.Agent, pp piProviderConfig) bool {
+	return agent.Spec.LLM.Cost != nil || pp.BuiltIn
 }
 
 // llmProviderEnv renders the provider API-key secret references and the

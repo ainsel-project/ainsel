@@ -196,14 +196,19 @@ would still remember.
 Cache and cost figures carry a second distinction, marked by `cacheReported` /
 `costReported` flags on the token responses: *not reported* is not the same fact
 as *measured zero*. A provider without prompt caching reports no cache figure at
-all, and a model without a `spec.llm.cost` block reports no cost — the runtime
-then omits the fields (the hub stores NULL, and raises no `agent_cost_usd_total`
-series), and the console renders those tiles and cells as "not reported" instead
-of a real-looking `0%` hit rate or `$0.00`. A reported zero — a provider that
-genuinely reports `cached_tokens: 0`, a priced model on a free run — keeps its
-flag true and renders as the measured zero it is. Rows written before migration
-0025 stored ambiguous zeros; the migration backfills them to NULL, so those rows
-read as not reported too.
+all, and a model the operator declared unpriced — no `spec.llm.cost`, and not one
+of Pi's built-in providers whose catalog supplies the rates — reports no cost
+(issue #339: the operator declares this to the runtime via `AINSEL_LLM_PRICED`,
+because pi itself prices a model without a cost block at a computed zero). The
+runtime then omits the fields (the hub stores NULL, and raises no
+`agent_cost_usd_total` series), and the console renders those tiles and cells as
+"not reported" instead of a real-looking `0%` hit rate or `$0.00`. Only that
+computed zero is suppressed: a non-zero figure is a rate pi actually found, so it
+is reported even for a model declared unpriced. A reported zero — a provider that
+genuinely reports `cached_tokens: 0`, a priced model on a free run, an explicit
+all-zero `spec.llm.cost` — keeps its flag true and renders as the measured zero it
+is. Rows written before migration 0025 stored ambiguous zeros; the migration
+backfills them to NULL, so those rows read as not reported too.
 
 To have Prometheus scrape the hub's own `/metrics` endpoint, enable the ServiceMonitor or PodMonitor resources in `values.yaml`. This is independent of `metricsSource`: the hub exports these counters whether or not it also reads them back.
 

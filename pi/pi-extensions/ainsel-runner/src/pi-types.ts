@@ -34,7 +34,7 @@ interface PiUsageFieldsFromPi {
 	cacheRead: number;
 	cacheWrite: number;
 	totalTokens: number;
-	cost: { total: number };
+	cost: { total: number; totalFromProvider?: boolean };
 }
 
 /** A pi usage report. All fields optional: providers and pi itself omit them. */
@@ -44,7 +44,10 @@ export interface PiUsage {
 	cacheRead?: number;
 	cacheWrite?: number;
 	totalTokens?: number;
-	cost?: { total?: number };
+	// totalFromProvider is pi's marker (pi-ai's applyOpenRouterReportedCost) that
+	// the provider billed this figure — real money, independent of any catalog
+	// rate. It must survive the tripwire below (issue #339).
+	cost?: { total?: number; totalFromProvider?: boolean };
 }
 
 /** A content block of a pi message. Covers the fields the serialiser reads:

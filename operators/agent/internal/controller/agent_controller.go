@@ -414,7 +414,9 @@ func (r *AgentReconciler) reconcilePiModelsConfigMap(ctx context.Context, agent 
 	// without it gets cost = 0, so usage.cost — and every cost figure the hub
 	// derives from it — is exactly zero. The rates come from the Agent spec
 	// (spec.llm.cost) so they are versioned with the agent rather than
-	// hardcoded here. See issue #281.
+	// hardcoded here. See issue #281. The omission is declared to the runner as
+	// "unpriced" via AINSEL_LLM_PRICED (buildAgentEnv) so the runner reports no
+	// figure instead of a measured $0.00 — see issue #339.
 	costBlock := ""
 	if c := agent.Spec.LLM.Cost; c != nil {
 		costBlock = fmt.Sprintf(`,
