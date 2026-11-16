@@ -81,6 +81,10 @@ const (
 
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
+// The pod-start check (taskstart.go) reads a Job's pods to tell "still pulling"
+// from "never starting"; without this the check silently reports nothing stalled
+// and a doomed Job keeps its slot.
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
 // taskJobName names the Job for one task. It is deterministic — the same task
 // always maps to the same name — so "does this task already have a Job?" is an
@@ -226,7 +230,17 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 		pending[id] = true
 	}
 
+	now := time.Now()
+
 	signIn := agent.UsesChatGPTSignIn()
+	// Blocks whose cooldown has expired stop holding their task, and records the
+	// hub has certainly read are dropped.
+	pruneTaskStartBlocks(agent, now)
+	// Tasks this pass holds back from the slot: their pod never started.
+	blocked := 0
+	// How soon a live Job's pod start deadline expires — the promise to look
+	// again, since a stuck pod sends nothing to tell us.
+	recheckIn := time.Duration(0)
 	active := int32(0)
 	have := make(map[int64]bool, len(jobList.Items))
 	retired := 0
@@ -266,12 +280,40 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 		}
 		id, err := strconv.ParseInt(j.Labels[TaskIDLabel], 10, 64)
 		if err != nil {
+			// No readable task id: nothing can match this Job to a task, so a pod
+			// that never starts here is a slot that never comes back. Same check,
+			// with no block to record because there is no task to block.
 			if !jobIsFinished(j) {
+				stall, stuck, next := r.taskStartStall(ctx, j, now)
+				if stuck {
+					if err := r.retireStalledJob(ctx, agent, 0, j, stall); err != nil {
+						return ScaleDecision{}, err
+					}
+					blocked++
+					continue
+				}
+				noteEarlier(&recheckIn, next)
 				active++
 			}
 			continue
 		}
 		if !jobIsFinished(j) {
+			// The pod-start check runs for every unfinished Job, not only the ones
+			// the hub still lists as due. The Job that held a queue shut for nine
+			// days was an orphan: its task had left status.pendingTaskIds, so no
+			// branch below would ever have retired it.
+			stall, stuck, next := r.taskStartStall(ctx, j, now)
+			if stuck {
+				if err := r.retireStalledJob(ctx, agent, id, j, stall); err != nil {
+					return ScaleDecision{}, err
+				}
+				recordTaskStartBlock(agent, id, stall, now)
+				blocked++
+				continue
+			}
+			// Not stalled — yet. A pod that is stuck is not an event source, so this
+			// pass has to promise to look again when its deadline expires.
+			noteEarlier(&recheckIn, next)
 			have[id] = true
 			active++
 			continue
@@ -365,6 +407,13 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 		if have[taskID] {
 			continue // a live Job already owns this task
 		}
+		if b := taskStartBlock(agent, taskID, now); b != nil {
+			// Its pod never started and the Job was retired for it. Handing this
+			// task the slot again would put the same doomed pod back in front of
+			// the queue, which is the blockage this pass exists to clear.
+			blocked++
+			continue
+		}
 		// The cap is best-effort against the informer cache: a Job created by a
 		// previous pass that has not landed in the cache yet is not counted in
 		// active, so fast back-to-back reconciles can briefly exceed the ceiling
@@ -407,6 +456,20 @@ func (r *AgentReconciler) syncPerTaskJobs(ctx context.Context, agent *ainselv1al
 		// Work the hub may not have told us about yet (published lists can lag
 		// the queue by a sweep) still needs a look, but nothing urgent.
 		decision.RequeueAfter = 0
+	}
+	if blocked > 0 {
+		decision.Message = fmt.Sprintf("%s; %d task(s) held back, their pods never started", decision.Message, blocked)
+		// Something is parked on a cooldown, so this pass owes a look when the
+		// earliest one ends — never sooner than the normal dispatch poll.
+		if d := nextTaskStartUnblock(agent, now); d > 0 {
+			if d < taskJobDispatchPoll {
+				d = taskJobDispatchPoll
+			}
+			noteEarlier(&recheckIn, d)
+		}
+	}
+	if recheckIn > 0 && (decision.RequeueAfter == 0 || recheckIn < decision.RequeueAfter) {
+		decision.RequeueAfter = recheckIn
 	}
 	// Report what this pass actually left running, not the count from before it
 	// dispatched: status.scaling.desired should not read 0 on the very pass that

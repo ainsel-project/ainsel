@@ -23,6 +23,12 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs", "jobs/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # pods: jobPerTask mode reads a task Job's pod to tell "still pulling" from
+  # "never starting". Without it the check reports nothing stalled and a Job whose
+  # image cannot be pulled holds the agent's whole concurrency cap (issue #342).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["services", "secrets", "serviceaccounts"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

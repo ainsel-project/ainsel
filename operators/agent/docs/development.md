@@ -30,7 +30,8 @@ internal/
     env.go                   # Image-env Secret, pi models ConfigMap, env resolvers
     sidecars.go              # Sidecar container composition (incl. chat-mcp)
     imagedigest.go           # Agent image digest resolution
-    jobmode.go               # Per-task Job render
+    jobmode.go               # Per-task Job render and dispatch
+    taskstart.go             # Never-started pod detection: retire the Job, hold the task back
     scaling.go               # Job-per-task scaling status semantics
     suite_test.go            # Test suite setup (envtest)
 ```
