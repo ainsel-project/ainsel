@@ -808,11 +808,17 @@ const taskSelectColumns = `t.id, t.event_id, t.agent_name, t.trigger_name, t.inv
 	       t.attempts, t.error, t.created_at, t.completed_at,
 	       COALESCE(t.claimed_at, conv.first_at) AS started_at`
 
+// taskSelectFrom repeats the non-empty invocation_id test inside the lateral
+// subquery. It is redundant for the result, but it is the predicate of
+// idx_task_conversations_invocation (a partial index), and the planner only uses
+// a partial index when the query states its predicate. Without it the subquery
+// scans all of task_conversations once per task row: a 200-row invocations page
+// cost seconds.
 const taskSelectFrom = `FROM agent_tasks t
 	 LEFT JOIN LATERAL (
 	     SELECT min(tc.created_at) AS first_at
 	     FROM task_conversations tc
-	     WHERE tc.invocation_id = t.invocation_id
+	     WHERE tc.invocation_id = t.invocation_id AND tc.invocation_id <> ''
 	 ) conv ON t.invocation_id <> ''`
 
 // TasksForEvents returns all agent tasks for the given event IDs in a single
