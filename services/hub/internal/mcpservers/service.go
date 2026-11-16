@@ -8,12 +8,14 @@ import (
 )
 
 // ManagedBy values. "user" rows are console-owned, "helm" rows arrive with the
-// chart's seed list, and "plugin" rows are written by the plugin registry
-// syncer for a plugin's agent MCP endpoint.
+// chart's seed list, "plugin" rows are written by the plugin registry syncer for
+// a plugin's agent MCP endpoint, and "hub" rows are written by the hub's own
+// registry syncer for the platform tools the hub serves to agents itself.
 const (
 	ManagedByUser   = "user"
 	ManagedByHelm   = "helm"
 	ManagedByPlugin = "plugin"
+	ManagedByHub    = "hub"
 )
 
 // PluginNamePrefix is the name prefix every plugin-owned registry row carries,

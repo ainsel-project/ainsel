@@ -289,9 +289,9 @@ func TestAgentTokenUsageSince(t *testing.T) {
 
 	msgs := []*ConversationMessage{
 		{AgentName: agentA, Role: "user", Content: "hi",
-			InputTokens: 100, OutputTokens: 10, CacheReadTokens: iptr(500), CacheWriteTokens: iptr(50)},
+			InputTokens: 100, OutputTokens: 10, CacheReadTokens: iptr(500), CacheWriteTokens: iptr(50), CostUSD: fptr(0.1)},
 		{AgentName: agentA, Role: "assistant", Content: "yo",
-			InputTokens: 20, OutputTokens: 5},
+			InputTokens: 20, OutputTokens: 5, CostUSD: fptr(0.025)},
 		{AgentName: agentB, Role: "user", Content: "hi",
 			InputTokens: 7, OutputTokens: 3},
 	}
@@ -316,12 +316,21 @@ func TestAgentTokenUsageSince(t *testing.T) {
 	if a.InputTokens != 120 || a.OutputTokens != 15 || a.CacheReadTokens != 500 || a.CacheWriteTokens != 50 {
 		t.Errorf("agent-a components = %+v, want 120/15/500/50", a)
 	}
+	// The per-agent rows carry the priced cost and its reported flag, so a
+	// per-agent answer to "what did this cost" agrees with the aggregate one
+	// instead of reading as a measured zero (issue #75).
+	if !a.CostReported || a.CostUSD != 0.125 {
+		t.Errorf("agent-a cost = %v (reported %v), want 0.125 reported", a.CostUSD, a.CostReported)
+	}
 	b, ok := byAgent[agentB]
 	if !ok {
 		t.Fatalf("agent-b row missing from %+v", rows)
 	}
 	if b.InputTokens != 7 || b.OutputTokens != 3 || b.CacheReadTokens != 0 || b.CacheWriteTokens != 0 {
 		t.Errorf("agent-b components = %+v, want 7/3/0/0", b)
+	}
+	if b.CostReported || b.CostUSD != 0 {
+		t.Errorf("agent-b cost = %v (reported %v), want 0 with costReported false", b.CostUSD, b.CostReported)
 	}
 
 	// A window starting in the future excludes every row: the bounds are

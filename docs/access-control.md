@@ -12,6 +12,14 @@ hub-managed local accounts (`auth.mode: local`), or both at once
 user can create personal access tokens for programmatic use. All methods
 resolve to the same user identity and grant the same permissions.
 
+The AInsel MCP server is a thin client of this API, not a second permission
+system: **MCP tools enforce nothing themselves**. Each tool forwards the
+caller's own bearer token to the hub, and the hub's ordinary `requireWrite` /
+admin checks decide — a non-admin gets the same 403 through an MCP tool as
+through the REST API (route-to-tool parity is enforced by the `x-mcp-tool` /
+`x-mcp-not-exposed` annotations in `openapi/hub.yaml`; see
+[`api-reference.md`](api-reference.md)).
+
 ### OIDC (interactive)
 
 Browser-based authentication via an external provider (e.g. Zitadel). The
@@ -125,8 +133,14 @@ curl https://ainsel.example.com/api/v1/groups/<group-id> \
 ## Resources and Groups
 
 Every resource (agent, agent-image, connector, trigger, cron-trigger,
-MCP server, persona, skill) belongs to exactly one group. You choose the
-group when creating the resource, from the groups you are a member of.
+MCP server, persona, skill, and standalone custom channel) belongs to exactly
+one group. You choose the group when creating the resource, from the groups
+you are a member of. A create that names no group is rejected with
+`400 groupId is required`. The one exception is an install with the group
+model switched off (`auth.mode: none`), which has exactly one group: there,
+a create that names no group is filed under the `legacy` group — the group
+the access-control migration creates — the same group the startup backfill
+assigns to resources that predate group ownership.
 
 One exception: a persona an **agent owns** is not a group resource of its own.
 The hub creates it on the agent's behalf when that agent's persona is edited

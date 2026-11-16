@@ -156,6 +156,26 @@ and **control** it. Below is the full tool surface, grouped by area.
 Read tools are safe to call freely; mutation tools change platform state
 and should be used deliberately.
 
+This table is the tool surface of record, and it is machine-checked: every
+operation in [`openapi/hub.yaml`](../openapi/hub.yaml) names its MCP tool via
+`x-mcp-tool` or records why it has none via `x-mcp-not-exposed`, in CI (see
+[`api-reference.md`](api-reference.md) and `.agent/skills/development/add-mcp-tool.md`).
+
+> This server is for **you** — a human at a laptop or a console operator. AInsel's
+> own agents do not get it. They get a separate, read-only plane served by the hub
+> at `/api/internal/agent-mcp`, which mounts the read half of this list and no
+> mutation at all: an agent may read that a trigger is paused, but cannot pause
+> one. That split is what keeps an agent from changing the platform it runs on —
+> see
+> [`administrator-guide.md`](administrator-guide.md#plugins).
+
+Write tools accept secrets (a provider API key, a secret `env` value) and never
+put them back into a result or an error string — the hub's read shapes mask
+them, and no tool echoes a request body into its error text. The single
+exception is `create_connector`, whose hub response carries the generated
+webhook signing secret once, because that is the only time the hub ever reveals
+it (see [Connectors](#connectors)).
+
 ### Workflows & agents
 
 | Tool | Mode | What it answers |
@@ -163,7 +183,9 @@ and should be used deliberately.
 | `summarize_workflows` | read | Agent-centric joined view: every agent with its triggers, connector, event type, filters, tools, MCPs. Orphaned triggers listed separately. |
 | `list_agents` | read | All agents and their status. |
 | `get_agent` | read | One agent: config, persona, pod state. |
-| `update_agent` | write | Update an agent's display name (`display_name`), `description`, or LLM config (`model`, `max_turns`, `temperature`, `context_window`, `vision`). Omitted fields unchanged; `vision: false` must be sent explicitly to turn image input off. The agent ID is immutable; renaming never recreates the agent or its channel. |
+| `update_agent` | write | Update any agent field the hub's `PUT /api/v1/agents/{name}` accepts: `display_name`, `description`, LLM config (`model`, `max_turns`, `temperature`, `context_window`, `vision`, `model_license`), `image`, `persona_id`, `enabled_tools`, `skills`, `mcp_servers`, `env`, `replicas`, `working_hours`, `memory`, and provider API keys (`openai_api_key`, `anthropic_api_key`, `custom_provider_url`, …). Omitted arguments are unchanged; present ones are applied — `skills: []` clears, `working_hours: {}` clears the window, `replicas: 0` stops task delivery. A secret `env` entry resent as `{name, value: "", secret: true}` keeps its stored value; secrets are never returned. The agent ID is immutable; renaming never recreates the agent or its channel. |
+| `create_agent` | write | Create an agent: display `name`, `groupId`, `image`, `model` + `provider` (required), plus optional `description`, LLM overrides, `persona_id` or `persona_text` (inline instructions become a persona owned by the agent), `enabled_tools`, `skills`, `mcp_servers`, `env` (secret entries need a non-empty value on create), `replicas`, `working_hours`, `memory`, and provider API keys. The hub assigns the `a-`-prefixed agent ID and returns it. |
+| `delete_agent` | write | Delete an agent — final: pods, task queue and the agent's owned persona go away. Externally managed agents (`managedBy`) are refused with 409. |
 
 ### Triggers
 
@@ -199,7 +221,22 @@ supported. Example: `"0 9 * * 1-5"` fires at 09:00 on weekdays.
 |------|------|-----------------|
 | `list_connectors` | read | All connectors and their status. |
 | `get_connector` | read | One connector: configuration and health. |
-| `update_connector` | write | Update a connector's display name (`display_name`) or pause/resume it (`disabled`). The connector ID and webhook endpoint are immutable; renaming never recreates the connector or its channel. |
+| `create_connector` | write | Create a webhook connector (`name`, optional `groupId` and `signature_header`). The hub assigns the `c-`-prefixed id, generates the HMAC signing secret and returns it **once** in this result as `webhookSecretValue`. |
+| `update_connector` | write | Update a connector. The hub's update accepts `display_name` and `disabled` and nothing else, so these are the only two fields; omitted arguments are unchanged. The connector ID and webhook endpoint are immutable; renaming never recreates the connector or its channel. |
+| `delete_connector` | write | Delete a connector by id. Final: the endpoint and its stored signing secret go with it. Refused with 409 while the connector is externally managed (`managedBy`). |
+
+The hub has one connector kind, the generic webhook receiver: an inbound
+`/webhooks/<id>` endpoint whose events are verified against an HMAC the hub
+generates. Forgejo and GitHub arrive as **plugins**, not as connector kinds, and
+a connector a plugin stamped (`managedBy`) refuses these writes with 409.
+
+`create_connector` is the one place a secret crosses into a tool result: the
+signing HMAC is generated by the hub and returned exactly once, in the create
+response — the documented contract the console uses to show the operator the
+value to paste into the source. Every read (`list_connectors`,
+`get_connector`, `update_connector`) masks it. Nothing else in the tool surface
+returns it, and there is no MCP tool for the hub's rotate-secret route, so a
+lost value means rotating from the console.
 
 ### Channels
 
@@ -266,6 +303,34 @@ Env entries are `{name, value, secret?}`. The API never returns secret values (t
 |------|------|-----------------|
 | `list_mcp_servers` | read | MCP servers in the registry: URLs and the tools each exposes. |
 | `get_mcp_server` | read | One MCP server entry: URL, transport, tool names, non-secret auth config. |
+| `create_mcp_server` | write | Register an MCP endpoint (`name`, `url`; optional `display_name`, `description`, `token_from_env`, `groupId`). Metadata only — it never deploys anything. |
+| `update_mcp_server` | write | Update a registry row (`display_name`, `description`, `url`, `token_from_env`). Omitted arguments are unchanged: the hub's update replaces the whole row, so the tool reads the row first and resends what you did not pass. `url` cannot be cleared; `description`/`token_from_env` clear on `""`. The row name cannot be renamed. |
+| `delete_mcp_server` | write | Delete a registry row by name. Final. Refused with 409 while an AgentImage still attaches the row (the 409 names the images) or while the row is externally managed. |
+
+A registry row is not inert metadata: agent pods dial the `url` directly, so it
+must be reachable from inside the cluster — a public-only or ingress-blocked URL
+is accepted by `create_mcp_server` and breaks the pod later. `tokenFromEnv`
+names the environment variable whose value is sent as the bearer; the registry
+stores the name and never the value, and the operator has to inject that
+variable on the AgentImage the agent runs from. The agent operator skips a token
+whose variable is undefined, so the agent then connects anonymously and the
+endpoint rejects it. Omit `token_from_env` for an endpoint that takes no auth.
+
+### Groups
+
+A group is the access-control container agents, triggers, connectors and
+other resources belong to. Its **id** is the value `groupId` arguments
+(`create_agent`, `create_trigger`, `create_channel`, …) expect — which is why
+these tools exist: a from-scratch setup no longer needs a REST call to find or
+make one. The hub does the authorization: any authenticated caller may list
+and read groups and becomes the owner of a group it creates; changing a group
+is owner-only and is not exposed here.
+
+| Tool | Mode | What it answers |
+|------|------|-----------------|
+| `list_groups` | read | All groups (id, name, description). The hub returns them as a bare array with no pagination, so the tool caps the list itself and reports `truncated`/`hint`. Empty on hubs with access control disabled. |
+| `get_group` | read | One group by id, with its members and roles (`{"group": …, "members": …}`). |
+| `create_group` | write | Create a group (`name`, optional `description`); the caller becomes its owner and the response carries the id to use as `groupId`. Names are unique — a duplicate is refused. Updating, deleting and membership are not exposed over MCP. |
 
 ### Plugins
 
@@ -306,6 +371,25 @@ Only the operator audience is here. A tool the plugin's manifest declares
 server, whatever is asked for — those tools are served to agent runtimes through
 a separate hub endpoint. A tool-level failure is not a call failure: it comes
 back inside the result as `isError`, the same as any other MCP tool.
+
+### Users, tokens & audit
+
+| Tool | Mode | What it answers |
+|------|------|-----------------|
+| `list_users` | read | The user registry: username, email, displayName, roles, enabled, `managedBy`. The hub's list is not paginated, so `page`/`limit` are applied MCP-side (default `limit=50`). |
+| `get_user` | read | One registry user by id. Never a password, never a token. |
+| `create_user` | write | Create a locally-managed user (admin-only): `username` + `password` required, `email`/`display_name`/`roles` optional. The password is sent once and no tool returns it. |
+| `update_user` | write | Partial update (admin-only) — only the arguments you pass are sent. `password` resets a local password and invalidates that user's session JWTs; `enabled: false` is refused with 409 for your own account and for the last admin. `roles` replaces the whole set. |
+| `delete_user` | write | Delete a registry user (admin-only). No self-deletion, last admin protected, externally managed users refused. |
+| `list_user_tokens` | read | The **calling user's** personal access tokens: id, label, createdAt, lastUsedAt, expiresAt, revokedAt. Values are never listed — the hub stores only a hash. |
+| `create_user_token` | write | Create an `ainsel_…` token for the calling user (optional `expires_in_days`). The value appears in this one response and cannot be retrieved again — only revoked. |
+| `revoke_user_token` | write | Revoke one of the caller's tokens by id. |
+| `list_auth_events` | read | The authz audit trail, newest first (admin-only): occurredAt, actorSub, eventType, target, sourceIP, outcome. Rows carry no secrets. In OIDC mode only the user-management events appear, because logins complete at the issuer. |
+
+The hub authorizes every one of these on the forwarded bearer: the MCP server
+performs no permission check of its own, so a non-admin session gets the same
+403 over MCP that the same route gives over REST. Secrets follow the same rule
+as connector secrets — accepted on a write, rendered by no read tool.
 
 ### Invocations & activity
 
@@ -354,12 +438,16 @@ limits** when the caller does not pass an explicit parameter:
 | `list_cron_triggers` | `pageSize=50` | `page`, `pageSize` |
 | `list_connectors` | `pageSize=50` | `page`, `pageSize` |
 | `list_channels` | `pageSize=50` | `page`, `pageSize`, `kind`, `since` |
-| `get_channel_events` | `limit=50` | `limit`, `since`, `status`, `subject` |
+| `get_channel_events` | `limit=50` | `limit`, `since`, `match`, `subject` |
 | `list_agent_images` | `pageSize=50` | `page`, `pageSize` |
 | `list_personas` | `pageSize=50` | `page`, `pageSize` |
 | `list_skills` | `pageSize=50` | `page`, `pageSize` |
 | `list_mcp_servers` | `pageSize=50` | `page`, `pageSize` |
+| `list_groups` | 50 (local cap — the hub endpoint has no pagination) | `limit` |
 | `list_plugins` | `pageSize=50` | `page`, `pageSize` |
+| `list_users` | `limit=50` (MCP-side window over the hub's unpaginated list) | `page`, `limit` |
+| `list_user_tokens` | 50 rows (local cap) | — (revoke what you no longer use) |
+| `list_auth_events` | `pageSize=50` | `page`, `pageSize`, `user`, `type`, `from`/`to` |
 | `list_invocations` | `limit=50` | `limit` |
 | `get_recent_errors` | `limit=50` | `limit` |
 | `get_token_usage` | 50 rows (local cap) | Narrow filters (`agent`, `repository`, `since`/`until`) |
@@ -389,6 +477,42 @@ and `truncated`/`hint` are added alongside them.
 If a hub endpoint returns a bare JSON array (no object wrapper), the
 response is wrapped as `{"items": [...], "truncated": ..., "hint": ...}`
 to provide a place for the truncation metadata.
+
+## Spec parity: which routes are tools, and which are not
+
+Every operation in [`openapi/hub.yaml`](../openapi/hub.yaml) states its MCP
+surface in the spec itself — exactly one of:
+
+```yaml
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      x-mcp-tool: list_users          # this route is the typed surface for this tool
+    post:
+      operationId: createUser
+      x-mcp-tool: create_user
+```
+
+```yaml
+  /api/v1/chat/sessions:
+    post:
+      operationId: createChatSession
+      x-mcp-not-exposed: "chat writes need an attribution + run-trigger decision (see #329)"
+```
+
+Two checks make that honest:
+
+- `services/hub/internal/api/openapi_mcp_marker_test.go` fails when an operation
+  carries neither marker, both, or an empty one — so a new hub route cannot merge
+  as an undocumented gap.
+- `services/mcp/internal/mcp/parity_test.go` fails when a marked tool is not
+  registered by the MCP server, or a registered tool has no row that names it.
+
+An aggregate tool (`summarize_workflows`, `summarize_agent_activity`, the two log
+and the two metrics tools) reads a route another tool already names, so its row
+carries a list: `x-mcp-tool: [list_agents, summarize_workflows]`. A deliberate
+non-exposure is not a bug to fix silently — the reason string says why, and which
+issue picks it up.
 
 ## Example conversations
 

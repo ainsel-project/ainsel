@@ -57,4 +57,4 @@ Examples:
 
 ## Disabling
 
-Toggle **Enabled** off to pause a trigger without deleting it. The schedule is preserved and can be re-enabled at any time.
+Toggle **Enabled** off to disable a trigger without deleting it. The schedule is preserved and can be re-enabled at any time.

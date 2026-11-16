@@ -26,6 +26,10 @@
 - [ ] **Explain the WHY** — Commit body: root cause (fixes) or motivation (features).
 - [ ] **Update tests** — If behavior changed, tests must reflect the new behavior. Add tests for new behavior.
 - [ ] **Update docs** — If public API, CRD fields, config options, or UX changed.
+- [ ] **MCP parity** — If you added/removed/renamed a hub route or MCP tool: the
+      operation in `openapi/hub.yaml` must carry `x-mcp-tool` or
+      `x-mcp-not-exposed`, and both parity tests must stay green
+      (see `add-mcp-tool.md`).
 
 ### 3. Before Pushing — Verify Locally
 

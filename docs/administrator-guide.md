@@ -587,7 +587,7 @@ comment, unprompted.
 
 - Schedule fires in the **hub's local time**. Confirm the hub pod's
   timezone (default UTC) when picking times.
-- Pausing without deletion → update it with `enabled: false`
+- Disabling without deletion → update it with `enabled: false`
   (console, MCP, or `PUT /api/v1/cron-triggers/{id}`).
 - Backfill missed runs is intentionally not supported — each fire is
   one invocation; if the hub is down during a slot, that slot is
@@ -638,7 +638,9 @@ What to know:
   the token if needed. If OpenAI rejects it, the agent shows **Sign-in required**
   on its page and in the agent list, runs nothing, and keeps its queued tasks
   until someone signs in again. A network or OpenAI outage during that check is
-  retried and is not treated as a dead sign-in. A token revoked before it
+  retried and is not treated as a dead sign-in; each attempt gives up after 20
+  seconds. A stored credential that no longer parses (a pod killed while writing
+  it) counts as dead; signing in again clears it and stores a new one. A token revoked before it
   expires is only noticed when it next refreshes; until then tasks fail with an
   authorization error.
 - **Revoking.** Each agent signs in as its own app, shown as *AInsel
@@ -746,15 +748,20 @@ misbehaves, scale it to zero (below) while you fix the persona.
 Mostly persona-driven today: refusal patterns ("never close
 issues"), output-format constraints, blast-radius limits.
 
-![The agent detail view for agent-reviewer-gh, showing its model and image, a
-runtime status of Ready with configured replicas and containers, and the
-persona-reviewer shared template rendered alongside its Scope Constraint
-section](images/agent-persona.webp)
+![The Runtime & env section of the agent-reviewer-gh agent workspace in the
+console: the Model & scaling panel with its model and scaling settings, the
+read-only Image panel with an Edit image link to the image page, and the
+Environment overrides panel with the agent's own variables layered over the
+image's environment](images/agent-persona.webp)
 
-*A reviewer agent's guardrails, in the console. The persona's scope
-constraints — review the diff only, never propose rewrites of unchanged code,
-never open issues or apply labels — are the guardrail, and they are versioned
-with the persona rather than living in someone's head.*
+*A reviewer agent's runtime configuration, in the console: Model & scaling
+sets the model and how many tasks may run at once, the Image panel shows the
+referenced image read-only (the Edit image link leads to the image page, where
+an edit updates every agent sharing it), and Environment overrides pin this
+agent's env on top of the image's. The guardrail itself — the persona's scope
+constraints, review the diff only, never propose rewrites of unchanged code,
+never open issues or apply labels — lives on the agent's Persona section,
+versioned with the persona rather than living in someone's head.*
 
 The
 platform supplements this with:
@@ -1023,6 +1030,50 @@ well, and they exist only while `HUB_SELF_URL` is set on the hub — that is the
 base of every URL the syncer writes, and the chart gives it the same address the
 agent operator gets as `HUB_URL`. Without it the sync is off and plugins serve no
 agent tools.
+
+**The platform's own tools for AInsel's agents.** The same shape, one row, for the
+platform itself. With `hub.agentMCP.enabled: true` the hub serves
+`POST /api/internal/agent-mcp` and registers a row named `ainsel` — URL
+`<HUB_SELF_URL>/api/internal/agent-mcp`, bearer from
+`HUB_INTERNAL_VALIDATE_SECRET`, `managedBy: hub` — so an agent attaches the
+platform's state the way it attaches a plugin's tools:
+
+```yaml
+spec:
+  mcpServers:
+    - name: ainsel
+      url: http://hub.<namespace>.svc.cluster.local:8080/api/internal/agent-mcp
+      tokenFromEnv: HUB_INTERNAL_VALIDATE_SECRET
+```
+
+What it offers is the read half of what you can see in the console: `list_agents`,
+`get_agent`, `list_invocations`, `get_invocation`, `get_agent_logs`,
+`get_recent_errors`, `get_token_usage`, `get_agent_metrics`, `query_metrics`,
+`get_platform_health`, `list_mcp_servers`, `list_channels`, `get_channel_events`,
+`search_skills`, `get_skill`. The skill tools are the catalogue endpoint's own, so the two surfaces
+cannot drift.
+
+Two properties are the reason this is safe to hand to an agent, and both are
+pinned by tests rather than by intent:
+
+- **It has no writes.** The mounted tool set is the capability allow-list, and a
+  golden test fails CI if a mutating tool is ever added to it. An agent may read
+  that a trigger is paused; it cannot pause one. That is what removes the
+  self-modification problem — an agent changing platform state is an agent
+  changing its own future behaviour, and there is no guard for that yet. Writes
+  stay with you, on AInsel's own MCP server (see
+  [`mcp.md`](mcp.md#what-you-can-do-with-the-agent)).
+- **It is not a second view of the registry.** The `ainsel` row is `managedBy: hub`,
+  so the console treats it as platform-owned: not editable, not deletable, and not
+  claimable by a `PUT /api/v1/mcp-servers/ainsel`. The syncer that writes it only
+  ever writes that one row — it never prunes, and it will not adopt a row of the
+  same name that someone else created; a foreign `ainsel` row is left alone and
+  reported.
+
+The flag gates the endpoint and the row together, and it is off by default. A row
+for an endpoint that answers 503 is worse than no row: an agent would attach a
+server that refuses it and read that as a broken platform rather than as a choice
+you made.
 
 **Plugin-shipped skills.** A manifest may declare up to 20 skills. Each one
 becomes a row in the skill registry with id and name `<pluginId>-<skill name>`,

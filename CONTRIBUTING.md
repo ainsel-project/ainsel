@@ -166,9 +166,10 @@ rolling them out is left to whatever pipeline owns the environment.
 | workflow | trigger | does |
 | --- | --- | --- |
 | `ci-<component>.yml` (11) | PR based on `main`, path-filtered | build, test, lint that component; the Go services, operators and `shared/api` call the shared `ci-component.yml` |
-| `pr-title.yml` | PR opened, edited or updated | reject a PR title release-please could not parse |
+| `pr-title.yml` | PR opened, edited or updated | reject a PR title release-please could not parse (hygiene; the title is no longer what reaches `main`) |
+| `pr-commits.yml` | PR opened, updated or reopened | reject a PR whose own commits are not conventional commits - these are the subjects release-please reads on `main` (see [conventions](docs/conventions.md#commit-messages)) |
 | `pr-signed-off.yml` | PR opened, updated or reopened | reject a PR whose commits lack a `Signed-off-by:` trailer (see [conventions](docs/conventions.md#sign-off)) |
-| `dependabot-auto-merge.yml` | PR by `dependabot[bot]`, or dispatch with a PR number | wait for every other check on the PR, then squash-merge it; refuse on any red check |
+| `dependabot-auto-merge.yml` | PR by `dependabot[bot]`, or dispatch with a PR number | wait for every other check on the PR, then merge it; refuse on any red check |
 | `ci-chart.yml` | same, for `chart/**` and `operators/*/config/crd/**` | helm lint, template with default/example/medium/large values, CRD sync check |
 | `ci-workflows.yml` | same, for `dev-image*.yml` and their test | assert the publish decision for every event/branch combination |
 | `ci-licenses.yml` | same, for lockfiles, `THIRD_PARTY_LICENSES.md`, `LICENSES/` and the license scripts | fail on a dependency license that may not ship; fail when the committed manifest drifts from the lockfiles |
@@ -276,23 +277,30 @@ Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `revert`.
   [`docs/conventions.md`](docs/conventions.md#sign-off) for the rules and the
   exemptions.
 
-release-please reads these commits to compute the next version and to write
-`CHANGELOG.md`, so the format is load-bearing rather than stylistic. Two rules
-decide what a reader of the changelog actually sees:
+release-please reads the commits that land on `main` to compute the next
+version and to write `CHANGELOG.md`, so the format is load-bearing rather than
+stylistic. PRs merge as merge commits carrying their branch commits, and
+release-please is configured with `include-pull-requests: false`: the branch
+commits are the single source of the changelog, and PR titles never become
+entries. Two rules decide what a reader of the changelog actually sees:
 
 - **A subject release-please cannot parse is dropped** - it appears nowhere in
-  the changelog and cannot bump the version. `.github/workflows/pr-title.yml`
-  rejects such a PR title, because squash-merge makes the title the subject.
+  the changelog and cannot bump the version. `.github/workflows/pr-commits.yml`
+  rejects a PR whose commits are not conventional, because those commits are
+  what reaches `main`. `pr-title.yml` still checks the title: it is the line a
+  reviewer reads first, and a PR that is squash-merged instead does put the title
+  on `main`.
 - Of the commits that do parse, only `feat`, `fix`, `perf` and `revert` are
   listed by default. `chore` (where Dependabot's `chore(deps)` bumps land),
   `docs`, `style`, `refactor`, `test`, `build` and `ci` are hidden - unless the
   commit is breaking, in which case it is shown. That keeps dependency noise out
   of the changelog without hiding anything that changes behaviour.
 
-Breaking changes need a marker: either append `!` to the type
-(`feat(api)!: drop enabledMCPs`) or add a `BREAKING CHANGE: <what>` footer.
-Without one the change still ships - it just won't appear under *BREAKING* in
-the changelog, and the version won't bump for it.
+Breaking changes need a marker **on the branch commit**: either append `!` to the
+type (`feat(api)!: drop enabledMCPs`) or add a `BREAKING CHANGE: <what>` footer to
+that commit's message. A marker that lives only in the PR title or the PR body is
+invisible to release-please. Without one the change still ships - it just won't
+appear under *BREAKING* in the changelog, and the version won't bump for it.
 
 The full convention lives in [`docs/conventions.md`](docs/conventions.md).
 
@@ -308,14 +316,15 @@ Three files define it:
 
 | file | role |
 | --- | --- |
-| `release-please-config.json` | `release-type: simple` at the repo root, plain `vX.Y.Z` tags (`include-component-in-tag: false`), `bump-minor-pre-major` so a breaking change on a `0.x` base bumps minor, and `extra-files` entries that keep `chart/Chart.yaml`'s `version` and `appVersion` in step with the release |
-| `.release-please-manifest.json` | the last released version — `0.1.5` until the first release, after which release-please maintains it |
+| `release-please-config.json` | `release-type: simple` at the repo root, plain `vX.Y.Z` tags (`include-component-in-tag: false`), `bump-minor-pre-major` so a breaking change on a `0.x` base bumps minor, `include-pull-requests: false` so the changelog comes from the conventional commits on `main` rather than from PR titles, and `extra-files` entries that keep `chart/Chart.yaml`'s `version` and `appVersion` in step with the release |
+| `.release-please-manifest.json` | the last released version — `0.2.0` — which release-please maintains and computes the next bump from |
 | `CHANGELOG.md` | generated and maintained by release-please |
 
 ### How a release happens
 
-1. Merge PRs into `main` with a squash, as usual — see
-   [Why PRs squash-merge into `main`](#why-prs-squash-merge-into-main).
+1. Merge PRs into `main` as usual - merge commits carrying conventional branch
+   commits; see
+   [Why PR branch commits must be conventional](#why-pr-branch-commits-must-be-conventional).
 2. On every push to `main`, `.github/workflows/release.yml` runs
    release-please. If there are release-worthy commits it opens — or refreshes —
    a release PR titled `chore(main): release <version>`, containing the
@@ -363,23 +372,29 @@ a long-lived credential to rotate. With the secret unset the workflow keeps usin
 `GITHUB_TOKEN`.
 
 Until that setting is on the release pipeline produces **nothing at all**: no
-`vX.Y.Z` tag, so the `chart` and `images` jobs skip, and no `:latest` image. As of
-writing no GitHub release exists — `git ls-remote --tags origin` is empty and the
-workflow has had exactly one run, which failed on this setting — so the `latest`,
-`0.1.0` … `0.3.0` tags on Docker Hub predate release-please and are not releases of
-anything.
+`vX.Y.Z` tag, so the `chart` and `images` jobs skip, and no `:latest` image. The
+pipeline has cut one release since - `v0.2.0`, the tag and GitHub Release
+`.release-please-manifest.json` records — and the `latest`, `0.1.0` … `0.3.0`
+tags on Docker Hub predate release-please and are not releases of anything.
 
-### Why PRs squash-merge into `main`
+### Why PR branch commits must be conventional
 
 release-please reads the conventional commits **on `main`** to derive the
-version and `CHANGELOG.md`. A squash-merged PR is exactly what it wants: one
-commit carrying that PR's conventional subject, and `pr-title.yml` already
-rejects titles release-please could not parse. What stays forbidden is any
-merge onto `main` that collapses several PRs into a single non-conventional
-commit — a bulk `release:` promotion commit is the worked example: `release:`
-is not a conventional type, so `main` would appear to contain no features and
-no fixes at all. The changelog would omit everything the release actually
-ships, and release-please would propose no bump.
+version and `CHANGELOG.md`, and `include-pull-requests: false` in
+`release-please-config.json` says that PR titles are not a fallback source. PRs
+merge into `main` as merge commits carrying their branch commits, so those branch
+commits are what the tool sees: each one contributes at most one entry, and a
+subject it cannot parse contributes nothing - no entry, no bump, no error.
+`.github/workflows/pr-commits.yml` is what makes that failure impossible to ship
+by accident; `pr-title.yml` stays as title hygiene.
+
+What stays forbidden is any merge onto `main` that collapses several PRs into a
+single non-conventional commit — a bulk `release:` promotion commit is the worked
+example: `release:` is not a conventional type, so `main` would appear to contain
+no features and no fixes at all. The changelog would omit everything the release
+actually ships, and release-please would propose no bump. Merge commits are not
+that: they carry no subject of their own, and `pr-commits.yml` skips them, so
+merging `main` back into a long-lived branch stays fine.
 
 ### Prereleases and `latest`
 
@@ -420,9 +435,11 @@ the chart version (or the component `image.tag` values) explicitly.
 ## Pull requests
 
 - **One topic per PR.** Don't bundle unrelated changes — open separate PRs.
-- Open against `main`. Squash merge is the norm - it is the only merge type
-  the repository allows, so the PR title becomes the commit subject on the
-  trunk (see [Why PRs squash-merge into `main`](#why-prs-squash-merge-into-main)).
+- Open against `main`. PRs merge into `main` as merge commits carrying their
+  branch commits, so every commit on the branch must be a conventional commit —
+  those subjects, not the PR title, are what release-please writes the changelog
+  from (see
+  [Why PR branch commits must be conventional](#why-pr-branch-commits-must-be-conventional)).
 - The PR description should explain *why*, not just *what*.
 - If a model generated any part of the diff, record its **family and licence** in the
   description rather than the tool's product name — the licence is what decides whether

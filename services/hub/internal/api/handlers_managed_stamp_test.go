@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	"github.com/ainsel-project/ainsel/services/hub/internal/personas"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugincreds"
@@ -44,7 +45,7 @@ func pluginCaller(id string) *plugincreds.Caller {
 func doManaged(t *testing.T, s *Server, caller *plugincreds.Caller, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, managedCallerReq(t, caller, method, path, body))
+	s.ServeHTTP(rec, managedCallerReq(t, caller, method, path, body))
 	return rec
 }
 
@@ -300,7 +301,7 @@ func TestManagedStamp_PersonaCreate(t *testing.T) {
 		t.Helper()
 		s := testServer(t)
 		stub := &stubManagedPersonaService{}
-		RegisterPersonaRoutes(s.mux, stub, nil, nil)
+		RegisterPersonaRoutes(s.mux, stub, authz.NewPermissiveStore(), authz.NewChecker(authz.NewPermissiveStore(), nil), "legacy")
 		return s, stub
 	}
 	body := `{"name":"p","text":"You are...","managedBy":"%s"}`
@@ -373,16 +374,6 @@ func TestManagedNamedManager_AgentMutations(t *testing.T) {
 		t.Errorf("update changed the marker: %q", a.Spec.ManagedBy)
 	}
 
-	// Pause/resume is the plugin's own too.
-	rec = doManaged(t, s, pluginCaller("forgejo"), http.MethodPost, "/api/v1/agents/mine/pause", `{}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("own plugin pause: status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	rec = doManaged(t, s, pluginCaller("forgejo"), http.MethodDelete, "/api/v1/agents/mine/pause", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("own plugin resume: status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-
 	// Everyone else keeps the 409, on every operation.
 	for _, tc := range []struct {
 		caller *plugincreds.Caller
@@ -393,8 +384,6 @@ func TestManagedNamedManager_AgentMutations(t *testing.T) {
 	} {
 		for _, op := range []struct{ method, path, body string }{
 			{http.MethodPut, "/api/v1/agents/mine", update},
-			{http.MethodPost, "/api/v1/agents/mine/pause", `{}`},
-			{http.MethodDelete, "/api/v1/agents/mine/pause", ""},
 			{http.MethodDelete, "/api/v1/agents/mine", ""},
 		} {
 			rec := doManaged(t, s, tc.caller, op.method, op.path, op.body)

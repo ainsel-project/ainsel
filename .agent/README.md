@@ -21,6 +21,7 @@ next, and report which steps you completed.
 | [`pr-checklist.md`](skills/development/pr-checklist.md) | Any PR: branch, commit, push, CI |
 | [`bug-fix.md`](skills/development/bug-fix.md) | Fixing a reported bug, incl. this repo's recurring root causes |
 | [`add-dependency.md`](skills/development/add-dependency.md) | Adding/bumping a Go module, pnpm or npm package — lockfiles, `go.sum`, the license manifest |
+| [`add-mcp-tool.md`](skills/development/add-mcp-tool.md) | New/removed hub route or MCP tool: spec `x-mcp-*` annotation → tool → parity tests → `docs/mcp.md` row |
 | [`change-crd.md`](skills/development/change-crd.md) | New/changed CRD field: types → operator base → chart copy → docs |
 
 **`skills/maintenance/`** — operating a running install.

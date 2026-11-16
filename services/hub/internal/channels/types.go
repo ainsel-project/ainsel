@@ -163,8 +163,8 @@ type EventQuery struct {
 	Offset int
 	// Agent narrows the timeline to events delivered to one agent.
 	Agent string
-	// Status is a derived activity status: matched, unmatched or error.
-	Status string
+	// Match is the derived activity match result: matched, unmatched or error.
+	Match string
 	// Subject is a "<connector>.<eventType>" pattern, as the events endpoint
 	// accepts it.
 	Subject string

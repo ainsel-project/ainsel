@@ -28,6 +28,28 @@ observability endpoints use `rows`; `GET /api/v1/queue/recent` returns a bare ar
 [`openapi/hub.yaml`](../openapi/hub.yaml) spec is the machine-readable contract and is checked
 against the router in CI, so it is authoritative where this prose is general.
 
+### MCP exposure annotations (`x-mcp-tool`, `x-mcp-not-exposed`)
+
+Every operation in [`openapi/hub.yaml`](../openapi/hub.yaml) must declare how the
+AInsel MCP server (see [`mcp.md`](mcp.md)) reaches it — one of exactly two keys:
+
+- `x-mcp-tool: <tool_name>` (a name, or a list of names when one route is served
+  by several tools, e.g. `get_agent_metrics` / `query_metrics` on
+  `GET /api/v1/metrics/query`) — the route has an MCP
+  tool. The MCP-side check (`services/mcp/internal/mcp/parity_test.go`) fails if
+  a named tool is not registered on `mcp.New(...)`.
+- `x-mcp-not-exposed: "<reason>"` — the route deliberately has no tool. The
+  reason says why: a permanent decision ("browser session surface", "internal
+  X-Internal-Token surface") or a pointer to the issue/PR that will add the tool
+  ("planned in #329 (list_users)"). Flip the row to `x-mcp-tool` in
+  the same PR that lands the tool.
+
+`services/hub/internal/api/openapi_parity_test.go` fails any operation that
+carries neither key, so a new hub route cannot silently miss its tool. Method
+coverage comes from the spec: the hub registers most routes as path-only
+patterns and dispatches methods inside handlers, so the router cannot express
+it. See `.agent/skills/development/add-mcp-tool.md` for the workflow.
+
 Successful mutations return `200 OK` (update) or `201 Created` (create) with a JSON body; a successful
 `DELETE` returns `204 No Content` with an empty body.
 
@@ -42,7 +64,7 @@ resource externally managed**:
   resources read-only.
 - **Every mutation** of an externally managed resource is refused with `409 Conflict` and
   body `{"error": "<kind> is managed by <manager>"}` — e.g. `"agent is managed by gitops"`.
-  This covers updates, deletes, pause/resume, agent-persona writes, image MCP refresh,
+  This covers updates, deletes, agent-persona writes, image MCP refresh,
   connector secret rotation, and persona rollback. The one caller that passes is the plugin
   a `"plugin-<id>"` value names: a plugin that created a resource stays the only REST caller
   allowed to write it (see below).
@@ -128,7 +150,6 @@ Both are populated on the list endpoint only, and are empty when authz is disabl
       "replicas": 2,
       "memory": {"enabled": true, "provider": "example"},
       "status": {"ready": true, "desired": 1, "reason": "JobPerTask"},
-      "paused": false,
       "workingHours": {"timezone": "Europe/Berlin", "days": [1, 2, 3, 4, 5], "start": "09:00", "end": "17:00"},
       "hoursOpen": false,
       "hoursClosesAt": "2026-06-23T15:00:00Z",
@@ -157,7 +178,7 @@ Agents scale on `replicas`, the **concurrency cap**: the hub queues work for eac
 and the operator runs it as one Kubernetes Job per task, keeping at most `replicas` task
 Jobs in flight (default 1). There is no standing container: an idle agent runs nothing,
 and the first queued task of a cap-1 agent starts a fresh pod — one cold start per task
-is the price of never stranding a claim. `replicas: 0` pauses dispatch: work keeps
+is the price of never stranding a claim. `replicas: 0` stops dispatch: work keeps
 queueing but no Job is created. The detail `status` object reports what the operator is
 running (`desired` — active task Jobs — with `reason` and `message`); `desired: 0` on a
 ready agent is an idle agent, not a failed one.
@@ -180,17 +201,8 @@ agent is read, so they need no watcher. Requests follow the wrapper convention: 
 `workingHours` leaves the schedule alone, an empty one (`{}`) removes it. A window the hub
 cannot use — a timezone it cannot load, a clock that is not `HH:MM`, bounds that leave no
 window at all — is rejected with `400` rather than stored as a schedule that silently
-never holds. Like a pause this is a hold on delivery, not a stop: an agent whose window
-shuts mid-task finishes that task.
-
-Agents can be **paused**: `paused: true` means the hub withholds task delivery, so
-routed tasks accumulate as a backlog (visible via the queue-depth fields) and drain in
-id order when the pause ends. Nothing is lost — ingestion and routing keep running,
-in-flight tasks finish normally, and interactive chat still works. `pausedUntil` (RFC3339)
-marks a pause that expires on its own; absent on a running agent and on an indefinite
-pause, which must be lifted explicitly. Caveat: an indefinite pause keeps the backlog
-growing — `agent_tasks` and invocation rows are not pruned while the agent stays paused.
-See [`POST /api/v1/agents/{name}/pause`](#post-apiv1agentsnamepause).
+never holds. Like `replicas: 0` this is a hold on delivery, not a stop: an agent whose
+window shuts mid-task finishes that task.
 
 ### POST /api/v1/agents
 
@@ -256,43 +268,6 @@ Re-pointing `persona` away from a persona this agent owns deletes that owned per
 Delete an Agent, and reclaim the persona it owned if any (best-effort).
 
 **Response:** `204 No Content`, `404 Not Found`, or `409` if the agent is externally managed (`managedBy`).
-
-### POST /api/v1/agents/{name}/pause
-
-> **Not enforced.** The pause was withheld at the legacy `next-task` claim endpoint,
-> which is gone: per-task Jobs are dispatched without reading `spec.pause`, so a paused
-> agent keeps working. Use `replicas: 0` to stop dispatch. This endpoint is slated for
-> removal ([#249](https://github.com/ainsel-project/ainsel/issues/249)).
-
-Record a pause on the agent. Pause state lives on the Agent CRD (`spec.pause`), so
-`kubectl patch` works too, and expiry is evaluated at read time.
-
-**Request body** (all fields optional; an absent body means an indefinite pause):
-```json
-{ "duration": "8h" }
-```
-or
-```json
-{ "until": "2026-10-20T09:00:00Z" }
-```
-
-- `duration` — Go duration string (`30m`, `8h`, `168h`) measured from now.
-- `until` — RFC3339 timestamp when the pause ends; must be in the future.
-- Both fields together → `400`. Non-positive/unparsable `duration`, unparsable or
-  past `until` → `400`.
-
-**Response:** `200 OK` with the updated agent (`paused: true`, `pausedUntil` when the
-pause expires on its own), `404` if the agent does not exist, `409` if the agent is
-externally managed (`managedBy`). Gated by `write` on the agent.
-
-### DELETE /api/v1/agents/{name}/pause
-
-Resume the agent — lifts any pause, expired or not — and nudges the queue so a
-waiting runtime picks the backlog up immediately.
-
-**Response:** `200 OK` with the updated agent (`paused: false`), `404` if the agent does
-not exist, `409` if the agent is externally managed (`managedBy`). Gated by `write` on the
-agent.
 
 ### POST /api/v1/agents/{name}/chatgpt-sign-in
 
@@ -924,6 +899,54 @@ invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id`, `404 plugin not found`
 plugin is indistinguishable from one never installed), `502 plugin unreachable`,
 `503 internal endpoints disabled`.
 
+### POST /api/internal/agent-mcp
+
+The platform's own state, served as a stateless MCP streamable-HTTP endpoint for
+agent runtimes. This is where the `ainsel` row of the MCP registry points: the same
+shape as the plugin endpoint above, for the hub's own data instead of a plugin's.
+It is off unless `HUB_AGENT_MCP_ENABLED=true` (chart: `hub.agentMCP.enabled`).
+
+**Auth:** `Authorization: Bearer <HUB_INTERNAL_VALIDATE_SECRET>` — the same
+credential as the plugin agent endpoint, because the same runtime attaches both —
+plus `X-Ainsel-Agent: <agent name>` (required, DNS-label shaped) and optionally
+`X-Ainsel-Invocation-Id` (`^[A-Za-z0-9._:-]{1,128}$`). The pi runtime sends both
+headers to URLs whose path starts with `/api/internal/plugins/` or equals
+`/api/internal/agent-mcp`, and to no other URL.
+
+**Tools:** the read half of the console — `list_agents`, `get_agent`,
+`list_invocations`, `get_invocation`, `get_agent_logs`, `get_recent_errors`,
+`get_token_usage`, `get_agent_metrics`, `query_metrics`, `get_platform_health`,
+`list_mcp_servers`, `list_channels`, `get_channel_events`, `search_skills`,
+`get_skill`. The mounted
+set is the capability allow-list: it contains no mutating tool, and a golden test
+fails when one is added. An agent may read that a trigger is paused; it cannot
+pause one. Writes stay on AInsel's own MCP server (`/mcp`), which an agent is not
+given. `search_skills` and `get_skill` are the catalogue endpoint's own tool
+bodies, so the two surfaces cannot drift; `get_agent` masks `secret: true` env
+values, as the console-facing agent view does; `get_agent_metrics` reads whichever
+metrics backend the console's agents panel reads, so the two cannot disagree.
+
+What is not mounted is the operator plane's freeform `query_logs` (LogQL) and
+PromQL passthroughs. The hub restricts its own raw-query endpoint to admins for a
+reason stated in its own comment — a raw query reads outside the AInsel namespace
+and can cost more than the caller's whole context — and an agent-facing plane has
+no more right to it than a user session does. Agents get named metrics with a
+bounded window instead.
+
+A store the hub does not run answers `"the <thing> is not configured on this
+hub"` rather than an empty result: "this hub has no log table" is a different fact
+from "nothing failed", and an empty array would let an agent conclude the latter.
+
+**Errors:** `503 platform agent MCP disabled` (the flag is off) or `503
+internal endpoints disabled` (no internal secret configured), `401 unauthorized`,
+`400 missing or invalid X-Ainsel-Agent or X-Ainsel-Invocation-Id`. A failure of
+one call is a tool result with `isError`, not a transport error.
+
+**Row ownership.** The row is `managedBy: hub`, so the console refuses to edit or
+delete it and `PUT /api/v1/mcp-servers/ainsel` cannot claim it. The syncer writes
+that one row and nothing else: it never prunes, and it leaves a foreign row of the
+same name alone and says so in the log.
+
 ### GET /api/v1/plugin-context
 
 Returns the authenticated caller's context: their identity, effective permissions,
@@ -1206,7 +1229,7 @@ Delete a custom channel.
 
 ### GET /api/v1/channels/{id}/events
 
-The channel's timeline — events born in it plus events transferred into it. Query parameters: `limit` (default 100, max 500), `offset`, `since`, `agent`, `subject`, `status`. Same envelope as [`GET /api/v1/events`](#get-apiv1events).
+The channel's timeline — events born in it plus events transferred into it. Query parameters: `limit` (default 100, max 500), `offset`, `since`, `agent`, `subject`, `match` (retired alias: `status`). Same envelope as [`GET /api/v1/events`](#get-apiv1events).
 
 ### POST /api/v1/channels/{id}/bridges
 
@@ -1824,7 +1847,14 @@ List recent events (the console's Activity page), newest first.
 
 **Access:** scoped to the caller. An event is visible when the caller can read the connector that ingested it *or* any agent it was routed to. `connector` and `agent` filters naming a resource the caller cannot read return an empty page rather than `403`, so the parameters cannot be used to probe which resources exist. Because the scope is applied in SQL, `total` counts only rows the caller may see, so pagination stays truthful. Admins see everything.
 
-**Query parameters:** `limit` (default `100`, max `500`), `offset`, `connector`, `agent`, `status` (`matched` | `unmatched` | `error`), `outcome` (`queued` | `running` | `success` | `failure` | `timeout`), `since` (RFC3339).
+**Query parameters:** `limit` (default `100`, max `500`), `offset`, `connector`, `agent`, `match` (`matched` | `unmatched` | `error`), `runState` (`queued` | `running` | `success` | `failure` | `timeout`), `since` (RFC3339).
+
+The two filter axes are named after the question they answer: `match` — did the
+event match a subscription? — and `runState` — what state is this run in right
+now? Their retired names, `status` and `outcome`, are still accepted as aliases
+for one release (`status` → `match`, `outcome` → `runState`); the current name
+wins when both are sent, and a retired name with an invalid value still returns
+`400` rather than being ignored. They will be removed in a later release.
 
 **Response:** `200 OK`
 ```json
@@ -1844,8 +1874,9 @@ List recent events (the console's Activity page), newest first.
 }
 ```
 
-`status` is derived from the event's tasks: no tasks → `unmatched`, any failed
-task → `error`, otherwise `matched`. `matches` entries carry the raw invocation
+`status` in the response is the match result, derived from the event's tasks: no
+tasks → `unmatched`, any failed task → `error`, otherwise `matched`. `matches`
+entries carry the raw invocation
 status (`runStatus`, within retention) plus the hub-derived `runState` —
 `queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
 from the task row, the start evidence (claim or first conversation row) and the
@@ -1855,13 +1886,13 @@ agent's API id (its resource name), the route key for
 `GET /api/v1/agents/{id}` — so callers can link the match without assuming
 `agent` is the id. `timeout` only occurs when no task backs
 the match and the invocation record itself is terminal; rows with nothing behind
-them at all are `unknown`. `outcome` filters on that derived state in SQL, so
-the console's Outcome filter walks the whole history, not just the loaded page.
+them at all are `unknown`. `runState` filters on that derived state in SQL, so
+the console's State filter walks the whole history, not just the loaded page.
 A task with no invocation record still matches `queued`/`running` (the task is
 the evidence). Note that terminal filter values stay invocation-derived in SQL
 while the rendered state makes the task authoritative: a retried task that
 completed while an older invocation record says `failure` renders `success` yet
-still matches `outcome=failure`.
+still matches `runState=failure`.
 
 **Status codes:** `200`, `400` (invalid parameters), `500`, `503` (event queue not configured).
 

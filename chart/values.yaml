@@ -232,6 +232,18 @@ hub:
     pullPolicy: IfNotPresent
   port: 8080
   metricsPort: 9090
+  # The platform's own read-only MCP plane for agents. With it on, agents ask the
+  # hub about platform state — token usage, invocation history, logs, metrics,
+  # channels, the MCP registry, the skill catalogue — through
+  # /api/internal/agent-mcp, and the hub registers itself in the MCP registry as
+  # the `ainsel` server so agent images attach it the way they attach a plugin's.
+  # Off by default, and one flag covers both halves: an endpoint that answers 503
+  # while a registry row advertises it reads to an agent as a broken platform.
+  # Every tool on it is a read, so it needs no self-modification guard; the
+  # credential is auth.internalValidateSecret, which the hub already needs for its
+  # other internal endpoints.
+  agentMCP:
+    enabled: false
   # Namespace the hub backend operates on (agents, backfill, ownership).
   # Defaults to the top-level `namespace` when empty. Only set this if the hub
   # must operate on a different namespace than it is deployed to.

@@ -91,6 +91,15 @@ func main() {
 		return runPluginSyncLoop(ctx, c)
 	}))
 
+	// Platform registry sync: when the agent read plane is enabled, the hub
+	// registers its own endpoint in the MCP registry, so an agent image can
+	// attach the platform's own tools the same way it attaches a plugin's. One
+	// pass at startup, then a ticker; non-fatal, because a failed pass leaves the
+	// previous registration standing.
+	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
+		return runSelfSyncLoop(ctx, c)
+	}))
+
 	// API HTTP server.
 	g.Go(func() error {
 		slog.Info("API server starting", "port", cfg.hubPort)
@@ -224,8 +233,8 @@ func main() {
 
 	// Pickup-deadline reaper (every 5m, non-fatal): tasks still pending past
 	// their expires_at become 'expired' and the sender is notified through the
-	// same path a failed task uses, so a queue behind a paused or scaled-to-zero
-	// agent stops growing silently (issue #236).
+	// same path a failed task uses, so a queue behind an agent whose dispatch is
+	// stopped stops growing silently (issue #236).
 	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
 		if cfg.taskExpirySecs <= 0 {
 			slog.Info("task expiry reaper disabled", "TASK_EXPIRY_SECONDS", cfg.taskExpirySecs)

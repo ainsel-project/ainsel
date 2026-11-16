@@ -121,3 +121,22 @@ func TestTokenEnvValueWithPlatformNoHubURL(t *testing.T) {
 		t.Errorf("without a hub URL nothing may use the platform token: value=%q missing=%v", got, missing)
 	}
 }
+
+// The hub's own read plane is a second endpoint the platform credential is valid
+// at. It is matched exactly: a prefix match would accept a path the hub does not
+// serve, and whatever answers there would collect the credential.
+func TestTokenEnvValueWithPlatformAllowsHubAgentEndpoint(t *testing.T) {
+	hub := "http://hub-backend.ainsel.svc.cluster.local:8080"
+	servers := []ainselv1alpha1.AgentImageMCPServer{
+		{Name: "ainsel", URL: hub + "/api/internal/agent-mcp", TokenFromEnv: mcpservers.PluginTokenEnv},
+		{Name: "near-miss", URL: hub + "/api/internal/agent-mcp/extra", TokenFromEnv: mcpservers.PluginTokenEnv},
+		{Name: "suffix", URL: hub + "/api/internal/agent-mcp-evil", TokenFromEnv: mcpservers.PluginTokenEnv},
+	}
+	got, missing := mcpservers.TokenEnvValueWithPlatform(servers, map[string]bool{}, hub)
+	if got != "ainsel=$(HUB_INTERNAL_VALIDATE_SECRET)" {
+		t.Errorf("value = %q, want only the exact hub agent endpoint", got)
+	}
+	if len(missing) != 2 || missing[0].ServerName != "near-miss" || missing[1].ServerName != "suffix" {
+		t.Errorf("missing = %+v, want near-miss and suffix", missing)
+	}
+}

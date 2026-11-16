@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'services/mcp/**'
+      # internal/mcp/parity_test.go reads the spec: a spec change must re-run
+      # the route-to-tool parity gate on the MCP side too (issue #326).
+      - 'openapi/**'
       - 'shared/auth/**'
       - 'go.work'
       - '.golangci.yml'
@@ -15,6 +18,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'services/mcp/**'
+      - 'openapi/**'
       - 'shared/auth/**'
       - 'go.work'
       - '.golangci.yml'

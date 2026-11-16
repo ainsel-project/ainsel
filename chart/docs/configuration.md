@@ -131,6 +131,7 @@ section for worked examples.
 | `hub.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `hub.port` | int | `8080` | API server port |
 | `hub.metricsPort` | int | `9090` | Metrics port |
+| `hub.agentMCP.enabled` | bool | `false` | Opt in to the platform's read-only MCP plane for agents. On, the hub serves `POST /api/internal/agent-mcp` (agents read token usage, invocation history, logs, metrics, channels, the MCP registry and the skill catalogue) and registers itself in the MCP registry as the `ainsel` server, so agent images attach it the way they attach a plugin's. Off, the endpoint answers 503 and no row is written — a row for an endpoint that refuses callers reads to an agent as a broken platform. Every tool on it is a read, so it needs no self-modification guard. See [agents.md](../../docs/agents.md). |
 | `hub.namespace` | string | `""` | Namespace the hub backend operates on (agents, backfill, ownership). Defaults to the top-level `namespace` when empty. Only set this if the hub must operate on a different namespace than it is deployed to |
 | `hub.ingress.enabled` | bool | `true` | Enable ingress |
 | `hub.ingress.host` | string | `ainsel.example.com` | Ingress hostname |

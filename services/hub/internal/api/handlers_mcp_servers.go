@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
 	"github.com/ainsel-project/ainsel/services/hub/internal/mcpservers"
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
@@ -155,13 +156,7 @@ func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		groupID := req.GroupID
-		if groupID == "" {
-			groupID = "legacy"
-		}
-		if err := s.authzStore.SetResourceGroup(r.Context(), "mcp-server", m.Name, groupID, false); err != nil {
-			slog.Error("set resource group on create", "error", err, "resource", m.Name)
-		}
+		s.assignGroup(r.Context(), authz.ResourceMCPServer, m.Name, req.GroupID)
 
 		saved, _ := s.mcp.Get(r.Context(), m.Name)
 		httpx.WriteJSON(w, http.StatusCreated, toMCPDTO(saved))

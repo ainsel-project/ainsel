@@ -357,10 +357,14 @@ func (s *Store) TokenUsageSince(ctx context.Context, since, until time.Time) (To
 	return row, nil
 }
 
-// AgentTokenRow holds the four token components pi reports, summed over a
-// window for one agent. The accounting rule is the same as TokenUsageRow's:
-// callers that need a single figure sum all four (see api.tokenTotal).
-// CacheReported follows TokenUsageRow's rule (issue #75).
+// AgentTokenRow holds the four token components pi reports plus the priced
+// cost, summed over a window for one agent. The accounting rule is the same as
+// TokenUsageRow's: callers that need a single figure sum all four (see
+// api.tokenTotal). CacheReported and CostReported follow TokenUsageRow's rule
+// (issue #75): a group whose cost column was NULL in every row reads
+// CostReported false and must render as "not reported", never as a measured 0 —
+// which is why the per-agent rows carry the flag rather than a bare sum, so the
+// per-agent answer to "what did this cost" agrees with the aggregate one.
 type AgentTokenRow struct {
 	AgentName        string
 	InputTokens      int64
@@ -368,6 +372,8 @@ type AgentTokenRow struct {
 	CacheReadTokens  int64
 	CacheWriteTokens int64
 	CacheReported    bool
+	CostUSD          float64
+	CostReported     bool
 }
 
 // AgentTokenUsageSince sums every token component per agent over
@@ -378,7 +384,8 @@ type AgentTokenRow struct {
 func (s *Store) AgentTokenUsageSince(ctx context.Context, since, until time.Time) ([]AgentTokenRow, error) {
 	query := `SELECT agent_name, COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 			COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_write_tokens), 0),
-			COUNT(cache_read_tokens) + COUNT(cache_write_tokens) > 0
+			COALESCE(SUM(cost_usd), 0),
+			COUNT(cache_read_tokens) + COUNT(cache_write_tokens) > 0, COUNT(cost_usd) > 0
 		FROM task_conversations WHERE 1=1`
 	args := []any{}
 	argN := 1
@@ -405,7 +412,7 @@ func (s *Store) AgentTokenUsageSince(ctx context.Context, since, until time.Time
 	for rows.Next() {
 		var r AgentTokenRow
 		if err := rows.Scan(&r.AgentName, &r.InputTokens, &r.OutputTokens,
-			&r.CacheReadTokens, &r.CacheWriteTokens, &r.CacheReported); err != nil {
+			&r.CacheReadTokens, &r.CacheWriteTokens, &r.CostUSD, &r.CacheReported, &r.CostReported); err != nil {
 			return nil, fmt.Errorf("tasklogs.AgentTokenUsageSince scan: %w", err)
 		}
 		out = append(out, r)

@@ -28,13 +28,14 @@ up-to-date reference — including args, read/write mode, and example
 usage — is [`docs/mcp.md`](../../docs/mcp.md). Summary of what's
 registered in [`internal/mcp/server.go`](internal/mcp/server.go):
 
-- **Agents:** `list_agents`, `get_agent`, `update_agent` (display name,
-  description, LLM config).
+- **Agents:** `list_agents`, `get_agent`, `create_agent`, `update_agent`
+  (full hub update surface), `delete_agent`.
 - **Triggers:** `list_triggers`, `get_trigger`, `create_trigger`,
   `update_trigger`, `delete_trigger`.
 - **Cron triggers:** `list_cron_triggers`, `get_cron_trigger`,
   `create_cron_trigger`, `update_cron_trigger`, `delete_cron_trigger`.
-- **Connectors:** `list_connectors`, `get_connector`, `update_connector`.
+- **Connectors:** `list_connectors`, `get_connector`, `create_connector`,
+  `update_connector`, `delete_connector`.
 - **Channels:** `list_channels`, `get_channel`, `list_channel_subscriptions`,
   `get_channel_events`, `create_channel`, `update_channel`,
   `delete_channel`, `attach_channel_bridge`, `detach_channel_bridge`.
@@ -47,7 +48,11 @@ registered in [`internal/mcp/server.go`](internal/mcp/server.go):
   `delete_persona`.
 - **Skills:** `list_skills`, `get_skill`, `create_skill`,
   `update_skill`, `delete_skill`.
+- **Groups:** `list_groups`, `get_group`, `create_group` — the access-control
+  containers `groupId` arguments refer to. Update, delete and membership stay
+  on the hub REST API.
 - **MCP servers / GitHub apps:** `list_mcp_servers`, `get_mcp_server`,
+  `create_mcp_server`, `update_mcp_server`, `delete_mcp_server`,
   `list_github_apps`, `get_github_app`.
 - **Plugins:** `list_plugins`, `get_plugin`, `install_plugin`,
   `uninstall_plugin`, `enable_plugin`, `disable_plugin`,
@@ -55,6 +60,12 @@ registered in [`internal/mcp/server.go`](internal/mcp/server.go):
   separate from deployment — installing registers an already deployed plugin
   and uninstalling leaves the workload running; all writes are admin-only.
 - **Cost / errors:** `get_token_usage`, `get_stats`, `get_recent_errors`.
+- **Users / access:** `list_users`, `get_user`, `create_user`, `update_user`,
+  `delete_user` (the writes are admin-only; the hub enforces that on the
+  forwarded bearer); `list_user_tokens`, `create_user_token`,
+  `revoke_user_token` for the calling user's own `ainsel_…` tokens — a created
+  value is returned once and no read tool can show it again; and
+  `list_auth_events` for the authz audit trail (admin read).
 - **Events (via hub):** `get_stream_info`, `list_recent_events`.
 - **Observability (via hub):** `get_agent_logs`, `query_logs`,
   `get_agent_metrics`, `query_metrics` (Prometheus).
