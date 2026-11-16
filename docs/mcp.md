@@ -521,9 +521,10 @@ carries a list:
       x-mcp-tool:
         - list_agents
         - summarize_workflows
-``` A deliberate
-non-exposure is not a bug to fix silently — the reason string says why, and which
-issue picks it up.
+```
+
+A deliberate non-exposure is not a bug to fix silently — the reason string says
+why, and which issue picks it up.
 
 ## Example conversations
 
