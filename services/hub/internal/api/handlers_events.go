@@ -114,10 +114,17 @@ type activityEntry struct {
 	// ChannelID is the stream the event was born in. It is the stable
 	// handle the UI links a producer label onto; empty for events recorded
 	// before the channel registry existed and for direct births.
-	ChannelID string          `json:"channelId,omitempty"`
-	Status    string          `json:"status"`
-	Matches   []activityMatch `json:"matches,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	ChannelID string `json:"channelId,omitempty"`
+	// Match is the answer to "did this event match a subscription?" — matched,
+	// unmatched or error. It is derived at read time from the task rows, never
+	// stored, and it is a different axis from a match's runState.
+	Match string `json:"match"`
+	// Status is the retired spelling of Match, emitted with the same value for
+	// one release so callers that still read `status` keep working. Retired
+	// together with the `status`/`outcome` query aliases.
+	Status  string          `json:"status"`
+	Matches []activityMatch `json:"matches,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // eventsEnvelope wraps one page of the activity list. Events holds the
@@ -299,8 +306,9 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildActivityEntry maps a stored event and its tasks into the frontend
-// activity shape. The match result (the `status` field) is derived from the
-// tasks: no tasks → unmatched, any failed task → error, otherwise → matched.
+// activity shape. The match result (the `match` field, and the retired
+// `status` alias) is derived from the tasks: no tasks → unmatched, any failed
+// task → error, otherwise → matched.
 //
 // Each match carries the derived run state (runState, taskStatus, startedAt,
 // stuck) computed by deriveRunState from the task and, when the invocation
@@ -315,16 +323,16 @@ func (s *Server) buildActivityEntry(evt eventqueue.Event, tasks []eventqueue.Tas
 		Timestamp: evt.ReceivedAt.UTC().Format(time.RFC3339),
 		Connector: evt.Connector,
 		ChannelID: evt.ChannelID,
-		Status:    activityMatchUnmatched,
+		Match:     activityMatchUnmatched,
 	}
 
 	if len(tasks) > 0 {
-		entry.Status = activityMatchMatched
+		entry.Match = activityMatchMatched
 		matches := make([]activityMatch, 0, len(tasks))
 		now := time.Now().UTC()
 		for _, t := range tasks {
 			if t.Status == "failed" {
-				entry.Status = activityMatchError
+				entry.Match = activityMatchError
 			}
 			m := activityMatch{Trigger: t.TriggerName, Agent: t.AgentName, AgentID: t.AgentName}
 			task := t
@@ -348,6 +356,9 @@ func (s *Server) buildActivityEntry(evt eventqueue.Event, tasks []eventqueue.Tas
 	if payload := activityPayload(evt.Data); payload != nil {
 		entry.Payload = payload
 	}
+
+	// Retired spelling of `match`, kept in sync for one release.
+	entry.Status = entry.Match
 
 	return entry
 }

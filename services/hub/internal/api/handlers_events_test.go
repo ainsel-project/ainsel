@@ -83,6 +83,62 @@ func decodeEnvelope(t *testing.T, rec *httptest.ResponseRecorder) eventsEnvelope
 	return env
 }
 
+// The activity entry names its match verdict `match` and still emits the
+// retired `status` spelling with the same value, so callers reading either keep
+// working until the aliases are removed. Both keys must be present in the JSON,
+// not just populated on the struct — an accidental `omitempty` on a verdict of
+// `unmatched` would silently drop it.
+func TestBuildActivityEntry_EmitsMatchAndRetiredStatus(t *testing.T) {
+	s := &Server{}
+	evt := eventqueue.Event{
+		ID:         "evt-1",
+		Connector:  "github",
+		ReceivedAt: time.Now().UTC(),
+		Data:       json.RawMessage(`{"a":1}`),
+	}
+
+	cases := []struct {
+		name  string
+		tasks []eventqueue.Task
+		match string
+	}{
+		{"unmatched", nil, activityMatchUnmatched},
+		{"matched", []eventqueue.Task{{EventID: "evt-1", AgentName: "agent-a", TriggerName: "trig-1", Status: "completed"}}, activityMatchMatched},
+		{"error", []eventqueue.Task{{EventID: "evt-1", AgentName: "agent-a", TriggerName: "trig-1", Status: "failed"}}, activityMatchError},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := s.buildActivityEntry(evt, tc.tasks)
+			if entry.Match != tc.match {
+				t.Fatalf("match = %q, want %q", entry.Match, tc.match)
+			}
+
+			raw, err := json.Marshal(entry)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			for _, key := range []string{"match", "status"} {
+				v, ok := fields[key]
+				if !ok {
+					t.Fatalf("response is missing the %q key: %s", key, raw)
+				}
+				var got string
+				if err := json.Unmarshal(v, &got); err != nil {
+					t.Fatalf("%s: %v", key, err)
+				}
+				if got != tc.match {
+					t.Errorf("%s = %q, want %q", key, got, tc.match)
+				}
+			}
+		})
+	}
+}
+
 func TestListEvents_Empty(t *testing.T) {
 	store, cleanup := newTestEventStore(t)
 	defer cleanup()
@@ -136,14 +192,21 @@ func TestListEvents_MatchDerivation(t *testing.T) {
 		byID[e.ID] = e
 	}
 
-	if got := byID["evt-unmatched"].Status; got != activityMatchUnmatched {
+	if got := byID["evt-unmatched"].Match; got != activityMatchUnmatched {
 		t.Errorf("evt-unmatched: expected match %q, got %q", activityMatchUnmatched, got)
 	}
-	if got := byID["evt-matched"].Status; got != activityMatchMatched {
+	if got := byID["evt-matched"].Match; got != activityMatchMatched {
 		t.Errorf("evt-matched: expected match %q, got %q", activityMatchMatched, got)
 	}
-	if got := byID["evt-error"].Status; got != activityMatchError {
+	if got := byID["evt-error"].Match; got != activityMatchError {
 		t.Errorf("evt-error: expected match %q, got %q", activityMatchError, got)
+	}
+
+	// The retired `status` spelling is still emitted, with the same value.
+	for _, e := range env.Events {
+		if e.Status != e.Match {
+			t.Errorf("%s: retired status %q does not mirror match %q", e.ID, e.Status, e.Match)
+		}
 	}
 
 	// Matches should be populated for routed events.
@@ -489,8 +552,11 @@ func TestGetEvent_Found(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&entry); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if entry.ID != "evt-123" || entry.Connector != "github" || entry.Status != activityMatchMatched {
+	if entry.ID != "evt-123" || entry.Connector != "github" || entry.Match != activityMatchMatched {
 		t.Fatalf("unexpected entry: %+v", entry)
+	}
+	if entry.Status != entry.Match {
+		t.Errorf("retired status %q does not mirror match %q", entry.Status, entry.Match)
 	}
 	if len(entry.Matches) != 1 || entry.Matches[0].Agent != "agent-a" {
 		t.Fatalf("unexpected matches: %+v", entry.Matches)

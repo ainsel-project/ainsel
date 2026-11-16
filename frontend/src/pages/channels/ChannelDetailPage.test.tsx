@@ -122,7 +122,7 @@ function mockFetch(over: { channels?: unknown[]; subs?: unknown[] } = {}) {
               timestamp: '2026-06-10T08:31:25Z',
               connector: 'forgejo',
               channelId: 'ch-forgejo',
-              status: 'matched',
+              match: 'matched',
               matches: [{ trigger: 'on-issues', agent: 'review-bot', runStatus: 'success' }],
             },
           ],

@@ -84,14 +84,14 @@ function routeResponse(url: string): Response {
         id: 'e1',
         timestamp: new Date(Date.now() - 9_000).toISOString(),
         connector: 'insel-monorepo',
-        status: 'matched',
+        match: 'matched',
         matches: [{ trigger: 't1', agent: 'doc-writer' }],
       },
       {
         id: 'e2',
         timestamp: new Date(Date.now() - 4 * 60_000).toISOString(),
         connector: 'infra-tooling',
-        status: 'error',
+        match: 'error',
       },
     ]
     return new Response(JSON.stringify({ events, total: events.length }), { status: 200 })
@@ -210,7 +210,7 @@ describe('Dashboard', () => {
               id: 'e1',
               timestamp: new Date().toISOString(),
               connector: 'c1',
-              status: 'matched',
+              match: 'matched',
               matches: [{ trigger: 't1', agent: 'doc-writer', agentId: 'doc-writer' }],
             },
           ]

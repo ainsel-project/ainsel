@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useRecentEvents } from '../../api/events'
-import type { ActivityEntry } from '../../api/events'
+import type { ActivityMatchResult } from '../../api/events'
 import { useAgents } from '../../api/agents'
 import { useConnectors } from '../../api/connectors'
 import { ConnectorLabel } from '../../components/ConnectorLabel'
@@ -13,7 +13,7 @@ import { formatRelative } from '../../utils/time'
 
 // The event's match result — the same axis the Activity toolbar's Match
 // filter narrows.
-function MatchTag({ match }: { match: ActivityEntry['status'] }) {
+function MatchTag({ match }: { match: ActivityMatchResult }) {
   if (match === 'matched') return <Tag variant="ok">MATCH</Tag>
   if (match === 'error') return <Tag variant="err">ERR</Tag>
   return <Tag variant="stale">SKIP</Tag>
@@ -31,7 +31,7 @@ export function RecentActivityStream() {
     [connectorData],
   )
 
-  const errorCount = (data ?? []).filter((e) => e.status === 'error').length
+  const errorCount = (data ?? []).filter((e) => e.match === 'error').length
 
   return (
     <Panel
@@ -94,7 +94,7 @@ export function RecentActivityStream() {
                   </>
                 ) : null}
               </span>
-              <MatchTag match={e.status} />
+              <MatchTag match={e.match} />
             </div>
           ))
         )

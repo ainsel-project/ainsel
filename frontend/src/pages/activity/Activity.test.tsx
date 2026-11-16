@@ -31,7 +31,7 @@ const sampleEvents = [
     id: 'e1',
     timestamp: new Date(now - 30_000).toISOString(), // newest
     connector: 'c-111',
-    status: 'matched',
+    match: 'matched',
     matches: [{ trigger: 't1', agent: 'doc-writer' }],
     payload: { action: 'opened', pull_request: { number: 123 } },
   },
@@ -39,14 +39,14 @@ const sampleEvents = [
     id: 'e2',
     timestamp: new Date(now - 240_000).toISOString(), // oldest
     connector: 'c-222',
-    status: 'error',
+    match: 'error',
     payload: { action: 'push', ref: 'refs/heads/main' },
   },
   {
     id: 'e3',
     timestamp: new Date(now - 120_000).toISOString(), // middle
     connector: 'c-333',
-    status: 'unmatched',
+    match: 'unmatched',
     matches: [
       { trigger: 't2', agent: 'infra-bot' },
       { trigger: 't3', agent: 'sec-bot' },
@@ -73,7 +73,7 @@ function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
 
         const filtered = events
           .filter((e) => {
-            if (match && e.status !== match) return false
+            if (match && e.match !== match) return false
             if (connector && e.connector !== connector) return false
             if (since && new Date(e.timestamp as string).getTime() < Date.parse(since)) return false
             if (agent) {
@@ -475,7 +475,7 @@ describe('Activity', () => {
       id: `e${i}`,
       timestamp: new Date(now - i * 10_000).toISOString(),
       connector: 'c-111',
-      status: 'matched' as const,
+      match: 'matched' as const,
     }))
     mockFetch(manyEvents)
 
@@ -497,7 +497,7 @@ describe('Activity', () => {
       id: `e${i}`,
       timestamp: new Date(now - i * 10_000).toISOString(),
       connector: 'c-111',
-      status: 'matched' as const,
+      match: 'matched' as const,
     }))
     mockFetch(manyEvents)
 
@@ -717,21 +717,21 @@ describe('Activity', () => {
         id: 'o1',
         timestamp: new Date(now - 30_000).toISOString(),
         connector: 'c-111',
-        status: 'matched',
+        match: 'matched',
         matches: [{ trigger: 't1', agent: 'doc-writer', runStatus: 'success', durationMs: 1200 }],
       },
       {
         id: 'o2',
         timestamp: new Date(now - 60_000).toISOString(),
         connector: 'c-222',
-        status: 'error',
+        match: 'error',
         matches: [{ trigger: 't2', agent: 'infra-bot', runStatus: 'failure', error: 'boom' }],
       },
       {
         id: 'o3',
         timestamp: new Date(now - 90_000).toISOString(),
         connector: 'c-333',
-        status: 'matched',
+        match: 'matched',
         matches: [
           { trigger: 't3', agent: 'sec-bot', runStatus: 'success' },
           { trigger: 't4', agent: 'perf-bot', runStatus: 'failure', error: 'oom' },
@@ -741,7 +741,7 @@ describe('Activity', () => {
         id: 'o4',
         timestamp: new Date(now - 120_000).toISOString(),
         connector: 'c-111',
-        status: 'unmatched',
+        match: 'unmatched',
       },
     ]
 
@@ -814,14 +814,14 @@ describe('Activity', () => {
           id: `ok-${i}`,
           timestamp: new Date(now - i * 10_000).toISOString(),
           connector: 'c-111',
-          status: 'matched' as const,
+          match: 'matched' as const,
           matches: [{ trigger: 't1', agent: 'doc-writer', runStatus: 'success' }],
         })),
         {
           id: 'fail-deep-in-history',
           timestamp: new Date(now - 400_000).toISOString(),
           connector: 'c-111',
-          status: 'error' as const,
+          match: 'error' as const,
           matches: [{ trigger: 't2', agent: 'infra-bot', runStatus: 'failure', error: 'boom' }],
         },
       ]

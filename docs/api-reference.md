@@ -1867,6 +1867,7 @@ wins when both are sent, and a retired name with an invalid value still returns
       "timestamp": "2026-05-20T10:00:00Z",
       "connector": "c-1a2b3c",
       "channelId": "ch-9f3c1a02",
+      "match": "matched",
       "status": "matched",
       "matches": [{"trigger": "t-9c1d2e", "agent": "a-3f9a2b", "agentId": "a-3f9a2b", "runStatus": "success", "runState": "success", "taskStatus": "completed", "startedAt": "2026-05-20T10:00:01Z", "durationMs": 14000}],
       "payload": {"action": "opened", "issue": {"number": 42}}
@@ -1876,8 +1877,11 @@ wins when both are sent, and a retired name with an invalid value still returns
 }
 ```
 
-`status` in the response is the match result, derived from the event's tasks: no
-tasks → `unmatched`, any failed task → `error`, otherwise `matched`. `matches`
+`match` in the response is the match result, derived from the event's tasks: no
+tasks → `unmatched`, any failed task → `error`, otherwise `matched` — the
+response-side name of the same axis the `match` query parameter filters on.
+`status` is its retired spelling, emitted with the same value for one release and
+removed together with the query aliases. `matches`
 entries carry the raw invocation
 status (`runStatus`, within retention) plus the hub-derived `runState` —
 `queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
@@ -2418,7 +2422,7 @@ Upgrade to a WebSocket. The hub pushes a stream of JSON envelopes:
 {"type": "error", "data": { ... ErrorEntry ... }}
 ```
 
-Immediately after the upgrade the server writes one `stats` snapshot. Subsequent messages are broadcast by hub-internal publishers (stats poller, event consumer, error consumer). Incoming client messages are read solely to detect disconnects; they are not interpreted.
+Immediately after the upgrade the server writes one `stats` snapshot. The `event` frame carries the same `ActivityEntry` shape as `GET /api/v1/events`, so its match verdict is `match` — with the retired `status` spelling alongside it for one release. Subsequent messages are broadcast by hub-internal publishers (stats poller, event consumer, error consumer). Incoming client messages are read solely to detect disconnects; they are not interpreted.
 
 **Status codes:** `101 Switching Protocols` on success, `400` if the upgrade handshake fails.
 

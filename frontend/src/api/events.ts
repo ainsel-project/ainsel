@@ -38,7 +38,10 @@ export type ActivityEntry = {
   /** Channel the event was born in. Absent on history recorded before the
    *  channel registry existed and on direct (cron/chat) births. */
   channelId?: string
-  status: ActivityMatchResult
+  /** Did the event match a subscription? A different axis from a match's
+   *  runState. The hub also still emits the retired `status` spelling with the
+   *  same value; the console reads this one — hub and console ship together. */
+  match: ActivityMatchResult
   matches?: ActivityMatch[]
   payload?: unknown
 }

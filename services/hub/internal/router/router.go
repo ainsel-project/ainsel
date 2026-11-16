@@ -154,6 +154,7 @@ func (r *Router) handleEvent(ctx context.Context, evt eventqueue.Event) {
 		if r.broadcaster != nil {
 			r.broadcaster.BroadcastEvent(types.ActivityEntry{
 				Connector: evt.Connector,
+				Match:     "unmatched",
 				Status:    "unmatched",
 				Payload:   evt.Data,
 			})
@@ -163,9 +164,9 @@ func (r *Router) handleEvent(ctx context.Context, evt eventqueue.Event) {
 		return
 	}
 
-	status := "matched"
+	match := "matched"
 	if !allEnqueued {
-		status = "error"
+		match = "error"
 	}
 
 	matchesJSON, _ := json.Marshal(entryMatches)
@@ -173,7 +174,8 @@ func (r *Router) handleEvent(ctx context.Context, evt eventqueue.Event) {
 		"log_type", "activity_event",
 		"connector", evt.Connector,
 		"channel", evt.ChannelID,
-		"status", status,
+		// The log field keeps the old spelling; docs/troubleshooting.md quotes it.
+		"status", match,
 		"matches", string(matchesJSON),
 		"payload", string(evt.Data),
 	)
@@ -181,7 +183,8 @@ func (r *Router) handleEvent(ctx context.Context, evt eventqueue.Event) {
 	if r.broadcaster != nil {
 		r.broadcaster.BroadcastEvent(types.ActivityEntry{
 			Connector: evt.Connector,
-			Status:    status,
+			Match:     match,
+			Status:    match,
 			Matches:   entryMatches,
 			Payload:   evt.Data,
 		})

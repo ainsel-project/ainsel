@@ -366,7 +366,7 @@ Key properties:
   `UNIQUE (event_id, agent_name)` constraint guarantees an event is
   delivered to each agent at most once.
 - **Unmatched events stay in `events`** only — visible in the
-  observability UI as `status: unmatched`.
+  observability UI as `match: unmatched`.
 - **Job-per-task consumption.** The hub publishes each agent's queue depth
   onto `Agent` status (the queue signal); the operator renders one Job per
   pending task. The pod fetches *its* task by id

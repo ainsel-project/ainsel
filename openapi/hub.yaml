@@ -4489,15 +4489,23 @@ components:
     ActivityEntry:
       type: object
       description: >-
-        One event with its match result and runs. `status` is the match result,
-        derived from the event's tasks — no tasks is `unmatched`, any failed task is
-        `error`. Each match carries the derived `runState`.
+        One event with its match result and runs. `match` answers "did this event
+        match a subscription?", derived from the event's tasks — no tasks is
+        `unmatched`, any failed task is `error`. It is a different axis from a
+        match's `runState`. `status` is the retired spelling of `match`, emitted
+        with the same value for one release.
+      required: [match]
       properties:
         id: { type: string }
         timestamp: { type: string, description: 'RFC 3339.' }
         connector: { type: string }
         channelId: { type: string, description: 'The stream the event was born in — the stable handle the UI links a producer label onto. Empty for events recorded before the channel registry existed and for direct births.' }
-        status: { type: string, enum: [matched, unmatched, error] }
+        match: { type: string, enum: [matched, unmatched, error] }
+        status:
+          type: string
+          enum: [matched, unmatched, error]
+          deprecated: true
+          description: 'Retired spelling of `match`, same value. Removed with the `status`/`outcome` query aliases.'
         matches:
           type: array
           items:

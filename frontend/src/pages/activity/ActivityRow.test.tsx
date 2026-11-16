@@ -10,7 +10,7 @@ const entry: ActivityEntry = {
   id: 'evt-123',
   timestamp: new Date(Date.now() - 30_000).toISOString(),
   connector: 'c-111',
-  status: 'matched',
+  match: 'matched',
   matches: [{ trigger: 't1', agent: 'doc-writer' }],
   payload: { action: 'opened', repository: 'ainsel' },
 }

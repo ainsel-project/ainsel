@@ -82,7 +82,7 @@ function EventLine({ entry }: { entry: ActivityEntry }) {
           runs.map((m, i) => (
             <RunStateTag
               key={i}
-              status={m.runState ?? m.runStatus ?? entry.status}
+              status={m.runState ?? m.runStatus ?? entry.match}
               stuck={m.stuck}
             />
           ))
