@@ -374,7 +374,12 @@ Key properties:
   nacks (retry with exponential backoff — the worker's `delay_ms` base, doubled
   per recorded attempt and capped at 30 minutes — failed after `max_attempts`).
   There is no claim for a dead worker to strand: a crashed pod leaves the row
-  `pending` and the Job restarts it in a fresh pod.
+  `pending` and the Job restarts it in a fresh pod. A pod that never starts at all
+  — an image that cannot be pulled, a container config the kubelet rejects — is not
+  allowed to hold its agent's concurrency slot: the operator retires that Job and
+  holds the task back with the reason on `Agent status.taskStartBlocks`, so the
+  tasks behind it run, and the hub's reaper tick fails the row with that reason
+  rather than leaving it `QUEUED` (issue #342).
 
 ### Derived Subject
 

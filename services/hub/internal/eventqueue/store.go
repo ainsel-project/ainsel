@@ -470,6 +470,40 @@ func (s *Store) ExpirePendingTasks(ctx context.Context) ([]ExpiredTask, error) {
 	return expired, rows.Err()
 }
 
+// StalledTask is a pending task the hub failed because the operator reported that
+// its pod never started — the task row is what the requester reads, so the reason
+// has to reach it and not stay on the Agent.
+type StalledTask struct {
+	ID           int64
+	AgentName    string
+	InvocationID string
+}
+
+// FailStalledTask moves one pending task to the terminal 'failed' status with the
+// operator's reason for why its pod never started. Guarded on 'pending': a row a
+// worker has claimed, acked, or already ended is not this pass's to overrule, and
+// the caller reports only what it actually changed. Fires the queue observer for
+// the affected agent. Returns nil when the row was not pending.
+func (s *Store) FailStalledTask(ctx context.Context, taskID int64, errMsg string) (*StalledTask, error) {
+	row := s.pool.QueryRow(ctx,
+		`UPDATE agent_tasks
+		 SET status = 'failed', completed_at = now(), error = $2
+		 WHERE id = $1
+		   AND status = 'pending'
+		 RETURNING id, agent_name, invocation_id`,
+		taskID, errMsg,
+	)
+	var st StalledTask
+	if err := row.Scan(&st.ID, &st.AgentName, &st.InvocationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("eventqueue: fail stalled task: %w", err)
+	}
+	s.observe(st.AgentName)
+	return &st, nil
+}
+
 // StreamInfo returns summary statistics for the event queue, used by
 // observability endpoints.
 type StreamInfo struct {

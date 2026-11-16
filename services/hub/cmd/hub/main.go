@@ -235,12 +235,20 @@ func main() {
 	// their expires_at become 'expired' and the sender is notified through the
 	// same path a failed task uses, so a queue behind an agent whose dispatch is
 	// stopped stops growing silently (issue #236).
+	//
+	// The same tick fails the tasks the operator retired because their pod never
+	// started (issue #342). That half is not gated on the pickup deadline being
+	// enabled: a task whose image cannot be pulled is stuck whatever the expiry
+	// setting says, and leaving it 'queued' is exactly the dead end the operator
+	// just stopped from blocking the queue behind it.
 	g.Go(runUntilCanceled(ctx, func(ctx context.Context) error {
-		if cfg.taskExpirySecs <= 0 {
+		expiry := cfg.taskExpirySecs > 0
+		if !expiry {
 			slog.Info("task expiry reaper disabled", "TASK_EXPIRY_SECONDS", cfg.taskExpirySecs)
-			return nil
+		} else {
+			slog.Info("task expiry reaper started", "timeout", time.Duration(cfg.taskExpirySecs)*time.Second, "interval", 5*time.Minute)
 		}
-		slog.Info("task expiry reaper started", "timeout", time.Duration(cfg.taskExpirySecs)*time.Second, "interval", 5*time.Minute)
+		slog.Info("stalled task reaper started", "interval", 5*time.Minute)
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for {
@@ -248,13 +256,19 @@ func main() {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-ticker.C:
-				n, err := c.apiServer.ExpireQueuedTasks(ctx)
-				if err != nil {
-					slog.Error("task expiry reap failed", "error", err)
-					continue
+				if expiry {
+					n, err := c.apiServer.ExpireQueuedTasks(ctx)
+					if err != nil {
+						slog.Error("task expiry reap failed", "error", err)
+					} else if n > 0 {
+						slog.Warn("expired queued tasks", "count", n)
+					}
 				}
-				if n > 0 {
-					slog.Warn("expired queued tasks", "count", n)
+				n, err := c.apiServer.FailStalledTasks(ctx)
+				if err != nil {
+					slog.Error("stalled task reap failed", "error", err)
+				} else if n > 0 {
+					slog.Warn("failed tasks whose pod never started", "count", n)
 				}
 			}
 		}
