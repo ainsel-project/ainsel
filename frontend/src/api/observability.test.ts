@@ -10,6 +10,7 @@ import {
   unavailableDetail,
   formatStep,
   chartUnit,
+  formatChartValue,
 } from './observability'
 
 const mockFetch = () => globalThis.fetch as ReturnType<typeof vi.fn>
@@ -209,6 +210,20 @@ describe('metrics helpers', () => {
     // A missing or unparseable step still yields a label, never "undefined".
     expect(chartUnit('postgres', undefined)).toBe('events / bucket')
     expect(chartUnit('postgres', 'nonsense')).toBe('events / bucket')
+  })
+
+  it('formatChartValue prints a chart value without the float noise', () => {
+    // The hub's records are whole counts per bucket: they stay whole.
+    expect(formatChartValue(42)).toBe('42')
+    expect(formatChartValue(1234.6)).toBe('1235')
+    expect(formatChartValue(0)).toBe('0')
+    // A Prometheus rate arrives unrounded, so the axis rounds it: this is the
+    // case that made a unit suffix unreadable before (#341).
+    expect(formatChartValue(0.8333333333333334)).toBe('0.83')
+    expect(formatChartValue(0.03333333333333333)).toBe('0.03')
+    // maximumFractionDigits rounds rather than truncates, so a rate below half
+    // a hundredth reads as 0 — with its unit next to it, not as a bare 0.
+    expect(formatChartValue(0.004)).toBe('0')
   })
 
   it('unavailableDetail carries the reason the hub gave for a 503', async () => {

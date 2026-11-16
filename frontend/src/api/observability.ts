@@ -91,6 +91,17 @@ export function chartUnit(source?: MetricsSource, step?: string): string {
   return 'events / period'
 }
 
+// formatChartValue is how a chart prints a single value next to its unit.
+// The hub's records are whole counts per bucket, but a Prometheus sample is
+// an unrounded rate — `0.03333333333333333 events / period` is worse than no
+// label at all — so rates get at most two decimals (trailing zeros trimmed)
+// and counts stay whole. Lives beside chartUnit so "how a point is displayed"
+// and "what unit a point is in" are answered in one place.
+export function formatChartValue(value: number): string {
+  if (Math.abs(value) >= 100) return String(Math.round(value))
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value)
+}
+
 export type MetricName = 'events_consumed' | 'triggers_matched' | 'events_routed' | 'routing_errors'
 
 export type TimeseriesParams = {

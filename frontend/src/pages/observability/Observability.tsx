@@ -195,6 +195,7 @@ export function Observability() {
             <TimeSeriesChart
               series={chartSeries}
               styles={CHART_STYLES}
+              unit={chartUnit(consumed.data?.source, consumed.data?.step)}
               ariaLabel={`Telemetry chart for ${range}`}
             />
           ) : (

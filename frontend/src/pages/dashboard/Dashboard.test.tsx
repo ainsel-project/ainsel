@@ -238,11 +238,71 @@ describe('Dashboard', () => {
     const { container } = renderWithProviders(<Dashboard />)
     await waitFor(() => {
       expect(
-        container.querySelector('svg[aria-label="Throughput over 24 hours"]'),
+        container.querySelector('svg[aria-label^="Throughput over 24 hours"]'),
       ).toBeInTheDocument()
     })
     const bars = container.querySelectorAll('svg rect')
     expect(bars.length).toBeGreaterThanOrEqual(24)
+  })
+
+  // The peak is the only number the throughput chart prints, and a point is a
+  // count per bucket on the hub's records but a per-second rate on Prometheus,
+  // so the number has to carry the unit chartUnit derives from `source`.
+  function timeseriesResponse(body: Record<string, unknown>): Response {
+    return new Response(
+      JSON.stringify({
+        metric: 'events_routed',
+        range: '24h',
+        points: [
+          { timestamp: '2026-05-20T00:00:00Z', value: 4 },
+          { timestamp: '2026-05-20T01:00:00Z', value: 42 },
+        ],
+        ...body,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  async function renderThroughputTimeseries(body: Record<string, unknown>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes('/observability/metrics/timeseries')
+            ? timeseriesResponse(body)
+            : routeResponse(url),
+        ),
+      ),
+    )
+    const { container } = renderWithProviders(<Dashboard />)
+    // The panel header renders while the query is still in flight; wait for the
+    // chart itself before reading its text.
+    await waitFor(() =>
+      expect(
+        container.querySelector('svg[aria-label^="Throughput over 24 hours, peak"]'),
+      ).toBeInTheDocument(),
+    )
+    const panel = screen.getByText('Throughput · 24h').closest('.panel') as HTMLElement
+    return panel.textContent ?? ''
+  }
+
+  it('labels the throughput peak with the bucket width on the records backend', async () => {
+    const panel = await renderThroughputTimeseries({ source: 'postgres', step: '10m0s' })
+    expect(panel).toContain('PEAK · 42 events / 10m')
+  })
+
+  it('labels the throughput peak as a rate on the Prometheus backend', async () => {
+    // A Prometheus sample is an unrounded rate: the label rounds it instead of
+    // printing 0.8333333333333334 events / period.
+    const panel = await renderThroughputTimeseries({
+      source: 'prometheus',
+      step: '1h0m0s',
+      points: [
+        { timestamp: '2026-05-20T00:00:00Z', value: 0.2 },
+        { timestamp: '2026-05-20T01:00:00Z', value: 0.8333333333333334 },
+      ],
+    })
+    expect(panel).toContain('PEAK · 0.83 events / period')
   })
 
   // The throughput panel is the one place outside /observability that shows the

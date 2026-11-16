@@ -1,4 +1,4 @@
-import type { TimeseriesSeries } from '../api/observability'
+import { formatChartValue, type TimeseriesSeries } from '../api/observability'
 
 export type SeriesStyle = {
   name: string
@@ -13,6 +13,9 @@ type TimeSeriesChartProps = {
   height?: number
   width?: number
   ariaLabel?: string
+  // Names what one point holds (see chartUnit). Optional so existing callers —
+  // plugin pages included — render exactly as before.
+  unit?: string
 }
 
 const PADDING = { top: 16, bottom: 28, left: 6, right: 6 }
@@ -23,6 +26,7 @@ export function TimeSeriesChart({
   height = 200,
   width = 800,
   ariaLabel = 'Time series chart',
+  unit,
 }: TimeSeriesChartProps) {
   const allPoints = series.flatMap((s) => s.points)
   const maxValue = allPoints.reduce((m, p) => (p.value > m ? p.value : m), 0)
@@ -53,6 +57,13 @@ export function TimeSeriesChart({
   const midTs = allPoints[Math.floor(allPoints.length / 2)]?.timestamp
   const hh = (ts: string | undefined) => ts?.slice(11, 16) ?? '—'
 
+  // The max is the one number on the axis; it carries the unit whenever the
+  // caller has one, so a count per bucket never reads as a rate.
+  const axisLabel = unit ? `${formatChartValue(maxValue)} ${unit}` : formatChartValue(maxValue)
+  // Only a chart that states a unit extends its accessible name: an existing
+  // plugin page keeps the label it had.
+  const label = unit && maxValue > 0 ? `${ariaLabel}, max ${axisLabel}` : ariaLabel
+
   return (
     <div>
       <svg
@@ -60,7 +71,7 @@ export function TimeSeriesChart({
         preserveAspectRatio="none"
         style={{ display: 'block', width: '100%', height }}
         role="img"
-        aria-label={ariaLabel}
+        aria-label={label}
       >
         {/* Grid */}
         {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
@@ -97,7 +108,7 @@ export function TimeSeriesChart({
         {/* Y axis max label */}
         {maxValue > 0 ? (
           <text x={6} y={PADDING.top - 4} fontFamily="var(--mono)" fontSize={9} fill="var(--ink-4)">
-            {maxValue}
+            {axisLabel}
           </text>
         ) : null}
       </svg>
