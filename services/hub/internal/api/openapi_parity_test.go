@@ -10,10 +10,14 @@ package api
 //   - every pattern the server registers has a path item in the spec, so a new
 //     route cannot ship undocumented;
 //   - every path item in the spec is served by a registered pattern, so the spec
-//     cannot advertise a route the hub does not have;
-//   - every operation declares its MCP exposure (`x-mcp-tool` or
-//     `x-mcp-not-exposed`), so a new hub route cannot silently miss its MCP
-//     tool — see TestOpenAPIOperationsDeclareMCPExposure.
+//     cannot advertise a route the hub does not have.
+//
+// MCP exposure is not checked here: `openapi_mcp_marker_test.go` is the
+// authoritative gate for "every operation declares `x-mcp-tool` or
+// `x-mcp-not-exposed`" (it additionally enforces the snake_case tool-name pattern
+// and an operation-count floor), and `services/mcp/internal/mcp/parity_test.go`
+// checks the named names against the tools the MCP server registers. This file
+// stays on the route surface: router ↔ spec.
 //
 // The comparison is on paths, not operations. The mux registers most routes as
 // trailing-slash prefixes and dispatches the method inside the handler, so a
@@ -384,118 +388,6 @@ func mappingValue(n *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
-}
-
-// mcpExposureDoc is the slice of the spec the MCP-exposure check reads: the
-// two x-mcp-* keys on each operation. Path items are taken by method name;
-// non-operation keys (parameters, servers, ...) sit in fields the struct
-// ignores.
-type mcpExposureDoc struct {
-	Paths map[string]mcpExposureItem `yaml:"paths"`
-}
-
-type mcpExposureItem struct {
-	Get     *mcpExposureOp `yaml:"get"`
-	Put     *mcpExposureOp `yaml:"put"`
-	Post    *mcpExposureOp `yaml:"post"`
-	Delete  *mcpExposureOp `yaml:"delete"`
-	Patch   *mcpExposureOp `yaml:"patch"`
-	Head    *mcpExposureOp `yaml:"head"`
-	Options *mcpExposureOp `yaml:"options"`
-	Trace   *mcpExposureOp `yaml:"trace"`
-}
-
-func (i mcpExposureItem) ops() []struct {
-	method string
-	op     *mcpExposureOp
-} {
-	out := make([]struct {
-		method string
-		op     *mcpExposureOp
-	}, 0, 8)
-	for _, e := range []struct {
-		method string
-		op     *mcpExposureOp
-	}{{"GET", i.Get}, {"PUT", i.Put}, {"POST", i.Post}, {"DELETE", i.Delete},
-		{"PATCH", i.Patch}, {"HEAD", i.Head}, {"OPTIONS", i.Options}, {"TRACE", i.Trace}} {
-		if e.op != nil {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// mcpExposureOp is one operation's MCP-exposure declaration. Exactly one of
-// the two fields may be set. Tool is either a tool name or a list of names
-// (one route served by several tools, e.g. pause/resume or the two metrics
-// tools over metrics/query); NotExposed is the reason a route has no tool.
-type mcpExposureOp struct {
-	Tool       interface{} `yaml:"x-mcp-tool"`
-	NotExposed *string     `yaml:"x-mcp-not-exposed"`
-}
-
-// TestOpenAPIOperationsDeclareMCPExposure is the hub half of the route-to-tool
-// parity gate from issue #326 (Decision 7): every operation in the spec must
-// state how MCP reaches it, either by naming its tool(s) with `x-mcp-tool` or
-// by recording why it is deliberately not exposed with `x-mcp-not-exposed`.
-//
-// The gate exists because the hub registers most routes as path-only patterns
-// and dispatches methods inside handlers, so the router cannot tell an MCP
-// tool off a route — the spec is the only place method-level coverage is
-// expressible. The MCP side (services/mcp/internal/mcp/parity_test.go) checks
-// that named tools are actually registered and that no registered tool is
-// missing from the spec; this test only enforces that every operation makes a
-// declaration, so the next new hub route must either name its tool or name
-// its reason.
-func TestOpenAPIOperationsDeclareMCPExposure(t *testing.T) {
-	var doc mcpExposureDoc
-	if err := yaml.Unmarshal(readOpenAPISpec(t), &doc); err != nil {
-		t.Fatalf("parse openapi/hub.yaml: %v", err)
-	}
-
-	var problems []string
-	checked := 0
-	for path, item := range doc.Paths {
-		for _, e := range item.ops() {
-			op := e.op
-			checked++
-			at := e.method + " " + path
-			hasTool := op.Tool != nil
-			hasReason := op.NotExposed != nil && *op.NotExposed != ""
-			switch {
-			case hasTool && hasReason:
-				problems = append(problems, at+" declares both x-mcp-tool and x-mcp-not-exposed")
-			case !hasTool && !hasReason:
-				problems = append(problems, at+" declares neither x-mcp-tool nor a non-empty x-mcp-not-exposed")
-			case hasTool:
-				switch v := op.Tool.(type) {
-				case string:
-					if v == "" {
-						problems = append(problems, at+" has an empty x-mcp-tool")
-					}
-				case []interface{}:
-					if len(v) == 0 {
-						problems = append(problems, at+" has an empty x-mcp-tool list")
-					}
-					for _, e := range v {
-						if s, ok := e.(string); !ok || s == "" {
-							problems = append(problems, at+" has a non-string or empty x-mcp-tool list entry")
-						}
-					}
-				default:
-					problems = append(problems, at+" has an x-mcp-tool that is not a string or a list of strings")
-				}
-			}
-		}
-	}
-	if checked == 0 {
-		t.Fatal("no operations found to check — the exposure gate would pass vacuously")
-	}
-	if len(problems) > 0 {
-		sort.Strings(problems)
-		t.Errorf("%d operation(s) in openapi/hub.yaml do not declare their MCP exposure — add x-mcp-tool: <tool_name> (or a list) or x-mcp-not-exposed: \"<reason>\":\n  %s",
-			len(problems), strings.Join(problems, "\n  "))
-	}
 }
 
 // TestOpenAPISpecCoversInternalRoutes pins that the internal surface is documented

@@ -156,10 +156,15 @@ and **control** it. Below is the full tool surface, grouped by area.
 Read tools are safe to call freely; mutation tools change platform state
 and should be used deliberately.
 
-This table is the tool surface of record, and it is machine-checked: every
-operation in [`openapi/hub.yaml`](../openapi/hub.yaml) names its MCP tool via
-`x-mcp-tool` or records why it has none via `x-mcp-not-exposed`, in CI (see
-[`api-reference.md`](api-reference.md) and `.agent/skills/development/add-mcp-tool.md`).
+This table is the tool surface of record. It is kept in step with the code by the
+spec, not by a checker: every operation in
+[`openapi/hub.yaml`](../openapi/hub.yaml) names its MCP tool via `x-mcp-tool` or
+records why it has none via `x-mcp-not-exposed`, and CI fails when the spec and the
+registered tools disagree (see
+[`api-reference.md`](api-reference.md), "Spec parity" below, and
+`.agent/skills/development/add-mcp-tool.md`, whose last step adds this table's row).
+No check compares the table itself against the spec — a tool that lands without a
+row here is a review miss, not a test failure.
 
 > This server is for **you** — a human at a laptop or a console operator. AInsel's
 > own agents do not get it. They get a separate, read-only plane served by the hub
@@ -510,7 +515,13 @@ Two checks make that honest:
 
 An aggregate tool (`summarize_workflows`, `summarize_agent_activity`, the two log
 and the two metrics tools) reads a route another tool already names, so its row
-carries a list: `x-mcp-tool: [list_agents, summarize_workflows]`. A deliberate
+carries a list:
+
+```yaml
+      x-mcp-tool:
+        - list_agents
+        - summarize_workflows
+``` A deliberate
 non-exposure is not a bug to fix silently — the reason string says why, and which
 issue picks it up.
 

@@ -35,17 +35,19 @@ AInsel MCP server (see [`mcp.md`](mcp.md)) reaches it — one of exactly two key
 
 - `x-mcp-tool: <tool_name>` (a name, or a list of names when one route is served
   by several tools, e.g. `get_agent_metrics` / `query_metrics` on
-  `GET /api/v1/metrics/query`) — the route has an MCP
+  `GET /api/v1/observability/metrics/query`) — the route has an MCP
   tool. The MCP-side check (`services/mcp/internal/mcp/parity_test.go`) fails if
   a named tool is not registered on `mcp.New(...)`.
 - `x-mcp-not-exposed: "<reason>"` — the route deliberately has no tool. The
-  reason says why: a permanent decision ("browser session surface", "internal
-  X-Internal-Token surface") or a pointer to the issue/PR that will add the tool
-  ("planned in #329 (list_users)"). Flip the row to `x-mcp-tool` in
-  the same PR that lands the tool.
+  reason is free text that says why: a permanent decision ("browser session
+  surface", "internal X-Internal-Token surface") or a pointer to the issue that
+  will pick the tool up, conventionally `planned in #<issue> (<tool_name>)` once
+  the tool name is known. Flip the row to `x-mcp-tool` in the same PR that lands
+  the tool.
 
-`services/hub/internal/api/openapi_parity_test.go` fails any operation that
-carries neither key, so a new hub route cannot silently miss its tool. Method
+`services/hub/internal/api/openapi_mcp_marker_test.go` fails any operation that
+carries neither key (or both, or a malformed tool name), so a new hub route cannot
+silently miss its tool. Method
 coverage comes from the spec: the hub registers most routes as path-only
 patterns and dispatches methods inside handlers, so the router cannot express
 it. See `.agent/skills/development/add-mcp-tool.md` for the workflow.
