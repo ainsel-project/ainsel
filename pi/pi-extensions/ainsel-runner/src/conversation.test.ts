@@ -157,6 +157,103 @@ describe("toConversationPayloads", () => {
 		assert.equal(out[0].costUsd, 0);
 	});
 
+	describe("unpriced models (issue #339)", () => {
+		// AINSEL_LLM_PRICED "false" is the operator's declaration that the
+		// model has no price: pi still computes usage.cost.total = 0, but the
+		// runner must omit costUsd so the hub stores NULL and consumers render
+		// "unknown" instead of a measured $0.00.
+		function withPricedEnv(value: string | undefined, fn: () => void): void {
+			const saved = process.env.AINSEL_LLM_PRICED;
+			if (value === undefined) delete process.env.AINSEL_LLM_PRICED;
+			else process.env.AINSEL_LLM_PRICED = value;
+			try {
+				fn();
+			} finally {
+				if (saved === undefined) delete process.env.AINSEL_LLM_PRICED;
+				else process.env.AINSEL_LLM_PRICED = saved;
+			}
+		}
+
+		it("omits costUsd on assistant rows of an unpriced model, tokens and all", () => {
+			withPricedEnv("false", () => {
+				const messages = [
+					{
+						role: "assistant",
+						model: "m",
+						usage: { input: 500, output: 50, cacheRead: 0, cacheWrite: 0, cost: { total: 0 }, totalTokens: 550 },
+						content: [],
+					},
+				];
+				const out = toConversationPayloads(messages, meta);
+				assert.equal(out[0].inputTokens, 500);
+				assert.equal(out[0].cacheReadTokens, 0);
+				assert.equal("costUsd" in out[0], false);
+			});
+		});
+
+		it("omits costUsd on synthetic summary rows of an unpriced model", () => {
+			withPricedEnv("false", () => {
+				const messages = [
+					{
+						role: "system",
+						model: "m",
+						usage: { input: 4000, output: 200, cost: { total: 0 } },
+						content: [{ type: "text", text: "summary" }],
+						stopReason: "compaction",
+					},
+				];
+				const out = toConversationPayloads(messages, meta);
+				assert.equal(out.length, 1);
+				assert.equal(out[0].inputTokens, 4000);
+				assert.equal("costUsd" in out[0], false);
+			});
+		});
+
+		it("still sends a provider-billed cost for an unpriced model", () => {
+			// totalFromProvider means the provider billed the request — real
+			// money must not be suppressed by the pricing declaration.
+			withPricedEnv("false", () => {
+				const messages = [
+					{
+						role: "assistant",
+						model: "m",
+						usage: { input: 5, output: 5, cost: { total: 0.97, totalFromProvider: true } },
+						content: [],
+					},
+				];
+				const out = toConversationPayloads(messages, meta);
+				assert.equal(out[0].costUsd, 0.97);
+			});
+		});
+
+		it("keeps a non-zero pi-computed cost on a model the operator called unpriced", () => {
+			// Only pi's arithmetic zero is "not reported"; a figure pi priced from a
+			// rate it has is real money and must reach the hub.
+			withPricedEnv("false", () => {
+				const messages = [
+					{
+						role: "assistant",
+						model: "m",
+						usage: { input: 5, output: 5, cost: { total: 0.42 } },
+						content: [],
+					},
+				];
+				const out = toConversationPayloads(messages, meta);
+				assert.equal(out[0].costUsd, 0.42);
+			});
+		});
+
+		it("keeps costUsd on every row when the model is priced (unset reads as priced)", () => {
+			withPricedEnv(undefined, () => {
+				const messages = [
+					{ role: "assistant", model: "m", usage: { input: 5, output: 5, cost: { total: 0 } }, content: [] },
+				];
+				const out = toConversationPayloads(messages, meta);
+				assert.equal(out[0].costUsd, 0);
+			});
+		});
+	});
+
 	it("skips unknown roles", () => {
 		const messages = [{ role: "system", content: [{ type: "text", text: "hi" }] }];
 

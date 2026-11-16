@@ -79,6 +79,7 @@ from the chart's shared `auth.internalValidateSecret`).
 | `HUB_URL` | yes | Hub backend base URL (e.g. `http://ainsel-hub:8080`) |
 | `HUB_INTERNAL_VALIDATE_SECRET` | yes | Shared secret for `X-Internal-Token` header |
 | `AINSEL_LLM_MODEL` | yes | Model identifier; reported in token metrics. The legacy alias `OLLAMA_CLOUD_MODEL` is read as a fallback for one release (issue #96); there is no default |
+| `AINSEL_LLM_PRICED` | no | Set by the agent-operator: `"true"` when the model has a price (`spec.llm.cost` is set — including an explicit all-zero price — or the provider is one of pi's built-ins, whose own catalog supplies the rates), `"false"` when it has none. With `"false"` the runner omits `costUsd` from conversation rows and raises no `agent_cost_usd_total` series, so unpriced usage reads as "not reported" instead of a measured `$0.00` (issue #339) — the declaration suppresses pi's computed zero only, never a non-zero figure pi got from a rate it does have. Unset or unparseable values read as priced (fail open), so a new runner against an old operator keeps reporting what it reports today. A figure pi marks `usage.cost.totalFromProvider` — billed by the provider — always rides through, whatever the declaration says |
 | `NAK_DELAY_MS` | no | Base NACK backoff in ms. The hub doubles it per recorded attempt of the task and caps the result at 30 minutes, so this is the first retry's wait rather than a fixed one (default `60000`) |
 | `TURN_TIMEOUT_MS` | no | Maximum time in ms to wait for a single LLM turn before aborting and nacking (default `600000`, i.e. 10 minutes) |
 | `TURN_SETTLE_TIMEOUT_MS` | no | Maximum time in ms to wait for an aborted turn to settle before proceeding (default `10000`, i.e. 10 seconds). Backstop only — after `ctx.abort()` the run should settle in milliseconds. |
@@ -112,10 +113,16 @@ facts the hub distinguishes (issue #75). Use
 `cache_read / (input + cache_read + cache_write)` as the cache hit rate when
 checking whether prompt caching is actually working.
 
-`agent_cost_usd_total` follows the same presence rule (issue #75): a model whose
-`models.json` entry carries no cost block reports no figure and raises nothing —
-"not reported" — while a priced model that costs nothing raises `0`, a measured
-free run. The hub reads the two apart.
+`agent_cost_usd_total` follows the same presence rule (issues #75 and #339). Note
+that pi itself has no "unpriced" state: a model whose `models.json` entry carries
+no cost block still gets `usage.cost.total = 0`, computed from rates of zero. The
+operator therefore declares pricing to the runner via `AINSEL_LLM_PRICED`; with
+`"false"` the runner reports no figure and raises nothing — "not reported" —
+while a priced model that costs nothing raises `0`, a measured free run. The hub
+reads the two apart. Only pi's arithmetic zero is suppressed: a non-zero figure
+is a rate pi actually found, so it is reported even for a model the operator
+declared unpriced — the same reasoning that lets a provider-billed figure
+(`totalFromProvider`) through.
 
 Usage is booked from every LLM call pi reports, not only from assistant messages:
 `message_end` (any message that carries `usage`, which pi also types on tool results),

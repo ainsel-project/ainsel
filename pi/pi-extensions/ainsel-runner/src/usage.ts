@@ -13,7 +13,7 @@
 import * as http from "http";
 import * as prom from "prom-client";
 import { logError, logInfo } from "./logging.ts";
-import { resolveModelEnv } from "./config.ts";
+import { resolveLlmPriced, resolveModelEnv } from "./config.ts";
 import type { PiMessage, PiUsage } from "./pi-types.ts";
 
 
@@ -78,13 +78,37 @@ export function tokenComponents(usage: PiUsage | undefined): Array<[string, numb
 }
 
 /** Extracts the USD cost of a pi usage object (usage.cost.total), or
- *  undefined when it is absent, negative or non-numeric — the shape an
- *  unpriced model reports (issue #75). A reported 0 is returned as 0: it is a
- *  measured free run, not a missing figure. Pure and exported for unit
- *  testing. */
+ *  undefined when no figure may be reported — the shape the hub stores as
+ *  NULL, "not reported" (issues #75 and #339).
+ *
+ *  Three cases decide presence, in this order:
+ *  - Absent, negative or non-numeric totals are never a figure (issue #75).
+ *  - A total pi marks `totalFromProvider: true` was billed by the provider —
+ *    real money — and always rides through, even when the operator declared
+ *    the model unpriced (issue #339).
+ *  - Otherwise the operator's declaration decides, and only for the arithmetic
+ *    zero: with `AINSEL_LLM_PRICED` "false" the model has no price, so pi's
+ *    computed 0 is not a measurement and is suppressed, while a priced model's
+ *    0 stays a measured free run. A non-zero figure pi computed from a rate it
+ *    does have is a measurement too and stays reported even against a "false"
+ *    declaration — the same reasoning as the carve-out above, so a catalog rate
+ *    for a provider the operator called unpriced is never silently blanked.
+ *    Unset reads as priced (fail open, see resolveLlmPriced).
+ *
+ *  This is the single cost predicate for the whole runner — conversation
+ *  rows and the cost counter both read figures through here, so the presence
+ *  rule cannot drift between destinations. Pure apart from the lazy env read
+ *  (testable by mutating process.env). Exported for unit testing. */
 export function costOf(usage: PiUsage | undefined): number | undefined {
 	const value = usage?.cost?.total;
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+	if (usage?.cost?.totalFromProvider === true) return value;
+	// Only the arithmetic zero is suppressed: an unpriced model has no rate, so
+	// pi's 0 is not a measurement (issue #339). A non-zero total means pi found a
+	// rate after all, and a rate pi computed is a measurement — dropping it would
+	// hide real money (same reasoning as the totalFromProvider carve-out).
+	if (!resolveLlmPriced() && value === 0) return undefined;
+	return value;
 }
 
 /** Returns the value when it is a finite non-negative number, undefined
@@ -139,9 +163,11 @@ export function recordUsage(usage: PiUsage | undefined, model: string, source = 
 		);
 	}
 	const cost = costOf(usage);
-	// Raise the counter whenever pi reports a figure — including 0, which
-	// creates the series without moving its value and is exactly the "measured
-	// free run" signal the hub distinguishes from "never reported" (issue #75).
+	// Raise the counter whenever a figure may be reported — including 0 on a
+	// priced model, which creates the series without moving its value and is
+	// exactly the "measured free run" signal the hub distinguishes from "never
+	// reported" (issue #75). An unpriced model reports no figure (costOf
+	// returns undefined), so no zero-valued series is minted for it (issue #339).
 	if (cost !== undefined) {
 		costCounter.inc({ agent, repo, org, event_type: eventType, model: modelLabel }, cost);
 	}

@@ -101,6 +101,118 @@ describe("costOf", () => {
 	});
 });
 
+describe("costOf pricing presence (issue #339)", () => {
+	// AINSEL_LLM_PRICED is the operator's declaration that the model has a
+	// price (spec.llm.cost set, or a pi built-in provider whose catalog
+	// supplies rates). Only the literal "false" means unpriced; everything
+	// else — including unset — reads as priced (fail open).
+	function withPricedEnv(value: string | undefined, fn: () => void): void {
+		const saved = process.env.AINSEL_LLM_PRICED;
+		if (value === undefined) delete process.env.AINSEL_LLM_PRICED;
+		else process.env.AINSEL_LLM_PRICED = value;
+		try {
+			fn();
+		} finally {
+			if (saved === undefined) delete process.env.AINSEL_LLM_PRICED;
+			else process.env.AINSEL_LLM_PRICED = saved;
+		}
+	}
+
+	it("suppresses pi's arithmetic zero when the operator declared the model unpriced", () => {
+		// The bug: pi prices an unpriced model at 0, and the runner used to
+		// forward that as a measurement — the hub then said costReported: true,
+		// costUsd: 0 and the UI showed a free-looking $0.00 for real work.
+		withPricedEnv("false", () => {
+			assert.equal(costOf({ input: 10, cost: { total: 0 } }), undefined);
+			assert.equal(costOf({ cost: { total: 0 } }), undefined);
+		});
+	});
+
+	it("keeps a priced model's measured zero — a deliberate all-zero price stays possible", () => {
+		withPricedEnv("true", () => {
+			assert.equal(costOf({ cost: { total: 0 } }), 0);
+			assert.equal(costOf({ cost: { total: 0.5 } }), 0.5);
+		});
+	});
+
+	it("treats unset and unparseable values as priced (fail open)", () => {
+		// A new runner against an old operator (or a custom image built
+		// outside this repo) must keep reporting what it reports today rather
+		// than blanking the cost of agents that are priced.
+		withPricedEnv(undefined, () => {
+			assert.equal(costOf({ cost: { total: 0 } }), 0);
+		});
+		withPricedEnv("yes", () => {
+			assert.equal(costOf({ cost: { total: 0 } }), 0);
+		});
+		withPricedEnv(" FALSE ", () => {
+			assert.equal(costOf({ cost: { total: 0 } }), undefined);
+		});
+	});
+
+	it("lets a provider-billed figure through even when the model is unpriced", () => {
+		// usage.cost.totalFromProvider means the provider billed this request —
+		// real money. Suppressing it would trade a false $0.00 for a missing
+		// real charge.
+		withPricedEnv("false", () => {
+			assert.equal(costOf({ cost: { total: 0.97, totalFromProvider: true } }), 0.97);
+			assert.equal(costOf({ cost: { total: 0, totalFromProvider: true } }), 0);
+		});
+	});
+
+	it("keeps a non-zero pi-computed figure for a model the operator called unpriced", () => {
+		// The declaration is about pricing intent, not about hiding money: if pi
+		// has a real catalog rate for the model id (an OpenAI-compatible provider
+		// whose model pi's catalog knows, or a later catalog addition), the
+		// figure is a measurement and must survive a "false" declaration.
+		withPricedEnv("false", () => {
+			assert.equal(costOf({ cost: { total: 0.42 } }), 0.42);
+			assert.equal(hasRecordableUsage({ cost: { total: 0.42 } }), true);
+		});
+	});
+
+	it("keeps an unpriced row with tokens recordable, just without a cost figure", () => {
+		withPricedEnv("false", () => {
+			assert.equal(hasRecordableUsage({ input: 5, output: 1, cost: { total: 0 } }), true);
+			assert.equal(costOf({ input: 5, output: 1, cost: { total: 0 } }), undefined);
+		});
+	});
+
+	it("books tokens but raises no cost series for an unpriced model", () => {
+		return withEventEnv({ AINSEL_EVENT_AGENT: "olli" }, async () => {
+			const saved = process.env.AINSEL_LLM_PRICED;
+			process.env.AINSEL_LLM_PRICED = "false";
+			try {
+				assert.equal(recordUsage({ input: 100, output: 10, cost: { total: 0 } }, "unpriced-model"), true);
+				assert.equal(await counterValue("agent_tokens_used_total", { model: "unpriced-model", token_type: "input" }), 100);
+				// No agent_cost_usd_total series is raised for an unpriced model
+				// (docs/observability.md: the runtime "raises no
+				// agent_cost_usd_total series").
+				assert.equal(await counterValue("agent_cost_usd_total", { model: "unpriced-model" }), 0);
+			} finally {
+				if (saved === undefined) delete process.env.AINSEL_LLM_PRICED;
+				else process.env.AINSEL_LLM_PRICED = saved;
+			}
+		});
+	});
+
+	it("raises the cost series for a non-zero figure on a model declared unpriced", () => {
+		// Mirror of the rule above on the counter side: the money pi did price is
+		// booked even when the operator's declaration said there was none.
+		return withEventEnv({ AINSEL_EVENT_AGENT: "olli" }, async () => {
+			const saved = process.env.AINSEL_LLM_PRICED;
+			process.env.AINSEL_LLM_PRICED = "false";
+			try {
+				assert.equal(recordUsage({ input: 10, output: 1, cost: { total: 0.25 } }, "declared-unpriced"), true);
+				assert.equal(await counterValue("agent_cost_usd_total", { model: "declared-unpriced" }), 0.25);
+			} finally {
+				if (saved === undefined) delete process.env.AINSEL_LLM_PRICED;
+				else process.env.AINSEL_LLM_PRICED = saved;
+			}
+		});
+	});
+});
+
 describe("finiteNumberOrUndefined", () => {
 	it("keeps a reported zero as a measured zero", () => {
 		// Issue #75: 0 is a measurement (real 0% cache hit, free run) and must

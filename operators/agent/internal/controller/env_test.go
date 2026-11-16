@@ -1001,6 +1001,48 @@ var _ = Describe("Agent Controller", func() {
 			Expect(internalToken.Value).To(Equal(platformToken))
 			Expect(internalToken.ValueFrom).To(BeNil(), "platform-owned values are injected as literals")
 		})
+
+		It("should declare the model's pricing to the runner via AINSEL_LLM_PRICED", func() {
+			// Issue #339: pi prices a model without a cost block at exactly
+			// zero, so the runner needs the operator's intent to report usage
+			// from an unpriced agent as unpriced instead of a measured $0.00.
+			controllerReconciler := &AgentReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			agentName := "agent-" + resourceName
+			pricedEnv := func() *corev1.EnvVar {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				e := findEnvVar(
+					mustDeployment(agentName).Spec.Template.Spec.Containers[0].Env,
+					"AINSEL_LLM_PRICED",
+				)
+				Expect(e).NotTo(BeNil(), "AINSEL_LLM_PRICED is written explicitly in both directions")
+				Expect(e.ValueFrom).To(BeNil(), "the declaration is a literal, not a secret reference")
+				return e
+			}
+
+			By("Reporting the fixture agent (ollama-cloud, no spec.llm.cost) as unpriced")
+			Expect(pricedEnv().Value).To(Equal("false"))
+
+			By("Reporting a deliberate all-zero price as priced")
+			Expect(updateAgentWithRetry(ctx, typeNamespacedName, func(a *ainselv1alpha1.Agent) {
+				a.Spec.LLM.Cost = &ainselv1alpha1.AgentLLMCost{}
+			})).To(Succeed())
+			Expect(pricedEnv().Value).To(Equal("true"),
+				"an explicit zero price is a measured free run, not an omission")
+
+			By("Reporting a Pi built-in provider as priced even without spec.llm.cost")
+			Expect(updateAgentWithRetry(ctx, typeNamespacedName, func(a *ainselv1alpha1.Agent) {
+				a.Spec.LLM.Cost = nil
+				a.Spec.LLM.Provider = ainselv1alpha1.AgentLLMProviderOpenAI
+			})).To(Succeed())
+			Expect(pricedEnv().Value).To(Equal("true"),
+				"Pi's own catalog supplies the rates for built-in providers")
+		})
 	})
 })
 
@@ -1107,5 +1149,46 @@ var _ = Describe("resolvePiProvider", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unknown"))
 		Expect(err.Error()).To(ContainSubstring("ollama-cloud, opencode, alibaba-cloud, openai, anthropic, google, custom"))
+	})
+})
+
+// Issue #339: llmPriced is the operator's pricing declaration behind
+// AINSEL_LLM_PRICED. It must be true whenever a price exists — spec.llm.cost
+// (including an explicit all-zero price) or one of Pi's built-in providers,
+// whose own catalog supplies the rates — and false only when the model truly
+// has no price, so the runner reports that usage as unpriced instead of a
+// measured $0.00.
+var _ = Describe("llmPriced", func() {
+	newAgent := func(mut func(*ainselv1alpha1.Agent)) *ainselv1alpha1.Agent {
+		a := &ainselv1alpha1.Agent{}
+		a.Name = "pricing-test"
+		a.Spec.LLM.Model = "glm-5.1:cloud"
+		mut(a)
+		return a
+	}
+
+	It("is false for a non-built-in provider without spec.llm.cost", func() {
+		agent := newAgent(func(a *ainselv1alpha1.Agent) {})
+		Expect(llmPriced(agent, piProviderConfig{})).To(BeFalse())
+	})
+
+	It("is true for an explicit all-zero price — a deliberate measured free run", func() {
+		agent := newAgent(func(a *ainselv1alpha1.Agent) {
+			a.Spec.LLM.Cost = &ainselv1alpha1.AgentLLMCost{}
+		})
+		Expect(llmPriced(agent, piProviderConfig{})).To(BeTrue())
+	})
+
+	It("is true for a priced non-built-in provider", func() {
+		agent := newAgent(func(a *ainselv1alpha1.Agent) {
+			a.Spec.LLM.Cost = &ainselv1alpha1.AgentLLMCost{Input: 1.25, Output: 10}
+		})
+		Expect(llmPriced(agent, piProviderConfig{})).To(BeTrue())
+	})
+
+	It("is true for a Pi built-in provider even without spec.llm.cost", func() {
+		agent := newAgent(func(a *ainselv1alpha1.Agent) {})
+		Expect(llmPriced(agent, piProviderConfig{BuiltIn: true})).To(BeTrue(),
+			"Pi's own catalog supplies the rates for built-in providers")
 	})
 })
