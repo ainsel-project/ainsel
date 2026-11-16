@@ -81,8 +81,8 @@ function mockFetch(events: Record<string, unknown>[] = sampleEvents) {
               if (!matches.some((m) => m.agent === agent)) return false
             }
             if (runState) {
-              const matches = (e.matches ?? []) as { runStatus?: string }[]
-              if (!matches.some((m) => m.runStatus === runState)) return false
+              const matches = (e.matches ?? []) as { invocationStatus?: string }[]
+              if (!matches.some((m) => m.invocationStatus === runState)) return false
             }
             return true
           })
@@ -718,14 +718,18 @@ describe('Activity', () => {
         timestamp: new Date(now - 30_000).toISOString(),
         connector: 'c-111',
         match: 'matched',
-        matches: [{ trigger: 't1', agent: 'doc-writer', runStatus: 'success', durationMs: 1200 }],
+        matches: [
+          { trigger: 't1', agent: 'doc-writer', invocationStatus: 'success', durationMs: 1200 },
+        ],
       },
       {
         id: 'o2',
         timestamp: new Date(now - 60_000).toISOString(),
         connector: 'c-222',
         match: 'error',
-        matches: [{ trigger: 't2', agent: 'infra-bot', runStatus: 'failure', error: 'boom' }],
+        matches: [
+          { trigger: 't2', agent: 'infra-bot', invocationStatus: 'failure', error: 'boom' },
+        ],
       },
       {
         id: 'o3',
@@ -733,8 +737,8 @@ describe('Activity', () => {
         connector: 'c-333',
         match: 'matched',
         matches: [
-          { trigger: 't3', agent: 'sec-bot', runStatus: 'success' },
-          { trigger: 't4', agent: 'perf-bot', runStatus: 'failure', error: 'oom' },
+          { trigger: 't3', agent: 'sec-bot', invocationStatus: 'success' },
+          { trigger: 't4', agent: 'perf-bot', invocationStatus: 'failure', error: 'oom' },
         ],
       },
       {
@@ -815,14 +819,16 @@ describe('Activity', () => {
           timestamp: new Date(now - i * 10_000).toISOString(),
           connector: 'c-111',
           match: 'matched' as const,
-          matches: [{ trigger: 't1', agent: 'doc-writer', runStatus: 'success' }],
+          matches: [{ trigger: 't1', agent: 'doc-writer', invocationStatus: 'success' }],
         })),
         {
           id: 'fail-deep-in-history',
           timestamp: new Date(now - 400_000).toISOString(),
           connector: 'c-111',
           match: 'error' as const,
-          matches: [{ trigger: 't2', agent: 'infra-bot', runStatus: 'failure', error: 'boom' }],
+          matches: [
+            { trigger: 't2', agent: 'infra-bot', invocationStatus: 'failure', error: 'boom' },
+          ],
         },
       ]
       mockFetch(history)

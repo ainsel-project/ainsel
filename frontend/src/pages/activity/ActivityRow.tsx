@@ -102,10 +102,10 @@ function AgentLinks({ matches, names }: { matches: ActivityMatch[]; names: Map<s
             >
               {label}
             </Link>
-            {m.runState || m.runStatus ? (
+            {m.runState || m.invocationStatus ? (
               <>
                 {' '}
-                <RunStateTag state={m.runState ?? m.runStatus} stuck={m.stuck} />
+                <RunStateTag state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
               </>
             ) : null}
           </Fragment>
@@ -220,9 +220,9 @@ export function ActivityRow({
                           {agentLabel}
                         </Link>
                       </b>
-                      {m.runState || m.runStatus ? (
+                      {m.runState || m.invocationStatus ? (
                         <span style={{ marginLeft: 8 }}>
-                          <RunStateTag state={m.runState ?? m.runStatus} stuck={m.stuck} />
+                          <RunStateTag state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
                           {m.durationMs != null ? (
                             <span className="label" style={{ marginLeft: 6 }}>
                               {formatDuration(m.durationMs)}

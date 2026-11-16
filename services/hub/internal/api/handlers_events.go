@@ -86,9 +86,13 @@ type activityMatch struct {
 	// assume the display name doubles as the id; empty on hubs that predate
 	// the field, which leaves the link unrendered.
 	AgentID string `json:"agentId,omitempty"`
-	// RunStatus is the raw invocation status, kept for compatibility. Views
-	// should prefer RunState, which is derived from the task and distinguishes
-	// queued from running.
+	// InvocationStatus is the raw invocation status (the `invocations.status`
+	// column), kept for compatibility. Views should prefer RunState, which is
+	// derived from the task and distinguishes queued from running.
+	InvocationStatus string `json:"invocationStatus,omitempty"`
+	// RunStatus is the retired spelling of InvocationStatus, emitted with the
+	// same value for one release. Retired together with the `status`/`outcome`
+	// query aliases.
 	RunStatus  string `json:"runStatus,omitempty"`
 	DurationMs *int64 `json:"durationMs,omitempty"`
 	Error      string `json:"error,omitempty"`
@@ -313,10 +317,11 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 // Each match carries the derived run state (runState, taskStatus, startedAt,
 // stuck) computed by deriveRunState from the task and, when the invocation
 // store has one, its record — the same state the invocation list exposes, so
-// the activity page and the routing/runs views cannot disagree. runStatus is
-// the raw invocation status, kept for compatibility; records older than the
-// store's retention may have been pruned, which leaves runStatus empty and
-// makes the derived state unknown when no task backs the match either.
+// the activity page and the routing/runs views cannot disagree. invocationStatus
+// (and its retired `runStatus` alias) is the raw invocation status, kept for
+// compatibility; records older than the store's retention may have been pruned,
+// which leaves both empty and makes the derived state unknown when no task backs
+// the match either.
 func (s *Server) buildActivityEntry(evt eventqueue.Event, tasks []eventqueue.Task) activityEntry {
 	entry := activityEntry{
 		ID:        evt.ID,
@@ -339,6 +344,7 @@ func (s *Server) buildActivityEntry(evt eventqueue.Event, tasks []eventqueue.Tas
 			var inv *invocations.Invocation
 			if s.invocations != nil && t.InvocationID != "" {
 				if rec, ok := s.invocations.Get(t.InvocationID); ok {
+					m.InvocationStatus = rec.Status
 					m.RunStatus = rec.Status
 					m.DurationMs = rec.DurationMs
 					m.Error = rec.Error

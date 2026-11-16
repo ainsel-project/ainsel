@@ -123,7 +123,14 @@ function mockFetch(over: { channels?: unknown[]; subs?: unknown[] } = {}) {
               connector: 'forgejo',
               channelId: 'ch-forgejo',
               match: 'matched',
-              matches: [{ trigger: 'on-issues', agent: 'review-bot', runStatus: 'success' }],
+              matches: [{ trigger: 'on-issues', agent: 'review-bot', invocationStatus: 'success' }],
+            },
+            {
+              id: 'evt-2',
+              timestamp: '2026-06-10T08:32:25Z',
+              connector: 'forgejo',
+              channelId: 'ch-forgejo',
+              match: 'unmatched',
             },
           ],
           total: 1,
@@ -215,6 +222,20 @@ describe('ChannelDetailPage', () => {
     expect(screen.getByText('via on-issues')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('relation-diagram')).toBeInTheDocument())
     expect(mermaidRenders.at(-1)).toContain('graph TD')
+  })
+
+  // The two activity axes are separate: the match verdict renders through its own
+  // tag and never feeds the run-state tag, which used to read `matched` as a run.
+  it('renders the match verdict and the run state as separate tags', async () => {
+    mockFetch()
+    renderAt('ch-forgejo')
+    await waitFor(() => expect(screen.getByText('evt-1')).toBeInTheDocument())
+    // evt-1: matched, and its run finished — one tag per axis.
+    expect(screen.getByText('FAN-OUT')).toBeInTheDocument()
+    expect(screen.getByText('SUCCESS')).toBeInTheDocument()
+    // evt-2: nothing matched, so there is no run to state.
+    expect(screen.getByText('NO MATCH')).toBeInTheDocument()
+    expect(screen.queryByText('matched')).not.toBeInTheDocument()
   })
 
   it('shows the counts the hub already computed, without extra event queries', async () => {

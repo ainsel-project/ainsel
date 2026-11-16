@@ -17,7 +17,7 @@ import {
   type RelationEndpoint,
 } from '../../api/channels'
 import { loadMermaid } from '../../primitives/mermaid'
-import type { ActivityEntry } from '../../api/events'
+import type { ActivityEntry, ActivityMatchResult } from '../../api/events'
 import { useInvocations, effectiveRunState } from '../../api/invocations'
 import { sectionPath } from '../agents/workspace/sections'
 import { Panel } from '../../primitives/Panel'
@@ -26,17 +26,25 @@ import { Tag } from '../../primitives/Tag'
 import { formatISO, formatRelative } from '../../utils/time'
 import './ChannelsPage.css'
 
-function RunStateTag({ status, stuck }: { status?: string; stuck?: boolean }) {
-  if (status === 'success') return <Tag variant="ok">SUCCESS</Tag>
-  if (status === 'failure') return <Tag variant="err">FAILURE</Tag>
-  if (status === 'timeout') return <Tag variant="err">TIMEOUT</Tag>
-  if (status === 'running') return <Tag variant="warn">RUNNING</Tag>
+// The run's own state — the axis the Activity page's State filter narrows. The
+// match verdict is the other axis and renders through MatchTag; taking match
+// values here is what made a fan-out event render as a run state.
+function RunStateTag({ state, stuck }: { state?: string; stuck?: boolean }) {
+  if (state === 'success') return <Tag variant="ok">SUCCESS</Tag>
+  if (state === 'failure') return <Tag variant="err">FAILURE</Tag>
+  if (state === 'timeout') return <Tag variant="err">TIMEOUT</Tag>
+  if (state === 'running') return <Tag variant="warn">RUNNING</Tag>
   // No worker yet — distinct from running, and never shown as running.
-  if (status === 'queued') return <Tag variant="stale">{stuck ? 'QUEUED · STUCK' : 'QUEUED'}</Tag>
-  if (status === 'error') return <Tag variant="err">ERR</Tag>
-  if (status === 'matched') return <Tag variant="ok">FAN-OUT</Tag>
-  if (status === 'unmatched') return <Tag variant="stale">NO MATCH</Tag>
+  if (state === 'queued') return <Tag variant="stale">{stuck ? 'QUEUED · STUCK' : 'QUEUED'}</Tag>
   return <Tag>—</Tag>
+}
+
+// Did the event match? The channel timeline's wording for the verdict the
+// Activity page renders as MATCH / SKIP.
+function MatchTag({ match }: { match: ActivityMatchResult }) {
+  if (match === 'matched') return <Tag variant="ok">FAN-OUT</Tag>
+  if (match === 'error') return <Tag variant="err">ERR</Tag>
+  return <Tag variant="stale">NO MATCH</Tag>
 }
 
 function EventLine({ entry }: { entry: ActivityEntry }) {
@@ -76,17 +84,12 @@ function EventLine({ entry }: { entry: ActivityEntry }) {
         ) : null}
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {runs.length === 0 ? (
-          <Tag variant="stale">NO MATCH</Tag>
-        ) : (
-          runs.map((m, i) => (
-            <RunStateTag
-              key={i}
-              status={m.runState ?? m.runStatus ?? entry.match}
-              stuck={m.stuck}
-            />
-          ))
-        )}
+        {/* One tag for the match verdict, then one per run — the same two axes
+            the Activity row keeps in separate columns. */}
+        <MatchTag match={entry.match} />
+        {runs.map((m, i) => (
+          <RunStateTag key={i} state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
+        ))}
       </div>
     </div>
   )
@@ -543,7 +546,7 @@ export function ChannelEditor({ channelId, hideSubscriptions = false }: ChannelE
                   >
                     {inv.triggerName ?? inv.trigger ?? '—'} · {inv.id}
                   </span>
-                  <RunStateTag status={effectiveRunState(inv)} stuck={inv.task?.stuck} />
+                  <RunStateTag state={effectiveRunState(inv)} stuck={inv.task?.stuck} />
                   <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                     {inv.durationMs !== undefined ? `${(inv.durationMs / 1000).toFixed(1)}s` : '—'}
                   </span>

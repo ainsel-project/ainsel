@@ -1269,7 +1269,7 @@ List recent invocations, newest first. Supports `page`/`pageSize`.
 
 Every row on the event-scoped list (`event=`) and on the plain list carries a `task` object when an `agent_tasks` row exists for it — including rows recorded before the invocation was enqueued, which are attached from the queue by ID. The queue-state synthesis for `event=` additionally produces a row for tasks that never got an invocation record; those rows carry `status: "queued"` (or `"failure"` for a failed task) and never `"running"`.
 
-The `task` object is the authoritative run state: `status` is the raw queue state (`pending` / `claimed` / `completed` / `failed` / `expired`) and is ambiguous in per-task Job mode, where the row stays `pending` while the pod works. `runState` is the hub-derived display state — `queued` (no worker yet), `running` (being worked on), `success`, `failure`, `timeout` — and `startedAt` is the first evidence of work (claim or first conversation row). `stuck: true` marks a task queued past the hub's start deadline (`TASK_START_TIMEOUT_SECONDS`, default 900); a task that then waits past its pickup deadline (`TASK_EXPIRY_SECONDS`, default 1 day) is reaped to `expired` and renders as `timeout` — never picked up, the sender notified like a failed task (issue #236). Clients should render `runState`, not `status`.
+The `task` object is the authoritative run state: `status` is the raw queue state (`pending` / `claimed` / `completed` / `failed` / `expired`) and is ambiguous in per-task Job mode, where the row stays `pending` while the pod works. `runState` is the hub-derived display state — `queued` (no worker yet), `running` (being worked on), `success`, `failure`, `timeout` — and `startedAt` is the first evidence of work (claim or first conversation row). `stuck: true` marks a task queued past the hub's start deadline (`TASK_START_TIMEOUT_SECONDS`, default 900); a task that then waits past its pickup deadline (`TASK_EXPIRY_SECONDS`, default 1 day) is reaped to `expired` and renders as `timeout` — never picked up, the sender notified like a failed task (issue #236). Clients should render `runState`, not `status`. (That `status` is the `agent_tasks` column; the activity entry's own `status` is the retired spelling of its `match` verdict — two different fields.)
 
 **Response:** `200 OK`
 ```json
@@ -1869,7 +1869,7 @@ wins when both are sent, and a retired name with an invalid value still returns
       "channelId": "ch-9f3c1a02",
       "match": "matched",
       "status": "matched",
-      "matches": [{"trigger": "t-9c1d2e", "agent": "a-3f9a2b", "agentId": "a-3f9a2b", "runStatus": "success", "runState": "success", "taskStatus": "completed", "startedAt": "2026-05-20T10:00:01Z", "durationMs": 14000}],
+      "matches": [{"trigger": "t-9c1d2e", "agent": "a-3f9a2b", "agentId": "a-3f9a2b", "invocationStatus": "success", "runStatus": "success", "runState": "success", "taskStatus": "completed", "startedAt": "2026-05-20T10:00:01Z", "durationMs": 14000}],
       "payload": {"action": "opened", "issue": {"number": 42}}
     }
   ],
@@ -1883,7 +1883,8 @@ response-side name of the same axis the `match` query parameter filters on.
 `status` is its retired spelling, emitted with the same value for one release and
 removed together with the query aliases. `matches`
 entries carry the raw invocation
-status (`runStatus`, within retention) plus the hub-derived `runState` —
+status (`invocationStatus` — the `invocations.status` column, within retention; its
+retired spelling `runStatus` is emitted alongside it) plus the hub-derived `runState` —
 `queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
 from the task row, the start evidence (claim or first conversation row) and the
 invocation record, so every view agrees on one value; `stuck: true` marks a task

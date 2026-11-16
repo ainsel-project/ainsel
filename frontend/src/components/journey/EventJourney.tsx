@@ -98,9 +98,10 @@ export function EventJourney({
   matches: {
     trigger: string
     agent: string
-    runStatus?: string
-    /** Derived run state from the hub — the value to render; falls back to
-     *  runStatus on responses from older hubs. */
+    /** Raw `invocations.status`, kept for compatibility. Prefer runState. */
+    invocationStatus?: string
+    /** Derived run state from the hub — the value to render; falls back to the
+     *  raw invocation status when a hub has not derived one. */
     runState?: string
     stuck?: boolean
     durationMs?: number
@@ -125,7 +126,7 @@ export function EventJourney({
   }
 
   for (const m of matches) {
-    const state = m.runState ?? m.runStatus
+    const state = m.runState ?? m.invocationStatus
     steps.push({
       key: `fanout:${m.agent}`,
       channel: m.agent,

@@ -230,7 +230,7 @@ export function Activity() {
           const an = agentNameById.get(m.agent)
           if (an) parts.push(an)
         }
-        if (m.runStatus) parts.push(m.runStatus)
+        if (m.invocationStatus) parts.push(m.invocationStatus)
       }
       if (r.payload != null) {
         try {

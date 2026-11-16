@@ -83,6 +83,19 @@ func decodeEnvelope(t *testing.T, rec *httptest.ResponseRecorder) eventsEnvelope
 	return env
 }
 
+// assertInvocationStatus checks the raw invocation status a match carries, in
+// its current name and in the retired `runStatus` spelling that mirrors it for
+// one release.
+func assertInvocationStatus(t *testing.T, m activityMatch, want string) {
+	t.Helper()
+	if m.InvocationStatus != want {
+		t.Errorf("invocationStatus = %q, want %q", m.InvocationStatus, want)
+	}
+	if m.RunStatus != want {
+		t.Errorf("retired runStatus = %q, want %q", m.RunStatus, want)
+	}
+}
+
 // The activity entry names its match verdict `match` and still emits the
 // retired `status` spelling with the same value, so callers reading either keep
 // working until the aliases are removed. Both keys must be present in the JSON,
@@ -697,14 +710,12 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		byID[e.ID] = e
 	}
 
-	// Completed invocation: runStatus=success, durationMs set.
+	// Completed invocation: invocationStatus=success, durationMs set.
 	okEntry := byID["evt-run-ok"]
 	if len(okEntry.Matches) != 1 {
 		t.Fatalf("expected 1 match for evt-run-ok, got %d", len(okEntry.Matches))
 	}
-	if okEntry.Matches[0].RunStatus != "success" {
-		t.Errorf("expected runStatus success, got %q", okEntry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, okEntry.Matches[0], "success")
 	if okEntry.Matches[0].RunState != "success" {
 		t.Errorf("expected runState success, got %q", okEntry.Matches[0].RunState)
 	}
@@ -712,14 +723,12 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		t.Error("expected durationMs to be set for completed invocation")
 	}
 
-	// Running invocation: runStatus=running, no duration.
+	// Running invocation: invocationStatus=running, no duration.
 	runEntry := byID["evt-run-running"]
 	if len(runEntry.Matches) != 1 {
 		t.Fatalf("expected 1 match for evt-run-running, got %d", len(runEntry.Matches))
 	}
-	if runEntry.Matches[0].RunStatus != "running" {
-		t.Errorf("expected runStatus running, got %q", runEntry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, runEntry.Matches[0], "running")
 	if runEntry.Matches[0].RunState != "running" {
 		t.Errorf("expected runState running, got %q", runEntry.Matches[0].RunState)
 	}
@@ -727,14 +736,12 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		t.Error("expected durationMs nil for running invocation")
 	}
 
-	// Missing invocation: runStatus empty (graceful degradation).
+	// Missing invocation: invocationStatus empty (graceful degradation).
 	missEntry := byID["evt-run-missing"]
 	if len(missEntry.Matches) != 1 {
 		t.Fatalf("expected 1 match for evt-run-missing, got %d", len(missEntry.Matches))
 	}
-	if missEntry.Matches[0].RunStatus != "" {
-		t.Errorf("expected empty runStatus for missing invocation, got %q", missEntry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, missEntry.Matches[0], "")
 	// The task row is authoritative: a completed task with a pruned invocation
 	// still reports success, not unknown.
 	if missEntry.Matches[0].RunState != "success" {
@@ -749,9 +756,9 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 	if qEntry.Matches[0].RunState != "queued" || qEntry.Matches[0].TaskStatus != "pending" {
 		t.Errorf("expected runState queued / taskStatus pending, got %+v", qEntry.Matches[0])
 	}
-	if qEntry.Matches[0].RunStatus != "running" {
-		t.Errorf("expected raw runStatus running kept for compatibility, got %q", qEntry.Matches[0].RunStatus)
-	}
+	// The raw column stays the raw column: the derived state says queued, the
+	// raw invocation status still says running.
+	assertInvocationStatus(t, qEntry.Matches[0], "running")
 
 	// Job-mode live run: pending row with conversation evidence is running.
 	jEntry := byID["evt-run-jobmode"]
@@ -803,9 +810,7 @@ func TestGetEvent_RunStateEnrichment(t *testing.T) {
 	if len(entry.Matches) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(entry.Matches))
 	}
-	if entry.Matches[0].RunStatus != "failure" {
-		t.Errorf("expected runStatus failure, got %q", entry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, entry.Matches[0], "failure")
 	if entry.Matches[0].Error != "something broke" {
 		t.Errorf("expected error 'something broke', got %q", entry.Matches[0].Error)
 	}
@@ -818,7 +823,7 @@ func TestGetEvent_RunStateEnrichment(t *testing.T) {
 // represented, one event mixes states across its tasks, and two events carry
 // tasks without a usable invocation record (empty id, or a pruned one).
 // Returns the server wired with a Postgres-backed invocation store so the
-// SQL run-state filter and the runStatus enrichment read the same table — the
+// SQL run-state filter and the invocationStatus enrichment read the same table — the
 // production wiring.
 func stateFixture(t *testing.T) (*Server, *eventqueue.Store, context.CancelFunc) {
 	t.Helper()
