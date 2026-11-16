@@ -2,7 +2,7 @@
 
 **When to use:** When a hub REST route (new or existing) needs an AInsel MCP
 tool, or when a tool is being removed. Enforced by the parity gate from
-issue ainsel-project/ainsel#326 — a hub route and its MCP tool cannot drift.
+issue #326 — a hub route and its MCP tool cannot drift.
 
 **Sources of truth (do not restate them here):**
 
@@ -58,8 +58,9 @@ issue ainsel-project/ainsel#326 — a hub route and its MCP tool cannot drift.
       fails if the tool named in the spec is not registered, or a registered
       tool is in no `x-mcp-tool` annotation (composite tools that join
       routes go in its `builtinAllowlist`, deliberately).
-- [ ] `services/hub`: `go test ./internal/api/` — the parity tests fail on a
-      spec operation with neither exposure key.
+- [ ] `services/hub`: `go test ./internal/api/` —
+      `openapi_mcp_marker_test.go` fails on a spec operation with neither
+      exposure key (or both, or a non-snake_case tool name).
 
 ### 5. Docs
 
@@ -72,7 +73,7 @@ issue ainsel-project/ainsel#326 — a hub route and its MCP tool cannot drift.
 
 | Pitfall | Prevention |
 |---------|-----------|
-| Tool added without a spec annotation | Hub parity test fails the PR |
+| Tool added without a spec annotation | Hub marker test fails the PR |
 | Spec names a tool that does not exist | MCP parity test fails the PR |
 | `""` treated as "unset" so a field cannot be cleared | Presence-based emission (step 2); test the clear case |
 | Secret echoed in a tool result or error | Sentinel-secret test per write tool |
