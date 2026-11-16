@@ -294,6 +294,20 @@ describe('Observability', () => {
     })
   })
 
+  // The axis max is the number a reader reads the bars against, and a point is
+  // a count per bucket on the hub's records but a rate on Prometheus, so the
+  // number carries chartUnit's label rather than standing alone (#341). The
+  // panel header carries the same unit, hence the query scoped to the svg.
+  it('labels the throughput axis max with the unit the backend answered in', async () => {
+    const { container } = renderWithProviders(<Observability />, {
+      route: '/observability',
+    })
+    await waitFor(() => {
+      const axis = [...container.querySelectorAll('svg text')].map((t) => t.textContent)
+      expect(axis).toContain('33 events / period')
+    })
+  })
+
   it('renders the tokens table with rows sorted by total descending', async () => {
     renderWithProviders(<Observability />, { route: '/observability' })
     await waitFor(() =>

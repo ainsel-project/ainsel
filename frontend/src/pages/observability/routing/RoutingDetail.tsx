@@ -6,6 +6,7 @@ import {
   effectiveRunState,
 } from '../../../api/invocations'
 import {
+  chartUnit,
   useObservabilityTimeseries,
   unavailableDetail,
   type Range,
@@ -173,6 +174,10 @@ export function RoutingDetail() {
             <TimeSeriesChart
               series={chartSeries}
               styles={CHART_STYLES}
+              unit={chartUnit(
+                matched.data?.source ?? routed.data?.source,
+                matched.data?.step ?? routed.data?.step,
+              )}
               ariaLabel={`Routing metrics over ${range}`}
             />
           ) : (

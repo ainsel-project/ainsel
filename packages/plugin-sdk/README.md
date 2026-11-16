@@ -47,6 +47,8 @@ The SDK exports:
 - **Registration**: `registerHost()`
 - **Primitives**: `Button`, `Panel`, `Tabs`, `Tag`, `Notice`, `Field`, `Input`, `Select`, `Textarea`, `Dot`, `RegisterTable`, `Markdown`, `TimeSeriesChart`, `Sparkbar`
 
+  `TimeSeriesChart` takes an optional `unit` string (e.g. `"events / 10m"`) and prints it next to the y-axis max, so a count per bucket is not read as a rate. Omit it and the axis shows the bare number, as before.
+
 ### Slots
 
 Plugins can contribute to the following extension points (slots):

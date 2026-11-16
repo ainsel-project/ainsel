@@ -1,5 +1,10 @@
 import { ServiceUnavailableError } from '../../api/client'
-import { chartUnit, unavailableDetail, useObservabilityTimeseries } from '../../api/observability'
+import {
+  chartUnit,
+  formatChartValue,
+  unavailableDetail,
+  useObservabilityTimeseries,
+} from '../../api/observability'
 import { Panel } from '../../primitives/Panel'
 import { SectionStatus, type SectionState } from '../../primitives/SectionStatus'
 
@@ -33,6 +38,8 @@ export function ThroughputChart() {
   // The hub's own records count events per bucket; a Prometheus counter is a
   // rate. Whichever answered, the label has to say what the bars measure.
   const unit = chartUnit(data?.source, data?.step)
+  const peakValue = `${formatChartValue(peak)} ${unit}`
+  const peakLabel = `PEAK · ${peakValue}`
 
   return (
     <Panel
@@ -61,7 +68,7 @@ export function ThroughputChart() {
               preserveAspectRatio="none"
               style={{ display: 'block', width: '100%', height: 140 }}
               role="img"
-              aria-label="Throughput over 24 hours"
+              aria-label={`Throughput over 24 hours${peak > 0 ? `, peak ${peakValue}` : ''}`}
             >
               <line
                 x1={0}
@@ -90,7 +97,7 @@ export function ThroughputChart() {
                     fontSize={9}
                     fill="var(--signal)"
                   >
-                    PEAK · {peak}
+                    {peakLabel}
                   </text>
                 </>
               ) : null}

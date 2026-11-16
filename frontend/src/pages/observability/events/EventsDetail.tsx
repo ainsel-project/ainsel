@@ -4,6 +4,7 @@ import { useRecentEvents } from '../../../api/events'
 import type { ActivityEntry, ActivityMatchResult } from '../../../api/events'
 import { useConnectorNames } from '../../../api/connectors'
 import {
+  chartUnit,
   useObservabilityTimeseries,
   unavailableDetail,
   useTokensByEvent,
@@ -215,6 +216,7 @@ export function EventsDetail() {
             <TimeSeriesChart
               series={chartSeries}
               styles={CHART_STYLES}
+              unit={chartUnit(timeseries.data?.source, timeseries.data?.step)}
               ariaLabel={`Events consumed over ${range}`}
             />
           ) : (

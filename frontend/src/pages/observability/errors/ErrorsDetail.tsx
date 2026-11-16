@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useErrors } from '../../../api/errors'
 import type { ErrorSeverity, ErrorSource, PlatformError } from '../../../api/errors'
 import {
+  chartUnit,
   useObservabilityTimeseries,
   unavailableDetail,
   type Range,
@@ -157,6 +158,7 @@ export function ErrorsDetail() {
             <TimeSeriesChart
               series={chartSeries}
               styles={CHART_STYLES}
+              unit={chartUnit(timeseries.data?.source, timeseries.data?.step)}
               ariaLabel={`Routing errors over ${range}`}
             />
           ) : (
