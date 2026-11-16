@@ -31,7 +31,10 @@
   }
 
   /* Four KPI cards across ~700px is still readable; across 360px it is not. */
-  .kpi-row {
+  /* The column-count variants need their own rule: `.kpi-row.cols-7` is more
+     specific than `.kpi-row`, so the flat primitive would otherwise win. */
+  .kpi-row,
+  .kpi-row.cols-7 {
     grid-template-columns: repeat(2, 1fr);
   }
 
@@ -74,7 +77,8 @@
     padding: 16px;
   }
 
-  .kpi-row {
+  .kpi-row,
+  .kpi-row.cols-7 {
     grid-template-columns: 1fr;
   }
 

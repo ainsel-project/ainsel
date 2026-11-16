@@ -305,6 +305,10 @@ const COLLAPSES: Collapse[] = [
   // invisible to this table, which is how the phone tier went unnoticed.
   { selector: '.info-grid.cols-5', base: 5, narrow: 2, phone: 1 },
   { selector: '.info-grid.cols-7', base: 7, narrow: 2, phone: 1 },
+  // The seven-card observability summary row (issue #340) — same rule as the
+  // info-grid variants: a counted value carried by an inline style is invisible
+  // to this table.
+  { selector: '.kpi-row.cols-7', base: 7, narrow: 2, phone: 1 },
   { selector: '.form-grid.cols-2', base: 2, phone: 1 },
   { selector: '.form-grid.cols-3', base: 3, narrow: 2, phone: 1 },
   { selector: '.form-section > .form-grid.cols-2', base: 2, phone: 1 },
@@ -537,7 +541,6 @@ describe('inline column counts', () => {
       // A bespoke three-track `.md-grid`; it loses the responsive collapse the
       // same way, but it is the images editor, not one of the three screens here.
       'pages/images/ToolFieldArray.tsx': 1,
-      'pages/observability/SummaryCards.tsx': 1,
       'pages/observability/events/EventView.tsx': 4,
       'pages/observability/tokens/TokensDetail.tsx': 1,
     }
