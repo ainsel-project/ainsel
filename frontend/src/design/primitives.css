@@ -316,16 +316,25 @@
 }
 
 /* ===== Sparkbar (KPI mini histogram) ===== */
+/* The spark owns its width: it fills the card and clips, and the bars are
+   flexible, so a long series shrinks to fit instead of running past the card
+   edge (issue #340). Sparkbar also caps the bar count (`maxBars`), so the bars
+   stay legible rather than collapsing to sub-pixel slivers. */
 .spark {
   display: flex;
   align-items: flex-end;
   gap: 2px;
   height: 22px;
   margin-top: 8px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 .spark span {
   display: block;
-  width: 4px;
+  flex: 1 1 0;
+  min-width: 1px;
+  width: auto;
   background: var(--ink);
 }
 .spark.alert span:last-child {
@@ -338,6 +347,15 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
   min-width: 0;
+}
+/* Column-count variant, named like `.info-grid.cols-5`/`.cols-7`: a row with
+   more cards than the default four declares its count here, never as an inline
+   `style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}` — an inline declaration
+   beats every rule in responsive.css, so the row would keep its desktop column
+   count on a phone (issue #340, same defect as #284). The tiers for this live
+   in responsive.css and the collapse is pinned in responsive.guard.test.ts. */
+.kpi-row.cols-7 {
+  grid-template-columns: repeat(7, 1fr);
 }
 .kpi {
   padding: 16px 18px;

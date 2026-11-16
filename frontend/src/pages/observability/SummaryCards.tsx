@@ -132,7 +132,7 @@ export function SummaryCards({ summary, tokens, range, series }: SummaryCardsPro
   ]
 
   return (
-    <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
+    <div className="kpi-row cols-7">
       {cards.map((c) => {
         const inner = (
           <>
