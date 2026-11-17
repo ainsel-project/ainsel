@@ -1,0 +1,86 @@
+{{- /*
+One-time rewrite of Agent.spec.llm.provider from empty to ollama-cloud, the
+provider v0.2.0's operator ran those agents with. The operator now refuses an
+agent without a provider (Ready=False, InvalidLLMProvider).
+
+Provider is a string in the old and the new CRD schema, so unlike the
+skills-shape Job this one has no ordering constraint; it is a post-hook only so
+it runs once per install/upgrade with the hub image of that release.
+
+The Job is idempotent: agents that already name a provider are skipped. It fails
+the upgrade when it cannot patch an agent. Set `migrations.llmProvider.enabled`
+to false to run the command yourself instead:
+
+  kubectl exec deploy/hub -n <namespace> -- /hub migrate-llm-provider -n <namespace>
+
+RBAC: the hub ServiceAccount already has get/list/patch on ainsel.dev/agents.
+*/ -}}
+{{- $migrations := .Values.migrations | default dict }}
+{{- $llmProvider := dig "llmProvider" dict $migrations | default dict }}
+{{- if dig "enabled" true $llmProvider }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ainsel-migrate-llm-provider
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # One retry covers a transient API-server hiccup; anything past that is a
+  # real problem an operator has to read about.
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ainsel-migration
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: hub
+      {{- with .Values.hub.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $llmProvider.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $llmProvider.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate-llm-provider
+          # The hub image already carries the subcommand — no second image to
+          # build, publish or pin.
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}"
+          imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+          {{- with .Values.hub.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - /hub
+          args:
+            - migrate-llm-provider
+            - -n
+            - {{ .Values.hub.namespace | default .Values.namespace | quote }}
+            {{- with $llmProvider.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $llmProvider.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

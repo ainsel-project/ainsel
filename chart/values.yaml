@@ -97,10 +97,11 @@ networkPolicy:
 # land in the proxy's access.log.
 agentEgress:
   proxy:
-    # false (default) keeps the open 443/TCP rule — existing installs render
-    # byte-identical. true removes it: tools that ignore HTTP(S)_PROXY then
-    # fail closed (intended; see "Tools that ignore the proxy" in
-    # docs/configuration.md).
+    # false (default) keeps the open 443/TCP rule — the only render change is
+    # the agent DNS rule, now scoped to the cluster DNS servers (see
+    # docs/upgrade-guide.md). true removes the open rule: tools that ignore
+    # HTTP(S)_PROXY then fail closed (intended; see "Tools that ignore the
+    # proxy" in docs/configuration.md).
     enabled: false
     image:
       repository: ubuntu/squid
@@ -164,7 +165,9 @@ agentOperator:
   replicas: 1
   image:
     repository: ainsel-k8s-ai-agent-operator
-    tag: "0.1.0"
+    # Empty follows the chart's appVersion, the image the release pipeline
+    # publishes alongside this chart. Set a tag only to pin a build.
+    tag: ""
     pullPolicy: IfNotPresent
   # Terminating signal sent to agent pods. pflag parses this as a Go duration,
   # so it needs a unit: "30m", not "1800".
@@ -231,7 +234,9 @@ eventGatewayOperator:
   hubURL: ""
   image:
     repository: ainsel-k8s-event-source-gateway-operator
-    tag: "0.1.0"
+    # Empty follows the chart's appVersion, the image the release pipeline
+    # publishes alongside this chart. Set a tag only to pin a build.
+    tag: ""
     pullPolicy: IfNotPresent
   # connectorImagePullPolicy is applied to the webhook-receiver connector pods
   # the operator creates (not the operator container above). Use Always for
@@ -305,7 +310,9 @@ hub:
   replicas: 1
   image:
     repository: ainsel-hub-backend
-    tag: "0.1.0"
+    # Empty follows the chart's appVersion, the image the release pipeline
+    # publishes alongside this chart. Set a tag only to pin a build.
+    tag: ""
     pullPolicy: IfNotPresent
   port: 8080
   metricsPort: 9090
@@ -350,8 +357,9 @@ hub:
       # receiver to one build - then the tag records where that build came from and
       # nothing moves it. The hub copies these two into a new connector's
       # spec.image.repository / .tag / .digest, and the event-gateway operator
-      # composes the container image from them.
-      tag: 0.1.0
+      # composes the container image from them. Empty follows the chart's
+      # appVersion.
+      tag: ""
       digest: ""
   # The built-in "AInsel Standard (Pi)" AgentImage (CR name
   # ainsel-standard-pi). The hub writes it on every start, so a fresh install
@@ -411,7 +419,9 @@ frontend:
   basePath: /ainsel
   image:
     repository: ainsel-hub-frontend
-    tag: "0.2.1"
+    # Empty follows the chart's appVersion, the image the release pipeline
+    # publishes alongside this chart. Set a tag only to pin a build.
+    tag: ""
     pullPolicy: IfNotPresent
   ingress:
     # See the note on hub.ingress: non-nginx classes get a literal Prefix path
@@ -501,7 +511,9 @@ mcp:
   enabled: false
   image:
     repository: ainsel-mcp
-    tag: 0.1.0
+    # Empty follows the chart's appVersion, the image the release pipeline
+    # publishes alongside this chart. Set a tag only to pin a build.
+    tag: ""
     pullPolicy: IfNotPresent
   replicas: 1
   port: 8080
@@ -542,12 +554,14 @@ mcp:
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-# Chat MCP sidecar — injected into every agent pod by the operator when
-# both repository and tag are configured. When unset, no sidecar is added.
+# Chat MCP sidecar — injected into every agent pod by the operator when a
+# repository is configured. When the repository is empty, no sidecar is added.
 chatMCP:
   image:
     repository: "ainsel-chat-mcp"
-    tag: "0.1.0"
+    # Empty follows the chart's appVersion, the image the release pipeline
+    # publishes alongside this chart. Set a tag only to pin a build.
+    tag: ""
 # OIDC configuration. When unset, the hub backend refuses to start unless
 # auth.allowInsecureNoAuth is true (see below); the frontend image always
 # requires a complete OIDC config, so the UI is only usable with OIDC set.
@@ -694,6 +708,23 @@ migrations:
     enabled: true
     # Extra args for `hub migrate-skills-shape`, e.g. ["--dry-run"] to see what it
     # would change, or ["--all-namespaces"] for a multi-namespace install.
+    extraArgs: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+  # Set Agent.spec.llm.provider to ollama-cloud where it is empty - the provider
+  # v0.2.0 ran those agents with. The operator now refuses an agent without a
+  # provider, so without this pass they stop on upgrade. Runs as a
+  # post-install/post-upgrade hook; provider is a string in every CRD version, so
+  # there is no ordering constraint.
+  #
+  # Leave enabled: an already-migrated cluster pays one Job that patches nothing.
+  # Set false to run it yourself instead:
+  #   kubectl exec deploy/hub -n <namespace> -- /hub migrate-llm-provider -n <namespace>
+  llmProvider:
+    enabled: true
+    # Extra args for `hub migrate-llm-provider`, e.g. ["--dry-run"] or
+    # ["--all-namespaces"].
     extraArgs: []
     resources: {}
     nodeSelector: {}

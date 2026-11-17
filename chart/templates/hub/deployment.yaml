@@ -217,7 +217,7 @@ spec:
             {{- with .Values.hub.defaultAgentImage }}
             {{- if .enabled }}
             - name: HUB_DEFAULT_AGENT_IMAGE
-              value: "{{ include "ainsel.image" (dict "root" $ "repo" .repository "tag" (.tag | default $.Chart.AppVersion) "digest" .digest) }}"
+              value: "{{ include "ainsel.image" (dict "root" $ "repo" .repository "tag" .tag "digest" .digest) }}"
             {{- end }}
             {{- end }}
             {{- with .Values.hub.extraEnv }}

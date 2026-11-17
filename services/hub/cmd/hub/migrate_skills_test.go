@@ -14,7 +14,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
-var skillsShapeTestGVR = schema.GroupVersionResource{
+var agentTestGVR = schema.GroupVersionResource{
 	Group: "ainsel.dev", Version: "v1alpha1", Resource: "agents",
 }
 
@@ -52,10 +52,10 @@ func newFakeAgents(t *testing.T, objs ...*unstructured.Unstructured) *dynamicfak
 	t.Helper()
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
 		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{skillsShapeTestGVR: "AgentList"},
+		map[schema.GroupVersionResource]string{agentTestGVR: "AgentList"},
 	)
 	for _, o := range objs {
-		if _, err := c.Resource(skillsShapeTestGVR).Namespace(o.GetNamespace()).
+		if _, err := c.Resource(agentTestGVR).Namespace(o.GetNamespace()).
 			Create(context.Background(), o, metav1.CreateOptions{}); err != nil {
 			t.Fatalf("seed agent %s: %v", o.GetName(), err)
 		}
@@ -63,15 +63,15 @@ func newFakeAgents(t *testing.T, objs ...*unstructured.Unstructured) *dynamicfak
 	return c
 }
 
-func resourceFor(c *dynamicfake.FakeDynamicClient) skillsShapeResource {
+func resourceFor(c *dynamicfake.FakeDynamicClient) agentResource {
 	return func(ns string) dynamic.ResourceInterface {
-		return c.Resource(skillsShapeTestGVR).Namespace(ns)
+		return c.Resource(agentTestGVR).Namespace(ns)
 	}
 }
 
 func storedSkills(t *testing.T, c *dynamicfake.FakeDynamicClient, ns, name string) (any, bool) {
 	t.Helper()
-	obj, err := c.Resource(skillsShapeTestGVR).Namespace(ns).
+	obj, err := c.Resource(agentTestGVR).Namespace(ns).
 		Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get agent %s/%s: %v", ns, name, err)
@@ -136,7 +136,7 @@ func TestMigrateSkillsShape_RewritesWrapper(t *testing.T) {
 		agentWithSkills("ainsel", "empty-wrapper", map[string]any{}, true),
 	)
 
-	res, err := migrateSkillsShape(context.Background(), resourceFor(c), skillsShapeOptions{namespace: "ainsel"})
+	res, err := migrateSkillsShape(context.Background(), resourceFor(c), agentMigrationOptions{namespace: "ainsel"})
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestMigrateSkillsShape_LeavesListsAlone(t *testing.T) {
 		agentWithSkills("ainsel", "absent", nil, false),
 	)
 
-	res, err := migrateSkillsShape(context.Background(), resourceFor(c), skillsShapeOptions{namespace: "ainsel"})
+	res, err := migrateSkillsShape(context.Background(), resourceFor(c), agentMigrationOptions{namespace: "ainsel"})
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestMigrateSkillsShape_Idempotent(t *testing.T) {
 		agentWithSkills("ainsel", "b", map[string]any{"items": nil}, true),
 		agentWithSkills("ainsel", "c", []any{}, true),
 	)
-	opts := skillsShapeOptions{namespace: "ainsel"}
+	opts := agentMigrationOptions{namespace: "ainsel"}
 
 	first, err := migrateSkillsShape(context.Background(), resourceFor(c), opts)
 	if err != nil {
@@ -227,7 +227,7 @@ func TestMigrateSkillsShape_DryRunWritesNothing(t *testing.T) {
 	c := newFakeAgents(t, agentWithSkills("ainsel", "a", map[string]any{"items": []any{"sk-a"}}, true))
 
 	res, err := migrateSkillsShape(context.Background(), resourceFor(c),
-		skillsShapeOptions{namespace: "ainsel", dryRun: true})
+		agentMigrationOptions{namespace: "ainsel", dryRun: true})
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestMigrateSkillsShape_ReportsUnknownShapes(t *testing.T) {
 		agentWithSkills("ainsel", "fine", map[string]any{"items": []any{"sk-a"}}, true),
 	)
 
-	res, err := migrateSkillsShape(context.Background(), resourceFor(c), skillsShapeOptions{namespace: "ainsel"})
+	res, err := migrateSkillsShape(context.Background(), resourceFor(c), agentMigrationOptions{namespace: "ainsel"})
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestMigrateSkillsShape_NamespaceScope(t *testing.T) {
 		agentWithSkills("other", "other-ns", map[string]any{"items": []any{"sk-b"}}, true),
 	)
 
-	res, err := migrateSkillsShape(context.Background(), resourceFor(c), skillsShapeOptions{namespace: "ainsel"})
+	res, err := migrateSkillsShape(context.Background(), resourceFor(c), agentMigrationOptions{namespace: "ainsel"})
 	if err != nil {
 		t.Fatalf("scoped migrate: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestMigrateSkillsShape_NamespaceScope(t *testing.T) {
 		t.Fatalf("out-of-scope agent was rewritten: %#v", got)
 	}
 
-	all, err := migrateSkillsShape(context.Background(), resourceFor(c), skillsShapeOptions{allNamespace: true})
+	all, err := migrateSkillsShape(context.Background(), resourceFor(c), agentMigrationOptions{allNamespace: true})
 	if err != nil {
 		t.Fatalf("all-namespaces migrate: %v", err)
 	}

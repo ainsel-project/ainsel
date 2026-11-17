@@ -39,7 +39,7 @@ enabling — Node's built-in `fetch` does not).
 
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
-| `agentEgress.proxy.enabled` | bool | `false` | Replace the open 443/TCP agent egress rule with the allow-listing Squid proxy. Off by default so existing installs render byte-identical. When on, tools that ignore `HTTP(S)_PROXY` fail closed (intended) |
+| `agentEgress.proxy.enabled` | bool | `false` | Replace the open 443/TCP agent egress rule with the allow-listing Squid proxy. Off by default; the only render change while off is the agent DNS rule, now scoped to `networkPolicy.dnsServerNamespace` (see [the upgrade guide](../../docs/upgrade-guide.md)). When on, tools that ignore `HTTP(S)_PROXY` fail closed (intended) |
 | `agentEgress.proxy.image` | object | `ubuntu/squid:6.13-25.04_beta` | Proxy image. Set `image.digest` to pin the build you validated |
 | `agentEgress.proxy.port` | int | `3128` | Proxy port (rendered into squid config, Service, and the NetworkPolicies) |
 | `agentEgress.proxy.allowedDomains` | list | `[]` | Free-form allow-list. Squid dstdomain semantics: `".example.com"` matches the domain and all subdomains; a bare name matches exactly. Enabling the proxy with an empty merged list fails the render (it would deny every agent HTTPS request) |
@@ -105,7 +105,7 @@ written `<component>.<key>`:
 | `agentOperator.enabled` | bool | `true` | Set to `false` to skip deploying the agent operator entirely |
 | `agentOperator.replicas` | int | `1` | Operator replicas |
 | `agentOperator.image.repository` | string | `ainsel-k8s-ai-agent-operator` | Image repository, prefixed with `global.imageRegistry` |
-| `agentOperator.image.tag` | string | `"0.1.0"` | Image tag |
+| `agentOperator.image.tag` | string | `""` | Image tag; empty follows the chart's `appVersion` |
 | `agentOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `agentOperator.agentGracePeriod` | string | `0` (flag omitted) | Grace period for the terminating signal sent to agent pods, passed as `--agent-grace-period`. Parsed as a Go duration, so it needs a unit: `"30m"`, not `"1800"` |
 | `agentOperator.insecureRegistries` | list | `[]` (flag omitted) | Registry hosts (exact `host:port`) whose image digests are resolved over plain HTTP, passed as `--insecure-registries`. For development registries; every other registry is HTTPS only |
@@ -120,7 +120,7 @@ written `<component>.<key>`:
 | `eventGatewayOperator.clusterWideRbac` | bool | `true` | Install a ClusterRole + ClusterRoleBinding. Required by the released operator images, which watch Deployments, Services, Ingresses etc. across all namespaces. With cluster-wide watching, only **one** event gateway operator may run per cluster; set to `false` once you run an operator image that honors `POD_NAMESPACE` scoping |
 | `eventGatewayOperator.hubURL` | string | `""` | Passed as `HUB_URL` to the operator, which injects it into webhook-receiver connector pods. Defaults to the chart's hub service name when empty |
 | `eventGatewayOperator.image.repository` | string | `ainsel-k8s-event-source-gateway-operator` | Image repository, prefixed with `global.imageRegistry` |
-| `eventGatewayOperator.image.tag` | string | `"0.1.0"` | Image tag |
+| `eventGatewayOperator.image.tag` | string | `""` | Image tag; empty follows the chart's `appVersion` |
 | `eventGatewayOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy for the operator container |
 | `eventGatewayOperator.connectorImagePullPolicy` | string | `IfNotPresent` | Pull policy applied to the webhook-receiver connector pods the operator creates (**not** the operator container above). Use `Always` for mutable tags (e.g. `:dev`) so newly built images are picked up on rollout |
 | `eventGatewayOperator.resources` | object | 50m/64Mi → 200m/256Mi | CPU/memory |
@@ -151,7 +151,7 @@ section for worked examples.
 |-------|------|---------|-------------|
 | `hub.replicas` | int | `1` | Hub backend replicas |
 | `hub.image.repository` | string | `ainsel-hub-backend` | Image repository, prefixed with `global.imageRegistry` |
-| `hub.image.tag` | string | `"0.1.0"` | Image tag |
+| `hub.image.tag` | string | `""` | Image tag; empty follows the chart's `appVersion` |
 | `hub.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `hub.port` | int | `8080` | API server port |
 | `hub.metricsPort` | int | `9090` | Metrics port |
@@ -165,7 +165,7 @@ section for worked examples.
 | `hub.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /api/$2` | Ingress annotations |
 | `hub.platformExternalUrl` | string | `""` | Externally-reachable platform URL. When empty it is derived from the hub ingress host and `frontend.basePath` (`https://<hub.ingress.host><basePath>`) |
 | `hub.connectorImages.webhook.repository` | string | `ainsel-webhook-receiver` | Webhook-receiver image repository, prefixed with `global.imageRegistry`. Rendered into the hub's `CONNECTOR_IMAGE_WEBHOOK` (`repository:tag[@digest]`); the hub copies repository/tag/digest into a new connector's `spec.image.*`, the event-gateway operator composes the container image from them. Parsing rules in [services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#webhook-connectors) |
-| `hub.connectorImages.webhook.tag` | string | `0.1.0` | The tag the receiver follows: rebuild the image and this tag moves, and the next rollout of the connector picks it up |
+| `hub.connectorImages.webhook.tag` | string | `""` | The tag the receiver follows: rebuild the image and this tag moves, and the next rollout of the connector picks it up (empty follows the chart\'s `appVersion`) |
 | `hub.connectorImages.webhook.digest` | string | `""` | Set to pin the receiver to one build — then the tag records where that build came from and nothing moves it |
 | `hub.defaultAgentImage.enabled` | bool | `true` | Have the hub write the built-in "AInsel Standard (Pi)" `AgentImage` (`ainsel-standard-pi`) on every start, so the first agent needs no image registration. `false` stops the writes; an image already created stays until you delete it |
 | `hub.defaultAgentImage.repository` | string | `ainsel-pi` | Pi runtime image repository, prefixed with `global.imageRegistry`. Rendered into the hub's `HUB_DEFAULT_AGENT_IMAGE` (`repository:tag[@digest]`) |
@@ -203,7 +203,7 @@ binary's full env-var reference — including the chart-managed variables
 | `frontend.enabled` | bool | `true` | Enable/disable UI deployment |
 | `frontend.basePath` | string | `/ainsel` | Base path the frontend is served under (must match the ingress path prefix). Empty string serves from the domain root |
 | `frontend.image.repository` | string | `ainsel-hub-frontend` | Image repository, prefixed with `global.imageRegistry` |
-| `frontend.image.tag` | string | `"0.2.1"` | Image tag |
+| `frontend.image.tag` | string | `""` | Image tag; empty follows the chart's `appVersion` |
 | `frontend.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `frontend.ingress.enabled` | bool | `true` | Enable ingress |
 | `frontend.ingress.host` | string | `ainsel.example.com` | Ingress hostname |
@@ -240,7 +240,7 @@ The AInsel MCP server ([`services/mcp`](../../services/mcp/)), opt-in.
 |-------|------|---------|-------------|
 | `mcp.enabled` | bool | `false` | Enable the AInsel MCP server |
 | `mcp.image.repository` | string | `ainsel-mcp` | Image repository, prefixed with `global.imageRegistry` |
-| `mcp.image.tag` | string | `0.1.0` | Image tag |
+| `mcp.image.tag` | string | `""` | Image tag; empty follows the chart's `appVersion` |
 | `mcp.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `mcp.replicas` | int | `1` | MCP server replicas |
 | `mcp.port` | int | `8080` | MCP server port |
@@ -261,7 +261,7 @@ either is unset, no sidecar is added.
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
 | `chatMCP.image.repository` | string | `ainsel-chat-mcp` | Sidecar image repository, prefixed with `global.imageRegistry` |
-| `chatMCP.image.tag` | string | `"0.1.0"` | Sidecar image tag |
+| `chatMCP.image.tag` | string | `""` | Sidecar image tag; empty follows the chart's `appVersion` |
 
 ### MCP discovery
 
@@ -321,6 +321,11 @@ that needs nothing reports everything skipped and writes nothing.
 | `migrations.skillsShape.resources` | object | `{}` | CPU/memory for the Job container |
 | `migrations.skillsShape.nodeSelector` | object | `{}` | Node selection for the Job pod |
 | `migrations.skillsShape.tolerations` | list | `[]` | Tolerations for the Job pod |
+| `migrations.llmProvider.enabled` | bool | `true` | Run `hub migrate-llm-provider` as a `post-install,post-upgrade` hook Job, setting `Agent.spec.llm.provider` to `ollama-cloud` where it is empty — the provider v0.2.0 ran those agents with. The operator refuses an agent without a provider, so without it they stop on upgrade. Set `false` to run it yourself (`kubectl exec deploy/hub -n <ns> -- /hub migrate-llm-provider -n <ns>`) |
+| `migrations.llmProvider.extraArgs` | list | `[]` | Extra args for the command, e.g. `["--dry-run"]` or `["--all-namespaces"]` |
+| `migrations.llmProvider.resources` | object | `{}` | CPU/memory for the Job container |
+| `migrations.llmProvider.nodeSelector` | object | `{}` | Node selection for the Job pod |
+| `migrations.llmProvider.tolerations` | list | `[]` | Tolerations for the Job pod |
 
 The Job runs as the hub's own `hub` ServiceAccount, which already has
 `get`/`list`/`patch` on `ainsel.dev/agents` — no extra RBAC — and uses the

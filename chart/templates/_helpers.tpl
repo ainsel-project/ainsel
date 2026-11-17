@@ -8,22 +8,6 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 {{- end }}
 
 {{/*
-Component labels
-*/}}
-{{- define "ainsel.componentLabels" -}}
-{{ include "ainsel.labels" . }}
-app.kubernetes.io/component: {{ .component }}
-{{- end }}
-
-{{/*
-Selector labels for a component
-*/}}
-{{- define "ainsel.selectorLabels" -}}
-app.kubernetes.io/name: ainsel-{{ .component }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
-
-{{/*
 Image reference for a project-owned component image.
 
   {{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}
@@ -39,6 +23,10 @@ hatches keep it from getting in the way:
     agree on what a full reference looks like.
   * `global.imageRegistry: ""` renders repositories as-is, which is what a
     plain Docker Hub layout needs.
+
+An empty tag follows the chart's appVersion. The release pipeline publishes
+every component image as `:<appVersion>` next to the chart, so the defaults
+always name images that exist; a values file sets a tag only to pin a build.
 
 Never use this for third-party images (postgres): they are not published by
 this project and must keep their own repository. The upstream images render
@@ -57,13 +45,10 @@ this project and must keep their own repository. The upstream images render
 {{-   end -}}
 {{- end -}}
 {{- $ref := $repo -}}
-{{- with .tag }}{{ $ref = printf "%s:%s" $ref . }}{{ end -}}
+{{- with (.tag | default $root.Chart.AppVersion) }}{{ $ref = printf "%s:%s" $ref . }}{{ end -}}
 {{- with .digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
 {{- $ref -}}
 {{- end }}
-
-{{/*
-*/}}
 
 {{/*
 Local mode: nothing is externally exposed — no hub ingress, no frontend

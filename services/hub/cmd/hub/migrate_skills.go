@@ -3,12 +3,16 @@ package main
 // One-time rewrite of Agent.spec.skills from the removed `{items: […]}` wrapper
 // to the plain list `530070a` introduced (issue #263).
 //
-// The typed decode is the failure this tool works around: `AgentSpec.Skills` is
-// a `[]string`, so an object-shaped `spec.skills` makes client-go fail on the
-// whole object — the hub cannot list agents, and neither can the operator. So
-// this command never touches `ainselv1alpha1.Agent`: it reads `spec.skills` as
-// unstructured JSON through the dynamic client, which is what lets it *see* the
-// old shape instead of tripping over it.
+// The command reads `spec.skills` as unstructured JSON through the dynamic
+// client and never touches `ainselv1alpha1.Agent`: it has to see exactly which
+// shape is stored, and the typed SkillList decodes the wrapper and the list
+// alike.
+//
+// It can see the wrapper at all only because the CRD keeps spec.skills
+// schemaless (x-kubernetes-preserve-unknown-fields). With `type: array` the API
+// server prunes the wrapper's `items` on every read, so this command would find
+// `{}` and rewrite every selection to `[]` - which is what happened before the
+// schema was relaxed. Keep it schemaless until every install has run this.
 //
 // Ordering matters and the tool cannot enforce it: run it *after* the new CRDs
 // are applied (the API server validates on write, so patching a list against the
@@ -36,9 +40,9 @@ import (
 // migrateSkillsShapeCmd is the subcommand name main() dispatches on.
 const migrateSkillsShapeCmd = "migrate-skills-shape"
 
-// skillsShapeGVR is the Agent resource, addressed as unstructured on purpose —
+// agentGVR is the Agent resource, addressed as unstructured on purpose —
 // see the file comment.
-var skillsShapeGVR = ainselv1alpha1.SchemeGroupVersion.WithResource("agents")
+var agentGVR = ainselv1alpha1.SchemeGroupVersion.WithResource("agents")
 
 // crdOrderingHint is appended to a patch rejection that mentions skills, which
 // is what "the CRDs are still the old shape" looks like from here. Reading the
@@ -60,8 +64,9 @@ const (
 	skillsActionInvalid skillsShapeAction = "invalid"
 )
 
-// skillsShapeOptions is the resolved command configuration.
-type skillsShapeOptions struct {
+// agentMigrationOptions is the resolved configuration of a one-time Agent
+// migration subcommand (this one and migrate-llm-provider).
+type agentMigrationOptions struct {
 	namespace    string
 	allNamespace bool
 	dryRun       bool
@@ -79,15 +84,16 @@ type skillsShapeResult struct {
 	Errors  int
 }
 
-// skillsShapeResource resolves the Agent resource for a namespace; "" means all
-// namespaces. It is a function so tests can hand in a fake dynamic client.
-type skillsShapeResource func(namespace string) dynamic.ResourceInterface
+// agentResource resolves the Agent resource for a namespace; "" means all
+// namespaces. Shared by the one-time Agent migrations; it is a function so
+// tests can hand in a fake dynamic client.
+type agentResource func(namespace string) dynamic.ResourceInterface
 
 // runMigrateSkillsShape is the subcommand entry point: parse flags, build a
 // dynamic client from the ambient kubeconfig/in-cluster config, run one pass.
 // Returns the process exit code.
 func runMigrateSkillsShape(args []string) int {
-	opts := skillsShapeOptions{namespace: envOrDefault("HUB_NAMESPACE", "ainsel")}
+	opts := agentMigrationOptions{namespace: envOrDefault("HUB_NAMESPACE", "ainsel")}
 
 	fs := flag.NewFlagSet(migrateSkillsShapeCmd, flag.ContinueOnError)
 	fs.StringVar(&opts.namespace, "namespace", opts.namespace,
@@ -122,7 +128,7 @@ func runMigrateSkillsShape(args []string) int {
 	}
 
 	res := func(ns string) dynamic.ResourceInterface {
-		return dynClient.Resource(skillsShapeGVR).Namespace(ns)
+		return dynClient.Resource(agentGVR).Namespace(ns)
 	}
 
 	ctx := context.Background()
@@ -146,7 +152,7 @@ func runMigrateSkillsShape(args []string) int {
 	return 0
 }
 
-func migrationScope(opts skillsShapeOptions) string {
+func migrationScope(opts agentMigrationOptions) string {
 	if opts.allNamespace {
 		return "all-namespaces"
 	}
@@ -156,7 +162,7 @@ func migrationScope(opts skillsShapeOptions) string {
 // migrateSkillsShape lists Agent objects unstructured and applies the shape
 // table to each. A List failure is returned (nothing could be done); per-object
 // problems are logged and counted.
-func migrateSkillsShape(ctx context.Context, res skillsShapeResource, opts skillsShapeOptions) (skillsShapeResult, error) {
+func migrateSkillsShape(ctx context.Context, res agentResource, opts agentMigrationOptions) (skillsShapeResult, error) {
 	var out skillsShapeResult
 
 	list, err := res(migrationListNamespace(opts)).List(ctx, metav1.ListOptions{})
@@ -200,7 +206,7 @@ func migrateSkillsShape(ctx context.Context, res skillsShapeResource, opts skill
 	return out, nil
 }
 
-func migrationListNamespace(opts skillsShapeOptions) string {
+func migrationListNamespace(opts agentMigrationOptions) string {
 	if opts.allNamespace {
 		return ""
 	}

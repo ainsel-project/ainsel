@@ -47,15 +47,20 @@ This reveals keys that are new (you may need to add them) or keys that have been
 
 ## CRD upgrades
 
-Helm does **not** upgrade CRDs automatically on `helm upgrade`. This is intentional: Helm skips CRD updates during upgrades to prevent accidental data loss caused by destructive schema changes.
+This chart renders its CRDs from `chart/templates/crds/`, not from Helm's special `crds/`
+directory, so `helm install` and `helm upgrade` apply them like any other resource: there is
+no separate CRD step. They carry `helm.sh/resource-policy: keep`, so `helm uninstall` leaves
+them (and every Agent, AgentImage and connector) in place.
 
-If a release introduces new or changed CRDs, apply them manually before or after the Helm upgrade:
+CRDs are cluster-scoped. Two releases of this chart in one cluster share them, so upgrading
+one release changes the schema under the other. Rehearse an upgrade in a separate cluster
+(a [vcluster](https://www.vcluster.com/) in a namespace is enough), never in a second
+namespace next to a live install.
 
-```bash
-kubectl apply -f chart/templates/crds/
-```
-
-Check the changelog for the release to find out whether CRDs have changed and what the recommended apply order is.
+A schema change takes effect on **read**, not only on write: the API server prunes fields the
+new schema does not know from every object it serves. A release that changes the type of a
+stored field therefore keeps the old shape readable until its migration has run; the version
+notes below name each case (v0.3: `Agent.spec.skills`).
 
 ## Database migrations
 
@@ -125,9 +130,12 @@ is the source of truth for usage.
 ## Migrating the skills wrapper to a list
 
 `Agent.spec.skills` changed from the wrapper object `skills: {items: […]}` to a plain
-list. Objects still in the old shape cannot be read by the hub or the agent operator at
-all — the field is on the `Agent` CR, so one un-migrated agent fails the whole list. Run
-the one-time rewrite after applying the new CRDs:
+list. The hub and the agent operator read both shapes (the Go type decodes the wrapper as
+the same list), and the CRD keeps `spec.skills` schemaless for this release
+(`x-kubernetes-preserve-unknown-fields`): with `type: array` the API server would prune
+the wrapper's `items` on every read, and the selection would be gone before anything
+could migrate it. A later release requires the list again, so run the one-time rewrite
+after applying the new CRDs:
 
 ```bash
 kubectl apply -f chart/templates/crds/
@@ -187,7 +195,184 @@ helm rollback ainsel <revision> -n <namespace>
 
 ## Version-specific notes
 
-### Unreleased — images move to a project-owned registry namespace
+### Upgrading from v0.2 to v0.3
+
+One ordered procedure for the whole jump, rehearsed end to end in a vcluster with
+ingress-nginx (v0.2.0 chart and images, upgraded to the v0.3 chart). The sections after this
+one explain each change; this one says what to do and in which order. Three one-time
+migrations run as chart hook Jobs and need nothing from you: `skills` wrapper → list,
+missing `llm.provider` → `ollama-cloud`, and (on every upgrade) the Postgres migrations.
+
+Replace `<ns>` with your namespace in every command.
+
+#### Before the upgrade — nothing changes yet
+
+1. **Back up Postgres** (bundled database; use your own tooling for an external one):
+
+   ```bash
+   kubectl -n <ns> exec postgres-0 -- sh -c 'pg_dumpall -U "${POSTGRES_USER:-postgres}"' \
+     > ainsel-pg-before-0.3.sql
+   ```
+
+2. **Snapshot the custom resources.** Rolling back needs this file (step 12); Postgres does
+   not hold agents or images.
+
+   ```bash
+   kubectl -n <ns> get agents,agentimages,webhookconnectors -o yaml > ainsel-crs-before-0.3.yaml
+   ```
+
+3. **Inventory what will behave differently.** Each command prints the objects affected; an
+   empty result means nothing to do.
+
+   a. Agents whose tool list becomes a hard limit and does not include `bash`. They lose every
+      binary their image ships. Add `bash` to the list, or empty the list to keep everything
+      the image provides:
+
+      ```bash
+      kubectl -n <ns> get agents -o json | jq -r '.items[]
+        | select((.spec.enabledTools // []) | length > 0 and (index("bash") | not))
+        | "\(.metadata.name)\t\(.spec.enabledTools | join(","))"'
+      ```
+
+   b. Skills enabled on an image. v0.3 drops image-level skills, and agents that inherited
+      them end up with none. Keep both lists for step 9:
+
+      ```bash
+      kubectl -n <ns> get agentimages -o json | jq -r '.items[]
+        | select((.spec.enabledSkills // []) | length > 0)
+        | "\(.metadata.name)\t\(.spec.enabledSkills | join(","))"' > image-skills.tsv
+      kubectl -n <ns> get agents -o json | jq -r '.items[]
+        | select(.spec.skills == null)
+        | "\(.metadata.name)\t\(.spec.imageRef.name)"' > inheriting-agents.tsv
+      ```
+
+   c. Every explicit skill selection, to check the migration against in step 11:
+
+      ```bash
+      kubectl -n <ns> get agents -o json | jq -r '.items[]
+        | select((.spec.skills.items // []) | length > 0)
+        | "\(.metadata.name)\t\(.spec.skills.items | join(","))"' > agent-skills.tsv
+      ```
+
+   d. Agents with `spec.pause`. Pause was never enforced and the field is pruned. If you
+      meant it, set the agent's replicas to `0` after the upgrade (console: the agent's
+      runtime settings):
+
+      ```bash
+      kubectl -n <ns> get agents -o json | jq -r '.items[] | select(.spec.pause != null) | .metadata.name'
+      ```
+
+   e. Registries your agent images come from (an image without a host, like
+      `dpinsel/ainsel-pi`, is Docker Hub and prints nothing). Add every plain-HTTP one to
+      `agentOperator.insecureRegistries` in step 4, or its agents stop restarting when the
+      image is rebuilt:
+
+      ```bash
+      kubectl -n <ns> get agentimages -o json | jq -r '.items[].spec.imageURL
+        | split("/") | select(length > 1 and (.[0] | test("[.:]") or . == "localhost")) | .[0]' | sort -u
+      ```
+
+4. **Update `values.yaml`.** Helm ignores unknown keys, so a key under its old name silently
+   falls back to the chart's defaults:
+   - rename `ui:` → `frontend:` and `connectorOperator:` → `eventGatewayOperator:`;
+   - delete `mcp.resourceUrl` and any `TASK_CLAIM_TIMEOUT_SECONDS` in `hub.extraEnv`;
+   - images: drop pinned `image.tag` values unless you mean to pin a build — an empty tag
+     follows the chart's `appVersion`. Either use bare names under the default
+     `global.imageRegistry` (`ghcr.io/ainsel-project`), or keep full names like
+     `dpinsel/ainsel-hub-backend` and set `global.imageRegistry: ""`; in that case also set
+     `hub.defaultAgentImage.repository` to a full name, or new agents get the bare
+     `ainsel-pi`, which nothing publishes;
+   - add the hosts from step 3e to `agentOperator.insecureRegistries`.
+
+   Then compare against the new defaults: `helm show values oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z>`.
+
+5. **Update everything outside the chart that names the old world:** manifests or
+   dashboards using `hub-backend.<ns>.svc` (now `hub.<ns>.svc`), scripts calling
+   `/api/v1/agents/{name}/pause` or `/api/v1/metrics/*`, clients that send
+   `skills: {items: …}` (send a plain list; the API answers `400`), and GitOps manifests that
+   still set `spec.pause`.
+
+#### During the upgrade
+
+6. **Delete the old Ingresses** (ingress-nginx only). The new `hub` and `frontend` Ingresses
+   claim the same host and path, and the admission webhook refuses them while the old ones
+   exist. In the rehearsal, skipping this made `--atomic` roll the upgrade back cleanly, CRDs
+   and agents included, so a refused upgrade is safe to retry. The console and API are
+   unreachable from here until step 7 finishes:
+
+   ```bash
+   kubectl delete ingress hub-backend hub-frontend -n <ns> --ignore-not-found
+   ```
+
+7. **Upgrade:**
+
+   ```bash
+   helm upgrade ainsel oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> \
+     -n <ns> -f values.yaml --atomic --wait --timeout 10m
+   ```
+
+   New Deployments under the new names replace the old ones (about 20 s in the rehearsal),
+   then the `ainsel-migrate-skills-shape` and `ainsel-migrate-llm-provider` hook Jobs run.
+
+#### After the upgrade
+
+8. **Read the migration Jobs' logs** — one line per agent each:
+
+   ```bash
+   kubectl -n <ns> logs job/ainsel-migrate-skills-shape
+   kubectl -n <ns> logs job/ainsel-migrate-llm-provider
+   ```
+
+9. **Re-select the image-level skills** on the agents that inherited them (step 3b): for each
+   agent in `inheriting-agents.tsv`, select the skills its image listed in `image-skills.tsv`,
+   in the console (the agent's Skills section) or with
+   `PUT /api/v1/skills/{id}/assignments/{agentName}`.
+
+10. **Rewrite the hub address stored on agents and images.** They still name
+    `hub-backend.<ns>.svc`, which the upgrade deleted; plugin tools and hub calls fail in every
+    task pod until this runs:
+
+    ```bash
+    for kind in agents agentimages; do
+      for name in $(kubectl get "$kind" -n <ns> -o json \
+          | jq -r '.items[] | select((.spec | tostring) | test("hub-backend\\.<ns>\\.svc")) | .metadata.name'); do
+        kubectl get "$kind" "$name" -n <ns> -o json \
+          | jq '.spec |= walk(if type == "string" then gsub("hub-backend\\.<ns>\\.svc"; "hub.<ns>.svc") else . end)' \
+          | kubectl replace -f -
+      done
+    done
+    ```
+
+11. **Verify.** Done when all of these hold:
+
+    ```bash
+    kubectl -n <ns> get agents                      # every agent Ready=True
+    kubectl -n <ns> get agents,agentimages -o json | grep -c 'hub-backend\.'   # 0
+    kubectl -n <ns> get agents -o json | jq -r '.items[]
+      | select((.spec.skills // []) | length > 0)
+      | "\(.metadata.name)\t\(.spec.skills | join(","))"'
+    #   ^ agent-skills.tsv, plus the skills re-selected in step 9
+    ```
+
+    Then open the console and one agent's detail page.
+
+#### Rolling back
+
+12. `helm rollback ainsel <revision> -n <ns>` restores the v0.2.0 Deployments, Ingresses and
+    CRDs. It does not restore data: Postgres migrations stay applied, and the agents now store
+    `skills` as a list, which the v0.2.0 schema cannot read. Restore Postgres from step 1, then
+    re-apply the snapshot from step 2 (strip `metadata.resourceVersion`, `metadata.uid` and
+    `status` first).
+
+#### New in v0.3 that needs configuration before first use
+
+- **Plugins** are new, and `plugins.requireSignature` defaults to `true`. Until
+  `plugins.signing` names a trusted key or keyless identity, no plugin becomes Ready. See
+  [Plugins](administrator-guide.md#plugins) in the administrator guide.
+
+### v0.3 change reference
+
+#### Images move to a project-owned registry namespace
 
 - **Breaking: the default image registry is now `ghcr.io/ainsel-project`.** The chart
   defaults point there, and the hub's `HUB_DEFAULT_AGENT_IMAGE` and
@@ -222,7 +407,7 @@ helm rollback ainsel <revision> -n <namespace>
   no variables and no new secrets. See
   [Where images come from](../CONTRIBUTING.md#where-images-come-from).
 
-### Unreleased — chart component names aligned with the code
+#### Chart component names aligned with the code
 
 The chart's template directories, resource names and labels now use one
 vocabulary, matching the code layout (`operators/agent`, `operators/event-gateway`,
@@ -282,16 +467,22 @@ vocabulary, matching the code layout (`operators/agent`, `operators/event-gatewa
   `app.kubernetes.io/managed-by: agent-operator|connector-operator` labels that the
   operators stamp on resources they create.
 
-### Unreleased — the agent's LLM provider is required and validated
+#### The agent's LLM provider is required and validated
 
 - **Changed: creating an agent without `llm.provider` returns `400`.** The hub
   now rejects a create request whose `llm.provider` is missing or not one of
   `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`,
-  `custom`, and names the valid ids. Before, such an agent was stored and the
-  operator then marked it `Ready=False` / `InvalidLLMProvider`, so it never
-  ran. On update, an empty or absent provider still leaves the stored one
-  unchanged; an unknown one is now a `400`. **Action:** set `llm.provider` in
-  any script, IaC or REST client that creates agents.
+  `custom`, and names the valid ids. On update, an empty or absent provider
+  still leaves the stored one unchanged; an unknown one is now a `400`.
+  **Action:** set `llm.provider` in any script, IaC or REST client that
+  creates agents.
+- **Migrated: existing agents without a provider.** v0.2.0's operator ran an
+  empty provider as `ollama-cloud`; the operator now refuses such an agent
+  (`Ready=False` / `InvalidLLMProvider`). The chart's `migrations.llmProvider`
+  hook Job (enabled by default) sets `ollama-cloud` on every agent where the
+  provider is empty, so they keep running on the backend they used. It logs one
+  line per agent; `--dry-run` reports without writing:
+  `kubectl exec deploy/hub -n <namespace> -- /hub migrate-llm-provider -n <namespace> --dry-run`.
 - **New: `TemperatureApplied` condition.** `llm.temperature` only reaches the
   OpenAI-compatible providers. On `openai`, `anthropic` and `google` the
   condition reads `False` (reason `TemperatureNotSupported`). A temperature
@@ -300,7 +491,7 @@ vocabulary, matching the code layout (`operators/agent`, `operators/event-gatewa
   it with `kubectl` if the warning should go away. The console hides the
   field for these providers.
 
-### Unreleased — tools and skills belong to the agent, not the image
+#### Tools and skills belong to the agent, not the image
 
 An `AgentImage` is now a **runtime profile**: the container, its environment, and the
 capability catalog it ships (`spec.tools`). What an agent may use is selected on the
@@ -318,16 +509,12 @@ capability catalog it ships (`spec.tools`). What an agent may use is selected on
   the declared tool set to that selection, blocks any other tool call, and withholds
   catalog binaries the agent was not given from the shell.
 
-**Upgrade order.** The CRD change makes existing `Agent` objects with the wrapper
-shape unreadable, and the fix has to run *after* the new CRDs are applied — see
+**Upgrade order.** Existing `Agent` objects keep the wrapper shape until the one-time
+rewrite turns it into a list, which has to run *after* the new CRDs are applied — see
 [Migrating the skills wrapper to a list](#migrating-the-skills-wrapper-to-a-list).
 The chart does it for you as a `post-install,post-upgrade` hook Job
-(`migrations.skillsShape`, enabled by default).
-
-Until patched, the hub and operator cannot read those agents (they surface as errors rather
-than silently running with the wrong skills), so do it in the same maintenance window. Expect
-a brief error loop from the hub and the operator between their new pods starting and the hook
-Job finishing — that is the state above, and it clears itself when the migration runs.
+(`migrations.skillsShape`, enabled by default). Until it has, the hub and the operator
+read the wrapper as the same list, so agents keep their skills throughout.
 
 **The API rejects the old shape with a pointer.** A create or update whose `skills` is an
 object gets `400 skills must be a list of skill ids; the {items: [...]} wrapper was removed -
@@ -347,7 +534,7 @@ the delete-conflict referrers are `{"agentName", "agentId"}` instead of
 `{"agentImageName", "agentImageId"}`. In the console the image's Tools tab is now clearly
 the catalog, and each agent's Tools and Skills sections edit that agent's own selection.
 
-### Unreleased — `next-task` long-poll removed
+#### `next-task` long-poll removed
 
 - **Removed: `GET /api/internal/agents/{name}/next-task`.** Per-task Job
   runtimes fetch their task by id (`.../tasks/{id}`) and never called it; it
@@ -361,7 +548,7 @@ the catalog, and each agent's Tools and Skills sections edit that agent's own se
   the per-task Job path never read `spec.pause`. See the next section for the
   removal and its replacement.
 
-### Unreleased — agent pause API removed (breaking)
+#### Agent pause API removed (breaking)
 
 - **Removed: `POST`/`DELETE /api/v1/agents/{name}/pause`.** The routes answer
   `405` and `404`. Pause was already not enforced — dispatch never read it — so
@@ -378,7 +565,7 @@ the catalog, and each agent's Tools and Skills sections edit that agent's own se
   shows a *Paused* tag or a Pause button. See
   [#249](https://github.com/ainsel-project/ainsel/issues/249).
 
-### Unreleased — legacy metric aliases removed
+#### Legacy metric aliases removed
 
 `GET /api/v1/metrics/{summary,timeseries,agents}` are gone and answer `404`.
 They existed only for the deployed frontend bundle predating the dashboard
@@ -426,12 +613,6 @@ for the full picture.
   traffic, it is running a stale runtime image — point the agent's
   `spec.imageRef` at a current `AgentImage` (a runtime image built after #359).
 
-### Upgrading to v0.1
-
-No breaking changes.
-
-### Upgrading to v0.2
-
 **The chart no longer bundles Qdrant.** Agent memory is now a bring-your-own
 external service: you run your own [mem0](https://github.com/mem0ai/mem0)
 instance (mem0 Cloud or self-hosted, with its own vector store) and point
@@ -454,3 +635,7 @@ agents at it via `MEM0_API_URL` — the chart does not deploy it (see
    egress and ingress policies (see
    [docs/network-policies.md](network-policies.md) for the out-of-band
    pattern).
+
+### Upgrading to v0.1
+
+No breaking changes.
