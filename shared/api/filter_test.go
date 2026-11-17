@@ -182,6 +182,69 @@ func TestFilterUnknownOp(t *testing.T) {
 	}
 }
 
+func TestCanonicalOp(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"eq", "eq", true},
+		{"not-contains", "not-contains", true},
+		{"contains not", "not-contains", true},
+		{"not in", "not-in", true},
+		{"NOT IN", "not-in", true},
+		{"  Not-Contains ", "not-contains", true},
+		{"contains   not", "not-contains", true},
+		{"not_in", "", false},
+		{"", "", false},
+		{"eq ", "eq", true},
+	}
+	for _, tc := range cases {
+		got, ok := CanonicalOp(tc.in)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("CanonicalOp(%q) = %q, %v; want %q, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+	// FilterOps is the documented set; keep the vocabulary and this test in step.
+	want := []string{"eq", "neq", "prefix", "suffix", "contains", "not-contains", "in", "not-in", "regex"}
+	if len(FilterOps) != len(want) {
+		t.Fatalf("FilterOps = %v; want %v", FilterOps, want)
+	}
+	for i := range want {
+		if FilterOps[i] != want[i] {
+			t.Fatalf("FilterOps = %v; want %v", FilterOps, want)
+		}
+	}
+}
+
+func TestFilterAliasAndCaseOpsMatch(t *testing.T) {
+	payload := jsonPayload(`{"body": "hello world"}`)
+	cases := []struct {
+		op    string
+		value string
+		want  bool
+	}{
+		{"contains not", "hello", false}, // body contains "hello", so not-contains is false
+		{"CONTAINS NOT", "hello", false},
+		{"contains   not", "nope", true},
+		{"not in", "", true}, // "hello world" is not in the empty Values list
+		{"Not In", "", true},
+		{"EQ", "hello world", true}, // canonicalized case-insensitively
+		{"eq ", "nope", false},
+	}
+	for _, tc := range cases {
+		f := Filter{Field: "body", Op: tc.op, Value: tc.value}
+		if got := f.Match(payload); got != tc.want {
+			t.Errorf("op %q: Match = %v, want %v", tc.op, got, tc.want)
+		}
+		// Match must never mutate f.Op: the Filters backing array is shared
+		// across concurrent matches (services/hub/internal/triggerindex).
+		if canonical, _ := CanonicalOp(tc.op); f.Op != tc.op && f.Op == canonical && canonical != tc.op {
+			t.Errorf("Match mutated f.Op to %q for input %q", f.Op, tc.op)
+		}
+	}
+}
+
 func TestMatchFiltersAND(t *testing.T) {
 	payload := jsonPayload(`{"action": "assigned", "issue": {"assignee": {"login": "dev-agent"}}}`)
 	filters := []Filter{
