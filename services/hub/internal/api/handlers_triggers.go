@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/authz"
 	"github.com/ainsel-project/ainsel/services/hub/internal/httpx"
@@ -29,7 +31,7 @@ type SimpleTriggerResponse struct {
 // Values carries the operand list for the set operators (`in`, `not-in`); the
 // filter engine in shared/api matches against it and never against Value. Both
 // fields must be carried across the API boundary — dropping Values stores an
-// empty list, which makes the filter unable to ever match, without any error.
+// empty list, which create/update reject for the set operators.
 type TriggerFilterInfo struct {
 	Field  string   `json:"field"`
 	Op     string   `json:"op"`
@@ -58,6 +60,26 @@ type SimpleTriggerUpdateRequest struct {
 	AgentRef     string              `json:"agentRef,omitempty"`
 	ConnectorRef string              `json:"connectorRef,omitempty"`
 	Filters      []TriggerFilterInfo `json:"filters,omitempty"`
+}
+
+// validateAndCanonicalizeFilters rejects unknown operators and empty `values`
+// lists for the set operators, and rewrites each Op to its canonical form so
+// stored triggers only ever carry the documented operator set. The returned
+// error is user-facing (written as a 400), so it names the offending index
+// and the accepted operators.
+func validateAndCanonicalizeFilters(filters []ainselapishared.Filter) error {
+	for i := range filters {
+		op, ok := ainselapishared.CanonicalOp(filters[i].Op)
+		if !ok {
+			return fmt.Errorf("filters[%d]: unknown op %q (valid ops: %s)",
+				i, filters[i].Op, strings.Join(ainselapishared.FilterOps, ", "))
+		}
+		if (op == "in" || op == "not-in") && len(filters[i].Values) == 0 {
+			return fmt.Errorf("filters[%d]: op %q requires a non-empty values list", i, filters[i].Op)
+		}
+		filters[i].Op = op
+	}
+	return nil
 }
 
 func toSimpleTriggerResponse(t *triggers.Trigger) SimpleTriggerResponse {
@@ -242,6 +264,10 @@ func (s *Server) createTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 			Values: f.Values,
 		})
 	}
+	if err := validateAndCanonicalizeFilters(filters); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Validate references at write time — replaces controller reconciliation
 	// with at-write-time validation.
@@ -296,6 +322,10 @@ func (s *Server) updateTrigger(ctx context.Context, w http.ResponseWriter, r *ht
 				Value:  f.Value,
 				Values: f.Values,
 			})
+		}
+		if err := validateAndCanonicalizeFilters(fl); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 		filters = &fl
 	}

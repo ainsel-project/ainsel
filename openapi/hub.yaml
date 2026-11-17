@@ -4202,23 +4202,29 @@ components:
     Filter:
       type: object
       description: >-
-        `subjectPatterns` are required and non-empty. A pattern is
-        `<connector>.<eventType>`; `*` matches one segment, `>` matches one or
-        more.
-      required: [subjectPatterns]
+        A single field-level filter condition, matched against the event
+        payload; filters are combined with AND logic. `op` is canonicalized
+        before matching (lowercase, inner whitespace collapsed), so the
+        aliases `contains not` and `not in` are accepted for `not-contains`
+        and `not-in`; unknown operators are rejected with `400` on
+        create/update, as is an empty `values` list for `in`/`not-in`.
+      required: [field, op]
       properties:
-        subjectPatterns:
+        field:
+          type: string
+          description: >-
+            Dot-separated path into the event payload; a path crossing an
+            array collects the value from every element.
+        op:
+          type: string
+          enum: [eq, neq, prefix, suffix, contains, not-contains, in, not-in, regex]
+        value:
+          type: string
+          description: Comparison value (used by all operators except `in`/`not-in`).
+        values:
           type: array
-          minItems: 1
           items: { type: string }
-        filters:
-          type: array
-          items:
-            type: object
-            properties:
-              field: { type: string }
-              operator: { type: string }
-              value: {}
+          description: Comparison values for `in` and `not-in`; must be non-empty for those ops.
     Trigger:
       type: object
       description: >-
@@ -4229,8 +4235,10 @@ components:
         name: { type: string }
         connectorName: { type: string }
         agentName: { type: string }
-        filter:
-          $ref: '#/components/schemas/Filter'
+        filters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Filter'
         status:
           $ref: '#/components/schemas/TriggerStatus'
         managedBy:
@@ -4248,15 +4256,18 @@ components:
     TriggerWriteRequest:
       type: object
       description: >-
-        POST requires `name`, `connectorName`, `agentName` and `filter`; PUT
-        accepts any subset. The hub validates the filter and that both referenced
+        POST requires `name`, `connectorName`, `agentName` and `filters`; PUT
+        accepts any subset. The hub validates the filters (known `op`,
+        non-empty `values` for `in`/`not-in`) and that both referenced
         resources exist.
       properties:
         name: { type: string }
         connectorName: { type: string }
         agentName: { type: string }
-        filter:
-          $ref: '#/components/schemas/Filter'
+        filters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Filter'
     CronTriggerStatus:
       type: object
       properties:

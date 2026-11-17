@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
@@ -465,5 +466,44 @@ func TestTriggers_FilterValuesArePreserved(t *testing.T) {
 	}
 	if restored.Filters[0].Match(map[string]any{"action": "opened"}) {
 		t.Error("updated in-filter still matches the replaced value action=opened")
+	}
+}
+
+func TestValidateAndCanonicalizeFilters(t *testing.T) {
+	// Unknown ops and empty values for the set operators must be rejected at
+	// the API boundary (400) instead of silently never matching; accepted
+	// spellings are rewritten to their canonical op.
+	good := []ainselapishared.Filter{
+		{Field: "action", Op: "in", Values: []string{"opened"}},
+		{Field: "body", Op: "contains not", Value: "hello"},
+		{Field: "sender", Op: "Not In", Values: []string{"bot"}},
+	}
+	if err := validateAndCanonicalizeFilters(good); err != nil {
+		t.Fatalf("valid filters rejected: %v", err)
+	}
+	if good[1].Op != "not-contains" || good[2].Op != "not-in" {
+		t.Errorf("ops not canonicalized: %q, %q", good[1].Op, good[2].Op)
+	}
+
+	cases := []struct {
+		name    string
+		filters []ainselapishared.Filter
+		wantMsg string
+	}{
+		{"unknown op", []ainselapishared.Filter{{Field: "a", Op: "not_in", Value: "x"}}, "unknown op"},
+		{"empty values for in", []ainselapishared.Filter{{Field: "a", Op: "in"}}, "non-empty values"},
+		{"empty values for alias", []ainselapishared.Filter{{Field: "a", Op: "not in", Values: []string{}}}, "non-empty values"},
+	}
+	for _, tc := range cases {
+		err := validateAndCanonicalizeFilters(tc.filters)
+		if err == nil {
+			t.Fatalf("%s: expected rejection, got nil", tc.name)
+		}
+		if !strings.Contains(err.Error(), tc.wantMsg) {
+			t.Errorf("%s: error %q does not mention %q", tc.name, err.Error(), tc.wantMsg)
+		}
+		if !strings.Contains(err.Error(), "filters[0]") {
+			t.Errorf("%s: error %q does not name the filter index", tc.name, err.Error())
+		}
 	}
 }
