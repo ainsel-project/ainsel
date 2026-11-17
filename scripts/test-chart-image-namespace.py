@@ -19,6 +19,10 @@ own - or fails to pull at all once that namespace is gone.
   * A repository that already names a registry host is used verbatim, so a
     per-component mirror override is not prefixed a second time.
   * `global.imageRegistry: ""` renders repositories as-is (plain Docker Hub).
+  * With default values every project image is tagged with the chart's
+    appVersion - the tag the release pipeline publishes - and an explicit tag
+    still wins. A fixed tag in values.yaml shipped charts that pulled images
+    nobody had published.
 
 Run from the repository root: python3 scripts/test-chart-image-namespace.py
 """
@@ -107,6 +111,26 @@ def check_prefixed(manifests: str, registry: str, problems: list[str]) -> None:
             check("/" not in ref.split(":")[0], f"{ref!r}: postgres must stay unprefixed", problems)
 
 
+def chart_app_version() -> str:
+    for line in (CHART / "Chart.yaml").read_text().splitlines():
+        if line.startswith("appVersion:"):
+            return line.split(":", 1)[1].strip().strip('"')
+    sys.exit("chart/Chart.yaml has no appVersion")
+
+
+def check_tags(manifests: str, tag: str, problems: list[str]) -> None:
+    """Each project image reference carries exactly `tag`."""
+    for ref in image_refs(manifests):
+        if ref.startswith("postgres"):
+            continue
+        name_and_tag = ref.split("@", 1)[0].rsplit("/", 1)[-1]
+        check(
+            name_and_tag.endswith(f":{tag}"),
+            f"{ref!r} is not tagged {tag!r}",
+            problems,
+        )
+
+
 def main() -> int:
     if not CHART.is_dir():
         print("Run from the repository root.", file=sys.stderr)
@@ -159,12 +183,30 @@ def main() -> int:
                     problems,
                 )
 
+    # Default tags follow the release: the chart's appVersion is the one tag the
+    # release pipeline is guaranteed to have published for every component.
+    check_tags(defaults, chart_app_version(), problems)
+
+    # A pinned tag still wins, for the component it is set on only.
+    pinned = render(BASE_SETS + ["hub.image.tag=9.9.9-pinned"])
+    hub_refs = [r for r in image_refs(pinned) if "ainsel-hub-backend" in r]
+    check(
+        hub_refs and all(r.endswith(":9.9.9-pinned") for r in hub_refs),
+        f"pinned hub tag not rendered: {sorted(set(hub_refs))}",
+        problems,
+    )
+    check_tags(
+        "\n".join(l for l in pinned.splitlines() if "ainsel-hub-backend" not in l),
+        chart_app_version(),
+        problems,
+    )
+
     if problems:
         print("FAIL image namespace rendering")
         for problem in problems:
             print(f"      {problem}")
         return 1
-    print("ok: every project image follows global.imageRegistry; postgres never does")
+    print("ok: every project image follows global.imageRegistry and the chart's appVersion; postgres never does")
     return 0
 
 

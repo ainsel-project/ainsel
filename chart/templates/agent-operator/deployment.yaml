@@ -82,7 +82,7 @@ spec:
             - name: HUB_INTERNAL_VALIDATE_SECRET
               value: {{ .Values.auth.internalValidateSecret | quote }}
             {{- end }}
-            {{- if and .Values.chatMCP.image.repository .Values.chatMCP.image.tag }}
+            {{- if .Values.chatMCP.image.repository }}
             - name: CHAT_MCP_IMAGE
               value: "{{ include "ainsel.image" (dict "root" . "repo" .Values.chatMCP.image.repository "tag" .Values.chatMCP.image.tag) }}"
             {{- end }}
