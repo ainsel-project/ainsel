@@ -437,8 +437,11 @@ Each filter has three fields:
 
 Operators are canonicalized before matching (case-insensitive, inner spaces
 collapsed): the aliases `contains not` and `not in` are accepted and treated as
-`not-contains` and `not-in`. Unknown operators are rejected with `400` on
-create/update, as is an empty `values` list for `in`/`not-in`.
+`not-contains` and `not-in`. Validation happens on the hub REST API only: there,
+unknown operators are rejected with `400` on create/update, as is an empty
+`values` list for `in`/`not-in`. A Trigger applied as a CR does not go through
+that check — an unknown operator there simply never matches, silently
+disabling the filter.
 
 Filters are combined with AND logic — all filters must match for the trigger to fire.
 

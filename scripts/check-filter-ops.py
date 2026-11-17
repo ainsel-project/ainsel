@@ -2,7 +2,7 @@
 """Fail if the event-filter operator set drifts between code, docs, and OpenAPI.
 
 The canonical operator list lives in shared/api/filter.go (FilterOps) and the
-accepted aliases in filterOpAliases. Four docs tables and the openapi/hub.yaml
+accepted aliases in filterOpAliases. Five docs tables and the openapi/hub.yaml
 Filter schema are supposed to enumerate exactly that set — they drifted before
 (issue #351: the `contains not` / `not in` aliases worked at runtime but were
 documented nowhere). This check pins all of them to the Go source:
@@ -25,6 +25,7 @@ DOCS = [
     "docs/api-reference.md",
     "docs/crd-reference.md",
     "docs/writing-a-connector.md",
+    "operators/agent/docs/crd-reference.md",
 ]
 
 
