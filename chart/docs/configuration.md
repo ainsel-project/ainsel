@@ -297,6 +297,11 @@ that needs nothing reports everything skipped and writes nothing.
 | `migrations.skillsShape.resources` | object | `{}` | CPU/memory for the Job container |
 | `migrations.skillsShape.nodeSelector` | object | `{}` | Node selection for the Job pod |
 | `migrations.skillsShape.tolerations` | list | `[]` | Tolerations for the Job pod |
+| `migrations.llmProvider.enabled` | bool | `true` | Run `hub migrate-llm-provider` as a `post-install,post-upgrade` hook Job, setting `Agent.spec.llm.provider` to `ollama-cloud` where it is empty — the provider v0.2.0 ran those agents with. The operator refuses an agent without a provider, so without it they stop on upgrade. Set `false` to run it yourself (`kubectl exec deploy/hub -n <ns> -- /hub migrate-llm-provider -n <ns>`) |
+| `migrations.llmProvider.extraArgs` | list | `[]` | Extra args for the command, e.g. `["--dry-run"]` or `["--all-namespaces"]` |
+| `migrations.llmProvider.resources` | object | `{}` | CPU/memory for the Job container |
+| `migrations.llmProvider.nodeSelector` | object | `{}` | Node selection for the Job pod |
+| `migrations.llmProvider.tolerations` | list | `[]` | Tolerations for the Job pod |
 
 The Job runs as the hub's own `hub` ServiceAccount, which already has
 `get`/`list`/`patch` on `ainsel.dev/agents` — no extra RBAC — and uses the
