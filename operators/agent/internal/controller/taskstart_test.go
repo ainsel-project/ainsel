@@ -107,6 +107,55 @@ func TestClassifyTaskPodStart(t *testing.T) {
 			pod:  &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns", CreationTimestamp: metav1.NewTime(now.Add(-4 * time.Minute))}, Status: corev1.PodStatus{Phase: corev1.PodPending}},
 		},
 		{
+			// Cluster back-pressure is not the task's fault: a pod the scheduler
+			// cannot place is capacity, not a broken image, and it normally heals.
+			// Retiring it here would fail fine work with a timeout notification.
+			name: "unschedulable pod past the absolute deadline",
+			pod: func() *corev1.Pod {
+				p := stalledPodAt("task-a-1", now, 90*time.Minute, "", "")
+				p.Status.ContainerStatuses = nil
+				p.Status.Conditions = []corev1.PodCondition{{
+					Type:   corev1.PodScheduled,
+					Status: corev1.ConditionFalse,
+					Reason: corev1.PodReasonUnschedulable,
+				}}
+				return p
+			}(),
+		},
+		{
+			// A pod held by a scheduling gate has not reached the scheduler at all.
+			name: "open scheduling gate past the absolute deadline",
+			pod: func() *corev1.Pod {
+				p := stalledPodAt("task-a-1", now, 90*time.Minute, "", "")
+				p.Status.ContainerStatuses = nil
+				p.Spec.SchedulingGates = []corev1.PodSchedulingGate{{Name: "gke.io/gpu-provisioning"}}
+				return p
+			}(),
+		},
+		{
+			// Scheduled=False with nothing reported: the pod was never placed, so no
+			// container ever had a chance to fail.
+			name: "not scheduled and no container status, past the absolute deadline",
+			pod: func() *corev1.Pod {
+				p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns", CreationTimestamp: metav1.NewTime(now.Add(-40 * time.Minute))}, Status: corev1.PodStatus{
+					Phase:      corev1.PodPending,
+					Conditions: []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionFalse, Reason: ""}},
+				}}
+				return p
+			}(),
+		},
+		{
+			// Back-pressure does not outrank a fatal reason on a pod that *was*
+			// placed: a scheduled pod in ImagePullBackOff is still the image's fault.
+			name: "scheduled pod with a fatal reason past the error deadline",
+			pod: func() *corev1.Pod {
+				p := stalledPodAt("task-a-1", now, 10*time.Minute, "ImagePullBackOff", "Back-off pulling image")
+				p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}}
+				return p
+			}(),
+			wantStall: true, wantReason: "ImagePullBackOff",
+		},
+		{
 			// The runtime container is not the only one that can fail to start:
 			// an init container that cannot pull blocks the task just the same.
 			name: "fatal reason on an init container",
@@ -133,6 +182,31 @@ func TestClassifyTaskPodStart(t *testing.T) {
 				t.Errorf("reason = %q, want %q", stall.Reason, tc.wantReason)
 			}
 		})
+	}
+}
+
+// A pod the scheduler cannot place is never retired, so the reconcile has to keep
+// promising to look again — otherwise a pod that finally gets a node an hour later
+// would sit unexamined with its slot held, and nothing re-triggers this pass.
+func TestTaskStartDeadline_KeepsWatchingBackpressure(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+
+	pod := stalledPodAt("task-a-1", now, 90*time.Minute, "", "")
+	pod.Status.ContainerStatuses = nil
+	pod.Status.Conditions = []corev1.PodCondition{{
+		Type:   corev1.PodScheduled,
+		Status: corev1.ConditionFalse,
+		Reason: corev1.PodReasonUnschedulable,
+	}}
+	if d := taskStartDeadline(pod, now); d <= 0 {
+		t.Errorf("deadline for an unschedulable pod = %v, want a re-check", d)
+	}
+
+	// A pod that is simply past its deadline and not back-pressured still owes
+	// nothing: the caller has already been told to retire it.
+	plain := stalledPodAt("task-a-1", now, 90*time.Minute, "Pulling", "Pulling image")
+	if d := taskStartDeadline(plain, now); d != 0 {
+		t.Errorf("deadline for a stalled pod = %v, want 0", d)
 	}
 }
 

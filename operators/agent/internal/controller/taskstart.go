@@ -110,6 +110,11 @@ func (s startStall) String() string {
 // taskStartErrorDeadline, or any pod that has outlasted taskStartAbsoluteDeadline
 // without a container running. A pod that is Running is not stalled: the task
 // started, and what happens to it from here is the Job's own story.
+//
+// Cluster back-pressure is neither: a pod the scheduler cannot place yet
+// (Unschedulable, an open scheduling gate, a node pool still coming up) is a
+// capacity condition, not a property of the task, so it is excluded from the
+// absolute deadline below and left for a later pass — see podStartBackpressure.
 func classifyTaskPodStart(pod *corev1.Pod, now time.Time) (startStall, bool) {
 	if pod.Status.Phase != corev1.PodPending {
 		// Running, Succeeded, Failed, or not scheduled yet with no status: this
@@ -141,6 +146,16 @@ func classifyTaskPodStart(pod *corev1.Pod, now time.Time) (startStall, bool) {
 		if fatalStartReasons[w.Reason] && age >= taskStartErrorDeadline {
 			return startStall{Reason: w.Reason, Message: w.Message}, true
 		}
+	}
+
+	// The cluster not having a place for this pod is not the task's fault, and it
+	// normally heals: an autoscaling node pool, a volume waiting for a node, a
+	// saturated cluster. Retiring the Job here would turn a capacity problem into
+	// a terminal task failure and a timeout notification for work that is fine,
+	// so the Job keeps its slot and taskStartDeadline keeps this reconcile looking
+	// until the pod is placed or a fatal reason names itself.
+	if podStartBackpressure(pod) {
+		return startStall{}, false
 	}
 
 	if age >= taskStartAbsoluteDeadline {
@@ -199,6 +214,11 @@ func (r *AgentReconciler) taskStartStall(ctx context.Context, j *batchv1.Job, no
 // be made again: the error deadline if it already reports a fatal reason, the
 // absolute deadline otherwise. Zero for a pod that is not pending — nothing here
 // is waiting on it.
+//
+// A pod under cluster back-pressure is re-checked on a steady cadence even after
+// its absolute deadline, because classifyTaskPodStart deliberately refuses to
+// call it: a pod that gets a node at minute 90 still has to be noticed, and a
+// pending pod that the scheduler has given up on generates no events of its own.
 func taskStartDeadline(pod *corev1.Pod, now time.Time) time.Duration {
 	if pod.Status.Phase != corev1.PodPending {
 		return 0
@@ -215,7 +235,44 @@ func taskStartDeadline(pod *corev1.Pod, now time.Time) time.Duration {
 	if remaining := deadline.Sub(now); remaining > 0 {
 		return remaining
 	}
+	if podStartBackpressure(pod) {
+		return taskStartErrorDeadline
+	}
 	return 0
+}
+
+// podStartBackpressure reports whether a pending pod is being held by the
+// cluster rather than by its own spec: the scheduler has said it cannot place it,
+// a scheduling gate is still open, or it has no container statuses at all while
+// the scheduler still reports it as not scheduled.
+//
+// These are the reasons a pod sits in PodPending that say nothing about the task:
+// capacity comes back, gates get opened, a GPU node finishes booting. The verdict
+// the caller needs is "not the never-started case", so the Job is left alone —
+// the hub's own answer to a task that was never picked up in time is `expired`,
+// which is a different, non-destructive end than `failed`.
+func podStartBackpressure(pod *corev1.Pod) bool {
+	if len(pod.Spec.SchedulingGates) > 0 {
+		return true
+	}
+	var notScheduled *corev1.PodCondition
+	for i := range pod.Status.Conditions {
+		c := &pod.Status.Conditions[i]
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse {
+			notScheduled = c
+		}
+	}
+	if notScheduled == nil {
+		// No scheduling verdict reported at all: nothing here says the cluster is
+		// holding the pod, so the ordinary deadlines apply.
+		return false
+	}
+	if notScheduled.Reason == corev1.PodReasonUnschedulable {
+		return true
+	}
+	// Scheduled=False with no containers reported: the pod has not been placed,
+	// so there is no image pull and no container create to blame.
+	return len(pod.Status.InitContainerStatuses) == 0 && len(pod.Status.ContainerStatuses) == 0
 }
 
 // noteEarlier keeps the sooner of two requeue intervals, where zero means "no

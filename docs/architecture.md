@@ -379,7 +379,10 @@ Key properties:
   allowed to hold its agent's concurrency slot: the operator retires that Job and
   holds the task back with the reason on `Agent status.taskStartBlocks`, so the
   tasks behind it run, and the hub's reaper tick fails the row with that reason
-  rather than leaving it `QUEUED` (issue #342).
+  rather than leaving it `QUEUED` (issue #342). Cluster back-pressure is not that
+  case: a pod the scheduler cannot place yet (`Unschedulable`, an open scheduling
+  gate, a node pool still coming up) keeps its Job and its row `pending`, because
+  capacity comes back and the task itself is not wrong.
 
 ### Derived Subject
 
