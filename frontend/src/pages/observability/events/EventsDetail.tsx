@@ -148,7 +148,7 @@ export function EventsDetail() {
       .slice()
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     return rows.filter((r) => {
-      if (filterMatch && r.status !== (filterMatch as ActivityMatchResult)) return false
+      if (filterMatch && r.match !== (filterMatch as ActivityMatchResult)) return false
       if (filterConnector && r.connector !== filterConnector) return false
       if (filterAgent && !r.matches?.some((m) => m.agent === filterAgent)) return false
       if (payloadFilters.length > 0 && !matchesEventFilters(r.payload, payloadFilters)) return false

@@ -246,7 +246,7 @@ export function EventView() {
                   <span className="label">Match</span>
                 </div>
                 <div className="figure">
-                  <MatchTag match={data.status} />
+                  <MatchTag match={data.match} />
                 </div>
               </div>
               <div className="kpi">

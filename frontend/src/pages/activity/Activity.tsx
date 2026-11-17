@@ -218,7 +218,7 @@ export function Activity() {
         const name = connectorNameById.get(r.connector)
         if (name) parts.push(name)
       }
-      if (r.status) parts.push(r.status)
+      if (r.match) parts.push(r.match)
       for (const m of r.matches ?? []) {
         if (m.trigger) {
           parts.push(m.trigger)
@@ -230,7 +230,7 @@ export function Activity() {
           const an = agentNameById.get(m.agent)
           if (an) parts.push(an)
         }
-        if (m.runStatus) parts.push(m.runStatus)
+        if (m.invocationStatus) parts.push(m.invocationStatus)
       }
       if (r.payload != null) {
         try {

@@ -8,14 +8,14 @@ const sampleEvents = [
     id: 'evt-1',
     timestamp: new Date().toISOString(),
     connector: 'c-f5cc476e',
-    status: 'matched',
+    match: 'matched',
     matches: [{ trigger: 't1', agent: 'review-bot' }],
   },
   {
     id: 'evt-2',
     timestamp: new Date().toISOString(),
     connector: 'c-deleted',
-    status: 'unmatched',
+    match: 'unmatched',
   },
 ]
 

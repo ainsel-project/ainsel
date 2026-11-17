@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { request } from './client'
-import type { RunState } from './invocations'
+import type { InvocationStatus, RunState } from './invocations'
 
 export type { RunState }
 
@@ -9,16 +9,18 @@ export type { RunState }
  *  answers where the run is right now. */
 export type ActivityMatchResult = 'matched' | 'unmatched' | 'error'
 
-export type RunStatus = 'running' | 'success' | 'failure' | 'timeout'
-
 export type ActivityMatch = {
   trigger: string
   agent: string
   /** The agent's API id (its resource name) — the route key for
    *  /agents/:id. Absent on hubs that predate the field: render plain text. */
   agentId?: string
-  /** Raw invocation status, kept for compatibility. Prefer runState. */
-  runStatus?: RunStatus
+  /** Raw `invocations.status` for the run behind this match — the column
+   *  mirrored, so `unknown` is possible for a record the hub recorded but never
+   *  enqueued. Render `runState` instead: it is derived from the task and tells
+   *  queued apart from running. The hub still emits the retired `runStatus`
+   *  spelling with the same value; the console reads this one. */
+  invocationStatus?: InvocationStatus | 'unknown'
   durationMs?: number
   error?: string
   /** Raw agent_tasks status when a task row exists. */
@@ -38,7 +40,10 @@ export type ActivityEntry = {
   /** Channel the event was born in. Absent on history recorded before the
    *  channel registry existed and on direct (cron/chat) births. */
   channelId?: string
-  status: ActivityMatchResult
+  /** Did the event match a subscription? A different axis from a match's
+   *  runState. The hub also still emits the retired `status` spelling with the
+   *  same value; the console reads this one — hub and console ship together. */
+  match: ActivityMatchResult
   matches?: ActivityMatch[]
   payload?: unknown
 }

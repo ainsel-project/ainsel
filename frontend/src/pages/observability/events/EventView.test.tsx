@@ -56,7 +56,7 @@ const sampleEvent = {
   id: 'evt-1234567890000000000',
   timestamp: '2026-06-10T08:31:25Z',
   connector: 'c-111',
-  status: 'matched',
+  match: 'matched',
   matches: [
     { trigger: 't1', agent: 'doc-writer', agentId: 'doc-writer' },
     { trigger: 't2', agent: 'review-bot', agentId: 'review-bot' },

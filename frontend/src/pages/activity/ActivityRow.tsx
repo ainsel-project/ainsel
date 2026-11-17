@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Fragment } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
-import type { ActivityEntry, ActivityMatch } from '../../api/events'
+import type { ActivityEntry, ActivityMatch, ActivityMatchResult } from '../../api/events'
 import { Tag } from '../../primitives/Tag'
 import { formatRelative } from '../../utils/time'
 import { sectionPath } from '../agents/workspace/sections'
@@ -21,7 +21,7 @@ const EMPTY_NAMES = new Map<string, string>()
 
 // The event's match result — the same axis the toolbar's Match filter narrows.
 // The run's own state is a separate axis, rendered by RunStateTag.
-function MatchTag({ match }: { match: ActivityEntry['status'] }) {
+function MatchTag({ match }: { match: ActivityMatchResult }) {
   if (match === 'matched') return <Tag variant="ok">MATCH</Tag>
   if (match === 'error') return <Tag variant="err">ERR</Tag>
   return <Tag variant="stale">SKIP</Tag>
@@ -102,10 +102,10 @@ function AgentLinks({ matches, names }: { matches: ActivityMatch[]; names: Map<s
             >
               {label}
             </Link>
-            {m.runState || m.runStatus ? (
+            {m.runState || m.invocationStatus ? (
               <>
                 {' '}
-                <RunStateTag state={m.runState ?? m.runStatus} stuck={m.stuck} />
+                <RunStateTag state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
               </>
             ) : null}
           </Fragment>
@@ -184,7 +184,7 @@ export function ActivityRow({
         <td>{hasMatches ? <TriggerLinks matches={matches} names={triggerNames} /> : '—'}</td>
         <td>{hasMatches ? <AgentLinks matches={matches} names={agentNames} /> : '—'}</td>
         <td>
-          <MatchTag match={entry.status} />
+          <MatchTag match={entry.match} />
         </td>
         {tokens !== undefined ? (
           <td className="num">{tokens > 0 ? tokens.toLocaleString() : '—'}</td>
@@ -220,9 +220,9 @@ export function ActivityRow({
                           {agentLabel}
                         </Link>
                       </b>
-                      {m.runState || m.runStatus ? (
+                      {m.runState || m.invocationStatus ? (
                         <span style={{ marginLeft: 8 }}>
-                          <RunStateTag state={m.runState ?? m.runStatus} stuck={m.stuck} />
+                          <RunStateTag state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
                           {m.durationMs != null ? (
                             <span className="label" style={{ marginLeft: 6 }}>
                               {formatDuration(m.durationMs)}

@@ -83,6 +83,75 @@ func decodeEnvelope(t *testing.T, rec *httptest.ResponseRecorder) eventsEnvelope
 	return env
 }
 
+// assertInvocationStatus checks the raw invocation status a match carries, in
+// its current name and in the retired `runStatus` spelling that mirrors it for
+// one release.
+func assertInvocationStatus(t *testing.T, m activityMatch, want string) {
+	t.Helper()
+	if m.InvocationStatus != want {
+		t.Errorf("invocationStatus = %q, want %q", m.InvocationStatus, want)
+	}
+	if m.RunStatus != want {
+		t.Errorf("retired runStatus = %q, want %q", m.RunStatus, want)
+	}
+}
+
+// The activity entry names its match verdict `match` and still emits the
+// retired `status` spelling with the same value, so callers reading either keep
+// working until the aliases are removed. Both keys must be present in the JSON,
+// not just populated on the struct — an accidental `omitempty` on a verdict of
+// `unmatched` would silently drop it.
+func TestBuildActivityEntry_EmitsMatchAndRetiredStatus(t *testing.T) {
+	s := &Server{}
+	evt := eventqueue.Event{
+		ID:         "evt-1",
+		Connector:  "github",
+		ReceivedAt: time.Now().UTC(),
+		Data:       json.RawMessage(`{"a":1}`),
+	}
+
+	cases := []struct {
+		name  string
+		tasks []eventqueue.Task
+		match string
+	}{
+		{"unmatched", nil, activityMatchUnmatched},
+		{"matched", []eventqueue.Task{{EventID: "evt-1", AgentName: "agent-a", TriggerName: "trig-1", Status: "completed"}}, activityMatchMatched},
+		{"error", []eventqueue.Task{{EventID: "evt-1", AgentName: "agent-a", TriggerName: "trig-1", Status: "failed"}}, activityMatchError},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := s.buildActivityEntry(evt, tc.tasks)
+			if entry.Match != tc.match {
+				t.Fatalf("match = %q, want %q", entry.Match, tc.match)
+			}
+
+			raw, err := json.Marshal(entry)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			for _, key := range []string{"match", "status"} {
+				v, ok := fields[key]
+				if !ok {
+					t.Fatalf("response is missing the %q key: %s", key, raw)
+				}
+				var got string
+				if err := json.Unmarshal(v, &got); err != nil {
+					t.Fatalf("%s: %v", key, err)
+				}
+				if got != tc.match {
+					t.Errorf("%s = %q, want %q", key, got, tc.match)
+				}
+			}
+		})
+	}
+}
+
 func TestListEvents_Empty(t *testing.T) {
 	store, cleanup := newTestEventStore(t)
 	defer cleanup()
@@ -136,14 +205,21 @@ func TestListEvents_MatchDerivation(t *testing.T) {
 		byID[e.ID] = e
 	}
 
-	if got := byID["evt-unmatched"].Status; got != activityMatchUnmatched {
+	if got := byID["evt-unmatched"].Match; got != activityMatchUnmatched {
 		t.Errorf("evt-unmatched: expected match %q, got %q", activityMatchUnmatched, got)
 	}
-	if got := byID["evt-matched"].Status; got != activityMatchMatched {
+	if got := byID["evt-matched"].Match; got != activityMatchMatched {
 		t.Errorf("evt-matched: expected match %q, got %q", activityMatchMatched, got)
 	}
-	if got := byID["evt-error"].Status; got != activityMatchError {
+	if got := byID["evt-error"].Match; got != activityMatchError {
 		t.Errorf("evt-error: expected match %q, got %q", activityMatchError, got)
+	}
+
+	// The retired `status` spelling is still emitted, with the same value.
+	for _, e := range env.Events {
+		if e.Status != e.Match {
+			t.Errorf("%s: retired status %q does not mirror match %q", e.ID, e.Status, e.Match)
+		}
 	}
 
 	// Matches should be populated for routed events.
@@ -489,8 +565,11 @@ func TestGetEvent_Found(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&entry); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if entry.ID != "evt-123" || entry.Connector != "github" || entry.Status != activityMatchMatched {
+	if entry.ID != "evt-123" || entry.Connector != "github" || entry.Match != activityMatchMatched {
 		t.Fatalf("unexpected entry: %+v", entry)
+	}
+	if entry.Status != entry.Match {
+		t.Errorf("retired status %q does not mirror match %q", entry.Status, entry.Match)
 	}
 	if len(entry.Matches) != 1 || entry.Matches[0].Agent != "agent-a" {
 		t.Fatalf("unexpected matches: %+v", entry.Matches)
@@ -631,14 +710,12 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		byID[e.ID] = e
 	}
 
-	// Completed invocation: runStatus=success, durationMs set.
+	// Completed invocation: invocationStatus=success, durationMs set.
 	okEntry := byID["evt-run-ok"]
 	if len(okEntry.Matches) != 1 {
 		t.Fatalf("expected 1 match for evt-run-ok, got %d", len(okEntry.Matches))
 	}
-	if okEntry.Matches[0].RunStatus != "success" {
-		t.Errorf("expected runStatus success, got %q", okEntry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, okEntry.Matches[0], "success")
 	if okEntry.Matches[0].RunState != "success" {
 		t.Errorf("expected runState success, got %q", okEntry.Matches[0].RunState)
 	}
@@ -646,14 +723,12 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		t.Error("expected durationMs to be set for completed invocation")
 	}
 
-	// Running invocation: runStatus=running, no duration.
+	// Running invocation: invocationStatus=running, no duration.
 	runEntry := byID["evt-run-running"]
 	if len(runEntry.Matches) != 1 {
 		t.Fatalf("expected 1 match for evt-run-running, got %d", len(runEntry.Matches))
 	}
-	if runEntry.Matches[0].RunStatus != "running" {
-		t.Errorf("expected runStatus running, got %q", runEntry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, runEntry.Matches[0], "running")
 	if runEntry.Matches[0].RunState != "running" {
 		t.Errorf("expected runState running, got %q", runEntry.Matches[0].RunState)
 	}
@@ -661,14 +736,12 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 		t.Error("expected durationMs nil for running invocation")
 	}
 
-	// Missing invocation: runStatus empty (graceful degradation).
+	// Missing invocation: invocationStatus empty (graceful degradation).
 	missEntry := byID["evt-run-missing"]
 	if len(missEntry.Matches) != 1 {
 		t.Fatalf("expected 1 match for evt-run-missing, got %d", len(missEntry.Matches))
 	}
-	if missEntry.Matches[0].RunStatus != "" {
-		t.Errorf("expected empty runStatus for missing invocation, got %q", missEntry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, missEntry.Matches[0], "")
 	// The task row is authoritative: a completed task with a pruned invocation
 	// still reports success, not unknown.
 	if missEntry.Matches[0].RunState != "success" {
@@ -683,9 +756,9 @@ func TestListEvents_RunStateEnrichment(t *testing.T) {
 	if qEntry.Matches[0].RunState != "queued" || qEntry.Matches[0].TaskStatus != "pending" {
 		t.Errorf("expected runState queued / taskStatus pending, got %+v", qEntry.Matches[0])
 	}
-	if qEntry.Matches[0].RunStatus != "running" {
-		t.Errorf("expected raw runStatus running kept for compatibility, got %q", qEntry.Matches[0].RunStatus)
-	}
+	// The raw column stays the raw column: the derived state says queued, the
+	// raw invocation status still says running.
+	assertInvocationStatus(t, qEntry.Matches[0], "running")
 
 	// Job-mode live run: pending row with conversation evidence is running.
 	jEntry := byID["evt-run-jobmode"]
@@ -737,9 +810,7 @@ func TestGetEvent_RunStateEnrichment(t *testing.T) {
 	if len(entry.Matches) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(entry.Matches))
 	}
-	if entry.Matches[0].RunStatus != "failure" {
-		t.Errorf("expected runStatus failure, got %q", entry.Matches[0].RunStatus)
-	}
+	assertInvocationStatus(t, entry.Matches[0], "failure")
 	if entry.Matches[0].Error != "something broke" {
 		t.Errorf("expected error 'something broke', got %q", entry.Matches[0].Error)
 	}
@@ -752,7 +823,7 @@ func TestGetEvent_RunStateEnrichment(t *testing.T) {
 // represented, one event mixes states across its tasks, and two events carry
 // tasks without a usable invocation record (empty id, or a pruned one).
 // Returns the server wired with a Postgres-backed invocation store so the
-// SQL run-state filter and the runStatus enrichment read the same table — the
+// SQL run-state filter and the invocationStatus enrichment read the same table — the
 // production wiring.
 func stateFixture(t *testing.T) (*Server, *eventqueue.Store, context.CancelFunc) {
 	t.Helper()

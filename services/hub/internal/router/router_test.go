@@ -47,13 +47,17 @@ func (s *stubBroadcaster) BroadcastError(entry types.ErrorEntry)    {}
 func (s *stubBroadcaster) BroadcastEvent(entry types.ActivityEntry) {}
 func (s *stubBroadcaster) BroadcastStats(ctx context.Context)       {}
 
-// recordingBroadcaster captures the context passed to BroadcastStats.
+// recordingBroadcaster captures the context passed to BroadcastStats and the
+// activity frames passed to BroadcastEvent.
 type recordingBroadcaster struct {
 	statsCtxs []context.Context
+	events    []types.ActivityEntry
 }
 
-func (r *recordingBroadcaster) BroadcastError(entry types.ErrorEntry)    {}
-func (r *recordingBroadcaster) BroadcastEvent(entry types.ActivityEntry) {}
+func (r *recordingBroadcaster) BroadcastError(entry types.ErrorEntry) {}
+func (r *recordingBroadcaster) BroadcastEvent(entry types.ActivityEntry) {
+	r.events = append(r.events, entry)
+}
 func (r *recordingBroadcaster) BroadcastStats(ctx context.Context) {
 	r.statsCtxs = append(r.statsCtxs, ctx)
 }
@@ -103,6 +107,82 @@ func TestHandleEvent_EnqueuesWhenMatched(t *testing.T) {
 	}
 	if len(q.routedIDs) != 1 || q.routedIDs[0] != "evt-1" {
 		t.Errorf("expected event to be marked routed, got %v", q.routedIDs)
+	}
+}
+
+// The WebSocket "event" frame is a public surface: it names the match verdict
+// `match` and still carries the retired `status` spelling with the same value,
+// or the live stream would disagree with the REST list.
+func TestHandleEvent_BroadcastEventCarriesMatchAndRetiredStatus(t *testing.T) {
+	t.Run("matched", func(t *testing.T) {
+		idx := triggerindex.NewIndex()
+		idx.Update(newValidTrigger("trig-1", "conn-1", "issue.opened", "agent-1"))
+		br := &recordingBroadcaster{}
+		r := &Router{
+			eq:          &mockQueue{},
+			index:       idx,
+			invocations: invocationstest.New(10),
+			broadcaster: br,
+		}
+
+		r.handleEvent(context.Background(), newTestQueueEvent())
+
+		if len(br.events) != 1 {
+			t.Fatalf("expected 1 broadcast event, got %d", len(br.events))
+		}
+		assertActivityMatchFields(t, br.events[0], "matched")
+	})
+
+	t.Run("unmatched", func(t *testing.T) {
+		br := &recordingBroadcaster{}
+		r := &Router{
+			eq:          &mockQueue{},
+			index:       triggerindex.NewIndex(),
+			invocations: invocationstest.New(10),
+			broadcaster: br,
+		}
+
+		r.handleEvent(context.Background(), newTestQueueEvent())
+
+		if len(br.events) != 1 {
+			t.Fatalf("expected 1 broadcast event, got %d", len(br.events))
+		}
+		assertActivityMatchFields(t, br.events[0], "unmatched")
+	})
+}
+
+// assertActivityMatchFields checks that a broadcast frame names the match verdict
+// `match` and mirrors it in the retired `status` key — in the struct and in the
+// JSON a client actually reads.
+func assertActivityMatchFields(t *testing.T, entry types.ActivityEntry, want string) {
+	t.Helper()
+	if entry.Match != want {
+		t.Errorf("match = %q, want %q", entry.Match, want)
+	}
+	if entry.Status != want {
+		t.Errorf("retired status = %q, want %q", entry.Status, want)
+	}
+
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, key := range []string{"match", "status"} {
+		v, ok := fields[key]
+		if !ok {
+			t.Fatalf("frame is missing the %q key: %s", key, raw)
+		}
+		var got string
+		if err := json.Unmarshal(v, &got); err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		if got != want {
+			t.Errorf("frame %s = %q, want %q", key, got, want)
+		}
 	}
 }
 

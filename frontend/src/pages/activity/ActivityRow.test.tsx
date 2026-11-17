@@ -10,7 +10,7 @@ const entry: ActivityEntry = {
   id: 'evt-123',
   timestamp: new Date(Date.now() - 30_000).toISOString(),
   connector: 'c-111',
-  status: 'matched',
+  match: 'matched',
   matches: [{ trigger: 't1', agent: 'doc-writer' }],
   payload: { action: 'opened', repository: 'ainsel' },
 }
@@ -207,10 +207,12 @@ describe('ActivityRow', () => {
     expect(screen.queryByText('Event detail page')).toBeNull()
   })
 
-  it('renders run state tag next to agent link when runStatus is present', () => {
+  it('renders run state tag next to agent link when invocationStatus is present', () => {
     const withRun: ActivityEntry = {
       ...entry,
-      matches: [{ trigger: 't1', agent: 'doc-writer', runStatus: 'success', durationMs: 1234 }],
+      matches: [
+        { trigger: 't1', agent: 'doc-writer', invocationStatus: 'success', durationMs: 1234 },
+      ],
     }
     renderWithProviders(
       <table>
@@ -226,7 +228,7 @@ describe('ActivityRow', () => {
   it('renders running tag for in-progress invocations', () => {
     const withRun: ActivityEntry = {
       ...entry,
-      matches: [{ trigger: 't1', agent: 'doc-writer', runStatus: 'running' }],
+      matches: [{ trigger: 't1', agent: 'doc-writer', invocationStatus: 'running' }],
     }
     renderWithProviders(
       <table>
@@ -246,7 +248,7 @@ describe('ActivityRow', () => {
         {
           trigger: 't1',
           agent: 'doc-writer',
-          runStatus: 'failure',
+          invocationStatus: 'failure',
           error: 'agent crashed',
           durationMs: 500,
         },
@@ -265,7 +267,7 @@ describe('ActivityRow', () => {
     expect(container.textContent).toContain('500ms')
   })
 
-  it('does not render run state tag when runStatus is absent', () => {
+  it('does not render run state tag when invocationStatus is absent', () => {
     renderRow()
     expect(screen.queryByText('SUCCESS')).toBeNull()
     expect(screen.queryByText('RUNNING')).toBeNull()
@@ -281,7 +283,7 @@ describe('ActivityRow', () => {
         {
           trigger: 't1',
           agent: 'doc-writer',
-          runStatus: 'running',
+          invocationStatus: 'running',
           runState: 'queued',
           taskStatus: 'pending',
         },
@@ -330,7 +332,7 @@ describe('ActivityRow', () => {
         {
           trigger: 't1',
           agent: 'doc-writer',
-          runStatus: 'running',
+          invocationStatus: 'running',
           runState: 'running',
           taskStatus: 'pending',
           startedAt: '2026-06-10T08:35:26Z',

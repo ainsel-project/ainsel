@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { request } from './client'
-import type { ActivityEntry, EventsPage } from './events'
+import type { ActivityEntry, ActivityMatchResult, EventsPage } from './events'
 
 /**
  * Channels are the named streams events live in. The hub owns them, so
@@ -31,8 +31,6 @@ import type { ActivityEntry, EventsPage } from './events'
  */
 
 export type ChannelKind = 'connector' | 'agent' | 'custom'
-
-export type ChannelStatus = 'matched' | 'unmatched' | 'error'
 
 export type ChannelCounts = {
   events: number
@@ -118,7 +116,7 @@ export type ChannelListParams = {
 export type ChannelEventParams = {
   limit?: number
   offset?: number
-  status?: ChannelStatus
+  match?: ActivityMatchResult
   agent?: string
   subject?: string
   since?: string

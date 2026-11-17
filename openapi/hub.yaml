@@ -4472,14 +4472,19 @@ components:
       type: object
       description: >-
         One agent a matched event was routed to. Views should prefer `runState`
-        over `runStatus`: `runStatus` is the raw invocation status kept for
-        compatibility, while `runState` is derived from the task and distinguishes
-        queued from running.
+        over `invocationStatus`: `invocationStatus` is the raw invocation status
+        kept for compatibility, while `runState` is derived from the task and
+        distinguishes queued from running. `runStatus` is the retired spelling of
+        `invocationStatus`, emitted with the same value for one release.
       properties:
         trigger: { type: string }
         agent: { type: string, description: 'The agent''s display name.' }
         agentId: { type: string, description: 'The agent''s API id — the route key for `/api/v1/agents/{id}`. Empty on hubs that predate the field.' }
-        runStatus: { type: string, description: 'Raw invocation status, within retention.' }
+        invocationStatus: { type: string, description: 'Raw `invocations.status`, within retention — `unknown` when the hub recorded a run it never enqueued.' }
+        runStatus:
+          type: string
+          deprecated: true
+          description: 'Retired spelling of `invocationStatus`, same value. Removed with the `status`/`outcome` query aliases.'
         runState: { type: string, enum: [queued, running, success, failure, timeout, unknown], description: 'Derived from the task row, the start evidence and the invocation record, so every view agrees on one value.' }
         taskStatus: { type: string, description: 'Raw `agent_tasks` status when a task row exists.' }
         startedAt: { type: string, format: date-time, description: 'First evidence of work; absent while the task is queued.' }
@@ -4489,15 +4494,23 @@ components:
     ActivityEntry:
       type: object
       description: >-
-        One event with its match result and runs. `status` is the match result,
-        derived from the event's tasks — no tasks is `unmatched`, any failed task is
-        `error`. Each match carries the derived `runState`.
+        One event with its match result and runs. `match` answers "did this event
+        match a subscription?", derived from the event's tasks — no tasks is
+        `unmatched`, any failed task is `error`. It is a different axis from a
+        match's `runState`. `status` is the retired spelling of `match`, emitted
+        with the same value for one release.
+      required: [match]
       properties:
         id: { type: string }
         timestamp: { type: string, description: 'RFC 3339.' }
         connector: { type: string }
         channelId: { type: string, description: 'The stream the event was born in — the stable handle the UI links a producer label onto. Empty for events recorded before the channel registry existed and for direct births.' }
-        status: { type: string, enum: [matched, unmatched, error] }
+        match: { type: string, enum: [matched, unmatched, error] }
+        status:
+          type: string
+          enum: [matched, unmatched, error]
+          deprecated: true
+          description: 'Retired spelling of `match`, same value. Removed with the `status`/`outcome` query aliases.'
         matches:
           type: array
           items:

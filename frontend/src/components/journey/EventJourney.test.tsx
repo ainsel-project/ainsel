@@ -71,8 +71,8 @@ describe('EventJourney', () => {
         connector="forgejo"
         timestamp="2026-06-10T08:31:25Z"
         matches={[
-          { trigger: 't1', agent: 'doc-writer', runStatus: 'success', durationMs: 9000 },
-          { trigger: 't2', agent: 'review-bot', runStatus: 'failure', error: 'LLM timeout' },
+          { trigger: 't1', agent: 'doc-writer', invocationStatus: 'success', durationMs: 9000 },
+          { trigger: 't2', agent: 'review-bot', invocationStatus: 'failure', error: 'LLM timeout' },
         ]}
       />,
     )
@@ -110,7 +110,7 @@ describe('EventJourney', () => {
       <EventJourney
         connector="forgejo"
         timestamp="2026-06-10T08:31:25Z"
-        matches={[{ trigger: 't1', agent: 'review-bot', runStatus: 'running' }]}
+        matches={[{ trigger: 't1', agent: 'review-bot', invocationStatus: 'running' }]}
       />,
     )
     expect(container.querySelector('.journey-dot.pulse')).not.toBeNull()
@@ -124,7 +124,9 @@ describe('EventJourney', () => {
       <EventJourney
         connector="forgejo"
         timestamp="2026-06-10T08:31:25Z"
-        matches={[{ trigger: 't1', agent: 'review-bot', runStatus: 'running', runState: 'queued' }]}
+        matches={[
+          { trigger: 't1', agent: 'review-bot', invocationStatus: 'running', runState: 'queued' },
+        ]}
       />,
     )
     expect(screen.getByText('queued')).toBeInTheDocument()
@@ -156,7 +158,7 @@ describe('EventJourney', () => {
       <EventJourney
         connector="cron"
         timestamp="2026-06-10T08:31:25Z"
-        matches={[{ trigger: '', agent: 'review-bot', runStatus: 'success' }]}
+        matches={[{ trigger: '', agent: 'review-bot', invocationStatus: 'success' }]}
       />,
     )
     expect(screen.getByText(/born directly in the agent inboxes/i)).toBeInTheDocument()
