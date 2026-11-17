@@ -125,9 +125,12 @@ is the source of truth for usage.
 ## Migrating the skills wrapper to a list
 
 `Agent.spec.skills` changed from the wrapper object `skills: {items: […]}` to a plain
-list. Objects still in the old shape cannot be read by the hub or the agent operator at
-all — the field is on the `Agent` CR, so one un-migrated agent fails the whole list. Run
-the one-time rewrite after applying the new CRDs:
+list. The hub and the agent operator read both shapes (the Go type decodes the wrapper as
+the same list), and the CRD keeps `spec.skills` schemaless for this release
+(`x-kubernetes-preserve-unknown-fields`): with `type: array` the API server would prune
+the wrapper's `items` on every read, and the selection would be gone before anything
+could migrate it. A later release requires the list again, so run the one-time rewrite
+after applying the new CRDs:
 
 ```bash
 kubectl apply -f chart/templates/crds/
@@ -318,16 +321,12 @@ capability catalog it ships (`spec.tools`). What an agent may use is selected on
   the declared tool set to that selection, blocks any other tool call, and withholds
   catalog binaries the agent was not given from the shell.
 
-**Upgrade order.** The CRD change makes existing `Agent` objects with the wrapper
-shape unreadable, and the fix has to run *after* the new CRDs are applied — see
+**Upgrade order.** Existing `Agent` objects keep the wrapper shape until the one-time
+rewrite turns it into a list, which has to run *after* the new CRDs are applied — see
 [Migrating the skills wrapper to a list](#migrating-the-skills-wrapper-to-a-list).
 The chart does it for you as a `post-install,post-upgrade` hook Job
-(`migrations.skillsShape`, enabled by default).
-
-Until patched, the hub and operator cannot read those agents (they surface as errors rather
-than silently running with the wrong skills), so do it in the same maintenance window. Expect
-a brief error loop from the hub and the operator between their new pods starting and the hook
-Job finishing — that is the state above, and it clears itself when the migration runs.
+(`migrations.skillsShape`, enabled by default). Until it has, the hub and the operator
+read the wrapper as the same list, so agents keep their skills throughout.
 
 **The API rejects the old shape with a pointer.** A create or update whose `skills` is an
 object gets `400 skills must be a list of skill ids; the {items: [...]} wrapper was removed -

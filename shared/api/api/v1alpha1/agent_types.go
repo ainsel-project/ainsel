@@ -26,8 +26,15 @@ type AgentSpec struct {
 	// agent — the image carries none — so absent or empty means the agent runs
 	// with no skills. Names the library does not contain are rejected by the
 	// hub.
+	//
+	// The schema accepts any shape for one release: objects stored before the
+	// list existed hold the `{items: [...]}` wrapper, and a list-typed schema
+	// would make the API server prune it to `{}` on every read, before the
+	// chart's migration can rewrite it. See SkillList.
 	// +optional
-	Skills []string `json:"skills,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Skills SkillList `json:"skills,omitempty"`
 	// MCP explicitly defines the MCP servers this agent connects to at
 	// runtime, as resolved definitions (URL + token env reference), not just
 	// names. When nil, the agent runs on the referenced image's MCPServers —
