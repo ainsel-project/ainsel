@@ -317,10 +317,15 @@ available to plugin credentials"}`.
 | `/api/v1/triggers`, `/api/v1/cron-triggers` | `triggers:read` | `triggers:write` |
 | `/api/v1/mcp-servers` | `mcp-servers:read` | `mcp-servers:write` |
 | `/api/v1/personas` | `personas:read` | `personas:write` |
+| `/api/v1/skills/{id}/assignments` | `skills:read` | `agents:write` |
 | `/api/v1/skills` | `skills:read` | `skills:write` |
 | `/api/v1/invocations`, `/events`, `/errors` | `invocations:read` | not available |
 | `/api/v1/observability`, `/stats`, `/queue` | `observability:read` | not available |
 | everything else (users, groups, auth, tokens, plugins, chat, channels, …) | not available | not available |
+
+Assigning a skill to an agent writes the agent's skills list, not the skill row,
+so the assignment routes are agent writes — the same check the handler makes.
+Reading them answers a question about the skill, so they stay `skills:read`.
 
 On top of the route check, the normal group checks apply to whoever the
 credential stands for.

@@ -8,8 +8,8 @@ package api
 // callback does not read, a credential the hub mints but the plugin cannot
 // verify, a manifest path the syncer promises and the plugin does not serve.
 //
-// The five legs are the five ways anything reaches a plugin, and each is
-// asserted with the exact bytes or fields a real caller sees:
+// The legs are the ways anything reaches a plugin, or a plugin reaches back, and
+// each is asserted with the exact bytes or fields a real caller sees:
 //
 //  1. The console's UI bundle, fetched with no session at all: the plugin's
 //     module is public by design, and the hub adds no credential to it.
@@ -23,6 +23,8 @@ package api
 //     speaks MCP to the plugin, and the operator-only tool is absent.
 //  5. The registry sync: the hub turns the same manifest into an MCP server row
 //     and a skill row whose body it read off the plugin itself.
+//  6. The plugin's own call back into the hub, where the route gate decides which
+//     of the hub's APIs an approved permission opens.
 //
 // Everything shares one hub, one plugin and one group model, so a subtest that
 // passes while another's wiring is broken cannot hide it.
@@ -45,6 +47,7 @@ import (
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginmcp"
 	"github.com/ainsel-project/ainsel/services/hub/internal/pluginsync"
 	"github.com/ainsel-project/ainsel/services/hub/internal/plugintest/hello"
+	"github.com/ainsel-project/ainsel/services/hub/internal/skills"
 	connectorv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 	"github.com/ainsel-project/ainsel/shared/auth/oidc"
 	mcpclient "github.com/mark3labs/mcp-go/client"
@@ -94,16 +97,22 @@ const (
 	// bytes the hub served or stored can be compared with the bytes the plugin
 	// ships. Relative to this package, where `go test` runs.
 	e2eStaticDir = "../plugintest/hello/static"
+
+	// e2eSkill is the skill row the assignment leg grants. It is not written by
+	// the syncer: it is a catalogue skill a plugin hands to an agent.
+	e2eSkill = "memory-note"
 )
 
 // pluginEndToEnd is one running install: the hub behind a real listener, the
 // fixture plugin behind another, and the two registries the syncer writes to.
 type pluginEndToEnd struct {
-	s     *Server
-	base  string // hub base URL, e.g. http://127.0.0.1:34567
-	store *fakeAuthzStore
-	mcp   *e2eMCPRegistry
-	skill *e2eSkillRegistry
+	s      *Server
+	base   string // hub base URL, e.g. http://127.0.0.1:34567
+	store  *fakeAuthzStore
+	mcp    *e2eMCPRegistry
+	skill  *e2eSkillRegistry
+	skills *mockSkillService
+	issuer *plugincreds.Issuer
 }
 
 // newPluginEndToEnd wires the install the subtests share.
@@ -164,8 +173,10 @@ func newPluginEndToEnd(t *testing.T) *pluginEndToEnd {
 	// by the plugin middleware, everything else falls through to a chain that
 	// here stands in for OIDC and resolves every request to e2eUser. The chain
 	// is composed before the server, because Deps takes it as a finished
-	// middleware — the same order cmd/hub uses.
-	chain := NewPluginCredentialChain(issuer, newFakeClient(plugin), "test-ns", &recordingAuditStore{})
+	// middleware — the same order cmd/hub uses. One client backs both, as it
+	// does in a real hub, so a Plugin a test files is the Plugin the gate reads.
+	fc := newFakeClient(plugin)
+	chain := NewPluginCredentialChain(issuer, fc, "test-ns", &recordingAuditStore{})
 	fallback := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r.WithContext(oidc.ContextWithUser(r.Context(), &oidc.User{
@@ -179,7 +190,14 @@ func newPluginEndToEnd(t *testing.T) *pluginEndToEnd {
 	// The production constructor, so the route table is the one a real hub
 	// serves rather than a test's shortlist.
 	deps := testDeps(t)
-	deps.Client = newFakeClient(plugin)
+	deps.Client = fc
+	// The skill registry is Postgres and this install has no database, so the
+	// skill row the assignment leg grants is served by the package's mock skill
+	// service. The leg under test is the route gate and the per-agent check, not
+	// skill storage.
+	skillSvc := newMockSkillService()
+	skillSvc.skills[e2eSkill] = &skills.Skill{ID: e2eSkill, Name: "Memory note"}
+	deps.Skills = skillSvc
 	deps.AuthzStore = store
 	deps.AuthzChecker = authz.NewChecker(store, authz.NewGroupCache(loader, time.Minute))
 	deps.PluginCreds = issuer
@@ -205,12 +223,40 @@ func newPluginEndToEnd(t *testing.T) *pluginEndToEnd {
 	}
 
 	return &pluginEndToEnd{
-		s:     s,
-		base:  hub.URL,
-		store: store,
-		mcp:   newE2EMCPRegistry(),
-		skill: newE2ESkillRegistry(),
+		s:      s,
+		base:   hub.URL,
+		store:  store,
+		mcp:    newE2EMCPRegistry(),
+		skill:  newE2ESkillRegistry(),
+		skills: skillSvc,
+		issuer: issuer,
 	}
+}
+
+// approvedPluginCR is a Plugin the operator has approved for exactly perms, with
+// the plugin's background identity allowed to act in the named groups.
+func approvedPluginCR(id string, perms, groups []string) *connectorv1alpha1.Plugin {
+	p := pluginCRReady(pluginCR(id, false), true, "Ready", "plugin is ready", perms)
+	p.Spec.ApprovedPermissions = perms
+	p.Spec.GroupAccess = groups
+	return p
+}
+
+// mintPluginToken mints a plugin-kind credential — the identity a plugin uses for
+// work it does on its own, with no user behind it. It acts in g1 as a writer.
+func (e *pluginEndToEnd) mintPluginToken(t *testing.T, pluginID string, perms []string) string {
+	t.Helper()
+	tok, _, err := e.issuer.Issue(plugincreds.Claims{
+		PluginID:    pluginID,
+		Kind:        plugincreds.KindPlugin,
+		Sub:         "plugin:" + pluginID,
+		Permissions: perms,
+		Groups:      []plugincreds.GroupGrant{{ID: "g1", Role: string(authz.RoleWriter)}},
+	})
+	if err != nil {
+		t.Fatalf("issue plugin credential for %s: %v", pluginID, err)
+	}
+	return tok
 }
 
 // get issues a plain GET against the running hub.
@@ -512,6 +558,59 @@ func TestPluginEndToEnd(t *testing.T) {
 		}
 		if skill.Body != string(want) {
 			t.Errorf("skill.Body =\n%s\nwant\n%s", skill.Body, want)
+		}
+	})
+
+	t.Run("a skill grant is gated on agents:write", func(t *testing.T) {
+		// Handing a skill to an agent writes the agent CR, which is where a skill
+		// is selected, so the honest permission is agents:write — the same one
+		// PUT /api/v1/agents/{id} already needs in order to set the agent's whole
+		// skill list. skills:write would additionally let the plugin edit and
+		// delete every skill in the hub in order to grant one, and it is what the
+		// route gate used to ask for: the honest manifest was refused before the
+		// handler ever ran (issue #354).
+		if err := e.s.client.Create(context.Background(), approvedPluginCR("memory",
+			[]string{"agents:read", "agents:write", "skills:read"}, []string{"g1"})); err != nil {
+			t.Fatalf("file plugin memory: %v", err)
+		}
+
+		grant := func(pluginID string, perms []string, agent string) (int, string) {
+			tok := e.mintPluginToken(t, pluginID, perms)
+			status, _, body := e.roundTrip(t, http.MethodPut,
+				"/api/v1/skills/"+e2eSkill+"/assignments/"+agent,
+				map[string]string{"Authorization": "Bearer " + tok}, nil)
+			return status, strings.TrimSpace(string(body))
+		}
+
+		granted := []string{"agents:read", "agents:write", "skills:read"}
+
+		// a1 sits in g1, the group this credential holds writer in.
+		if status, body := grant("memory", granted, e2eAgent); status != http.StatusNoContent {
+			t.Fatalf("grant to %s = %d, want 204: %s", e2eAgent, status, body)
+		}
+		want := assignCallRecord{skillID: e2eSkill, agentName: e2eAgent}
+		if got := e.skills.assignCalls; len(got) != 1 || got[0] != want {
+			t.Errorf("assign calls = %+v, want [%+v]", got, want)
+		}
+
+		// a2 sits in g2, which the credential holds nothing in. The route gate is
+		// the plugin-wide question; the handler's per-agent check still decides.
+		if status, body := grant("memory", granted, e2eAgentOther); status != http.StatusForbidden {
+			t.Errorf("grant to %s = %d, want 403: %s", e2eAgentOther, status, body)
+		}
+
+		// A plugin holding skills:write but not agents:write is the compatibility
+		// cost of the change, and the 403 names the permission to approve.
+		if err := e.s.client.Create(context.Background(), approvedPluginCR("skill-editor",
+			[]string{"skills:read", "skills:write"}, []string{"g1"})); err != nil {
+			t.Fatalf("file plugin skill-editor: %v", err)
+		}
+		status, body := grant("skill-editor", []string{"skills:read", "skills:write"}, e2eAgent)
+		if status != http.StatusForbidden {
+			t.Fatalf("skills:write-only grant = %d, want 403: %s", status, body)
+		}
+		if want := `{"error":"plugin lacks permission agents:write"}`; body != want {
+			t.Errorf("body = %s, want %s", body, want)
 		}
 	})
 }

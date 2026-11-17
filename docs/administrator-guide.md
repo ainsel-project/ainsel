@@ -963,7 +963,12 @@ permission to widen its own reach:
 | Triggers | `triggers:read`, `triggers:write` |
 
 Read verbs let a plugin look at that resource through the platform API; write
-verbs let it change it. Judge a plugin by the write verbs it asks for.
+verbs let it change it. Judge a plugin by the write verbs it asks for. One
+exception is worth reading carefully: assigning a skill to an agent is an
+`agents:write`, not a `skills:write` — the assignment writes the agent's skills
+list, and the skill row itself is untouched. A plugin that grants skills to
+agents needs `agents:write`; `skills:write` is only for editing and deleting the
+skill library.
 
 **Group access.** `PUT /api/v1/plugins/{id}/group-access` sets the groups the
 plugin's background identity (work done without a user) may act in, with the

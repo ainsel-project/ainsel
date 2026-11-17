@@ -370,6 +370,107 @@ func TestPluginCredential_PluginKindUsesGroups(t *testing.T) {
 	}
 }
 
+// TestPluginCredential_SkillAssignmentIsAnAgentWrite is a skill grant's authorisation
+// end to end: the route gate asks for agents:write — an assignment writes the agent's
+// skills list, not the skill row — and the handler's per-agent check still decides which
+// agent. A plugin approved for exactly the memory plugin's permissions (agents:write and
+// skills:read, no skills:write) grants the skill to an agent of a group it may write and
+// is refused one it may not.
+//
+// The gate answered skills:write here until the assignment rule was split out of the
+// /api/v1/skills rule, so every grant from a plugin that honestly declared agents:write
+// was refused before the handler ran.
+func TestPluginCredential_SkillAssignmentIsAnAgentWrite(t *testing.T) {
+	perms := []string{"agents:read", "agents:write", "skills:read"}
+	s := testServer(t, pluginCRReady(pluginCR("mem0", false), true, "", "", perms))
+	s.authzStore = newFakeAuthzStore()
+	store := s.authzStore
+	ctx := context.Background()
+
+	if _, err := store.CreateGroup(ctx, "g1", "Group 1"); err != nil {
+		t.Fatalf("create g1: %v", err)
+	}
+	if _, err := store.CreateGroup(ctx, "g2", "Group 2"); err != nil {
+		t.Fatalf("create g2: %v", err)
+	}
+	if err := store.SetResourceGroup(ctx, "agent", "a1", "g1", false); err != nil {
+		t.Fatalf("set a1 group: %v", err)
+	}
+	if err := store.SetResourceGroup(ctx, "agent", "a2", "g2", false); err != nil {
+		t.Fatalf("set a2 group: %v", err)
+	}
+	s.authzChecker = authz.NewChecker(store, authz.NewGroupCache(func(uid string) (map[string]authz.GroupRole, error) {
+		return nil, nil
+	}, time.Minute))
+
+	// The handler stands in for the skill handler's requireAgentWrite: the same
+	// per-agent check, so a route change that had widened the per-agent answer would
+	// show up here rather than pass unnoticed.
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/api/v1/skills/memory-usage/assignments/")
+		if !s.requireWrite(w, r, "agent", name) {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	disabledGuard := authz.NewDisabledGuard(s.authzStore)
+	fallbackChain := func(next http.Handler) http.Handler { return next }
+	wrappedHandler := s.PluginCredentialMiddleware(disabledGuard, fallbackChain)(testHandler)
+
+	var p connectorv1alpha1.Plugin
+	if err := s.client.Get(ctx, types.NamespacedName{Name: "mem0", Namespace: s.ns}, &p); err != nil {
+		t.Fatalf("get plugin: %v", err)
+	}
+	p.Spec.ApprovedPermissions = perms
+	p.Spec.GroupAccess = []string{"g1"}
+	if err := s.client.Update(ctx, &p); err != nil {
+		t.Fatalf("update plugin: %v", err)
+	}
+
+	secret := make([]byte, 32)
+	for i := range secret {
+		secret[i] = byte(i % 256)
+	}
+	issuer, err := plugincreds.NewIssuer(secret, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("create issuer: %v", err)
+	}
+	s.pluginCreds = issuer
+
+	grant := func(t *testing.T, tok string, path string) (int, string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String()
+	}
+
+	assigned := mintPluginPluginToken(t, issuer, "mem0", perms, []plugincreds.GroupGrant{{ID: "g1", Role: "writer"}})
+	if code, body := grant(t, assigned, "/api/v1/skills/memory-usage/assignments/a1"); code != http.StatusNoContent {
+		t.Errorf("agent in a granted group: expected 204, got %d: %s", code, body)
+	}
+	if code, _ := grant(t, assigned, "/api/v1/skills/memory-usage/assignments/a2"); code != http.StatusForbidden {
+		t.Errorf("agent outside the granted groups: expected 403, got %d", code)
+	}
+
+	// skills:write no longer covers the assignment route: it edits skill rows, and
+	// this write is not one.
+	skillsOnly := mintPluginPluginToken(t, issuer, "mem0", []string{"skills:read", "skills:write"},
+		[]plugincreds.GroupGrant{{ID: "g1", Role: "writer"}})
+	code, body := grant(t, skillsOnly, "/api/v1/skills/memory-usage/assignments/a1")
+	if code != http.StatusForbidden {
+		t.Errorf("skills:write only: expected 403, got %d: %s", code, body)
+	}
+	var errResp map[string]any
+	if err := json.Unmarshal([]byte(body), &errResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if msg, _ := errResp["error"].(string); msg != "plugin lacks permission agents:write" {
+		t.Errorf("error = %v, want the gate naming agents:write", errResp["error"])
+	}
+}
+
 func TestPluginCredential_DoesNotPersistIdentity(t *testing.T) {
 	s, _, issuer, _ := pluginCredentialTestServer(t)
 	store := s.authzStore
