@@ -53,7 +53,7 @@ All policies live in the release namespace (`.Values.namespace`).
 | `mcp` | `component: mcp` | Ingress | any source, port 8080 |
 | `postgres` | `component: postgres` | Ingress | `hub` only, port 5432 |
 | `agent-egress` | `component: agents` | Egress | hub (8080), DNS (53, scoped to kube-dns in `networkPolicy.dnsServerNamespace`), and — with the egress proxy off, the default — any destination on 443/TCP (LLM APIs). With `agentEgress.proxy.enabled` there is no 443 rule: agents reach only the proxy on its port (issue #356) |
-| `egress-proxy` | `component: agent-egress-proxy` | Egress | only with `agentEgress.proxy.enabled`: the proxy pod itself gets 443/TCP to any destination plus scoped DNS. It is the only pod with open 443; the squid allow-list decides what actually gets tunneled |
+| `egress-proxy` | `component: agent-egress-proxy` | Ingress + Egress | only with `agentEgress.proxy.enabled`: the proxy pod itself gets 443/TCP to any destination plus scoped DNS, and an Ingress allow for its proxy port from agent pods only (default-deny-ingress selects the proxy too, and NetworkPolicy is enforced on both ends, so the agent-side egress rule alone would leave agent -> proxy dropped). It is the only pod with open 443; the squid allow-list decides what actually gets tunneled |
 | `agent-metrics` | `managed-by: agent-operator` | Ingress | any source, named port `metrics` (Prometheus scrapes of `agent_tokens_used_total` etc.; selector matches the `ainsel-agents` PodMonitor) |
 | `connectors-webhook-ingress` | `managed-by: connector-operator` | Ingress | ingress controller's namespace (external webhooks) plus any peers listed in `networkPolicy.connectorWebhookSources`, port `http` |
 | `acme-http01-solver` | `acme.cert-manager.io/http01-solver: true` | Ingress | ingress controller's namespace, so Let's Encrypt HTTP-01 challenges succeed under default-deny. Toggle with `networkPolicy.allowAcmeSolver` (default true). |
@@ -94,7 +94,11 @@ FQDN-aware CNI (k3s's built-in controller is the common case). With
 `agentEgress.proxy.enabled` the chart closes that gap above layer 4 (issue #356):
 
 - A Squid forward proxy (Deployment `agent-egress-proxy`, port 3128) becomes the
-  only pod with open 443 egress (policy `egress-proxy`).
+  only pod with open 443 egress (policy `egress-proxy`). That policy also carries
+  the proxy's own Ingress allow (proxy port from `component: agents` pods only):
+  `default-deny-ingress` selects every pod in the namespace and NetworkPolicy is
+  enforced on both ends, so the agent-side egress rule does not open the path on
+  its own.
 - `agent-egress` drops the open 443 rule; agents may reach only the proxy,
   hub and scoped DNS — they cannot dial an external proxy either.
 - The squid config tunnels `CONNECT` only to `agentEgress.proxy.allowedDomains`

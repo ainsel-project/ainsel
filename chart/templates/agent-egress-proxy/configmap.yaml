@@ -24,14 +24,27 @@ data:
     http_port {{ .Values.agentEgress.proxy.port }}
     visible_name ainsel-agent-egress-proxy
 
+    # Health checks. Squid grants manager (mgr:info) access to nobody by
+    # default, and the probes dial the proxy port — which is not a Safe_port in
+    # this config — so these allowances must come before every other
+    # http_access rule, or the readiness and liveness probes are both refused
+    # and the proxy never turns Ready.
+    acl manager proto cache_object
+    acl localhost src 127.0.0.1/32 ::1
+    http_access allow manager localhost
+    http_access deny manager
+
     acl SSL_ports port 443
     acl Safe_ports port 443
     http_access deny !Safe_ports
     http_access deny CONNECT !SSL_ports
 
-    acl allowed_hosts dstdomain
+    # One complete `acl` line per domain: Squid's grammar terminates a
+    # directive at the newline, so a multi-line value list without
+    # continuations is a parse error and squid exits at startup. Same-name
+    # ACLs are unioned, so this is the safe form for a generated list.
     {{- range $domains }}
-    {{ . }}
+    acl allowed_hosts dstdomain {{ . }}
     {{- end }}
 
     # Deny everything not on the allow-list before any allow rule, so denied

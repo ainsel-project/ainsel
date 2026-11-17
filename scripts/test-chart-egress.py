@@ -12,9 +12,13 @@ path fails even before the golden diff is reviewed:
   render at all.
 * proxy on: agent-egress has NO 443 rule anywhere, only hub 8080, scoped DNS
   and the proxy on the configured port; the egress-proxy policy is the only
-  443-capable rule; the squid ConfigMap carries the merged preset +
-  free-form allow-list with the deny-before-allow ordering; the agent
-  operator Deployment gets EGRESS_PROXY_URL / EGRESS_NO_PROXY.
+  443-capable rule and it opens its own Ingress for the agent pods (the
+  namespace-wide default-deny-ingress is enforced on the proxy too); the squid
+  ConfigMap carries the merged preset + free-form allow-list as one complete
+  `acl` line per domain (Squid parses a directive per line, and nothing in CI
+  runs `squid -k parse`), with the localhost manager allowances the exec
+  probes need ordered ahead of every deny; the agent operator Deployment gets
+  EGRESS_PROXY_URL / EGRESS_NO_PROXY.
 
 Run with --update after intentional template changes to regenerate the
 goldens, then review the diff.
@@ -129,6 +133,23 @@ def check_invariants(name, manifests):
         assert "port: 443" in egress_proxy, (
             "egress-proxy policy must allow the proxy 443/TCP upstream"
         )
+        # default-deny-ingress selects every pod in the namespace, and
+        # NetworkPolicy is enforced on both ends: an egress rule on the agent
+        # side does not open the proxy's ingress side.
+        assert re.search(r"(?m)^\s+- Ingress$", egress_proxy), (
+            "egress-proxy policy must declare the Ingress policy type: without "
+            "its own allow rule the proxy pod receives nothing and enabling the "
+            "feature blocks all agent HTTPS egress"
+        )
+        ingress_rules = egress_proxy.split("ingress:", 1)
+        assert len(ingress_rules) == 2, "egress-proxy policy has no ingress section"
+        ingress_rules = ingress_rules[1].split("egress:", 1)[0]
+        assert "app.kubernetes.io/component: agents" in ingress_rules, (
+            "egress-proxy ingress must be limited to the agent pods"
+        )
+        assert "port: 3128" in ingress_rules, (
+            "egress-proxy ingress must allow the proxy port"
+        )
         squid = doc_named(manifests, "ConfigMap", "agent-egress-proxy")
         assert squid, "squid ConfigMap missing with proxy enabled"
         for host in (
@@ -137,9 +158,26 @@ def check_invariants(name, manifests):
             "registry.npmjs.org",
             "api.openai.com",
         ):
-            assert re.search(rf"(?m)^\s+{re.escape(host)}$", squid), (
-                f"squid allow-list missing {host}"
-            )
+            assert re.search(
+                rf"(?m)^\s*acl allowed_hosts dstdomain {re.escape(host)}$", squid
+            ), f"squid allow-list missing {host}"
+        assert re.search(r"(?m)^\s*acl allowed_hosts dstdomain\s*$", squid) is None, (
+            "squid allow-list rendered an `acl` line with no argument: Squid "
+            "terminates a directive at the newline, so a multi-line value list "
+            "without continuations is a config parse error and squid exits at "
+            "startup — render one complete acl line per domain"
+        )
+        assert "http_access allow manager localhost" in squid, (
+            "squid config must allow manager access from localhost, or the "
+            "squidclient mgr:info readiness/liveness probes are refused and the "
+            "proxy pod never becomes Ready"
+        )
+        manager_allow = squid.find("http_access allow manager localhost")
+        deny_unsafe = squid.find("http_access deny !Safe_ports")
+        assert 0 <= manager_allow < deny_unsafe, (
+            "the localhost manager allow must precede deny !Safe_ports: the "
+            "probes dial the proxy port, which is not a Safe_port here"
+        )
         assert "pypi.org" not in squid, (
             "squid allow-list must only contain the enabled presets/domains"
         )

@@ -217,7 +217,16 @@ spec:
     matchLabels:
       app.kubernetes.io/component: agent-egress-proxy
   policyTypes:
+    - Ingress
     - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agents
+      ports:
+        - port: 3128
+          protocol: TCP
   egress:
     - ports:
         - port: 443
@@ -388,21 +397,25 @@ data:
     http_port 3128
     visible_name ainsel-agent-egress-proxy
 
+    acl manager proto cache_object
+    acl localhost src 127.0.0.1/32 ::1
+    http_access allow manager localhost
+    http_access deny manager
+
     acl SSL_ports port 443
     acl Safe_ports port 443
     http_access deny !Safe_ports
     http_access deny CONNECT !SSL_ports
 
-    acl allowed_hosts dstdomain
-    api.github.com
-    api.openai.com
-    codeload.github.com
-    github.com
-    githubusercontent.com
-    objects.githubusercontent.com
-    raw.githubusercontent.com
-    registry.npmjs.org
-    registry.yarnpkg.com
+    acl allowed_hosts dstdomain api.github.com
+    acl allowed_hosts dstdomain api.openai.com
+    acl allowed_hosts dstdomain codeload.github.com
+    acl allowed_hosts dstdomain github.com
+    acl allowed_hosts dstdomain githubusercontent.com
+    acl allowed_hosts dstdomain objects.githubusercontent.com
+    acl allowed_hosts dstdomain raw.githubusercontent.com
+    acl allowed_hosts dstdomain registry.npmjs.org
+    acl allowed_hosts dstdomain registry.yarnpkg.com
 
     http_access deny !allowed_hosts
     http_access allow CONNECT allowed_hosts
