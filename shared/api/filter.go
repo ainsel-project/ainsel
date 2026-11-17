@@ -15,6 +15,39 @@ type Filter struct {
 	Values []string `json:"values,omitempty" yaml:"values,omitempty"`
 }
 
+// FilterOps lists the canonical event-filter operators, in the order the
+// docs present them. It is the single source of truth for the operator set:
+// scripts/check-filter-ops.py checks that the docs tables and the
+// openapi/hub.yaml Filter schema enumerate exactly these operators.
+var FilterOps = []string{
+	"eq", "neq", "prefix", "suffix", "contains", "not-contains", "in", "not-in", "regex",
+}
+
+// filterOpAliases maps accepted legacy spellings to their canonical operator.
+// The space-separated aliases predate operator validation and remain
+// accepted; CanonicalOp folds them into the canonical form.
+var filterOpAliases = map[string]string{
+	"contains not": "not-contains",
+	"not in":       "not-in",
+}
+
+// CanonicalOp normalizes an operator spelling: lowercased, inner whitespace
+// collapsed, alias mapped to its canonical operator. ok is false for unknown
+// operators, so callers can reject typos instead of letting a filter silently
+// never match.
+func CanonicalOp(op string) (string, bool) {
+	norm := strings.ToLower(strings.Join(strings.Fields(op), " "))
+	if canonical, ok := filterOpAliases[norm]; ok {
+		return canonical, true
+	}
+	for _, canonical := range FilterOps {
+		if canonical == norm {
+			return canonical, true
+		}
+	}
+	return "", false
+}
+
 // Match evaluates the filter against a JSON payload (map[string]any).
 func (f *Filter) Match(payload map[string]any) bool {
 	val, ok := resolveField(payload, f.Field)
@@ -22,9 +55,17 @@ func (f *Filter) Match(payload map[string]any) bool {
 		return false
 	}
 
+	// Canonicalize into a local, never into f.Op: Match runs concurrently
+	// against Filters slices whose backing arrays are shared between
+	// triggers (see services/hub/internal/triggerindex).
+	op, ok := CanonicalOp(f.Op)
+	if !ok {
+		return false
+	}
+
 	// Handle null values explicitly
 	if val == nil {
-		switch f.Op {
+		switch op {
 		case "eq":
 			return f.Value == "" || f.Value == "null"
 		case "neq":
@@ -32,13 +73,13 @@ func (f *Filter) Match(payload map[string]any) bool {
 		case "contains":
 			// null doesn't contain anything
 			return false
-		case "not-contains", "contains not":
+		case "not-contains":
 			// null doesn't contain the value, so not-contains is true
 			return true
 		case "in":
 			// null is not in any list
 			return false
-		case "not-in", "not in":
+		case "not-in":
 			// null is not in the list, so not-in is true
 			return true
 		default:
@@ -48,7 +89,7 @@ func (f *Filter) Match(payload map[string]any) bool {
 
 	// Handle array fields specially for contains/in/not-contains operators
 	if arr, isArray := val.([]interface{}); isArray {
-		switch f.Op {
+		switch op {
 		case "contains":
 			// Check if the value exists in the array
 			for _, item := range arr {
@@ -57,7 +98,7 @@ func (f *Filter) Match(payload map[string]any) bool {
 				}
 			}
 			return false
-		case "not-contains", "contains not":
+		case "not-contains":
 			// Check that the value does NOT exist in the array
 			for _, item := range arr {
 				if stringifyEqual(item, f.Value) {
@@ -76,7 +117,7 @@ func (f *Filter) Match(payload map[string]any) bool {
 				}
 			}
 			return false
-		case "not-in", "not in":
+		case "not-in":
 			// Check that no element in the array is in the Values list
 			for _, item := range arr {
 				itemStr := stringify(item)
@@ -111,7 +152,7 @@ func (f *Filter) Match(payload map[string]any) bool {
 		return false
 	}
 
-	switch f.Op {
+	switch op {
 	case "eq":
 		return s == f.Value
 	case "neq":
@@ -122,7 +163,7 @@ func (f *Filter) Match(payload map[string]any) bool {
 		return strings.HasSuffix(s, f.Value)
 	case "contains":
 		return strings.Contains(s, f.Value)
-	case "not-contains", "contains not":
+	case "not-contains":
 		return !strings.Contains(s, f.Value)
 	case "in":
 		for _, v := range f.Values {
@@ -131,7 +172,7 @@ func (f *Filter) Match(payload map[string]any) bool {
 			}
 		}
 		return false
-	case "not-in", "not in":
+	case "not-in":
 		for _, v := range f.Values {
 			if s == v {
 				return false
