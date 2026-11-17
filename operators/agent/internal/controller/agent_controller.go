@@ -784,6 +784,15 @@ func (r *AgentReconciler) patchStatus(ctx context.Context, agent *ainselv1alpha1
 	case agent.Status.ChatGPTSignIn != nil:
 		status["chatGPTSignIn"] = agent.Status.ChatGPTSignIn
 	}
+	// Same reasoning for the never-started blocks: the list is the operator's
+	// and it is pruned as blocks expire, so an empty list has to say "empty" —
+	// a merge patch that omits the key would leave the stale blocks on the
+	// object, and a task whose image was fixed would stay explained away.
+	if len(agent.Status.TaskStartBlocks) == 0 {
+		status["taskStartBlocks"] = nil
+	} else {
+		status["taskStartBlocks"] = agent.Status.TaskStartBlocks
+	}
 	body, err := json.Marshal(map[string]any{"status": status})
 	if err != nil {
 		return fmt.Errorf("marshal agent status: %w", err)

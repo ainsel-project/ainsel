@@ -50,6 +50,7 @@
 | `activeTasks` | int32 | Tasks claimed but not finished. Written by the hub. |
 | `queueObservedAt` | Time | When the hub measured those counts. Past `--queue-signal-ttl` the operator holds its pod count instead of scaling down. |
 | `scaling` | AgentScalingStatus | What the operator is doing with the pods: `mode` (`static`/`queue`), `desired`, `reason` and a one-line `message` |
+| `taskStartBlocks` | []AgentTaskStartBlock | Tasks whose pod never started (`ImagePullBackOff`, `CreateContainerConfigError`, …): the Job was retired so the slot went back to the queue, and the task is not dispatched again until `blockedUntil`. Written by the operator; the hub reads it to fail the task with that reason instead of leaving it queued |
 | `observedGeneration` | int64 | Last observed spec generation |
 
 ### Example

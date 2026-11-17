@@ -455,6 +455,17 @@ type AgentStatus struct {
 	// +optional
 	ChatGPTSignIn *AgentChatGPTSignInStatus `json:"chatGPTSignIn,omitempty"`
 
+	// TaskStartBlocks is the operator's account of tasks whose pod never got as
+	// far as a running container: the Job was retired so the concurrency slot
+	// went back to the queue, and the task is not dispatched again until
+	// BlockedUntil. It lives on status because the Job that held the slot is
+	// gone by the time anyone asks why the task still reads QUEUED, and because
+	// the hub needs the reason to put on the task row. Operator-owned; the hub
+	// reads it and never writes it.
+	// +optional
+	// +listType=atomic
+	TaskStartBlocks []AgentTaskStartBlock `json:"taskStartBlocks,omitempty"`
+
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
@@ -477,6 +488,28 @@ type AgentChatGPTSignInStatus struct {
 	// HandledSession is the last sign-in session the operator acted on.
 	// +optional
 	HandledSession string `json:"handledSession,omitempty"`
+}
+
+// AgentTaskStartBlock is one task the operator stopped dispatching because its
+// pod never started — an image that cannot be pulled, a container config the
+// kubelet rejects. The Job is gone by the time this is read; the record is what
+// says why.
+type AgentTaskStartBlock struct {
+	// TaskID is the agent_tasks row whose pod never started.
+	TaskID int64 `json:"taskId"`
+	// Reason is a stable code for why: the container's waiting reason
+	// (ImagePullBackOff, ErrImagePull, CreateContainerConfigError, ...) or
+	// PodNeverStarted when no container reported one before the absolute
+	// start deadline passed.
+	Reason string `json:"reason"`
+	// Message is the kubelet's own one-line explanation, safe to show in a UI.
+	// +optional
+	Message string `json:"message,omitempty"`
+	// BlockedAt is when the operator gave up on the pod.
+	BlockedAt metav1.Time `json:"blockedAt"`
+	// BlockedUntil is when the operator will let the task have a slot again.
+	// The block is dropped from status once it passes.
+	BlockedUntil metav1.Time `json:"blockedUntil"`
 }
 
 // AgentScalingStatus is the operator's account of what it is doing with this

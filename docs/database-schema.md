@@ -414,7 +414,10 @@ Lifecycle: a per-task Job fetches its row by id without claiming it, so the row
 stays `pending` while it runs → ack (`completed`) / nack (`attempts+1`, back to
 `pending` with `retry_after`, or `failed` at `max_attempts`). A reaper expires
 `pending` rows past `expires_at` to `expired`, with the sender notified like a
-failed task (issue #236). Enqueue/ack/nack and the reaper fire
+failed task (issue #236). The same tick fails a `pending` row the operator
+reported as never started — its pod could not pull the image or build the
+container, so the operator retired the Job and put the reason on Agent
+`status.taskStartBlocks` (issue #342). Enqueue/ack/nack and the reaper fire
 `SetQueueObserver` → queue-depth signal for the operator. `claimed` and
 `claimed_at` remain in the schema for history: the legacy `next-task` claim
 path that wrote them is gone (issue #47; 0035 returned leftover claims to the
@@ -621,6 +624,12 @@ Separate from retention, a 5-minute reaper enforces the pickup deadline (`Expire
 terminal, distinct from `failed`, because the task itself never ran — and the
 sender is notified through the same path that reports a failed task, the
 invocation closing as `timeout`.
+
+The same tick runs `FailStalledTasks`, which is not gated on the pickup deadline:
+a task whose pod the operator gave up on (Agent `status.taskStartBlocks`, still
+inside its cooldown) becomes `failed` with the operator's reason in `error` —
+`pod never started: ImagePullBackOff: …` — so the queue view says why instead of
+`QUEUED`. A row that is no longer `pending` is left alone (issue #342).
 
 ## 8. Schema evolution
 
