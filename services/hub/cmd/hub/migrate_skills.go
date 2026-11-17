@@ -3,12 +3,16 @@ package main
 // One-time rewrite of Agent.spec.skills from the removed `{items: […]}` wrapper
 // to the plain list `530070a` introduced (issue #263).
 //
-// The typed decode is the failure this tool works around: `AgentSpec.Skills` is
-// a `[]string`, so an object-shaped `spec.skills` makes client-go fail on the
-// whole object — the hub cannot list agents, and neither can the operator. So
-// this command never touches `ainselv1alpha1.Agent`: it reads `spec.skills` as
-// unstructured JSON through the dynamic client, which is what lets it *see* the
-// old shape instead of tripping over it.
+// The command reads `spec.skills` as unstructured JSON through the dynamic
+// client and never touches `ainselv1alpha1.Agent`: it has to see exactly which
+// shape is stored, and the typed SkillList decodes the wrapper and the list
+// alike.
+//
+// It can see the wrapper at all only because the CRD keeps spec.skills
+// schemaless (x-kubernetes-preserve-unknown-fields). With `type: array` the API
+// server prunes the wrapper's `items` on every read, so this command would find
+// `{}` and rewrite every selection to `[]` - which is what happened before the
+// schema was relaxed. Keep it schemaless until every install has run this.
 //
 // Ordering matters and the tool cannot enforce it: run it *after* the new CRDs
 // are applied (the API server validates on write, so patching a list against the
