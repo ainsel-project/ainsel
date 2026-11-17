@@ -1,0 +1,56 @@
+name: CI - docs
+
+# A relative link in a Markdown file is only checked by whoever clicks it. Two
+# danglers in chart/docs/configuration.md (the hub.agentMCP row -> docs/agents.md,
+# and an earlier one -> api.md) shipped because nothing else resolves them: a
+# reader opting into the agent MCP plane got a 404 on the one sentence that
+# explains what they are turning on. scripts/check-doc-links.py resolves every
+# relative Markdown link in the repo against the file tree and fails on any
+# that does not exist — exact path, <dir>/README.md, or <target>.md (the
+# docsify extensionless form used by docs/_sidebar.md), so the docs site's own
+# nav is checked rather than waived.
+#
+# What the checker deliberately does not do (see its module docstring): it
+# does not validate #anchors — GitHub and docsify slug headings differently,
+# and a checker that cries wolf on working links gets disabled. External URLs
+# and LICENSES/** (vendored third-party prose) are skipped.
+#
+# The self-test runs first: a link checker that silently matches nothing is
+# worse than no checker, so the fixture tests gate the run over the real tree.
+#
+# permissions: contents: read — checkout needs a token to fetch the repo;
+# an empty permissions block relies on anonymous access, which fails 404 here.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - 'scripts/check-doc-links.py'
+      - 'scripts/test_check_doc_links.py'
+      - '.github/workflows/ci-docs.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**/*.md'
+      - 'scripts/check-doc-links.py'
+      - 'scripts/test_check_doc_links.py'
+      - '.github/workflows/ci-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Relative doc links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Self-test the checker
+        run: python3 scripts/test_check_doc_links.py
+
+      - name: Check relative links in every Markdown file
+        run: python3 scripts/check-doc-links.py
