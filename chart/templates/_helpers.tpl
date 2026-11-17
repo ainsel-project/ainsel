@@ -8,22 +8,6 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 {{- end }}
 
 {{/*
-Component labels
-*/}}
-{{- define "ainsel.componentLabels" -}}
-{{ include "ainsel.labels" . }}
-app.kubernetes.io/component: {{ .component }}
-{{- end }}
-
-{{/*
-Selector labels for a component
-*/}}
-{{- define "ainsel.selectorLabels" -}}
-app.kubernetes.io/name: ainsel-{{ .component }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
-
-{{/*
 Image reference for a project-owned component image.
 
   {{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}
@@ -65,9 +49,6 @@ this project and must keep their own repository. The upstream images render
 {{- with .digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
 {{- $ref -}}
 {{- end }}
-
-{{/*
-*/}}
 
 {{/*
 Local mode: nothing is externally exposed — no hub ingress, no frontend
