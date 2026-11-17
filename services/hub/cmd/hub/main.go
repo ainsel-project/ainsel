@@ -39,6 +39,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == migrateSkillsShapeCmd {
 		os.Exit(runMigrateSkillsShape(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == migrateLLMProviderCmd {
+		os.Exit(runMigrateLLMProvider(os.Args[2:]))
+	}
 
 	slog.Info("starting hub", "version", version.Version, "commit", version.Commit)
 

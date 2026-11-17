@@ -287,11 +287,17 @@ vocabulary, matching the code layout (`operators/agent`, `operators/event-gatewa
 - **Changed: creating an agent without `llm.provider` returns `400`.** The hub
   now rejects a create request whose `llm.provider` is missing or not one of
   `ollama-cloud`, `opencode`, `alibaba-cloud`, `openai`, `anthropic`, `google`,
-  `custom`, and names the valid ids. Before, such an agent was stored and the
-  operator then marked it `Ready=False` / `InvalidLLMProvider`, so it never
-  ran. On update, an empty or absent provider still leaves the stored one
-  unchanged; an unknown one is now a `400`. **Action:** set `llm.provider` in
-  any script, IaC or REST client that creates agents.
+  `custom`, and names the valid ids. On update, an empty or absent provider
+  still leaves the stored one unchanged; an unknown one is now a `400`.
+  **Action:** set `llm.provider` in any script, IaC or REST client that
+  creates agents.
+- **Migrated: existing agents without a provider.** v0.2.0's operator ran an
+  empty provider as `ollama-cloud`; the operator now refuses such an agent
+  (`Ready=False` / `InvalidLLMProvider`). The chart's `migrations.llmProvider`
+  hook Job (enabled by default) sets `ollama-cloud` on every agent where the
+  provider is empty, so they keep running on the backend they used. It logs one
+  line per agent; `--dry-run` reports without writing:
+  `kubectl exec deploy/hub -n <namespace> -- /hub migrate-llm-provider -n <namespace> --dry-run`.
 - **New: `TemperatureApplied` condition.** `llm.temperature` only reaches the
   OpenAI-compatible providers. On `openai`, `anthropic` and `google` the
   condition reads `False` (reason `TemperatureNotSupported`). A temperature

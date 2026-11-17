@@ -621,3 +621,20 @@ migrations:
     resources: {}
     nodeSelector: {}
     tolerations: []
+  # Set Agent.spec.llm.provider to ollama-cloud where it is empty - the provider
+  # v0.2.0 ran those agents with. The operator now refuses an agent without a
+  # provider, so without this pass they stop on upgrade. Runs as a
+  # post-install/post-upgrade hook; provider is a string in every CRD version, so
+  # there is no ordering constraint.
+  #
+  # Leave enabled: an already-migrated cluster pays one Job that patches nothing.
+  # Set false to run it yourself instead:
+  #   kubectl exec deploy/hub -n <namespace> -- /hub migrate-llm-provider -n <namespace>
+  llmProvider:
+    enabled: true
+    # Extra args for `hub migrate-llm-provider`, e.g. ["--dry-run"] or
+    # ["--all-namespaces"].
+    extraArgs: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
