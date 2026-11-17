@@ -262,12 +262,14 @@ Replace `<ns>` with your namespace in every command.
       kubectl -n <ns> get agents -o json | jq -r '.items[] | select(.spec.pause != null) | .metadata.name'
       ```
 
-   e. Registries your agent images come from. Add every plain-HTTP one to
+   e. Registries your agent images come from (an image without a host, like
+      `dpinsel/ainsel-pi`, is Docker Hub and prints nothing). Add every plain-HTTP one to
       `agentOperator.insecureRegistries` in step 4, or its agents stop restarting when the
       image is rebuilt:
 
       ```bash
-      kubectl -n <ns> get agentimages -o json | jq -r '.items[].spec.imageURL' | cut -d/ -f1 | sort -u
+      kubectl -n <ns> get agentimages -o json | jq -r '.items[].spec.imageURL
+        | split("/") | select(length > 1 and (.[0] | test("[.:]") or . == "localhost")) | .[0]' | sort -u
       ```
 
 4. **Update `values.yaml`.** Helm ignores unknown keys, so a key under its old name silently
