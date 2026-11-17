@@ -230,6 +230,10 @@ payload built at match time ([`shared/api/filter.go`](../shared/api/filter.go),
 | `in`, `not-in` | value in `values` list |
 | `regex` | Go regexp against stringified values |
 
+Operators are canonicalized before matching; the aliases `contains not` and
+`not in` are accepted for `not-contains` and `not-in`. The hub rejects an
+unknown `op` (and an empty `values` list for `in`/`not-in`) with `400`.
+
 Examples that matter in practice:
 
 ```json

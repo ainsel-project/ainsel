@@ -66,7 +66,9 @@ configure `name` (a display label), `agentRef` (the agent's CR name —
 its `a-…` id for console-created agents), `connectorRef` (the
 connector's `c-…` id), and optional `filters` (operators: `eq`,
 `neq`, `prefix`, `suffix`, `contains`, `not-contains`, `in`, `not-in`,
-`regex`, ANDed) evaluated against the event payload — typically the
+`regex`, ANDed; the aliases `contains not` and `not in` are accepted for
+`not-contains`/`not-in`, and unknown operators are rejected with `400`)
+evaluated against the event payload — typically the
 derived `type` and `action` fields. There is no `eventType` field and
 no built-in bot filtering: match what you need with filters, and guard
 agent loops by filtering out the agent's own forge user. Schema:
@@ -961,7 +963,12 @@ permission to widen its own reach:
 | Triggers | `triggers:read`, `triggers:write` |
 
 Read verbs let a plugin look at that resource through the platform API; write
-verbs let it change it. Judge a plugin by the write verbs it asks for.
+verbs let it change it. Judge a plugin by the write verbs it asks for. One
+exception is worth reading carefully: assigning a skill to an agent is an
+`agents:write`, not a `skills:write` — the assignment writes the agent's skills
+list, and the skill row itself is untouched. A plugin that grants skills to
+agents needs `agents:write`; `skills:write` is only for editing and deleting the
+skill library.
 
 **Group access.** `PUT /api/v1/plugins/{id}/group-access` sets the groups the
 plugin's background identity (work done without a user) may act in, with the

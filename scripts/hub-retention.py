@@ -8,6 +8,13 @@ traceable - and Docker Hub has no server-side retention for a personal
 namespace, so they accumulate forever. As of this script's writing the account
 carried 456 tags / 125 GB, 91% of it in the three `pi*` repos.
 
+The images moved to a project-owned GHCR namespace (issue #94) and Docker Hub is
+a mirror during the deprecation window. This tool speaks the Docker Hub API, so
+what it covers is that mirror: `--namespace` (or `DOCKERHUB_NAMESPACE`) says
+whose account to clean, and it defaults to the historical `dpinsel` one. GHCR
+needs the packages API instead - see "After the mirror goes away" in
+docs/maintenance.md.
+
 This script is the enforcement half of the policy described in
 docs/maintenance.md. It is **dry-run by default**: it prints what it would
 delete and reclaims nothing unless `--apply` is passed with credentials.
@@ -29,6 +36,7 @@ Run from the repository root:
 
     python3 scripts/hub-retention.py                      # report all repos
     python3 scripts/hub-retention.py --repo ainsel-pi-maui
+    python3 scripts/hub-retention.py --namespace my-org   # a different mirror
     DOCKERHUB_USERNAME=... DOCKERHUB_TOKEN=... \
       python3 scripts/hub-retention.py --apply            # enforce
 """
@@ -49,6 +57,11 @@ from pathlib import Path
 
 API = "https://hub.docker.com/v2"
 USER_AGENT = "ainsel-hub-retention"
+
+#: Docker Hub account the images were published to before the project moved to
+#: its own namespace. The retention workflow passes `vars.DOCKERHUB_NAMESPACE`,
+#: so this stays the fallback for a local run that says nothing.
+DEFAULT_NAMESPACE = "dpinsel"
 
 #: Repositories the CI workflows publish. Keep in sync with the `image:`
 #: entries in .github/workflows/dev-image-*.yml and release.yml.
@@ -120,6 +133,8 @@ class Policy:
     max_age_days: int = 30
     keep_newest: int = 20
     keep_newest_variant: int = 5
+    #: Docker Hub account tags are listed from and deleted out of.
+    namespace: str = DEFAULT_NAMESPACE
     #: False only when the workflows provably configure no registry cache.
     #: Defaults to True so an unreadable checkout can never delete a live cache.
     registry_cache_live: bool = True
@@ -337,10 +352,10 @@ def verify_credentials(auth: str) -> str:
     return json.loads(body).get("username") or "(unknown)"
 
 
-def fetch_tags(repo: str) -> list[Tag]:
+def fetch_tags(repo: str, namespace: str = DEFAULT_NAMESPACE) -> list[Tag]:
     """Every tag of a public repo, newest data we can get from the Hub API."""
     tags: list[Tag] = []
-    url = f"{API}/repositories/dpinsel/{repo}/tags/?page_size=100"
+    url = f"{API}/repositories/{namespace}/{repo}/tags/?page_size=100"
     while url:
         status, body = _request(url)
         if status == 404:
@@ -364,10 +379,10 @@ def fetch_tags(repo: str) -> list[Tag]:
     return tags
 
 
-def delete_tag(repo: str, name: str, auth: str) -> tuple[bool, str]:
+def delete_tag(repo: str, name: str, auth: str, namespace: str = DEFAULT_NAMESPACE) -> tuple[bool, str]:
     """DELETE one tag. Returns (deleted, detail)."""
     quoted = urllib.parse.quote(name, safe="")
-    url = f"{API}/repositories/dpinsel/{repo}/tags/{quoted}"
+    url = f"{API}/repositories/{namespace}/{repo}/tags/{quoted}"
     status, body = _request(url, auth=auth, method="DELETE")
     if status in (200, 202, 204):
         return True, "deleted"
@@ -400,13 +415,21 @@ def print_report(plans: dict[str, list[Decision]], applied: bool, policy: Policy
     total_bytes = sum(s["bytes"] for s in summary.values())
 
     print(
+        f"namespace: {policy.namespace} "
+        "(docker.io account; --namespace or DOCKERHUB_NAMESPACE selects it)"
+    )
+    print(
         "registry cache: "
         + ("configured by CI - buildcache* protected" if policy.registry_cache_live else
            "not configured by any workflow - buildcache* are collectable")
     )
 
     for repo, decisions in sorted(plans.items()):
-        s = summary[repo]
+        # A repo with no tags has no row from summarise(), which builds itself
+        # from decisions. It has to print "no tags" rather than crash: that is
+        # what a namespace that does not (yet) publish this image looks like,
+        # and --namespace makes one reachable.
+        s = summary.get(repo, {"total": 0, "delete": 0, "bytes": 0, "kept": 0})
         if s["delete"] == 0 and s["total"] == 0:
             print(f"{repo}: no tags")
             continue
@@ -435,6 +458,8 @@ def write_markdown(plans: dict[str, list[Decision]], applied: bool, policy: Poli
     summary = summarise([d for ds in plans.values() for d in ds])
     lines = [
         "## Docker Hub tag retention",
+        "",
+        f"Namespace: `{policy.namespace}`",
         "",
         f"Mode: `{'apply (tags were deleted)' if applied else 'dry-run (nothing deleted)'}`",
         "",
@@ -478,6 +503,13 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--repo", action="append", dest="repos", help="only this repo (repeatable)")
     p.add_argument("--max-age-days", type=int, default=30)
+    p.add_argument(
+        "--namespace",
+        default=os.environ.get("DOCKERHUB_NAMESPACE") or DEFAULT_NAMESPACE,
+        help="Docker Hub account to clean (default: $DOCKERHUB_NAMESPACE, else "
+        f"{DEFAULT_NAMESPACE}) - the project's images live in its own GHCR "
+        "namespace now, so this is the mirror",
+    )
     p.add_argument("--keep-newest", type=int, default=20, help="floor for :<short-sha> tags")
     p.add_argument(
         "--keep-newest-variant",
@@ -519,6 +551,7 @@ def main(argv: list[str] | None = None) -> int:
         max_age_days=args.max_age_days,
         keep_newest=args.keep_newest,
         keep_newest_variant=args.keep_newest_variant,
+        namespace=args.namespace,
         registry_cache_live=args.keep_cache_tags
         or registry_cache_live(
             Path(args.workflows)
@@ -570,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
     plans: dict[str, list[Decision]] = {}
     for repo in repos:
         try:
-            tags = fetch_tags(repo)
+            tags = fetch_tags(repo, policy.namespace)
         except Exception as err:  # noqa: BLE001
             print(f"error: {repo}: {err}", file=sys.stderr)
             return 1
@@ -604,7 +637,7 @@ def main(argv: list[str] | None = None) -> int:
             for d in decisions:
                 if d.disposition not in (Disposition.DELETE, Disposition.DELETE_RELEASE):
                     continue
-                ok, detail = delete_tag(repo, d.tag.name, auth)
+                ok, detail = delete_tag(repo, d.tag.name, auth, policy.namespace)
                 if not ok:
                     failures += 1
                     print(f"FAILED {repo}:{d.tag.name} - {detail}", file=sys.stderr)

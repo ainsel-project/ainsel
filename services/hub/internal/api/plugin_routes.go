@@ -8,9 +8,34 @@ import (
 // routeRule defines a route pattern and its required permissions.
 type routeRule struct {
 	prefix      string // path prefix to match
+	sub         string // optional segment below the prefix's own segment that this rule covers alone
 	readPerm    string // permission required for GET/HEAD
 	writePerm   string // permission required for write methods
 	alwaysAllow bool   // if true, no permission needed
+}
+
+// matches says whether this rule covers cleanPath, which is already cleaned and
+// free of a trailing slash. A rule with a sub covers only paths that carry that
+// segment below the prefix's own — the skill assignment routes, which write a
+// different resource from the rest of the collection they hang under. Put a sub
+// rule before the plain rule for its prefix: first match wins.
+func (r routeRule) matches(cleanPath string) bool {
+	if cleanPath != r.prefix && !strings.HasPrefix(cleanPath, r.prefix+"/") {
+		return false
+	}
+	if r.sub == "" {
+		return true
+	}
+	// Segments, not substrings: the sub has to sit below the prefix's own segment (a
+	// skill's id), because a resource named exactly the sub — a skill called
+	// "assignments" — is the collection's row, not a sub-route of one.
+	segs := strings.Split(strings.Trim(strings.TrimPrefix(cleanPath, r.prefix), "/"), "/")
+	for _, s := range segs[1:] {
+		if s == r.sub {
+			return true
+		}
+	}
+	return false
 }
 
 // routeRules is an ordered list of route rules. First match wins.
@@ -41,7 +66,11 @@ var routeRules = []routeRule{
 	// Personas
 	{prefix: "/api/v1/personas", readPerm: "personas:read", writePerm: "personas:write"},
 
-	// Skills
+	// Skills. Assignments come first: assigning a skill to an agent writes the
+	// agent's skills list, not the skill row, so it is an agent write — the same
+	// check the handler makes (requireAgentWrite). Reading assignments stays
+	// skills:read, because what it answers is about the skill.
+	{prefix: "/api/v1/skills", sub: "assignments", readPerm: "skills:read", writePerm: "agents:write"},
 	{prefix: "/api/v1/skills", readPerm: "skills:read", writePerm: "skills:write"},
 
 	// Invocations, events, errors (read-only)
@@ -73,8 +102,7 @@ func RoutePermission(method, rawPath string) (perm string, always bool, ok bool)
 
 	// Find the first matching rule
 	for _, rule := range routeRules {
-		// Match: exact prefix or prefix + /
-		if cleanPath == rule.prefix || strings.HasPrefix(cleanPath, rule.prefix+"/") {
+		if rule.matches(cleanPath) {
 			if rule.alwaysAllow {
 				// plugin-context: reads, plus POST /visible only.
 				if isRead || (method == "POST" && cleanPath == rule.prefix+"/visible") {

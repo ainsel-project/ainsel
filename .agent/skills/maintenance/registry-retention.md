@@ -1,7 +1,13 @@
 # Skill: Docker Hub Tag Retention
 
-**When to use:** when asked to clean up, audit, or explain the images in
-`dpinsel/ainsel-*` — or before changing anything about which tags get written.
+**When to use:** when asked to clean up, audit, or explain the images in a Docker
+Hub mirror namespace (`dpinsel/ainsel-*` by default) — or before changing anything
+about which tags get written.
+
+The project's images are published to `ghcr.io/ainsel-project/ainsel-*` and mirrored
+to Docker Hub while the old tags have users; this skill covers the mirror. GHCR
+retention is a separate, still-open problem — see
+[After the mirror goes away](../../../docs/maintenance.md#after-the-mirror-goes-away).
 
 The policy, the numbers behind it, and the history live in
 [`docs/maintenance.md`](../../../docs/maintenance.md). This file is the

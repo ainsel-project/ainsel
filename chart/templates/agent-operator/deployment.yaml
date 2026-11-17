@@ -53,7 +53,7 @@ spec:
       {{- end }}
       containers:
         - name: operator
-          image: "{{ .Values.agentOperator.image.repository }}:{{ .Values.agentOperator.image.tag }}"
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.agentOperator.image.repository "tag" .Values.agentOperator.image.tag) }}"
           imagePullPolicy: {{ .Values.agentOperator.image.pullPolicy }}
           {{- with .Values.agentOperator.securityContext }}
           securityContext:
@@ -84,7 +84,7 @@ spec:
             {{- end }}
             {{- if and .Values.chatMCP.image.repository .Values.chatMCP.image.tag }}
             - name: CHAT_MCP_IMAGE
-              value: "{{ .Values.chatMCP.image.repository }}:{{ .Values.chatMCP.image.tag }}"
+              value: "{{ include "ainsel.image" (dict "root" . "repo" .Values.chatMCP.image.repository "tag" .Values.chatMCP.image.tag) }}"
             {{- end }}
             {{- if .Values.agentEgress.proxy.enabled }}
             # Egress proxy (issue #356): the operator forwards these to agent

@@ -220,10 +220,40 @@ The pi variants additionally move their floating `:1.24` / `:8.0` tags on
 than whatever `:dev` happens to point at. They publish no per-build tag at all -
 see [`pi/README.md`](pi/README.md).
 
+### Where images come from
+
+Every image is published to a namespace derived from the repository owner, so a fork
+publishes beside its own chart with no new variables and no new secrets:
+
+| what | where | how to change it |
+|---|---|---|
+| dev images (`dev-image-*.yml`) | `ghcr.io/<repo-owner>/ainsel-*` | `vars.IMAGE_NAMESPACE`, or the `image_namespace` input of `dev-image.yml` |
+| release images (`release.yml`) | same namespace, `:<version>` and `:latest` | `vars.IMAGE_NAMESPACE`, read once by `prepare` and shared with both build jobs |
+| Docker Hub mirror | `<vars.DOCKERHUB_NAMESPACE>/ainsel-*` | set the variable to publish the mirror; unset means no mirror is pushed |
+| chart | `oci://ghcr.io/<repo-owner>/ainsel-chart` | `CHART_NAMESPACE` in `release.yml` |
+
+The owner is lowercased because GHCR namespaces are. `scripts/test-dev-image-workflows.py`
+asserts the exact tag set of a run for the derived namespace, for both overrides, and
+for the mirror.
+
+Three consequences worth knowing before you touch a workflow:
+
+- **A component workflow names the image, not the registry.** They pass
+  `image_name: ainsel-<component>` and the shared workflow composes the namespace, so
+  a rename or a fork cannot be missed by one of them. A caller that hardcodes
+  `someowner/ainsel-x` fails the guardrail test.
+- **`permissions: packages: write` on each caller is load-bearing.** A called workflow
+  cannot escalate above what its caller grants, so dropping it turns every dev push
+  into a 403 from GHCR.
+- **GHCR packages start private**, and a private package is pullable by CI and by
+  nobody else. The one-time visibility flip is a runbook step in
+  [`docs/maintenance.md`](docs/maintenance.md#first-release-after-the-namespace-switch),
+  not something a workflow can do.
+
 Every tag these workflows write accumulates in the registry, and Docker Hub has no
 server-side retention for a personal namespace. [`docs/maintenance.md`](docs/maintenance.md)
-is the policy and the collection pass that keeps the account from growing without
-bound.
+is the policy and the collection pass that keeps the mirror from growing without
+bound; it also records why GHCR retention is a separate, still-open problem.
 
 ## Commit conventions
 
@@ -307,8 +337,9 @@ Three files define it:
 
 | artifact | where | tags |
 | --- | --- | --- |
-| 8 images + 2 pi variants | Docker Hub, `dpinsel/ainsel-*` | `:vX.Y.Z`, `:X.Y.Z`, and `:latest` for stable releases |
-| Helm chart | GHCR, `oci://ghcr.io/ainsel-project/charts/ainsel` | `X.Y.Z` |
+| 8 images + 2 pi variants | GHCR, `ghcr.io/<repo-owner>/ainsel-*` (see [Where images come from](#where-images-come-from)) | `:vX.Y.Z`, `:X.Y.Z`, and `:latest` for stable releases |
+| same builds, Docker Hub mirror | `<vars.DOCKERHUB_NAMESPACE>/ainsel-*`, not pushed while the variable is unset | same tags |
+| Helm chart | GHCR, `oci://ghcr.io/<repo-owner>/ainsel-chart` | `X.Y.Z` |
 | chart `.tgz` | attached to the GitHub Release | — |
 
 The two pi variants build with `BASE_TAG=<release>` against the pi base built in

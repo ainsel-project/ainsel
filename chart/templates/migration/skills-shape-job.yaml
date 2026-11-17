@@ -67,7 +67,7 @@ spec:
         - name: migrate-skills-shape
           # The hub image already carries the subcommand — no second image to
           # build, publish or pin.
-          image: "{{ .Values.hub.image.repository }}:{{ .Values.hub.image.tag }}"
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}"
           imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
           {{- with .Values.hub.securityContext }}
           securityContext:

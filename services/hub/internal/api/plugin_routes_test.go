@@ -56,6 +56,11 @@ func TestRoutePermission_Mappings(t *testing.T) {
 		{"GET", "/api/v1/skills", "skills:read", false, true},
 		{"POST", "/api/v1/skills", "skills:write", false, true},
 
+		// skill assignments: the write is on the agent, the read is about the skill
+		{"GET", "/api/v1/skills/code-review/assignments", "skills:read", false, true},
+		{"PUT", "/api/v1/skills/code-review/assignments/agent-abc", "agents:write", false, true},
+		{"DELETE", "/api/v1/skills/code-review/assignments/agent-abc", "agents:write", false, true},
+
 		// invocations (read-only)
 		{"GET", "/api/v1/invocations", "invocations:read", false, true},
 		{"POST", "/api/v1/invocations", "", false, false},
@@ -119,6 +124,37 @@ func TestRoutePermission_Mappings(t *testing.T) {
 				t.Errorf("ok: got %v, want %v", ok, tt.expectOK)
 			}
 		})
+	}
+}
+
+// TestRoutePermission_SkillAssignments pins the one sub-path rule the table carries, and
+// the edges that make it honest: the sub is a segment below a skill's id, so a skill whose
+// own id is "assignments" is still a skill row and still a skills:write.
+func TestRoutePermission_SkillAssignments(t *testing.T) {
+	cases := []struct {
+		method, path, want string
+	}{
+		{"PUT", "/api/v1/skills/memory-usage/assignments/a-1", "agents:write"},
+		{"DELETE", "/api/v1/skills/memory-usage/assignments/a-1", "agents:write"},
+		// Anything below the assignment is still the assignment route.
+		{"PUT", "/api/v1/skills/memory-usage/assignments/a-1/extra", "agents:write"},
+		// Reads of assignments answer about the skill, so they stay skills:read.
+		{"GET", "/api/v1/skills/memory-usage/assignments", "skills:read"},
+		{"GET", "/api/v1/skills/memory-usage/assignments/a-1", "skills:read"},
+		// The skill row itself, and a skill whose id is the sub's name, are skill writes.
+		{"PUT", "/api/v1/skills/memory-usage", "skills:write"},
+		{"PUT", "/api/v1/skills/assignments", "skills:write"},
+		{"DELETE", "/api/v1/skills/assignments", "skills:write"},
+		// A segment that merely starts with the sub is a different segment, not a
+		// sub-route: both of these are skill rows.
+		{"PUT", "/api/v1/skills/assignmentsfoo", "skills:write"},
+		{"PUT", "/api/v1/skills/memory-usage/assignmentsfoo", "skills:write"},
+	}
+	for _, c := range cases {
+		perm, always, ok := RoutePermission(c.method, c.path)
+		if !ok || always || perm != c.want {
+			t.Errorf("%s %s: got (%q, %v, %v), want (%q, false, true)", c.method, c.path, perm, always, ok, c.want)
+		}
 	}
 }
 

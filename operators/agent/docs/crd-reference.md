@@ -116,9 +116,16 @@ spec:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `field` | string | Yes | Dotted path into event data |
-| `op` | string | Yes | Operator: `eq`, `neq`, `prefix`, `suffix`, `contains`, `in`, `regex` |
+| `op` | string | Yes | Operator: `eq`, `neq`, `prefix`, `suffix`, `contains`, `not-contains`, `in`, `not-in`, `regex` |
 | `value` | string | No | Single comparison value |
-| `values` | []string | No | List of values (for `in` operator) |
+| `values` | []string | No | List of values (for `in` / `not-in`) |
+
+Operators are canonicalized before matching (case-insensitive, inner spaces
+collapsed), so the aliases `contains not` and `not in` are accepted and treated
+as `not-contains` and `not-in`. An unknown operator never matches — a CR is not
+validated against the operator set, so a typo in `op` silently disables the
+filter. Only the hub REST API rejects unknown operators (and an empty `values`
+list for `in`/`not-in`) with `400` on create/update.
 
 ### Example
 

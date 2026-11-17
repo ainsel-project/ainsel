@@ -78,25 +78,34 @@ Each variant extends the base `ainsel-pi` image, built in the same run.
 
 | Image | Dockerfile | What's added |
 | --- | ---------- | ------------ |
-| `dpinsel/ainsel-pi:dev` / `:<sha>` | `Dockerfile` | Base image (Node.js + pi + system tools) |
-| `dpinsel/ainsel-pi-go:1.24` | `Dockerfile.go` | Go 1.24 + golangci-lint |
-| `dpinsel/ainsel-pi-maui:8.0` | `Dockerfile.maui` | .NET 8 SDK + Android SDK + MAUI Android workload |
+| `ainsel-pi:dev` / `:<sha>` | `Dockerfile` | Base image (Node.js + pi + system tools) |
+| `ainsel-pi-go:1.24` | `Dockerfile.go` | Go 1.24 + golangci-lint |
+| `ainsel-pi-maui:8.0` | `Dockerfile.maui` | .NET 8 SDK + Android SDK + MAUI Android workload |
+
+These names are the repository, not the full reference: CI publishes them under the
+project's registry namespace (`ghcr.io/ainsel-project/…` by default, derived from the
+repo owner — see
+[Where images come from](../CONTRIBUTING.md#where-images-come-from)).
 
 Variants publish **only** their floating tag. They used to publish a
 `1.24-<sha>` / `8.0-<sha>` tag per build too, but nothing ever pulled a variant by
 that tag, each one is ~3 GB, and together they were 88 GB of the registry - see
 [`CONTRIBUTING.md`](../CONTRIBUTING.md). Pin a variant to a base by digest
 instead of by build tag. A variant always builds on the base produced by its own
-run (`BASE_TAG=<sha>`), never on whatever `:dev` happens to point at.
+run (`BASE_TAG=<sha>`), never on whatever `:dev` happens to point at. The base
+repository comes from the same run, as `BASE_IMAGE`.
 
 ### Adding a new variant
 
-1. Create `pi/Dockerfile.<variant>` that does `FROM ainsel/ainsel-pi:<base>`.
+1. Create `pi/Dockerfile.<variant>` that takes `ARG BASE_IMAGE` / `ARG BASE_TAG`
+   and does `FROM ${BASE_IMAGE}:${BASE_TAG}`, defaulting `BASE_IMAGE` to a
+   published base. Never hardcode the registry in the `FROM`, or the variant stops
+   following the namespace CI publishes to.
 2. Install whatever the agent needs (SDKs, compilers, linters).
 3. Keep `USER agent` at the end so the runtime stays non-root.
-4. Add a corresponding build-push step in the pi CI workflows,
-   pushing to a new repository
-   (`dpinsel/ainsel-pi-<variant>:<version>`). Publish the floating tag only,
+4. Add a corresponding build-push step in the pi CI workflows, pushing to a new
+   repository named `ainsel-pi-<variant>` — the namespace comes from the shared
+   metadata step, so do not spell it out. Publish the floating tag only,
    on main - see the variant note above.
 5. Update the table above.
 

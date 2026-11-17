@@ -200,7 +200,9 @@ that was never approved simply is not effective.
 
 A permission is only useful where the [route table](#route-table) allows the
 call. `invocations:read` and `observability:read` are read-only — their routes
-answer `403` to any write method.
+answer `403` to any write method. Assigning a skill to an agent is an
+`agents:write`: the assignment routes write the agent's skills list, not the
+skill row, so `skills:write` does not cover them.
 
 ### Route table
 
@@ -218,12 +220,16 @@ Which routes a plugin credential may use at all
 | `/api/v1/cron-triggers` | `triggers:read` | `triggers:write` |
 | `/api/v1/mcp-servers` | `mcp-servers:read` | `mcp-servers:write` |
 | `/api/v1/personas` | `personas:read` | `personas:write` |
+| `/api/v1/skills/{id}/assignments` | `skills:read` | `agents:write` |
 | `/api/v1/skills` | `skills:read` | `skills:write` |
 | `/api/v1/invocations`, `/api/v1/events`, `/api/v1/errors` | `invocations:read` | not available |
 | `/api/v1/observability`, `/api/v1/stats`, `/api/v1/queue` | `observability:read` | not available |
 | everything else (users, groups, auth, tokens, plugins, chat, channels, …) | not available | not available |
 
-First matching prefix wins. A path that `path.Clean` would rewrite (`..`, `.`,
+First matching prefix wins, and a rule naming a sub-path below a resource's id
+wins over the rule for the collection it hangs under — that is how the skill
+assignment routes land on `agents:write` while the rest of `/api/v1/skills` stays
+`skills:write`. A path that `path.Clean` would rewrite (`..`, `.`,
 `//`) is not available to a plugin credential at all. Missing permission →
 `403 {"error":"plugin lacks permission <perm>"}`; route outside the table →
 `403 {"error":"route not available to plugin credentials"}`.
