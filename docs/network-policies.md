@@ -16,7 +16,7 @@ With `enabled: true` (the default) the chart installs:
 
 1. **`default-deny-ingress`** — denies all ingress to every pod in the namespace. Nothing receives inbound traffic unless an allow rule exists.
 2. **Per-component ingress policies** — explicit allows for each chart-managed workload (see inventory below).
-3. **`agent-egress`** — locks down agent pod egress to a known set of destinations (see [Security Hardening](security-hardening.md) for the rationale).
+3. **`agent-egress`** — locks down agent pod egress to a known set of destinations (see [Security Hardening](security-hardening.md) for the rationale). With `agentEgress.proxy.enabled`, the open 443/TCP rule is replaced by "the egress proxy only" and the `egress-proxy` policy is added (see [Domain-Filtered HTTPS Egress](#domain-filtered-https-egress-agentegressproxy)).
 
 There is **no egress restriction** on non-agent components (hub, frontend, mcp, connectors). This is deliberate: hub must reach MCP servers declared in AgentImages, and those URLs can point at arbitrary in-cluster or external endpoints. See [Known gaps](#known-gaps).
 
@@ -52,7 +52,8 @@ All policies live in the release namespace (`.Values.namespace`).
 | `frontend` | `component: frontend` | Ingress | any source, port 80 (served through the ingress controller) |
 | `mcp` | `component: mcp` | Ingress | any source, port 8080 |
 | `postgres` | `component: postgres` | Ingress | `hub` only, port 5432 |
-| `agent-egress` | `component: agents` | Egress | hub (8080), DNS (53), any destination on 443/TCP (LLM APIs; FQDN scoping tracked in #652) |
+| `agent-egress` | `component: agents` | Egress | hub (8080), DNS (53, scoped to kube-dns in `networkPolicy.dnsServerNamespace`), and — with the egress proxy off, the default — any destination on 443/TCP (LLM APIs). With `agentEgress.proxy.enabled` there is no 443 rule: agents reach only the proxy on its port (issue #356) |
+| `egress-proxy` | `component: agent-egress-proxy` | Egress | only with `agentEgress.proxy.enabled`: the proxy pod itself gets 443/TCP to any destination plus scoped DNS. It is the only pod with open 443; the squid allow-list decides what actually gets tunneled |
 | `agent-metrics` | `managed-by: agent-operator` | Ingress | any source, named port `metrics` (Prometheus scrapes of `agent_tokens_used_total` etc.; selector matches the `ainsel-agents` PodMonitor) |
 | `connectors-webhook-ingress` | `managed-by: connector-operator` | Ingress | ingress controller's namespace (external webhooks) plus any peers listed in `networkPolicy.connectorWebhookSources`, port `http` |
 | `acme-http01-solver` | `acme.cert-manager.io/http01-solver: true` | Ingress | ingress controller's namespace, so Let's Encrypt HTTP-01 challenges succeed under default-deny. Toggle with `networkPolicy.allowAcmeSolver` (default true). |
@@ -85,6 +86,48 @@ kubectl get pods -n <ns> -l app.kubernetes.io/managed-by=agent-operator \
 # must print nothing
 ```
 
+## Domain-Filtered HTTPS Egress (`agentEgress.proxy`)
+
+Plain NetworkPolicy filters by IP, not hostname, so "only github.com and the npm
+registry, nothing else" is not expressible below layer 4 on clusters without an
+FQDN-aware CNI (k3s's built-in controller is the common case). With
+`agentEgress.proxy.enabled` the chart closes that gap above layer 4 (issue #356):
+
+- A Squid forward proxy (Deployment `agent-egress-proxy`, port 3128) becomes the
+  only pod with open 443 egress (policy `egress-proxy`).
+- `agent-egress` drops the open 443 rule; agents may reach only the proxy,
+  hub and scoped DNS — they cannot dial an external proxy either.
+- The squid config tunnels `CONNECT` only to `agentEgress.proxy.allowedDomains`
+  plus the enabled `agentEgress.proxy.presets` (`github`, `npm`, `goproxy`,
+  `pypi`, `crates`). Denied hosts are logged (`TCP_DENIED/403` in the proxy's
+  `access.log`) so an admin widens the list on purpose.
+- The operator injects `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (plus lowercase
+  variants) into agent containers and MCP sidecars. These names are
+  platform-enforced: `AgentImage` env and `Agent.spec.env` entries for them are
+  overridden, so no image can undo the policy.
+
+**Tools that ignore the proxy fail closed.** Anything that dials directly loses
+connectivity once the open 443 rule is gone — that is the intended enforcement,
+but it is the main support driver when enabling the proxy. Known offenders:
+
+| Tool | Behaviour |
+|---|---|
+| Node's built-in `fetch`/undici (affects pi's own LLM calls unless the runtime uses a proxy-aware dispatcher) | ignores `HTTPS_PROXY` — **verify the agent runtime end-to-end before enabling the proxy** |
+| `docker`/`podman` daemon pulls | daemon-side config, not the pod env |
+| `git` over `ssh://` (port 22) | already blocked today (egress is 443-only); use `https://` remotes |
+| clients upgrading to HTTP/3 (QUIC, UDP 443) | denied by design — the egress rules are TCP-only, so no UDP 443 bypass |
+
+`curl`, `wget`, `git` (https), Go's `net/http`, Python `requests`/`urllib` and
+npm honor the proxy variables.
+
+**In-cluster HTTPS LLM endpoints** (e.g. ollama behind TLS on 443) work today
+via the open rule and break under the proxy unless added to
+`agentEgress.proxy.noProxy` **and** given a matching `agentEgress.proxy.extraEgress`
+rule — `NO_PROXY` alone only makes clients skip the proxy, the NetworkPolicy
+still has to allow the direct path. Plain-HTTP in-cluster LLMs on non-443 ports
+are already blocked today; the proxy does not regress that, and does not fix it
+either.
+
 ## Traffic Flows That Cross Policy Boundaries
 
 These are the flows that break most often when a policy is missing:
@@ -111,7 +154,7 @@ What you have to configure depends on where the server runs:
 
 | MCP server location | hub | agent pods |
 |---|---|---|
-| External, HTTPS (port 443) | nothing — hub egress is unrestricted | nothing — `agent-egress` allows 443/TCP |
+| External, HTTPS (port 443) | nothing — hub egress is unrestricted | nothing with the egress proxy off (`agent-egress` allows 443/TCP); with `agentEgress.proxy.enabled` the server's host must be on `agentEgress.proxy.allowedDomains`/`presets` |
 | External, plain HTTP | nothing | additive egress policy needed (prefer HTTPS instead) |
 | In-cluster, other namespace or out-of-band | ingress allow on the server | ingress allow on the server **+** additive egress policy (unless port 443) |
 | In-cluster, same namespace | ingress allow on the server | ingress allow on the server **+** additive egress policy (unless port 443) |
@@ -211,7 +254,7 @@ kubectl delete networkpolicy default-deny-ingress -n <ainsel namespace>
 
 ## Known Gaps
 
-- **No egress lockdown for hub / mcp / connectors.** hub intentionally needs open egress because AgentImages can declare MCP servers at arbitrary external URLs. FQDN-scoped egress filtering for agents is tracked in #652 (sidecar proxy approach).
+- **No egress lockdown for hub / mcp / connectors.** hub intentionally needs open egress because AgentImages can declare MCP servers at arbitrary external URLs. FQDN-scoped egress for agents is available behind `agentEgress.proxy.enabled` (issue #356, Squid allow-list); a Cilium `toFQDNs` mode and per-agent allow-lists remain possible follow-ups on the same values shape.
 - **`frontend` and `mcp` ingress is open to any source** on their serving port; they are expected to sit behind an ingress controller with its own access controls (e.g. an auth proxy).
 - **Metrics ports** on hub are open for scraping without source restriction.
 
