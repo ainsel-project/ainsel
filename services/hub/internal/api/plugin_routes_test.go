@@ -145,6 +145,10 @@ func TestRoutePermission_SkillAssignments(t *testing.T) {
 		{"PUT", "/api/v1/skills/memory-usage", "skills:write"},
 		{"PUT", "/api/v1/skills/assignments", "skills:write"},
 		{"DELETE", "/api/v1/skills/assignments", "skills:write"},
+		// A segment that merely starts with the sub is a different segment, not a
+		// sub-route: both of these are skill rows.
+		{"PUT", "/api/v1/skills/assignmentsfoo", "skills:write"},
+		{"PUT", "/api/v1/skills/memory-usage/assignmentsfoo", "skills:write"},
 	}
 	for _, c := range cases {
 		perm, always, ok := RoutePermission(c.method, c.path)

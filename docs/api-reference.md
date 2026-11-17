@@ -1739,7 +1739,8 @@ pipeline) cannot be deleted from the console either: `409 Conflict`.
 
 Assignments are the console's way of editing an agent's `spec.skills` one skill at a
 time, without sending the whole list. They write the **agent** CR — never the image —
-so assigning a skill affects that agent alone.
+so assigning a skill affects that agent alone. A plugin credential is asked for the
+same permission the check targets: `agents:write`, not `skills:write`.
 
 #### GET /api/v1/skills/{id}/assignments
 
