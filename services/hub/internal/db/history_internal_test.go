@@ -232,6 +232,7 @@ var shippedMigrations = migrationSet{
 	34: "997c037c907cf993b4abe763849cd028a99eead1c9b2e8b25b79410e071d5998",
 	35: "35ab4595cf3f97b6e3af1f54e204077f4819ad1f19653eb6eb5cf8735719b692",
 	36: "7c5c8ffcfa7d2f831efaecd9d2f535e5cd7b8502dc08945683f47c7bbbe3e6f5",
+	37: "b3c080c80a452ee013f0c93ab6943aad1fbe35597f5e187196e24e38ce9c58d7",
 }
 
 func TestShippedMigrationsAreNeverEdited(t *testing.T) {

@@ -5,48 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-
-	"github.com/ainsel-project/ainsel/services/hub/internal/db"
+	"github.com/ainsel-project/ainsel/services/hub/internal/dbtest"
 	"github.com/ainsel-project/ainsel/services/hub/internal/triggers"
 )
-
-// newTestStore boots a Postgres testcontainer, applies migrations via
-// db.Migrate, and returns a Store wired to a fresh pool. Skips the test if
-// Docker is unavailable, matching the skills/personas test convention.
-func newTestStore(t *testing.T) (*triggers.Store, func()) {
-	t.Helper()
-	ctx := context.Background()
-
-	c, err := pgcontainer.Run(ctx, "postgres:17-alpine",
-		pgcontainer.WithDatabase("ainsel_test"),
-		pgcontainer.WithUsername("test"),
-		pgcontainer.WithPassword("test"),
-		pgcontainer.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable: %v", err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	if err := db.Migrate(ctx, dsn); err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("migrate: %v", err)
-	}
-	pool, err := db.Open(ctx, dsn)
-	if err != nil {
-		_ = c.Terminate(ctx)
-		t.Fatalf("open pool: %v", err)
-	}
-	cleanup := func() {
-		pool.Close()
-		_ = c.Terminate(context.Background())
-	}
-	return triggers.NewStore(pool), cleanup
-}
 
 // These tests pin the nil / empty / non-empty contract of
 // TriggerListOptions.AllowedIDs and CronTriggerListOptions.AllowedIDs against
@@ -55,8 +16,7 @@ func newTestStore(t *testing.T) (*triggers.Store, func()) {
 // ORDER BY id paging. Same contract as skills/personas — keep in sync.
 
 func TestListTriggersEmptyAllowedIDsIsClosed(t *testing.T) {
-	store, cleanup := newTestStore(t)
-	defer cleanup()
+	store := triggers.NewStore(dbtest.Open(t))
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -76,8 +36,7 @@ func TestListTriggersEmptyAllowedIDsIsClosed(t *testing.T) {
 }
 
 func TestListTriggersAllowedIDsSubsetAndNilUnrestricted(t *testing.T) {
-	store, cleanup := newTestStore(t)
-	defer cleanup()
+	store := triggers.NewStore(dbtest.Open(t))
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -101,8 +60,7 @@ func TestListTriggersAllowedIDsSubsetAndNilUnrestricted(t *testing.T) {
 }
 
 func TestListTriggersPaginationTotalAndStableOrder(t *testing.T) {
-	store, cleanup := newTestStore(t)
-	defer cleanup()
+	store := triggers.NewStore(dbtest.Open(t))
 	ctx := context.Background()
 
 	const n = 25
@@ -138,8 +96,7 @@ func TestListTriggersPaginationTotalAndStableOrder(t *testing.T) {
 }
 
 func TestListCronTriggersEmptyAllowedIDsIsClosed(t *testing.T) {
-	store, cleanup := newTestStore(t)
-	defer cleanup()
+	store := triggers.NewStore(dbtest.Open(t))
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -159,8 +116,7 @@ func TestListCronTriggersEmptyAllowedIDsIsClosed(t *testing.T) {
 }
 
 func TestListCronTriggersSubsetAndPagination(t *testing.T) {
-	store, cleanup := newTestStore(t)
-	defer cleanup()
+	store := triggers.NewStore(dbtest.Open(t))
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
