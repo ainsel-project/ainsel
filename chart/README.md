@@ -170,6 +170,7 @@ listed:
 | [`networkPolicy.enabled`](docs/configuration.md#networkpolicy) | `true` | Default-deny ingress; requires a policy-enforcing CNI |
 | [`networkPolicy.allowAcmeSolver`](docs/configuration.md#networkpolicy) | `true` | Let ingress reach cert-manager HTTP-01 solver pods |
 | [`createNamespace`](docs/configuration.md#global) | `false` | Render a `Namespace` object; prefer `--create-namespace` |
+| [`global.imageRegistry`](docs/configuration.md#global) | `ghcr.io/ainsel-project` | Registry prefix for every project image; each `*.image.repository` is a bare name. Set `""` to pull the pre-namespace Docker Hub images as written. Not applied to the bundled PostgreSQL image |
 | [`eventGatewayOperator.clusterWideRbac`](docs/configuration.md#event-gateway-operator) | `true` | ClusterRole/CRB required by released operator images; one gateway operator per cluster while enabled |
 | [`plugins.requireSignature`](docs/configuration.md#plugin-signing) | `true` | Plugin images must carry a signature the operator verifies; set `false` only if you trust your registry outright |
 | [`postgres.auth.existingSecret`](docs/configuration.md#postgres) | `""` (auto-generated) | Bring your own DB credentials (keys `username`, `password`, `database`, `dsn`) |

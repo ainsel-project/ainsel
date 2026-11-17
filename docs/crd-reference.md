@@ -326,7 +326,7 @@ spec:
       name: connector-c-0c4b01e3-webhook-hmac
       key: secret
   image:
-    repository: dpinsel/ainsel-webhook-receiver
+    repository: ainsel-webhook-receiver   # prefixed with global.imageRegistry
     tag: latest
 ```
 

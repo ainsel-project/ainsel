@@ -31,6 +31,20 @@
 # volume and retention requirements.
 # =============================================================================
 
+global:
+  # Registry prefix for every image this project publishes. The chart renders
+  # each component image as `<imageRegistry>/<repository>:<tag>`, so pointing an
+  # installation at a mirror, a fork's namespace or an air-gapped registry is
+  # one value rather than eight.
+  #
+  # Set it to "" to render `image.repository` values as-is (plain Docker Hub
+  # layout), or give a component a fully-qualified repository such as
+  # `mirror.internal/ainsel-hub-backend` — a repository whose first path segment
+  # looks like a registry host (contains "." or ":", or is "localhost") always
+  # wins over the prefix. Neither applies to `postgres.image`, which is an
+  # upstream image and is never prefixed.
+  imageRegistry: ghcr.io/ainsel-project
+
 namespace: ainsel
 # Whether the chart should create the target namespace itself.
 # Leave false (recommended) and use `helm install --create-namespace` or
@@ -72,7 +86,7 @@ agentOperator:
   enabled: true
   replicas: 1
   image:
-    repository: dpinsel/ainsel-k8s-ai-agent-operator
+    repository: ainsel-k8s-ai-agent-operator
     tag: "0.1.0"
     pullPolicy: IfNotPresent
   # Terminating signal sent to agent pods. pflag parses this as a Go duration,
@@ -139,7 +153,7 @@ eventGatewayOperator:
   # name when empty.
   hubURL: ""
   image:
-    repository: dpinsel/ainsel-k8s-event-source-gateway-operator
+    repository: ainsel-k8s-event-source-gateway-operator
     tag: "0.1.0"
     pullPolicy: IfNotPresent
   # connectorImagePullPolicy is applied to the webhook-receiver connector pods
@@ -213,7 +227,7 @@ plugins:
 hub:
   replicas: 1
   image:
-    repository: dpinsel/ainsel-hub-backend
+    repository: ainsel-hub-backend
     tag: "0.1.0"
     pullPolicy: IfNotPresent
   port: 8080
@@ -253,7 +267,7 @@ hub:
   platformExternalUrl: ""
   connectorImages:
     webhook:
-      repository: dpinsel/ainsel-webhook-receiver
+      repository: ainsel-webhook-receiver
       # The tag the receiver follows: rebuild the image and this tag moves, and the
       # next rollout of the connector picks it up. Set digest instead to pin the
       # receiver to one build - then the tag records where that build came from and
@@ -272,7 +286,7 @@ hub:
     # false stops the hub from writing the image. An image it already created
     # stays in place; delete it with kubectl if it is no longer wanted.
     enabled: true
-    repository: dpinsel/ainsel-pi
+    repository: ainsel-pi
     # Empty follows the chart's appVersion, the Pi image the release pipeline
     # publishes alongside this chart. Set a tag or digest only to pin a build.
     tag: ""
@@ -319,7 +333,7 @@ frontend:
   # prefix). Empty string serves from the domain root.
   basePath: /ainsel
   image:
-    repository: dpinsel/ainsel-hub-frontend
+    repository: ainsel-hub-frontend
     tag: "0.2.1"
     pullPolicy: IfNotPresent
   ingress:
@@ -409,7 +423,7 @@ mcp:
   externalUrl: ""
   enabled: false
   image:
-    repository: dpinsel/ainsel-mcp
+    repository: ainsel-mcp
     tag: 0.1.0
     pullPolicy: IfNotPresent
   replicas: 1
@@ -455,7 +469,7 @@ mcp:
 # both repository and tag are configured. When unset, no sidecar is added.
 chatMCP:
   image:
-    repository: "dpinsel/ainsel-chat-mcp"
+    repository: "ainsel-chat-mcp"
     tag: "0.1.0"
 # OIDC configuration. When unset, the hub backend refuses to start unless
 # auth.allowInsecureNoAuth is true (see below); the frontend image always

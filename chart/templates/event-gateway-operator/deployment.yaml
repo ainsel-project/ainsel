@@ -58,7 +58,7 @@ spec:
       {{- end }}
       containers:
         - name: operator
-          image: "{{ .Values.eventGatewayOperator.image.repository }}:{{ .Values.eventGatewayOperator.image.tag }}"
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.eventGatewayOperator.image.repository "tag" .Values.eventGatewayOperator.image.tag) }}"
           imagePullPolicy: {{ .Values.eventGatewayOperator.image.pullPolicy }}
           {{- with .Values.eventGatewayOperator.securityContext }}
           securityContext:

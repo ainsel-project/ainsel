@@ -30,6 +30,13 @@ on:
 # Stays here, not in dev-image.yml: inside a called workflow github.workflow
 # names the called workflow, so every component would share one group per ref
 # and cancel each other's builds.
+# The images go to GHCR now, and a called workflow cannot ask for more
+# permissions than the caller grants it - without this the push fails on a
+# 403 that reads like a registry problem.
+permissions:
+  contents: read
+  packages: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -39,6 +46,6 @@ jobs:
     uses: ./.github/workflows/dev-image.yml
     secrets: inherit
     with:
-      image_name: dpinsel/ainsel-hub-backend
+      image_name: ainsel-hub-backend
       dockerfile: services/hub/Dockerfile
       publish: ${{ inputs.publish == true }}

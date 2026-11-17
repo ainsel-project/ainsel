@@ -123,12 +123,16 @@ jobs:
       semver: ${{ steps.meta.outputs.semver }}
       latest: ${{ steps.meta.outputs.latest }}
       oci_root: ${{ steps.meta.outputs.oci_root }}
+      image_namespace: ${{ steps.meta.outputs.image_namespace }}
+      dockerhub_namespace: ${{ steps.meta.outputs.dockerhub_namespace }}
     steps:
       - name: Derive from the tag release-please created
         id: meta
         env:
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE }}
+          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
         run: |
           set -euo pipefail
           tag="${RELEASE_TAG}"
@@ -154,17 +158,32 @@ jobs:
           esac
 
           # GHCR requires a lowercase owner; a fork publishing into the
-          # upstream namespace would be a nasty surprise.
+          # upstream namespace would be a nasty surprise. The same derivation
+          # the chart already uses, now for the images too: one place decides
+          # where every artifact of a release lives.
           owner=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+
+          # vars.IMAGE_NAMESPACE points a release at a custom registry; unset
+          # means the derived project namespace, which is what a fork wants.
+          image_namespace="${IMAGE_NAMESPACE}"
+          if [ -z "${image_namespace}" ]; then
+            image_namespace="ghcr.io/${owner}"
+          fi
 
           {
             echo "version=${tag}"
             echo "semver=${semver}"
             echo "latest=${latest}"
             echo "oci_root=oci://ghcr.io/${owner}/charts"
+            echo "image_namespace=${image_namespace}"
+            echo "dockerhub_namespace=${DOCKERHUB_NAMESPACE}"
           } >> "${GITHUB_OUTPUT}"
 
           echo "Releasing ${tag} (semver ${semver}, tagging latest: ${latest})" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Images: \`${image_namespace}\`" >> "${GITHUB_STEP_SUMMARY}"
+          if [ -n "${DOCKERHUB_NAMESPACE}" ]; then
+            echo "Docker Hub mirror: \`${DOCKERHUB_NAMESPACE}\`" >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
   # --------------------------------------------------------------------------
   # Every image, tagged immutably. Mutable tags (:dev, pi-go:1.24) belong to
@@ -181,42 +200,42 @@ jobs:
       matrix:
         include:
           - component: hub-frontend
-            image: dpinsel/ainsel-hub-frontend
+            image: ainsel-hub-frontend
             file: frontend/Dockerfile
             context: .
             versioned: false
           - component: hub-backend
-            image: dpinsel/ainsel-hub-backend
+            image: ainsel-hub-backend
             file: services/hub/Dockerfile
             context: .
             versioned: true
           - component: agent-operator
-            image: dpinsel/ainsel-k8s-ai-agent-operator
+            image: ainsel-k8s-ai-agent-operator
             file: operators/agent/Dockerfile
             context: .
             versioned: true
           - component: event-gateway-operator
-            image: dpinsel/ainsel-k8s-event-source-gateway-operator
+            image: ainsel-k8s-event-source-gateway-operator
             file: operators/event-gateway/Dockerfile
             context: .
             versioned: true
           - component: mcp
-            image: dpinsel/ainsel-mcp
+            image: ainsel-mcp
             file: services/mcp/Dockerfile
             context: .
             versioned: true
           - component: chat-mcp
-            image: dpinsel/ainsel-chat-mcp
+            image: ainsel-chat-mcp
             file: services/chat-mcp/Dockerfile
             context: .
             versioned: true
           - component: webhook-receiver
-            image: dpinsel/ainsel-webhook-receiver
+            image: ainsel-webhook-receiver
             file: services/webhook-receiver/Dockerfile
             context: .
             versioned: true
           - component: pi
-            image: dpinsel/ainsel-pi
+            image: ainsel-pi
             file: pi/Dockerfile
             context: pi
             versioned: false
@@ -225,18 +244,33 @@ jobs:
 
       - name: Compute tags and build args
         id: meta
+        env:
+          IMAGE: ${{ matrix.image }}
+          IMAGE_NAMESPACE: ${{ needs.prepare.outputs.image_namespace }}
+          DOCKERHUB_NAMESPACE: ${{ needs.prepare.outputs.dockerhub_namespace }}
         run: |
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
           semver="${{ needs.prepare.outputs.semver }}"
+          image="${IMAGE_NAMESPACE}/${IMAGE}"
           {
             echo "tags<<EOF"
             # Two spellings of one release: :vX.Y.Z matches the git tag, :X.Y.Z
             # is what the chart resolves to, since appVersion carries no v.
-            echo "${{ matrix.image }}:${version}"
-            echo "${{ matrix.image }}:${semver}"
+            echo "${image}:${version}"
+            echo "${image}:${semver}"
             if [ "${{ needs.prepare.outputs.latest }}" = "true" ]; then
-              echo "${{ matrix.image }}:latest"
+              echo "${image}:latest"
+            fi
+            # Same build, second registry, for as long as installs still pull
+            # from Docker Hub. Only when the repo names a namespace for it.
+            if [ -n "${DOCKERHUB_NAMESPACE}" ]; then
+              mirror="${DOCKERHUB_NAMESPACE}/${IMAGE}"
+              echo "${mirror}:${version}"
+              echo "${mirror}:${semver}"
+              if [ "${{ needs.prepare.outputs.latest }}" = "true" ]; then
+                echo "${mirror}:latest"
+              fi
             fi
             echo "EOF"
             echo "args<<EOF"
@@ -247,7 +281,15 @@ jobs:
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Login to Docker Hub
+        if: needs.prepare.outputs.dockerhub_namespace != ''
         uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
@@ -270,7 +312,7 @@ jobs:
       - name: Record what was published
         run: |
           set -euo pipefail
-          echo "| ${{ matrix.component }} | \`${{ matrix.image }}:${{ needs.prepare.outputs.version }}\` |" \
+          echo "| ${{ matrix.component }} | \`${{ needs.prepare.outputs.image_namespace }}/${{ matrix.image }}:${{ needs.prepare.outputs.version }}\` |" \
             >> "${GITHUB_STEP_SUMMARY}"
 
   # --------------------------------------------------------------------------
@@ -288,17 +330,25 @@ jobs:
       matrix:
         include:
           - component: pi-go
-            image: dpinsel/ainsel-pi-go
+            image: ainsel-pi-go
             file: pi/Dockerfile.go
             variant: '1.24'
           - component: pi-maui
-            image: dpinsel/ainsel-pi-maui
+            image: ainsel-pi-maui
             file: pi/Dockerfile.maui
             variant: '8.0'
     steps:
       - uses: actions/checkout@v7
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Login to Docker Hub
+        if: needs.prepare.outputs.dockerhub_namespace != ''
         uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
@@ -306,6 +356,29 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+
+      - name: Compute tags
+        id: meta
+        env:
+          IMAGE: ${{ matrix.image }}
+          IMAGE_NAMESPACE: ${{ needs.prepare.outputs.image_namespace }}
+          DOCKERHUB_NAMESPACE: ${{ needs.prepare.outputs.dockerhub_namespace }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          semver="${{ needs.prepare.outputs.semver }}"
+          image="${IMAGE_NAMESPACE}/${IMAGE}"
+          {
+            echo "tags<<EOF"
+            echo "${image}:${VARIANT}-${version}"
+            echo "${image}:${VARIANT}-${semver}"
+            if [ -n "${DOCKERHUB_NAMESPACE}" ]; then
+              echo "${DOCKERHUB_NAMESPACE}/${IMAGE}:${VARIANT}-${version}"
+              echo "${DOCKERHUB_NAMESPACE}/${IMAGE}:${VARIANT}-${semver}"
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Build and push the ${{ matrix.variant }} variant
         uses: docker/build-push-action@v7
@@ -316,10 +389,9 @@ jobs:
           provenance: false
           sbom: false
           build-args: |
+            BASE_IMAGE=${{ needs.prepare.outputs.image_namespace }}/ainsel-pi
             BASE_TAG=${{ needs.prepare.outputs.version }}
-          tags: |
-            ${{ matrix.image }}:${{ matrix.variant }}-${{ needs.prepare.outputs.version }}
-            ${{ matrix.image }}:${{ matrix.variant }}-${{ needs.prepare.outputs.semver }}
+          tags: ${{ steps.meta.outputs.tags }}
 
   # --------------------------------------------------------------------------
   # Package the chart, push it to GHCR, and attach the .tgz to the Release
@@ -373,6 +445,9 @@ jobs:
           helm template chart/ > /dev/null
           helm template chart/ -f chart/values-example.yaml > /dev/null
 
+      - name: Image namespace tests (global.imageRegistry composition)
+        run: python3 scripts/test-chart-image-namespace.py
+
       - name: Package chart
         run: |
           set -euo pipefail
@@ -412,7 +487,15 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Login to Docker Hub
+        if: needs.prepare.outputs.dockerhub_namespace != ''
         uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
@@ -422,6 +505,9 @@ jobs:
         run: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       - name: Every image tag resolves
+        env:
+          IMAGE_NAMESPACE: ${{ needs.prepare.outputs.image_namespace }}
+          DOCKERHUB_NAMESPACE: ${{ needs.prepare.outputs.dockerhub_namespace }}
         run: |
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
@@ -432,29 +518,44 @@ jobs:
             tags="${version} ${semver} latest"
           fi
 
-          images="dpinsel/ainsel-hub-frontend dpinsel/ainsel-hub-backend
-            dpinsel/ainsel-k8s-ai-agent-operator dpinsel/ainsel-k8s-event-source-gateway-operator
-            dpinsel/ainsel-mcp dpinsel/ainsel-chat-mcp dpinsel/ainsel-webhook-receiver dpinsel/ainsel-pi"
-          for img in ${images}; do
-            for tag in ${tags}; do
-              if docker manifest inspect "${img}:${tag}" >/dev/null 2>&1; then
-                echo "ok: ${img}:${tag}"
-              else
-                echo "::error::${img}:${tag} is not pullable"
-                exit 1
-              fi
+          names="ainsel-hub-frontend ainsel-hub-backend
+            ainsel-k8s-ai-agent-operator ainsel-k8s-event-source-gateway-operator
+            ainsel-mcp ainsel-chat-mcp ainsel-webhook-receiver ainsel-pi"
+
+          # The project namespace is what users actually pull; the Docker Hub
+          # mirror is checked too while it exists, so a mirror that stopped
+          # publishing is caught here rather than by someone whose install
+          # still points at it.
+          namespaces="${IMAGE_NAMESPACE}"
+          if [ -n "${DOCKERHUB_NAMESPACE}" ]; then
+            namespaces="${IMAGE_NAMESPACE} ${DOCKERHUB_NAMESPACE}"
+          fi
+
+          for ns in ${namespaces}; do
+            for name in ${names}; do
+              for tag in ${tags}; do
+                ref="${ns}/${name}:${tag}"
+                if docker manifest inspect "${ref}" >/dev/null 2>&1; then
+                  echo "ok: ${ref}"
+                else
+                  echo "::error::${ref} is not pullable"
+                  exit 1
+                fi
+              done
             done
           done
 
-          for base in "dpinsel/ainsel-pi-go:1.24" "dpinsel/ainsel-pi-maui:8.0"; do
-            for tag in "${version}" "${semver}"; do
-              pair="${base}-${tag}"
-              if docker manifest inspect "${pair}" >/dev/null 2>&1; then
-                echo "ok: ${pair}"
-              else
-                echo "::error::${pair} is not pullable"
-                exit 1
-              fi
+          for ns in ${namespaces}; do
+            for base in "${ns}/ainsel-pi-go:1.24" "${ns}/ainsel-pi-maui:8.0"; do
+              for tag in "${version}" "${semver}"; do
+                pair="${base}-${tag}"
+                if docker manifest inspect "${pair}" >/dev/null 2>&1; then
+                  echo "ok: ${pair}"
+                else
+                  echo "::error::${pair} is not pullable"
+                  exit 1
+                fi
+              done
             done
           done
 
@@ -471,8 +572,12 @@ jobs:
 
       # GHCR packages start out private, and this job authenticates, so it
       # cannot tell "published" from "published but invisible to users". The
-      # .tgz on the Release is the fallback that always works; flip the package
-      # to public under Packages -> ainsel -> settings after the first release.
+      # .tgz on the Release is the fallback that always works. After the first
+      # release from this pipeline, flip every package to public under
+      # Packages -> <name> -> Settings (or set the org default to public) -
+      # including the ten image packages, not just the chart, or the tags this
+      # job just verified are pullable by CI and by nobody else.
+      # See "First release after the namespace switch" in docs/maintenance.md.
       - name: GitHub Release has the changelog and the chart attached
         env:
           GH_TOKEN: ${{ github.token }}

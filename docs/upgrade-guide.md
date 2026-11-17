@@ -187,6 +187,41 @@ helm rollback ainsel <revision> -n <namespace>
 
 ## Version-specific notes
 
+### Unreleased — images move to a project-owned registry namespace
+
+- **Breaking: the default image registry is now `ghcr.io/ainsel-project`.** The chart
+  defaults point there, and the hub's `HUB_DEFAULT_AGENT_IMAGE` and
+  `CONNECTOR_IMAGE_WEBHOOK` follow them — the operators have no image default of their
+  own, they run whatever image the chart hands them. The `dpinsel/ainsel-*` images on
+  Docker Hub are not deleted and stay pullable, but they are a mirror, and **the mirror
+  stops being written the moment this merges**: a Docker Hub push happens only while the
+  `DOCKERHUB_NAMESPACE` repository variable is set, and it is unset. Anyone tracking
+  `:dev` or `:latest` on the currently released chart therefore keeps getting the old
+  Docker Hub images and silently stops receiving new builds. **Action:** move to the
+  `ghcr.io/ainsel-project/ainsel-*` names (the chart default from this version on), or
+  set `DOCKERHUB_NAMESPACE` on your own fork if you want the mirror to keep up.
+  No chart release ships with the GHCR default before the packages below are published
+  and publicly pullable — see
+  [First release after the namespace switch](maintenance.md#first-release-after-the-namespace-switch).
+- **Breaking: `*.image.repository` is a name, not a full reference.** `global.imageRegistry`
+  (default `ghcr.io/ainsel-project`) is prepended to it. A values file that pins
+  `repository: dpinsel/ainsel-hub-backend` now renders
+  `ghcr.io/ainsel-project/dpinsel/ainsel-hub-backend`, which does not exist.
+  **Action:** either set the repository back to the bare name and move the registry to
+  `global.imageRegistry`, or set `global.imageRegistry: ""` to keep the old rendering
+  verbatim. A repository whose first path segment is a hostname (`registry.example.com/team/x`)
+  is treated as a full reference and is never prefixed.
+- **Unchanged: the bundled PostgreSQL image.** `postgres.image.repository` stays
+  `postgres` on Docker Hub. It is upstream content, not a project artifact, and
+  prefixing it would point the chart at an image nobody publishes.
+- **Action for anyone who pinned a digest.** A digest is registry-scoped, so
+  `image.digest` values from a `dpinsel/ainsel-*` pull do not resolve on GHCR. Clear
+  the digest and let the tag resolve, or re-pin from the new registry.
+- **Action for forks.** Nothing to do — the namespace is derived from the repo owner,
+  so a fork publishes to `ghcr.io/<your-owner>/ainsel-*` and its chart follows it with
+  no variables and no new secrets. See
+  [Where images come from](../CONTRIBUTING.md#where-images-come-from).
+
 ### Unreleased — chart component names aligned with the code
 
 The chart's template directories, resource names and labels now use one
@@ -240,7 +275,8 @@ vocabulary, matching the code layout (`operators/agent`, `operators/event-gatewa
     done
   done
   ```
-- **Unchanged:** container image repositories (e.g. `dpinsel/ainsel-hub-backend`),
+- **Unchanged:** container image repositories (renaming a component never changes the
+  image it runs; how a repository resolves is the registry-namespace note above),
   the `ainsel-mcp` and `postgres` resources, secret names (`ainsel-hub-db`,
   `ainsel-local-admin`, `ainsel-local-jwt`, `ainsel-plugin-credentials`), and the
   `app.kubernetes.io/managed-by: agent-operator|connector-operator` labels that the

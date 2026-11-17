@@ -83,7 +83,7 @@ spec:
                   key: database
       containers:
         - name: hub
-          image: "{{ .Values.hub.image.repository }}:{{ .Values.hub.image.tag }}"
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}"
           imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
           {{- with .Values.hub.securityContext }}
           securityContext:
@@ -119,7 +119,7 @@ spec:
             - name: PLATFORM_EXTERNAL_URL
               value: {{ .Values.hub.platformExternalUrl | default (printf "https://%s%s" .Values.hub.ingress.host (.Values.frontend.basePath | default "")) | quote }}
             - name: CONNECTOR_IMAGE_WEBHOOK
-              value: "{{ .Values.hub.connectorImages.webhook.repository }}:{{ .Values.hub.connectorImages.webhook.tag }}{{ with .Values.hub.connectorImages.webhook.digest }}@{{ . }}{{ end }}"
+              value: "{{ include "ainsel.image" (dict "root" . "repo" .Values.hub.connectorImages.webhook.repository "tag" .Values.hub.connectorImages.webhook.tag "digest" .Values.hub.connectorImages.webhook.digest) }}"
             {{- if .Values.observability.prometheus.url }}
             - name: HUB_PROMETHEUS_URL
               value: {{ .Values.observability.prometheus.url | quote }}
@@ -217,7 +217,7 @@ spec:
             {{- with .Values.hub.defaultAgentImage }}
             {{- if .enabled }}
             - name: HUB_DEFAULT_AGENT_IMAGE
-              value: "{{ .repository }}:{{ .tag | default $.Chart.AppVersion }}{{ with .digest }}@{{ . }}{{ end }}"
+              value: "{{ include "ainsel.image" (dict "root" $ "repo" .repository "tag" (.tag | default $.Chart.AppVersion) "digest" .digest) }}"
             {{- end }}
             {{- end }}
             {{- with .Values.hub.extraEnv }}

@@ -1,10 +1,21 @@
 # Registry maintenance
 
-Docker Hub is the artifact store for every image this project builds, and it has
-no server-side retention for a personal namespace. Nothing in the pipeline ever
-deleted a tag, so the registry only ever grew: **456 tags / 125.71 GB across 11
-repositories** when this document was written, 91% of the bytes in the three `pi*
-images. This page is the policy that stops that, plus the runbook for applying it.
+The images this project builds are published to its own container registry
+namespace, `ghcr.io/ainsel-project/ainsel-*` (see
+[`CONTRIBUTING.md`](../CONTRIBUTING.md#where-images-come-from)). While the old
+Docker Hub tags still have users on them, the same builds are mirrored to a
+Docker Hub namespace — `dpinsel/ainsel-*` today, chosen by the
+`DOCKERHUB_NAMESPACE` repository variable.
+
+This page is the retention policy for the **Docker Hub mirror**: it has no
+server-side retention for a personal namespace, so nothing in the pipeline ever
+deleted a tag and the registry only ever grew — **456 tags / 125.71 GB across 11
+repositories, 91% of the bytes in the three `pi*` images**. Those figures are a
+historical measurement of the `dpinsel` account, not a live number: every report
+the tooling prints is measured from the namespace you point it at.
+
+GHCR is a separate problem and is not covered by this tooling — see
+[After the mirror goes away](#after-the-mirror-goes-away).
 
 Related: [`CONTRIBUTING.md`](../CONTRIBUTING.md) (CI overview, release flow),
 [`docs/deployment.md`](deployment.md) (installing the chart),
@@ -12,7 +23,7 @@ Related: [`CONTRIBUTING.md`](../CONTRIBUTING.md) (CI overview, release flow),
 
 ## Tag taxonomy
 
-Every tag in `dpinsel/ainsel-*` belongs to exactly one class. If you add a
+Every tag in a Docker Hub mirror namespace belongs to exactly one class. If you add a
 workflow that writes a new shape, add it here and to the patterns in
 `scripts/hub-retention.py` — an unrecognised tag is *never* deleted, but it is
 reported as `UNKNOWN`, and the goal is to keep that list empty.
@@ -70,14 +81,20 @@ report needs no credentials:
 ```bash
 python3 scripts/hub-retention.py                       # whole namespace, dry run
 python3 scripts/hub-retention.py --repo ainsel-pi-maui # one repo
+python3 scripts/hub-retention.py --namespace my-org    # a different mirror account
 python3 scripts/hub-retention.py --keep-cache-tags     # protect buildcache* anyway
 python3 scripts/hub-retention.py --json | jq 'to_entries[].value | map(select(.disposition == "delete")) | length'
 ```
 
+The account is a parameter, not a constant: `--namespace` (or
+`DOCKERHUB_NAMESPACE`) picks it, defaulting to the historical `dpinsel` mirror.
+Point it at your own account and the same policy and the same guards apply there.
+
 Deletion is opt-in and needs a token that can delete images:
 
 ```bash
-export DOCKERHUB_USERNAME=dpinsel
+export DOCKERHUB_NAMESPACE=dpinsel    # the account to clean
+export DOCKERHUB_USERNAME=...         # the account the token belongs to
 export DOCKERHUB_TOKEN=...            # personal access token, delete:delete-image
 python3 scripts/hub-retention.py --apply
 ```
@@ -105,6 +122,44 @@ python3 -m unittest scripts.test_hub_retention -v
 The cron never deletes. That is deliberate: an unattended job must not be able to
 take an image out from under a running deployment, and a deletion should always
 have a human who looked at a list first.
+
+## First release after the namespace switch
+
+**Two of these gates come before the merge, not after it.** Every `dev-image-*` run and
+every release stops writing `dpinsel/ainsel-*` the moment this lands, because a mirror
+push happens only while `vars.DOCKERHUB_NAMESPACE` is set — so either set that variable
+first (the mirror never gaps) or make sure users are told the mirror stops, which
+[`docs/upgrade-guide.md`](upgrade-guide.md) does. And no chart release may ship with the
+default `global.imageRegistry` until the ten packages below exist and are publicly
+pullable: that default is exactly what makes a fresh install pull from GHCR.
+
+GHCR packages start **private**, and a private package is pullable by CI (which
+authenticates) and by nobody else — so a green release run does not prove users can
+pull. After the first release published to `ghcr.io/ainsel-project`:
+
+1. Set the org/package default to public, or flip each package individually under
+   **Packages → `<name>` → Package settings → Danger Zone → Change visibility**.
+   That is the chart plus the ten image packages:
+   `ainsel-hub-frontend`, `ainsel-hub-backend`, `ainsel-k8s-ai-agent-operator`,
+   `ainsel-k8s-event-source-gateway-operator`, `ainsel-mcp`, `ainsel-chat-mcp`,
+   `ainsel-webhook-receiver`, `ainsel-pi`, `ainsel-pi-go`, `ainsel-pi-maui`.
+2. Re-run the release's `Verify published artifacts` job, or check anonymously:
+   `docker manifest inspect ghcr.io/ainsel-project/ainsel-hub-backend:<version>`
+   from a machine with no registry login. Authenticated success proves nothing.
+3. Set `vars.DOCKERHUB_NAMESPACE` to the mirror account (e.g. `dpinsel`) for as
+   long as the mirror is wanted. Unset means no mirror is pushed at all — which is
+   the correct state for a fork with no Docker Hub credentials.
+
+## After the mirror goes away
+
+GHCR has an org-level cleanup policy for **untagged** manifests. It does nothing for
+the tags this project writes: `:<short-sha>` build tags and the pi
+`<float>-<sha>` variant tags are *tagged*, and the variants cost ~3 GB each.
+
+So when the Docker Hub mirror is dropped, retention does not move with it by
+itself — `scripts/hub-retention.py` speaks the Docker Hub API and would be cleaning
+a namespace that no longer receives anything. Porting it to the GHCR packages API is
+tracked separately; do not treat the mirror's sunset as the end of the policy.
 
 ## Purging pre-pipeline release tags
 
@@ -148,6 +203,10 @@ or under-scoped token fails with a message instead of half-applying a policy.
 
 ## Pull rate limits
 
+This section is about the **Docker Hub mirror**. It stays relevant while
+`vars.DOCKERHUB_NAMESPACE` is set and while users still pull `dpinsel/ainsel-*`;
+the chart's default registry is GHCR, and the two registries do not share a budget.
+
 Docker Hub's [usage and limits](https://docs.docker.com/docker-hub/download-rate-limit/)
 table gives a Personal account **200 pulls per six hours when authenticated** and
 **100 per six hours per IPv4 address (or IPv6 /64) when not**, "subject to fair
@@ -188,3 +247,13 @@ secret in the namespace, referenced by `imagePullSecrets`, which the chart alrea
 accepts per component (`chart/values.yaml`, default `[]`). Authenticated pulls
 bill the account's 200 rather than the address's 100. Do it on that evidence, not
 on arithmetic like the estimate above.
+
+**GHCR has the same shape of limit and no measurement of ours.** GitHub documents
+200 requests per hour per IP address for anonymous pulls and 5000 per hour for an
+authenticated account, against
+[its own registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+That is closer to the ceiling a digest-polling dev cluster lives under than Docker
+Hub's anonymous 100-per-six-hours, so the same evidence applies: if `:dev` digest
+lookups start failing on a GHCR install, add a pull secret rather than guessing at
+arithmetic. The chart accepts one per component; nothing about the registry switch
+changed how you configure it.

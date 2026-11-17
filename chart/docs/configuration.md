@@ -12,6 +12,7 @@
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | string | `ainsel` | Kubernetes namespace for all resources |
+| `global.imageRegistry` | string | `ghcr.io/ainsel-project` | Registry prefix for every **project** image. Each `*.image.repository` is a bare name and this is prepended to it, so one line moves the whole install to a mirror, a fork's namespace, or your own registry. Set `""` to render the repository as written (what the pre-namespace `dpinsel/ainsel-*` images need). A repository whose first path segment is a hostname — contains `.` or `:`, or is `localhost` — is already a full reference and is used verbatim. Never applied to the bundled PostgreSQL image, which keeps Docker Hub. Composed by the `ainsel.image` helper in `templates/_helpers.tpl`; `scripts/test-chart-image-namespace.py` asserts it |
 | `createNamespace` | bool | `false` | Render the `Namespace` object inside the chart. Leave `false` (recommended) and use `helm install --create-namespace` or a pre-created namespace: rendering it inside the chart makes fresh installs fail ownership validation on Helm 3.x when the namespace already exists |
 
 ### NetworkPolicy
@@ -79,7 +80,7 @@ written `<component>.<key>`:
 |-------|------|---------|-------------|
 | `agentOperator.enabled` | bool | `true` | Set to `false` to skip deploying the agent operator entirely |
 | `agentOperator.replicas` | int | `1` | Operator replicas |
-| `agentOperator.image.repository` | string | `dpinsel/ainsel-k8s-ai-agent-operator` | Image repository |
+| `agentOperator.image.repository` | string | `ainsel-k8s-ai-agent-operator` | Image repository, prefixed with `global.imageRegistry` |
 | `agentOperator.image.tag` | string | `"0.1.0"` | Image tag |
 | `agentOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `agentOperator.agentGracePeriod` | string | `0` (flag omitted) | Grace period for the terminating signal sent to agent pods, passed as `--agent-grace-period`. Parsed as a Go duration, so it needs a unit: `"30m"`, not `"1800"` |
@@ -94,7 +95,7 @@ written `<component>.<key>`:
 | `eventGatewayOperator.replicas` | int | `1` | Operator replicas |
 | `eventGatewayOperator.clusterWideRbac` | bool | `true` | Install a ClusterRole + ClusterRoleBinding. Required by the released operator images, which watch Deployments, Services, Ingresses etc. across all namespaces. With cluster-wide watching, only **one** event gateway operator may run per cluster; set to `false` once you run an operator image that honors `POD_NAMESPACE` scoping |
 | `eventGatewayOperator.hubURL` | string | `""` | Passed as `HUB_URL` to the operator, which injects it into webhook-receiver connector pods. Defaults to the chart's hub service name when empty |
-| `eventGatewayOperator.image.repository` | string | `dpinsel/ainsel-k8s-event-source-gateway-operator` | Image repository |
+| `eventGatewayOperator.image.repository` | string | `ainsel-k8s-event-source-gateway-operator` | Image repository, prefixed with `global.imageRegistry` |
 | `eventGatewayOperator.image.tag` | string | `"0.1.0"` | Image tag |
 | `eventGatewayOperator.image.pullPolicy` | string | `IfNotPresent` | Image pull policy for the operator container |
 | `eventGatewayOperator.connectorImagePullPolicy` | string | `IfNotPresent` | Pull policy applied to the webhook-receiver connector pods the operator creates (**not** the operator container above). Use `Always` for mutable tags (e.g. `:dev`) so newly built images are picked up on rollout |
@@ -125,7 +126,7 @@ section for worked examples.
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
 | `hub.replicas` | int | `1` | Hub backend replicas |
-| `hub.image.repository` | string | `dpinsel/ainsel-hub-backend` | Image repository |
+| `hub.image.repository` | string | `ainsel-hub-backend` | Image repository, prefixed with `global.imageRegistry` |
 | `hub.image.tag` | string | `"0.1.0"` | Image tag |
 | `hub.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `hub.port` | int | `8080` | API server port |
@@ -139,11 +140,11 @@ section for worked examples.
 | `hub.ingress.tlsSecretName` | string | `hub-tls` | Secret holding the TLS certificate for this host |
 | `hub.ingress.annotations` | object | `nginx.ingress.kubernetes.io/rewrite-target: /api/$2` | Ingress annotations |
 | `hub.platformExternalUrl` | string | `""` | Externally-reachable platform URL. When empty it is derived from the hub ingress host and `frontend.basePath` (`https://<hub.ingress.host><basePath>`) |
-| `hub.connectorImages.webhook.repository` | string | `dpinsel/ainsel-webhook-receiver` | Webhook-receiver image repository. Rendered into the hub's `CONNECTOR_IMAGE_WEBHOOK` (`repository:tag[@digest]`); the hub copies repository/tag/digest into a new connector's `spec.image.*`, the event-gateway operator composes the container image from them. Parsing rules in [services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#webhook-connectors) |
+| `hub.connectorImages.webhook.repository` | string | `ainsel-webhook-receiver` | Webhook-receiver image repository, prefixed with `global.imageRegistry`. Rendered into the hub's `CONNECTOR_IMAGE_WEBHOOK` (`repository:tag[@digest]`); the hub copies repository/tag/digest into a new connector's `spec.image.*`, the event-gateway operator composes the container image from them. Parsing rules in [services/hub/docs/configuration.md](../../services/hub/docs/configuration.md#webhook-connectors) |
 | `hub.connectorImages.webhook.tag` | string | `0.1.0` | The tag the receiver follows: rebuild the image and this tag moves, and the next rollout of the connector picks it up |
 | `hub.connectorImages.webhook.digest` | string | `""` | Set to pin the receiver to one build — then the tag records where that build came from and nothing moves it |
 | `hub.defaultAgentImage.enabled` | bool | `true` | Have the hub write the built-in "AInsel Standard (Pi)" `AgentImage` (`ainsel-standard-pi`) on every start, so the first agent needs no image registration. `false` stops the writes; an image already created stays until you delete it |
-| `hub.defaultAgentImage.repository` | string | `dpinsel/ainsel-pi` | Pi runtime image repository. Rendered into the hub's `HUB_DEFAULT_AGENT_IMAGE` (`repository:tag[@digest]`) |
+| `hub.defaultAgentImage.repository` | string | `ainsel-pi` | Pi runtime image repository, prefixed with `global.imageRegistry`. Rendered into the hub's `HUB_DEFAULT_AGENT_IMAGE` (`repository:tag[@digest]`) |
 | `hub.defaultAgentImage.tag` | string | `""` | Empty follows the chart's `appVersion`, the Pi image the release pipeline publishes with this chart, so a `helm upgrade` upgrades the default image. Set only to pin a build |
 | `hub.defaultAgentImage.digest` | string | `""` | Optional digest pin |
 | `hub.resources` | object | 50m/128Mi → 200m/256Mi | CPU/memory |
@@ -177,7 +178,7 @@ binary's full env-var reference — including the chart-managed variables
 |-------|------|---------|-------------|
 | `frontend.enabled` | bool | `true` | Enable/disable UI deployment |
 | `frontend.basePath` | string | `/ainsel` | Base path the frontend is served under (must match the ingress path prefix). Empty string serves from the domain root |
-| `frontend.image.repository` | string | `dpinsel/ainsel-hub-frontend` | Image repository |
+| `frontend.image.repository` | string | `ainsel-hub-frontend` | Image repository, prefixed with `global.imageRegistry` |
 | `frontend.image.tag` | string | `"0.2.1"` | Image tag |
 | `frontend.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `frontend.ingress.enabled` | bool | `true` | Enable ingress |
@@ -214,7 +215,7 @@ The AInsel MCP server ([`services/mcp`](../../services/mcp/)), opt-in.
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
 | `mcp.enabled` | bool | `false` | Enable the AInsel MCP server |
-| `mcp.image.repository` | string | `dpinsel/ainsel-mcp` | Image repository |
+| `mcp.image.repository` | string | `ainsel-mcp` | Image repository, prefixed with `global.imageRegistry` |
 | `mcp.image.tag` | string | `0.1.0` | Image tag |
 | `mcp.image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `mcp.replicas` | int | `1` | MCP server replicas |
@@ -235,7 +236,7 @@ either is unset, no sidecar is added.
 
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
-| `chatMCP.image.repository` | string | `dpinsel/ainsel-chat-mcp` | Sidecar image repository |
+| `chatMCP.image.repository` | string | `ainsel-chat-mcp` | Sidecar image repository, prefixed with `global.imageRegistry` |
 | `chatMCP.image.tag` | string | `"0.1.0"` | Sidecar image tag |
 
 ### MCP discovery

@@ -16,9 +16,13 @@ on:
   workflow_call:
     inputs:
       image_name:
-        description: "Repository to tag, e.g. dpinsel/ainsel-hub-backend"
+        description: "Image name to tag, without a registry (e.g. ainsel-hub-backend). The registry comes from image_namespace."
         type: string
         required: true
+      image_namespace:
+        description: "Registry/owner to publish under (e.g. ghcr.io/ainsel-project). Empty derives ghcr.io/<lowercased repo owner>; vars.IMAGE_NAMESPACE overrides."
+        type: string
+        default: ''
       dockerfile:
         description: "Dockerfile path, relative to the repository root (the build context)"
         type: string
@@ -41,11 +45,31 @@ jobs:
       - name: Compute image metadata
         id: meta
         env:
-          IMAGE: ${{ inputs.image_name }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_NAMESPACE: ${{ inputs.image_namespace }}
+          REPO_IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE }}
+          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
           STAMP_VERSION: ${{ inputs.stamp_version }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           short_sha=$(echo ${GITHUB_SHA} | head -c 7)
+          # Where the image goes. Derived from the repo owner the same way the
+          # chart's oci_root is in release.yml, so a fork publishes to its own
+          # GHCR namespace with no new variables and no new secrets; GHCR
+          # requires a lowercase owner. vars.IMAGE_NAMESPACE overrides it for a
+          # custom registry.
+          namespace="${IMAGE_NAMESPACE:-${REPO_IMAGE_NAMESPACE}}"
+          if [ -z "$namespace" ]; then
+            namespace="ghcr.io/$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          fi
+          image="${namespace}/${IMAGE_NAME}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          # A Docker Hub mirror of the same build, for as long as installs still
+          # pull from there. Off unless the repo names a namespace for it, so a
+          # fork with no Docker Hub credentials is unaffected.
+          mirror=false
+          if [ -n "${DOCKERHUB_NAMESPACE}" ]; then mirror=true; fi
+          echo "mirror=$mirror" >> "$GITHUB_OUTPUT"
           # Publishing is decided once, here, instead of being re-derived from
           # github.event_name at every step. A PR never publishes; a manual
           # dispatch publishes only if it was told to. Before this, a dispatch
@@ -61,9 +85,15 @@ jobs:
           {
             echo "short_sha=${short_sha}"
             echo "tags<<EOF"
-            echo "${IMAGE}:${short_sha}"
+            echo "${image}:${short_sha}"
             if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-              echo "${IMAGE}:dev"
+              echo "${image}:dev"
+            fi
+            if [ "$mirror" = "true" ]; then
+              echo "${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${short_sha}"
+              if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+                echo "${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:dev"
+              fi
             fi
             echo "EOF"
             echo "build_args<<EOF"
@@ -77,8 +107,15 @@ jobs:
             fi
             echo "EOF"
           } >> $GITHUB_OUTPUT
-      - name: Login to Docker Hub
+      - name: Login to GHCR
         if: steps.meta.outputs.publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Login to Docker Hub
+        if: steps.meta.outputs.publish == 'true' && steps.meta.outputs.mirror == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
