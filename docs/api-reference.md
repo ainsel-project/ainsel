@@ -1105,6 +1105,11 @@ Each filter in the `filters` array specifies a `field`, an `op`, and either a `v
 | `not-in` | `values` | Field value is not in `values` |
 | `regex` | `value` | Field matches the value as a regular expression |
 
+Operators are canonicalized before matching (case-insensitive, inner spaces
+collapsed): the aliases `contains not` and `not in` are accepted and treated as
+`not-contains` and `not-in`. `POST`/`PUT` reject an unknown `op` and an empty
+`values` list for `in`/`not-in` with `400`.
+
 Example with `in`:
 
 ```json

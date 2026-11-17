@@ -66,7 +66,9 @@ configure `name` (a display label), `agentRef` (the agent's CR name —
 its `a-…` id for console-created agents), `connectorRef` (the
 connector's `c-…` id), and optional `filters` (operators: `eq`,
 `neq`, `prefix`, `suffix`, `contains`, `not-contains`, `in`, `not-in`,
-`regex`, ANDed) evaluated against the event payload — typically the
+`regex`, ANDed; the aliases `contains not` and `not in` are accepted for
+`not-contains`/`not-in`, and unknown operators are rejected with `400`)
+evaluated against the event payload — typically the
 derived `type` and `action` fields. There is no `eventType` field and
 no built-in bot filtering: match what you need with filters, and guard
 agent loops by filtering out the agent's own forge user. Schema:

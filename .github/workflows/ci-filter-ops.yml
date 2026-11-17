@@ -1,0 +1,45 @@
+name: CI - filter operator docs sync
+
+# The event-filter operator set lives in shared/api/filter.go (FilterOps +
+# filterOpAliases); the docs tables and the openapi/hub.yaml Filter schema must
+# enumerate exactly that set. Scripts/check-filter-ops.py is the gate (issue
+# #351); its test is scripts/test_check_filter_ops.py.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shared/api/filter.go'
+      - 'docs/administrator-guide.md'
+      - 'docs/api-reference.md'
+      - 'docs/crd-reference.md'
+      - 'docs/writing-a-connector.md'
+      - 'openapi/hub.yaml'
+      - 'scripts/check-filter-ops.py'
+      - 'scripts/test_check_filter_ops.py'
+      - '.github/workflows/ci-filter-ops.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'shared/api/filter.go'
+      - 'docs/administrator-guide.md'
+      - 'docs/api-reference.md'
+      - 'docs/crd-reference.md'
+      - 'docs/writing-a-connector.md'
+      - 'openapi/hub.yaml'
+      - 'scripts/check-filter-ops.py'
+      - 'scripts/test_check_filter_ops.py'
+      - '.github/workflows/ci-filter-ops.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Operator set in sync (code, docs, OpenAPI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Filter operator docs-sync check
+        run: python3 scripts/check-filter-ops.py
+      - name: Check script tests
+        run: python3 -m unittest scripts.test_check_filter_ops -v
