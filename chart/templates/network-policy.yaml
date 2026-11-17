@@ -274,9 +274,10 @@ spec:
 # allow-list (ConfigMap agent-egress-proxy), so the CONNECT authority is the
 # enforced name — a client that puts host A in CONNECT and SNI B can only ever
 # reach an allowed host's IP (documented limitation, issue #356).
-# Everything else stays denied: no ingress rule here, and default-deny-ingress
-# already restricts who may connect to the proxy (only agent pods may, via the
-# agent-egress policy's egress side).
+# Ingress is default-deny for the whole namespace and NetworkPolicy is enforced
+# on both ends, so the agent-egress egress side alone does NOT open the path:
+# the proxy needs its own Ingress allow, and it accepts only the proxy port
+# from agent pods — nothing else may reach it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -290,7 +291,17 @@ spec:
     matchLabels:
       app.kubernetes.io/component: agent-egress-proxy
   policyTypes:
+    - Ingress
     - Egress
+  ingress:
+    # Agent pods -> proxy (the only source; see the agent-egress egress side).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agents
+      ports:
+        - port: {{ .Values.agentEgress.proxy.port }}
+          protocol: TCP
   egress:
     # Upstream allow-listed destinations (the proxy enforces the host list).
     # QUIC/UDP 443 stays denied on purpose: an agent must not upgrade to
