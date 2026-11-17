@@ -54,22 +54,31 @@ func buildSidecars(agent *ainselv1alpha1.Agent, agentName string, img *ainselv1a
 			{Name: "PORT", Value: fmt.Sprintf("%d", scPort)},
 		}
 		// Automatically inject platform-level env vars (HUB_URL,
-		// HUB_INTERNAL_VALIDATE_SECRET) into MCP sidecars so they can
-		// communicate with the hub without per-AgentImage manual config.
-		// Only inject vars that are not already provided by sc.Env to
-		// avoid duplicates — user-provided values take precedence.
+		// HUB_INTERNAL_VALIDATE_SECRET, and the egress proxy vars when
+		// configured) into MCP sidecars so they can communicate with the
+		// hub without per-AgentImage manual config. Only inject vars that
+		// are not already provided by sc.Env to avoid duplicates — except
+		// for the egress proxy names, which are platform-enforced: a
+		// sidecar that could set its own HTTPS_PROXY is a one-line bypass
+		// of the egress policy (issue #356).
+		forced := egressProxyEnforcedNames()
 		if sc.MCPPath != "" {
 			userProvided := make(map[string]bool, len(sc.Env))
 			for _, e := range sc.Env {
 				userProvided[e.Name] = true
 			}
 			for _, pe := range platformSidecarEnv() {
-				if !userProvided[pe.Name] {
+				if !userProvided[pe.Name] || forced[pe.Name] {
 					sidecarEnv = append(sidecarEnv, pe)
 				}
 			}
 		}
 		for _, e := range sc.Env {
+			if forced[e.Name] {
+				// Dropped: the platform entry above carries the
+				// canonical proxy value.
+				continue
+			}
 			sidecarEnv = append(sidecarEnv, corev1.EnvVar{
 				Name: e.Name,
 				ValueFrom: &corev1.EnvVarSource{
