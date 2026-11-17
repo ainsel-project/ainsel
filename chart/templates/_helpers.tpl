@@ -40,6 +40,10 @@ hatches keep it from getting in the way:
   * `global.imageRegistry: ""` renders repositories as-is, which is what a
     plain Docker Hub layout needs.
 
+An empty tag follows the chart's appVersion. The release pipeline publishes
+every component image as `:<appVersion>` next to the chart, so the defaults
+always name images that exist; a values file sets a tag only to pin a build.
+
 Never use this for third-party images (postgres): they are not published by
 this project and must keep their own repository. The upstream images render
 `.Values.<comp>.image.repository` directly.
@@ -57,7 +61,7 @@ this project and must keep their own repository. The upstream images render
 {{-   end -}}
 {{- end -}}
 {{- $ref := $repo -}}
-{{- with .tag }}{{ $ref = printf "%s:%s" $ref . }}{{ end -}}
+{{- with (.tag | default $root.Chart.AppVersion) }}{{ $ref = printf "%s:%s" $ref . }}{{ end -}}
 {{- with .digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
 {{- $ref -}}
 {{- end }}
