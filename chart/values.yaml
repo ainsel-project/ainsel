@@ -67,6 +67,83 @@ networkPolicy:
   #         matchLabels:
   #           app.kubernetes.io/name: forgejo
   connectorWebhookSources: []
+  # Namespace running the cluster DNS servers (CoreDNS/k3s coredns). The
+  # agent-egress and egress-proxy policies scope their port-53 egress rules
+  # to kube-dns pods in this namespace, closing the DNS-tunneling exfil path
+  # that an open "port 53 to any destination" rule leaves. Set this if your
+  # DNS servers run somewhere else — otherwise agent pods cannot resolve
+  # anything.
+  dnsServerNamespace: kube-system
+# Agent egress controls. Without agentEgress.proxy, agent pods get an open
+# 443/TCP egress rule (LLM APIs, forge, package registries) — the only thing
+# between a prompt-injected agent and exfiltration is then the model behaving.
+# Enabling the proxy replaces that open rule with a domain allow-list enforced
+# by an in-cluster Squid forward proxy (issue #356): agents may reach only the
+# proxy, the proxy tunnels only to allowedDomains/presets, and denied hosts
+# land in the proxy's access.log.
+agentEgress:
+  proxy:
+    # false (default) keeps the open 443/TCP rule — existing installs render
+    # byte-identical. true removes it: tools that ignore HTTP(S)_PROXY then
+    # fail closed (intended; see "Tools that ignore the proxy" in
+    # docs/configuration.md).
+    enabled: false
+    image:
+      repository: ubuntu/squid
+      tag: "6.13-25.04_beta"
+      # Set to the digest of the build you validated; the tag then only
+      # records where that build came from.
+      digest: ""
+      pullPolicy: IfNotPresent
+    # Port the proxy listens on (rendered into the squid config, the service,
+    # and the agent-egress/egress-proxy NetworkPolicies).
+    port: 3128
+    # Free-form allow-list of domains. Squid dstdomain semantics: an entry
+    # starting with a dot (".example.com") matches that domain and every
+    # subdomain; any other entry matches exactly.
+    allowedDomains: [] # e.g. ["api.openai.com", ".anthropic.com"]
+    # Named domain sets to switch on, rendered from the preset map in
+    # _helpers.tpl ("ainsel.egressPresets"). Available: github, npm, goproxy,
+    # pypi, crates. Unknown names fail rendering.
+    presets: [] # e.g. ["github", "npm"]
+    # Extra destinations that must bypass the proxy; joined into NO_PROXY
+    # (comma-separated entries allowed). The hub service, the namespace's
+    # svc domain, the cluster DNS suffix and the proxy itself are always
+    # included. NOTE: NO_PROXY only makes clients skip the proxy — the
+    # traffic also needs a matching extraEgress rule or it stays blocked.
+    noProxy: [] # e.g. ["ollama.internal.svc:443"]
+    # Extra egress peers for agent pods, as a list of
+    # {to: [<NetworkPolicy peer>], ports: [{port, protocol}]}. Use this for
+    # in-cluster HTTPS LLM endpoints that noProxy points at directly — with
+    # the proxy on there is no open 443 rule anymore. Mirrors the
+    # networkPolicy.connectorWebhookSources peer-object pattern.
+    extraEgress: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    podAnnotations: {}
+    podLabels: {}
+    podSecurityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    # Squid starts as root and drops to the proxy user, so it keeps SETUID/
+    # SETGID; everything else is dropped.
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+        add: ["SETUID", "SETGID"]
+    imagePullSecrets: []
+    priorityClassName: ""
+    serviceAccount:
+      annotations: {}
 agentOperator:
   # Set to false to skip deploying the agent operator entirely.
   enabled: true

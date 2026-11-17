@@ -163,10 +163,12 @@ spec:
     - ports:
         - port: 8080
 ---
-# Agent egress: allow traffic to known cluster services, DNS, and HTTPS (443/TCP).
-# TODO(#652): Replace broad 443/TCP egress with FQDN-scoped filtering via the
-# sidecar proxy approach tracked in the parent Epic. Standard NetworkPolicy
-# cannot express FQDN-based rules; CIDR-pinning is unstable for SaaS LLM APIs.
+# Agent egress: allow traffic to known cluster services and DNS, plus HTTPS
+# (443/TCP) — unless agentEgress.proxy.enabled, which replaces the open 443
+# rule with "the egress proxy only" (see the egress-proxy policy below).
+# Standard NetworkPolicy cannot express FQDN-based rules; the proxy enforces
+# the domain allow-list above layer 4 (issue #356).
+{{- if not .Values.agentEgress.proxy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -189,17 +191,127 @@ spec:
               app.kubernetes.io/component: hub
       ports:
         - port: 8080
-    # DNS
-    - ports:
+    # DNS (scoped to the cluster DNS servers; see networkPolicy.dnsServerNamespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.dnsServerNamespace }}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
         - port: 53
           protocol: UDP
         - port: 53
           protocol: TCP
     # HTTPS egress for LLM APIs (ollama.com, opencode.ai, aliyuncs.com, custom providers).
-    # TODO(#652): Replace with FQDN-scoped egress via sidecar proxy.
+    # TODO(#356): Replace with FQDN-scoped egress via the egress proxy
+    # (agentEgress.proxy.enabled) — the proxy path is the intended end state.
     - ports:
         - port: 443
           protocol: TCP
+{{- else }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-egress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agents
+  policyTypes:
+    - Egress
+  egress:
+    # Hub backend
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub
+      ports:
+        - port: 8080
+    # DNS (scoped to the cluster DNS servers; see networkPolicy.dnsServerNamespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.dnsServerNamespace }}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Egress proxy — the only path to any 443 destination. There is
+    # deliberately no open 443 rule: agents cannot reach an external proxy
+    # either, every HTTPS connection goes through the allow-listed in-cluster
+    # proxy (issue #356).
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-egress-proxy
+      ports:
+        - port: {{ .Values.agentEgress.proxy.port }}
+          protocol: TCP
+    {{- range .Values.agentEgress.proxy.extraEgress }}
+    # Extra agent egress peer (agentEgress.proxy.extraEgress): direct paths
+    # (e.g. an in-cluster HTTPS LLM endpoint reached via NO_PROXY) need their
+    # own rule here — the open 443 rule is gone with the proxy on.
+    - to:
+        {{- toYaml .to | nindent 8 }}
+      ports:
+        {{- toYaml .ports | nindent 8 }}
+    {{- end }}
+{{- end }}
+{{- if .Values.agentEgress.proxy.enabled }}
+---
+# Egress proxy: the only pod in the namespace with open 443/TCP egress. It
+# terminates the CONNECT and re-resolves the requested host against the
+# allow-list (ConfigMap agent-egress-proxy), so the CONNECT authority is the
+# enforced name — a client that puts host A in CONNECT and SNI B can only ever
+# reach an allowed host's IP (documented limitation, issue #356).
+# Everything else stays denied: no ingress rule here, and default-deny-ingress
+# already restricts who may connect to the proxy (only agent pods may, via the
+# agent-egress policy's egress side).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-egress-proxy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent-egress-proxy
+  policyTypes:
+    - Egress
+  egress:
+    # Upstream allow-listed destinations (the proxy enforces the host list).
+    # QUIC/UDP 443 stays denied on purpose: an agent must not upgrade to
+    # HTTP/3 and bypass the proxy.
+    - ports:
+        - port: 443
+          protocol: TCP
+    # DNS (the proxy resolves the CONNECT host itself)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.dnsServerNamespace }}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}
 ---
 # Agent metrics ingress: the runner extension serves Prometheus metrics on the
 # pod's named "metrics" port (see chart/templates/agent-operator/

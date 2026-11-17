@@ -169,6 +169,7 @@ listed:
 | [`auth.internalValidateSecret` / `auth.skillsMcpToken`](docs/configuration.md#auth) | `""` (feature off) | Internal credentials; keep them deliberately separate |
 | [`networkPolicy.enabled`](docs/configuration.md#networkpolicy) | `true` | Default-deny ingress; requires a policy-enforcing CNI |
 | [`networkPolicy.allowAcmeSolver`](docs/configuration.md#networkpolicy) | `true` | Let ingress reach cert-manager HTTP-01 solver pods |
+| [`agentEgress.proxy.enabled`](docs/configuration.md#agent-egress) | `false` | Replace open 443 agent egress with a domain allow-list enforced by an in-cluster Squid proxy (`allowedDomains`/`presets`); tools that ignore `HTTPS_PROXY` then fail closed — verify the agent runtime honors the proxy first |
 | [`createNamespace`](docs/configuration.md#global) | `false` | Render a `Namespace` object; prefer `--create-namespace` |
 | [`eventGatewayOperator.clusterWideRbac`](docs/configuration.md#event-gateway-operator) | `true` | ClusterRole/CRB required by released operator images; one gateway operator per cluster while enabled |
 | [`plugins.requireSignature`](docs/configuration.md#plugin-signing) | `true` | Plugin images must carry a signature the operator verifies; set `false` only if you trust your registry outright |

@@ -101,3 +101,70 @@ openid profile email urn:zitadel:iam:org:project:id:{{ .Values.auth.oidcProjectI
 openid profile email offline_access
 {{- end -}}
 {{- end -}}
+
+{{/*
+Named domain presets for agentEgress.proxy.presets. Each preset is a list of
+domains in Squid dstdomain notation: a leading dot matches the domain and all
+subdomains; a bare name matches exactly. Chart-side constants — adding a
+preset is one map entry here; values switch presets on by name.
+*/}}
+{{- define "ainsel.egressPresets" -}}
+github:
+  - github.com
+  - api.github.com
+  - codeload.github.com
+  - githubusercontent.com
+  - objects.githubusercontent.com
+  - raw.githubusercontent.com
+npm:
+  - registry.npmjs.org
+  - registry.yarnpkg.com
+goproxy:
+  - proxy.golang.org
+  - sum.golang.org
+pypi:
+  - pypi.org
+  - files.pythonhosted.org
+crates:
+  - crates.io
+  - static.crates.io
+  - index.crates.io
+{{- end -}}
+
+{{/*
+The merged agent-egress allow-list: preset domains (agentEgress.proxy.presets,
+resolved against "ainsel.egressPresets"; unknown names fail the render) plus
+the free-form agentEgress.proxy.allowedDomains, deduplicated and sorted so the
+rendered ConfigMap is stable. Takes the root context.
+Usage: {{ include "ainsel.egressAllowedDomains" . }}
+*/}}
+{{- define "ainsel.egressAllowedDomains" -}}
+{{- $presets := fromYaml (include "ainsel.egressPresets" .) -}}
+{{- $domains := list -}}
+{{- range $name := (default (list) .Values.agentEgress.proxy.presets) -}}
+{{- $known := get $presets $name -}}
+{{- if not $known -}}
+{{- fail (printf "agentEgress.proxy.presets: unknown preset %q (known: %s)" $name (keys $presets | sortAlpha | join ", ")) -}}
+{{- end -}}
+{{- $domains = concat $domains $known -}}
+{{- end -}}
+{{- $domains = concat $domains (default (list) .Values.agentEgress.proxy.allowedDomains) -}}
+{{- $domains | uniq | sortAlpha | join "\n" -}}
+{{- end -}}
+
+{{/*
+The NO_PROXY list injected as EGRESS_NO_PROXY on the agent operator (the
+operator forwards it to agent pods and MCP sidecars as NO_PROXY). Always
+contains the hub service, the namespace's svc domains, the cluster DNS suffix
+and the proxy service itself, plus the user's agentEgress.proxy.noProxy
+entries. Comma-separated. Takes the root context.
+*/}}
+{{- define "ainsel.egressNoProxy" -}}
+{{- $ns := .Values.namespace -}}
+{{- $noProxy := list "agent-egress-proxy" (printf "agent-egress-proxy.%s" $ns) (printf "agent-egress-proxy.%s.svc.cluster.local" $ns) (printf "hub.%s.svc.cluster.local" $ns) (printf "%s.svc.cluster.local" $ns) "cluster.local" -}}
+{{- range $entry := (default (list) .Values.agentEgress.proxy.noProxy) -}}
+{{- $noProxy = concat $noProxy (splitList "," (replace " " "" $entry)) -}}
+{{- end -}}
+{{- $noProxy | compact | uniq | join "," -}}
+{{- end -}}
+
