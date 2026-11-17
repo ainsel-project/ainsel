@@ -1,0 +1,25 @@
+{{- if .Values.agentEgress.proxy.enabled }}
+# The proxy endpoint agents dial via HTTP(S)_PROXY. Name is load-bearing:
+# EGRESS_PROXY_URL (on the agent operator) and the NO_PROXY list reference
+# "agent-egress-proxy" by name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-egress-proxy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: ainsel-agent-egress-proxy
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ainsel-agent-egress-proxy
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: proxy
+      port: {{ .Values.agentEgress.proxy.port }}
+      targetPort: proxy
+      protocol: TCP
+{{- end }}

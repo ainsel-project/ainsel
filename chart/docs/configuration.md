@@ -23,6 +23,30 @@
 | `networkPolicy.ingressNamespace` | string | `ingress-nginx` | Namespace running the ingress controller that serves the hub UI. Required so browser API traffic (ingress → hub) is allowed under the default-deny policy |
 | `networkPolicy.allowAcmeSolver` | bool | `true` | Allow ingress-controller traffic to reach cert-manager HTTP-01 solver pods. Without it, ACME http01 issuance fails under default-deny (`wrong status code 502`). Disable only if you issue certificates via DNS-01 or provide pre-existing secrets |
 | `networkPolicy.connectorWebhookSources` | list | `[]` | Additional sources allowed to deliver webhooks to connector receiver pods, as a list of NetworkPolicy `from` peer objects. Use this when a webhook producer runs inside the cluster and delivers to connectors directly instead of through the ingress controller |
+| `networkPolicy.dnsServerNamespace` | string | `kube-system` | Namespace running the cluster DNS servers. The `agent-egress` and `egress-proxy` policies scope their port-53 egress to kube-dns pods there, closing the DNS-tunneling exfil path an open "port 53 anywhere" rule leaves. Set this if CoreDNS runs in another namespace — otherwise agent pods cannot resolve anything |
+
+### Agent Egress
+
+Without the proxy, `agent-egress` gives agent pods open 443/TCP egress (LLM
+APIs, forge, package registries) — the only guard against a prompt-injected
+agent exfiltrating through it is the model behaving. `agentEgress.proxy.enabled`
+replaces the open rule with a domain allow-list enforced by an in-cluster Squid
+forward proxy (issue #356). See
+[docs/network-policies.md](../../docs/network-policies.md#domain-filtered-https-egress-agentegressproxy)
+for the enforcement model, the fail-closed behaviour, and the list of tools
+known to ignore `HTTPS_PROXY` (verify your agent runtime honors the proxy before
+enabling — Node's built-in `fetch` does not).
+
+| Value | Type | Default | Description |
+|-------|------|---------|-------------|
+| `agentEgress.proxy.enabled` | bool | `false` | Replace the open 443/TCP agent egress rule with the allow-listing Squid proxy. Off by default so existing installs render byte-identical. When on, tools that ignore `HTTP(S)_PROXY` fail closed (intended) |
+| `agentEgress.proxy.image` | object | `ubuntu/squid:6.13-25.04_beta` | Proxy image. Set `image.digest` to pin the build you validated |
+| `agentEgress.proxy.port` | int | `3128` | Proxy port (rendered into squid config, Service, and the NetworkPolicies) |
+| `agentEgress.proxy.allowedDomains` | list | `[]` | Free-form allow-list. Squid dstdomain semantics: `".example.com"` matches the domain and all subdomains; a bare name matches exactly. Enabling the proxy with an empty merged list fails the render (it would deny every agent HTTPS request) |
+| `agentEgress.proxy.presets` | list | `[]` | Named domain sets switched on by name, rendered from the chart's preset map (`ainsel.egressPresets` in `_helpers.tpl`): `github`, `npm`, `goproxy`, `pypi`, `crates`. Unknown names fail the render |
+| `agentEgress.proxy.noProxy` | list | `[]` | Extra destinations that bypass the proxy (joined into `NO_PROXY`; comma-separated entries allowed). The hub service, the namespace's svc domains, the cluster DNS suffix and the proxy itself are always included. `NO_PROXY` alone does not open a path — direct traffic also needs an `extraEgress` rule |
+| `agentEgress.proxy.extraEgress` | list | `[]` | Extra agent egress peers, as `{to: [<NetworkPolicy peer>], ports: [...]}` objects (mirrors `networkPolicy.connectorWebhookSources`). Use for in-cluster HTTPS LLM endpoints reached via `noProxy` — with the proxy on there is no open 443 rule anymore |
+| `agentEgress.proxy.resources` | object | 50m/64Mi → 200m/256Mi | Proxy resources (small tier; single replica — the proxy is not an HA promise in this first cut) |
 
 ### Resource Sizing Tiers
 
