@@ -1,0 +1,84 @@
+/* AInsel at a Glance — layout on top of .md-body typography. Colours from
+   design tokens only (guarded by glance/diagrams.test.tsx). */
+
+.glance .glance-lede {
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.glance h2 {
+  margin-top: 40px;
+}
+
+.glance-figure {
+  margin: 20px 0 24px;
+}
+
+.glance-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  font-size: 13px;
+}
+
+.glance-table th,
+.glance-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.glance-table thead th {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.glance-table tbody th {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.glance-table td:last-child {
+  color: var(--ink);
+  border-left: 2px solid var(--signal);
+}
+
+.glance-solved {
+  list-style: none;
+  padding-left: 0;
+}
+
+.glance-solved li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+@media (max-width: 640px) {
+  .glance-table thead {
+    display: none;
+  }
+  .glance-table tr {
+    display: block;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .glance-table th,
+  .glance-table td {
+    display: block;
+    border: 0;
+    padding: 2px 0;
+  }
+  .glance-table td:first-of-type::before {
+    content: 'Built-in workflow: ';
+    color: var(--ink-3);
+  }
+  .glance-table td:last-child {
+    border-left: 2px solid var(--signal);
+    padding-left: 8px;
+  }
+}

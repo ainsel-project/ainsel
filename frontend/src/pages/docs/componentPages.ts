@@ -1,4 +1,6 @@
 import type { ComponentType } from 'react'
+import { AtAGlance } from './pages/AtAGlance'
+import { atAGlanceHeadings, atAGlanceSearchText } from './pages/atAGlanceMeta'
 
 export type TocEntry = { level: number; text: string; id: string }
 
@@ -14,4 +16,10 @@ export type ComponentPage = {
   headings: TocEntry[]
 }
 
-export const componentPages: Record<string, ComponentPage> = {}
+export const componentPages: Record<string, ComponentPage> = {
+  'at-a-glance': {
+    component: AtAGlance,
+    searchText: atAGlanceSearchText,
+    headings: atAGlanceHeadings,
+  },
+}
