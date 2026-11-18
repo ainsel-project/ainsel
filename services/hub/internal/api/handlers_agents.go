@@ -537,10 +537,73 @@ func toSimpleAgentResponse(a agentv1alpha1.Agent, imageDisplayName string) Simpl
 	return resp
 }
 
+// mcpGrantScope is the MCP server set an `enabledTools` entry may name at server
+// level (`mcp__github`, or the bare `github` the runtime's matcher also honours).
+// inherited=true means the agent pins no selection of its own and takes the
+// referenced image's `spec.mcpServers` — which only a caller that has loaded the
+// image can resolve.
+type mcpGrantScope struct {
+	servers   []string
+	inherited bool
+}
+
+// inheritMCPGrantScope is the scope of an agent that pins no MCP servers.
+func inheritMCPGrantScope() mcpGrantScope {
+	return mcpGrantScope{inherited: true}
+}
+
+// pinnedMCPGrantScope is the scope of an agent with an explicit server list —
+// possibly an empty one, which grants no MCP tool at all.
+func pinnedMCPGrantScope(servers []string) mcpGrantScope {
+	return mcpGrantScope{servers: servers}
+}
+
+// createMCPGrantScope resolves the server-level grant scope of a create request:
+// an explicit selection is already the agent's own, an absent one inherits.
+func createMCPGrantScope(req *AgentMCPRequest) mcpGrantScope {
+	if req == nil {
+		return inheritMCPGrantScope()
+	}
+	return pinnedMCPGrantScope(req.Servers)
+}
+
+// updateMCPGrantScope resolves it for an update, where the effective selection is
+// the requested one, else what the agent already pins, else the image's. A
+// request that does not touch MCP must not widen or narrow what a server-level
+// tool name may refer to.
+func updateMCPGrantScope(req *AgentMCPRequest, stored *agentv1alpha1.AgentMCP) mcpGrantScope {
+	if req != nil {
+		return pinnedMCPGrantScope(req.Servers)
+	}
+	if stored != nil {
+		names := make([]string, 0, len(stored.Servers))
+		for _, sv := range stored.Servers {
+			names = append(names, sv.Name)
+		}
+		return pinnedMCPGrantScope(names)
+	}
+	return inheritMCPGrantScope()
+}
+
+// serverLevelGrantServer returns the MCP server a server-level `enabledTools`
+// entry names, or "" when the entry is not in that form. `mcp__github`,
+// `mcp__github__` and the bare `github` all mean "every tool of github" — the
+// same three spellings the runtime's matcher grants. A full tool name
+// (`mcp__github__list_issues`) is not one: it still has to be a catalog entry.
+func serverLevelGrantServer(entry string) string {
+	name := strings.TrimSuffix(strings.TrimPrefix(entry, "mcp__"), "__")
+	if name == "" || strings.Contains(name, "__") {
+		return ""
+	}
+	return name
+}
+
 // validateAgentImageRef checks that refName references an existing AgentImage and that
-// all entries in enabled are tools declared by that image. Returns the image's display
-// name, or an *apiError carrying the status and message the handler responds with.
-func (s *Server) validateAgentImageRef(ctx context.Context, refName string, enabled []string) (string, error) {
+// all entries in enabled are declared by that image — as a catalog tool name, or as a
+// server-level grant (`mcp__<server>`) for an MCP server the agent effectively has.
+// Returns the image's display name, or an *apiError carrying the status and message the
+// handler responds with.
+func (s *Server) validateAgentImageRef(ctx context.Context, refName string, enabled []string, mcp mcpGrantScope) (string, error) {
 	if strings.TrimSpace(refName) == "" {
 		return "", newAPIError(http.StatusBadRequest, "imageRef.name is required")
 	}
@@ -555,11 +618,30 @@ func (s *Server) validateAgentImageRef(ctx context.Context, refName string, enab
 	for _, t := range img.Spec.Tools {
 		valid[t.Name] = struct{}{}
 	}
+	servers := make(map[string]struct{}, len(img.Spec.MCPServers))
+	if mcp.inherited {
+		for _, sv := range img.Spec.MCPServers {
+			servers[sv.Name] = struct{}{}
+		}
+	} else {
+		for _, name := range mcp.servers {
+			servers[name] = struct{}{}
+		}
+	}
 	var unknown []string
 	for _, t := range enabled {
-		if _, ok := valid[t]; !ok {
-			unknown = append(unknown, t)
+		if _, ok := valid[t]; ok {
+			continue
 		}
+		// A server-level grant is a supported selection (issue #368): it is what
+		// `hub migrate-enabled-tools` writes, and it survives a server adding a
+		// tool. Only for a server this agent actually connects to.
+		if sv := serverLevelGrantServer(t); sv != "" {
+			if _, ok := servers[sv]; ok {
+				continue
+			}
+		}
+		unknown = append(unknown, t)
 	}
 	if len(unknown) > 0 {
 		return "", newAPIError(http.StatusBadRequest, "enabledTools not in image: "+strings.Join(unknown, ","))
@@ -831,8 +913,12 @@ type agentValidationInput struct {
 	enabledTools  []string
 	skills        []string
 	mcp           *AgentMCPRequest
-	resolveEnv    bool
-	env           []AgentImageEnvVarInfo
+	// mcpGrant is the MCP server set an `enabledTools` entry may name at server
+	// level, resolved by the caller from the request plus any stored pin. Only
+	// image-ref validation consumes it; `mcp` above is what gets written.
+	mcpGrant   mcpGrantScope
+	resolveEnv bool
+	env        []AgentImageEnvVarInfo
 	// existingEnv supplies the values of secret env entries whose request
 	// value is empty ("keep the existing value"); nil on create.
 	existingEnv []agentv1alpha1.AgentEnvVar
@@ -887,7 +973,7 @@ func (s *Server) validateAgentSkills(ctx context.Context, ids []string) error {
 func (s *Server) validateAgentRequest(ctx context.Context, in agentValidationInput) (*agentValidationResult, error) {
 	res := &agentValidationResult{}
 	if in.validateImage {
-		displayName, err := s.validateAgentImageRef(ctx, in.imageRef, in.enabledTools)
+		displayName, err := s.validateAgentImageRef(ctx, in.imageRef, in.enabledTools, in.mcpGrant)
 		if err != nil {
 			return nil, err
 		}
@@ -1236,6 +1322,7 @@ func (s *Server) createAgent(ctx context.Context, w http.ResponseWriter, r *http
 		enabledTools:  req.EnabledTools,
 		skills:        req.Skills,
 		mcp:           req.MCP,
+		mcpGrant:      createMCPGrantScope(req.MCP),
 		resolveEnv:    true,
 		env:           req.Env,
 	}
@@ -1359,6 +1446,7 @@ func (s *Server) updateAgent(ctx context.Context, w http.ResponseWriter, r *http
 		enabledTools:  effectiveTools,
 		skills:        requestedSkills,
 		mcp:           req.MCP,
+		mcpGrant:      updateMCPGrantScope(req.MCP, existing.Spec.MCP),
 		// Env overrides are resolved against the current spec so a secret
 		// entry submitted with an empty value keeps its stored value.
 		resolveEnv:  req.Env != nil,

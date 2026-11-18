@@ -3604,6 +3604,19 @@ components:
         enabledTools:
           type: array
           items: { type: string }
+          description: >-
+            Replaces the tool grant when present; `[]` leaves the agent with no tools.
+            Re-validated against the image's catalog and the agent's effective MCP
+            servers, so a server-level `mcp__<server>` name is accepted for a server
+            the agent has.
+          description: >-
+            The tool grant to create the agent with. Absent or empty grants nothing:
+            the agent runs with no tools, not with everything the image ships.
+          description: >-
+            This agent's tool grant. Names from the referenced image's capability
+            catalog, or one `mcp__<server>` entry per MCP server the agent effectively
+            has. The runtime enforces it; an empty list grants nothing, so the agent
+            runs with no tools.
         replicas:
           type: integer
           description: >-
