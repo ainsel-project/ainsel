@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Kubernetes cluster (tested on k3s)
-- Helm 3
+- Helm 3 (≥ 3.8 to install the chart from its OCI reference)
 - Container registry accessible from the cluster (Zot, Docker Hub, etc.)
 - Forgejo instance
 - kubectl with cluster access
@@ -11,6 +11,10 @@
 **PostgreSQL:** The chart bundles a PostgreSQL instance by default (`postgres.enabled: true` in `values.yaml`) — it backs the event queue, triggers, chat sessions, and all other hub state. The hub connects using the `HUB_DB_URL` secret (`ainsel-hub-db`). You do **not** need to deploy PostgreSQL separately; to use an external server, set `postgres.enabled: false` and provide your own secret with a `dsn` key (`postgres.auth.existingSecret`).
 
 ## Step 1: Building Images
+
+You only need this section if you are installing from a source checkout (see
+*From a source checkout (development)* under Step 4). Released images are
+published by CI — installing the released chart pulls them, it builds nothing.
 
 Images for every Ainsel component are built and pushed by CI on every merge
 to `main` and on every release tag. See the CI build workflows for the build
@@ -344,13 +348,61 @@ the ingress.
 
 ## Step 4: Install
 
+Install the **released chart** from GHCR. Replace `<X.Y.Z>` with the chart
+version — the same string as the release, with no `v` prefix (the git tag is
+`v<X.Y.Z>`, the chart version is `<X.Y.Z>`). Find it on the
+[releases page](https://github.com/ainsel-project/ainsel/releases); the
+current release is `0.3.0`. Pinning `--version` is what makes the install
+reproducible: an unpinned install from a `main` checkout asks the registry
+for image tags no release has published (see
+[Upgrade Guide](upgrade-guide.md)).
+
 ```bash
-helm install ainsel ./chart -n ainsel -f values.yaml
+helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> -n ainsel --create-namespace -f values.yaml
+```
+
+The pull is anonymous — no `gh auth login` or `helm registry login` is
+needed. The same command installs and upgrades, so an operator builds one
+habit.
+
+If you have no `values.yaml` yet, start from the chart defaults:
+
+```bash
+helm show values oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> > values.yaml
+```
+
+Or fetch one of the shipped overlays by raw URL — note the `v` prefix on the
+tag here, where the chart version has none; mixing them up is a silent 404:
+
+```bash
+curl -fsSL -o values.yaml \
+  https://raw.githubusercontent.com/ainsel-project/ainsel/v<X.Y.Z>/chart/values-quickstart.yaml
+```
+
+No registry access? The release page also attaches the packaged chart
+(`ainsel-<X.Y.Z>.tgz`) to every GitHub Release — a released artifact, unlike
+a checkout:
+
+```bash
+gh release download v<X.Y.Z> -p 'ainsel-*.tgz'
+helm upgrade --install ainsel ./ainsel-<X.Y.Z>.tgz -n ainsel --create-namespace -f values.yaml
 ```
 
 The chart does not create the namespace itself by default (`createNamespace:
 false`), so either pre-create it as in Step 2 or install with
-`--create-namespace` instead.
+`--create-namespace` instead — as in the commands above.
+
+### From a source checkout (development)
+
+Only for contributors and development work: installing `./chart` from a
+checkout installs whatever `main` currently holds, including unreleased
+changes — and an unpinned `image.tag` then follows `appVersion`, which may
+not correspond to any published image set.
+
+```bash
+helm install ainsel ./chart -n ainsel --create-namespace -f values.yaml
+```
 
 ## Step 5: Create a WebhookConnector and Configure the Forgejo Webhook
 
@@ -441,8 +493,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://your-forgejo/ainsel-project/ainsel.git
-    targetRevision: main
+    repoURL: https://github.com/ainsel-project/ainsel.git
+    targetRevision: v<X.Y.Z>
     path: chart
     helm:
       valueFiles:
@@ -456,17 +508,29 @@ spec:
       prune: true
 ```
 
+Pin `targetRevision` to a release tag (`v<X.Y.Z>`, note the `v` prefix) —
+tracking `main` is exactly the failure mode of a moving, unreleased build.
+The chart is also usable as an OCI chart source, which needs no git repo:
+`repoURL: ghcr.io/ainsel-project/charts`, `path: ainsel`,
+`targetRevision: <X.Y.Z>` (no `v`), with anonymous GHCR pull enabled.
+
 ## Upgrading
 
-```bash
-helm upgrade ainsel ./chart -n ainsel -f values.yaml
-```
-
-Note: Helm does not update CRDs on upgrade. If CRDs changed, apply them manually:
+Upgrade to a new release with the same OCI reference, pinning the target
+version:
 
 ```bash
-kubectl apply -f chart/templates/crds/
+helm upgrade ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> -n ainsel -f values.yaml
 ```
+
+Before upgrading, read the [Upgrade Guide](upgrade-guide.md) for the
+pre-upgrade checklist and per-version breaking changes.
+
+No manual CRD step is needed: the CRDs render from `chart/templates/crds/`
+as templates, so `helm install` and `helm upgrade` apply them like any other
+resource (they carry `helm.sh/resource-policy: keep`, so uninstall never
+deletes them). See [CRD upgrades](upgrade-guide.md#crd-upgrades).
 
 ## Next steps
 

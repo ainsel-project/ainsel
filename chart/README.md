@@ -16,6 +16,12 @@ Helm chart that deploys the entire AInsel platform into a single namespace.
 
 For the full deployment guide, see [`docs/deployment.md`](../docs/deployment.md).
 
+The commands below use `<X.Y.Z>` for the chart version — the same string as
+the release, with no `v` prefix (the git tag is `v<X.Y.Z>`, the chart version
+is `<X.Y.Z>`). Find it on the
+[releases page](https://github.com/ainsel-project/ainsel/releases); the
+current release is `0.3.0`. The pull is anonymous — no registry login needed.
+
 ### Quickstart (local, zero auth)
 
 For a first look on a local/dev cluster — nothing is exposed outside the
@@ -23,11 +29,20 @@ cluster, the hub runs without auth (auto-detected "local mode"), and you
 access API and UI via port-forward:
 
 ```bash
-helm install ainsel . -n ainsel --create-namespace -f values-quickstart.yaml
+helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> -n ainsel --create-namespace -f values-quickstart.yaml
 kubectl -n ainsel port-forward svc/hub 8080:8080
 curl http://localhost:8080/api/v1/stats
 # UI (no-auth mode):
 kubectl -n ainsel port-forward svc/frontend 8081:80
+```
+
+Without a checkout, fetch the overlay by raw URL first (note the `v` prefix
+on the tag — the chart version has none):
+
+```bash
+curl -fsSL -o values-quickstart.yaml \
+  https://raw.githubusercontent.com/ainsel-project/ainsel/v<X.Y.Z>/chart/values-quickstart.yaml
 ```
 
 Note: `-n` must match the chart's `namespace` value (both `ainsel` above).
@@ -51,29 +66,25 @@ at your own. Users are managed via **Admin → Users** in the UI or the
 `/api/v1/users` API. `oidc+local` bootstraps the local admin too — delete it
 via **Admin → Users** if you want SSO-only identities despite the mode.
 
-Lint and render locally:
+Install (released chart — the same command installs and upgrades):
 
 ```bash
-helm lint .
-helm template . -f your-values.yaml
+helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> -n ainsel --create-namespace -f your-values.yaml
 ```
 
-Install:
+Upgrade to a new release:
 
 ```bash
-helm install ainsel . -n ainsel --create-namespace -f your-values.yaml
-```
-
-Upgrade:
-
-```bash
-helm upgrade ainsel . -n ainsel -f your-values.yaml
+helm upgrade ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> -n ainsel -f your-values.yaml
 ```
 
 Single-namespace deployment with default values:
 
 ```bash
-helm install ainsel . --namespace ainsel --create-namespace
+helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> --namespace ainsel --create-namespace
 ```
 
 The chart does not render the target `Namespace` object unless
@@ -81,20 +92,54 @@ The chart does not render the target `Namespace` object unless
 installing also works.
 
 See `values-example.yaml` for a starting point for your own
-environment-specific overlay.
+environment-specific overlay — without a checkout, fetch it with
+`helm show values oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> > values.yaml`
+(chart defaults) or the raw URL shown in the Quickstart (shipped overlays).
+
+### From a source checkout (development)
+
+Only for development work — a checkout of `main` installs unreleased changes,
+and its default `image.tag` (which follows `appVersion`) may not correspond
+to any published image set:
+
+```bash
+helm install ainsel . -n ainsel --create-namespace -f your-values.yaml
+helm upgrade ainsel . -n ainsel -f your-values.yaml
+```
+
+Lint and render locally:
+
+```bash
+helm lint .
+helm template . -f your-values.yaml
+```
 
 ## Resource Sizing
 
 The default values in `values.yaml` are the **small** tier — sized for a
 single-node dev cluster with one or two users. For production deployments,
-use one of the overlay files:
+use one of the tier overlays. Without a checkout, fetch the overlay by raw
+URL (note the `v` prefix on the tag) and install the released chart with it:
 
 ```bash
 # Medium tier — ~10 active agents (estimated, not yet load-tested)
-helm install ainsel . -n ainsel -f chart/values-medium.yaml
+curl -fsSL -o values.yaml \
+  https://raw.githubusercontent.com/ainsel-project/ainsel/v<X.Y.Z>/chart/values-medium.yaml
+helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> -n ainsel --create-namespace -f values.yaml
 
 # Large tier — ~100 active agents (estimated, not yet load-tested)
-helm install ainsel . -n ainsel -f chart/values-large.yaml
+curl -fsSL -o values.yaml \
+  https://raw.githubusercontent.com/ainsel-project/ainsel/v<X.Y.Z>/chart/values-large.yaml
+helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> -n ainsel --create-namespace -f values.yaml
+```
+
+From a source checkout (development), run from the repo root, where both
+paths resolve:
+
+```bash
+helm install ainsel ./chart -n ainsel --create-namespace -f chart/values-medium.yaml
 ```
 
 | Component | Small (default) | Medium (~10 agents) | Large (~100 agents) |

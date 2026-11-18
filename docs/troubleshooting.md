@@ -264,7 +264,7 @@ observability:
 ```
 
 ```bash
-helm upgrade ainsel ./chart -n <namespace> -f values.yaml
+helm upgrade ainsel oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> -n <namespace> -f values.yaml
 kubectl rollout status -n <namespace> deploy/hub
 ```
 

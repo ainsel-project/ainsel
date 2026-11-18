@@ -35,7 +35,11 @@ The sidebar mirrors this: **Fleet** holds the agents you operate, **Library** ho
 
 ## How to get started
 
-1. **Deploy** — Install the Helm chart into a Kubernetes namespace. See the [Deployment Guide](deployment).
+1. **Deploy** — Install the released Helm chart into a Kubernetes namespace:
+   `helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> -n ainsel --create-namespace -f values.yaml`
+   (`<X.Y.Z>` = the chart version from the
+   [releases page](https://github.com/ainsel-project/ainsel/releases), no `v`
+   prefix; the pull is anonymous). See the [Deployment Guide](deployment).
 
 2. **Connect a source** — Register a connector (e.g. a Forgejo webhook) so events start flowing. See `/connectors` in the UI.
 
