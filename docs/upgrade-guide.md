@@ -601,10 +601,17 @@ of the open 443/TCP egress rule ([#356](https://github.com/ainsel-project/ainsel
 installs keep the current egress posture.** Two render changes apply in both
 modes:
 
-- **Changed: agent DNS egress is scoped to kube-dns.** The `agent-egress`
-  policy's port-53 rule no longer allows "any destination" (a DNS-tunneling
-  exfil path). If your cluster DNS does not run in `kube-system`, set
-  `networkPolicy.dnsServerNamespace` — otherwise agent pods cannot resolve names.
+- **Changed: agent DNS egress is scoped to the cluster DNS pods.** The
+  `agent-egress` policy's port-53 rule no longer allows "any destination" (a
+  DNS-tunneling exfil path). It matches the DNS pods by namespace
+  (`networkPolicy.dnsServerNamespace`, default `kube-system`) **and** by pod
+  label (`networkPolicy.dnsPodSelector`, default `k8s-app: kube-dns`). Both
+  need to describe your cluster: if your DNS does not run in `kube-system`, set
+  the namespace; if its pods do not carry `k8s-app: kube-dns` — OpenShift
+  labels them `dns=default` — set the selector too, or agent pods lose name
+  resolution. `helm template | grep -A2 'k8s-app\|dns:'` is not enough to
+  check this; look at the DNS pods themselves:
+  `kubectl -n kube-system get pods -L k8s-app,dns`.
 - **Fixed: the dangling `TODO(#652)` references** in the chart now point at #356.
 
 Enabling the proxy (`agentEgress.proxy.enabled: true` plus

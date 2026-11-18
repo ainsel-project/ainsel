@@ -41,7 +41,7 @@ When `networkPolicy.enabled: true` (the default), agent pods are restricted to e
 | Destination | Port | Purpose |
 |---|---|---|
 | Hub backend | 8080 | Agent token validation, API calls |
-| DNS (kube-dns, `networkPolicy.dnsServerNamespace`) | 53 (UDP/TCP) | Name resolution |
+| DNS pods (`networkPolicy.dnsPodSelector` in `networkPolicy.dnsServerNamespace`) | 53 (UDP/TCP) | Name resolution |
 | Any (HTTPS) | 443/TCP | LLM API endpoints (see caveat below) — **not** with `agentEgress.proxy.enabled`, which replaces this row with the allow-listing egress proxy ([#356](https://github.com/ainsel-project/ainsel/issues/356)) |
 
 Ingress to agent pods is denied by the namespace-wide default-deny policy.
