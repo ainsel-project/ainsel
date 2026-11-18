@@ -183,24 +183,3 @@ export function trackingID(ctx: EventContext): string {
 	const kind = ctx.kind === "pull_request" ? "pulls" : "issues";
 	return `${repo}/${kind}/${ctx.number}`;
 }
-
-
-export function titleFor(ctx: EventContext): string {
-	if (ctx.type === "chat.message") {
-		return ctx.chatSessionId
-			? `chat ${ctx.chatSessionId} · chat.message`
-			: "chat · chat.message";
-	}
-	if (ctx.type === "cron") {
-		const name = ctx.cronTrigger ?? "cron";
-		return `${name} · cron`;
-	}
-	const repo = repoFullName(ctx);
-	const ref = ctx.number
-		? ctx.kind === "pull_request"
-			? `${repo}!${ctx.number}`
-			: `${repo}#${ctx.number}`
-		: repo;
-	const type = ctx.type ?? "event";
-	return ref ? `${ref} · ${type}` : type;
-}
