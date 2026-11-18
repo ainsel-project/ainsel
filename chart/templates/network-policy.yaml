@@ -1,4 +1,10 @@
 {{- if .Values.networkPolicy.enabled }}
+{{- /* The DNS pods the scoped port-53 rules allow. k8s-app: kube-dns is the
+     upstream CoreDNS label; OpenShift labels its DNS pods dns=default, and a
+     cluster whose DNS pods carry neither needs this set, or the scoped rules
+     refuse name resolution for the pods they protect. See
+     networkPolicy.dnsPodSelector in values.yaml. */ -}}
+{{- $dnsPodSelector := .Values.networkPolicy.dnsPodSelector | default (dict "k8s-app" "kube-dns") -}}
 # Default deny all ingress to the namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -198,7 +204,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Values.networkPolicy.dnsServerNamespace }}
           podSelector:
             matchLabels:
-              k8s-app: kube-dns
+              {{- toYaml $dnsPodSelector | nindent 14 }}
       ports:
         - port: 53
           protocol: UDP
@@ -240,7 +246,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Values.networkPolicy.dnsServerNamespace }}
           podSelector:
             matchLabels:
-              k8s-app: kube-dns
+              {{- toYaml $dnsPodSelector | nindent 14 }}
       ports:
         - port: 53
           protocol: UDP
@@ -316,7 +322,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Values.networkPolicy.dnsServerNamespace }}
           podSelector:
             matchLabels:
-              k8s-app: kube-dns
+              {{- toYaml $dnsPodSelector | nindent 14 }}
       ports:
         - port: 53
           protocol: UDP

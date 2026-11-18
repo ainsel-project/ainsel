@@ -83,11 +83,21 @@ networkPolicy:
   connectorWebhookSources: []
   # Namespace running the cluster DNS servers (CoreDNS/k3s coredns). The
   # agent-egress and egress-proxy policies scope their port-53 egress rules
-  # to kube-dns pods in this namespace, closing the DNS-tunneling exfil path
+  # to the DNS pods in this namespace, closing the DNS-tunneling exfil path
   # that an open "port 53 to any destination" rule leaves. Set this if your
   # DNS servers run somewhere else — otherwise agent pods cannot resolve
   # anything.
   dnsServerNamespace: kube-system
+  # Labels of the DNS pods inside dnsServerNamespace the scoped port-53 rules
+  # allow. The namespace alone is not enough: a namespaceSelector on
+  # kube-system would let an agent reach any pod in it on 53, which is the
+  # exfil path the scoping exists to close. The default is the upstream
+  # CoreDNS label; it is NOT universal — OpenShift labels its DNS pods
+  # `dns=default`, and a cluster whose DNS pods carry neither needs this set,
+  # or the scoped rules refuse name resolution for the very pods they protect.
+  # Set to {} to allow every pod in dnsServerNamespace on 53 (weaker).
+  dnsPodSelector:
+    k8s-app: kube-dns
 # Agent egress controls. Without agentEgress.proxy, agent pods get an open
 # 443/TCP egress rule (LLM APIs, forge, package registries) — the only thing
 # between a prompt-injected agent and exfiltration is then the model behaving.

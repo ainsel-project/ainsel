@@ -10,6 +10,11 @@ path fails even before the golden diff is reviewed:
 * proxy off: agent-egress keeps the open 443/TCP rule (existing installs
   unchanged apart from the intentional DNS scoping) and no proxy resources
   render at all.
+* the DNS pod selector is a value: the scoped port-53 rule matches the DNS pods
+  by label as well as by namespace, and `networkPolicy.dnsPodSelector` replaces
+  the default `k8s-app: kube-dns` — the upstream label is not universal
+  (OpenShift labels its DNS pods `dns=default`), and a cluster whose DNS pods
+  carry neither would otherwise lose name resolution with nothing to set.
 * proxy on: agent-egress has NO 443 rule anywhere, only hub 8080, scoped DNS
   and the proxy on the configured port; the egress-proxy policy is the only
   443-capable rule and it opens its own Ingress for the agent pods (the
@@ -195,6 +200,41 @@ def check_invariants(name, manifests):
         )
 
 
+def check_dns_pod_selector():
+    """The DNS pod label is a value, not a hardcoded constant.
+
+    The scoped rule needs a pod selector — a namespaceSelector on kube-system
+    alone would let an agent reach any pod there on 53 — but the label it
+    defaults to is the upstream CoreDNS one, which OpenShift and some managed
+    clusters do not use. So the selector must be settable, and setting it must
+    replace the default rather than add to it.
+    """
+    default = render([])
+    assert "k8s-app: kube-dns" in policy_named(default, "agent-egress"), (
+        "the default render must keep the upstream CoreDNS selector"
+    )
+
+    dns_values = [
+        "networkPolicy.dnsServerNamespace=openshift-dns",
+        "networkPolicy.dnsPodSelector.dns=default",
+        "networkPolicy.dnsPodSelector.k8s-app=null",
+    ]
+    agent_egress = policy_named(render(dns_values), "agent-egress")
+    # The proxy's own DNS rule takes the selector too, so render the proxy on.
+    proxy = policy_named(render(dns_values + PROXY_ON_SETS), "egress-proxy")
+    assert "dns: default" in agent_egress and "k8s-app: kube-dns" not in agent_egress, (
+        "setting networkPolicy.dnsPodSelector must replace the DNS pod label in "
+        "agent-egress, not add to it"
+    )
+    assert "openshift-dns" in agent_egress, (
+        "the DNS namespace must reach the agent-egress rule with the selector"
+    )
+    assert "dns: default" in proxy and "k8s-app: kube-dns" not in proxy, (
+        "the egress-proxy DNS rule takes the same selector: with the proxy on, "
+        "a proxy that cannot resolve is a proxy that connects to nothing"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -205,6 +245,8 @@ def main():
     args = parser.parse_args()
 
     GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
+    check_dns_pod_selector()
+    print("ok dns pod selector")
     failures = []
     for name, value_sets in SCENARIOS.items():
         rendered = render(value_sets)
