@@ -9,6 +9,13 @@
 [![Docs](https://img.shields.io/badge/docs-online-success)](https://ainsel-project.github.io/ainsel/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
+> [!WARNING]
+> **AInsel 0.3.0 has breaking changes.** Upgrading from 0.2? Follow the
+> [v0.2 → v0.3 upgrade procedure](docs/upgrade-guide.md#upgrading-from-v02-to-v03)
+> step by step — back up first, and adjust your values and agents before
+> `helm upgrade`. See the [full list of breaking changes](CHANGELOG.md#030-2026-11-17)
+> and the [documentation](https://ainsel-project.github.io/ainsel/).
+
 **AInsel is a Kubernetes-native agent orchestrator: events go in, your AI
 agents react — with whatever persona, skills, tools, and MCP servers you
 give them.**
