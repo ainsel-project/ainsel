@@ -133,6 +133,14 @@ describe('DocsPage component pages', () => {
     }
   })
 
+  it('after a missing doc lands on a component page, the next markdown click opens it', async () => {
+    renderAt('/docs/missing')
+    expect(await screen.findByText('Glance component body.')).toBeInTheDocument()
+    const sidebar = document.querySelector('.docs-sidebar') as HTMLElement
+    fireEvent.click(within(sidebar).getByRole('link', { name: 'Arch' }))
+    expect(await screen.findByText('Markdown architecture body.')).toBeInTheDocument()
+  })
+
   it('prev/next works across component and markdown pages', async () => {
     renderAt('/docs/glance')
     await screen.findByText('Glance component body.')

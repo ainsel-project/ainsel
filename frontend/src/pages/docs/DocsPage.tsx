@@ -135,7 +135,9 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
   const [sections, setSections] = useState<DocSection[]>([])
   const [source, setSource] = useState('')
   const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
+  // Keyed by slug, not a flag: a stale "not found" must never leak into the
+  // next page (component pages skip the fetch that would have reset a flag).
+  const [notFoundSlug, setNotFoundSlug] = useState<string>()
   const contentRef = useRef<HTMLDivElement>(null)
 
   // --- Search ---
@@ -150,6 +152,7 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
   // Default to the first sidebar entry when no topic is given (/docs).
   const slug = splat ?? items[0]?.slug
   const page = slug ? pages[slug] : undefined
+  const notFound = !page && slug !== undefined && notFoundSlug === slug
 
   useEffect(() => {
     let cancelled = false
@@ -170,7 +173,6 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
     if (!slug || page) return
     let cancelled = false
     setLoading(true)
-    setNotFound(false)
     fetch(`${DOCS_BASE}${slug}.md`)
       .then((r) => {
         if (!r.ok) throw new Error(`docs: ${r.status}`)
@@ -183,7 +185,7 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
       })
       .catch(() => {
         if (cancelled) return
-        setNotFound(true)
+        setNotFoundSlug(slug)
         setLoading(false)
       })
     return () => {
@@ -250,7 +252,7 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
     })
   }, [toc, renderedSource])
 
-  if (notFound && !page) {
+  if (notFound) {
     return <Navigate to="/docs" replace />
   }
 
