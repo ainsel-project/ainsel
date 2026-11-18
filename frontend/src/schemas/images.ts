@@ -10,7 +10,6 @@ export const toolSchema = z.object({
   kind: z.enum(['container', 'shell', 'mcp']),
   description: z.string(),
   mcpSource: z.string().optional(),
-  enabled: z.boolean(),
   isNew: z.boolean(),
   examples: z.array(exampleSchema),
 })

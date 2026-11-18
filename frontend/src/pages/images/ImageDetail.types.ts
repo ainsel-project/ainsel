@@ -10,7 +10,6 @@ export type ToolFormValue = {
   kind: ToolKind
   description: string
   mcpSource?: string
-  enabled: boolean
   isNew: boolean
   examples: ExampleFormValue[]
 }

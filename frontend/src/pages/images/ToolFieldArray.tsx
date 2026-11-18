@@ -37,7 +37,7 @@ export function ToolFieldArray({
   const tools = watch('tools')
 
   const onAddTool = () => {
-    append({ name: '', kind: 'shell', description: '', enabled: true, isNew: false, examples: [] })
+    append({ name: '', kind: 'shell', description: '', isNew: false, examples: [] })
     setSelectedIndex(fields.length)
   }
 
@@ -45,14 +45,6 @@ export function ToolFieldArray({
     if (selectedIndex === null) return
     removeTool(selectedIndex)
     setSelectedIndex(null)
-  }
-
-  const onToggleTool = (index: number, enabled: boolean) => {
-    setValue(`tools.${index}.enabled`, enabled, { shouldDirty: true })
-  }
-
-  const onToggleAllTools = (indices: number[], enabled: boolean) => {
-    indices.forEach((i) => setValue(`tools.${i}.enabled`, enabled, { shouldDirty: true }))
   }
 
   return (
@@ -82,8 +74,6 @@ export function ToolFieldArray({
           activeSource={activeSource}
           selectedIndex={selectedIndex}
           onSelect={setSelectedIndex}
-          onToggle={onToggleTool}
-          onToggleAll={onToggleAllTools}
           onAdd={onAddTool}
         />
         <ToolEditor
