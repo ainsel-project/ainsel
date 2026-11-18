@@ -291,7 +291,7 @@ describe('AgentWorkspace', () => {
     const tools = panel('Tools')
     expect(within(tools).getByRole('option', { name: /^read_file$/i })).toBeInTheDocument()
     expect(within(tools).getByRole('option', { name: /^run_shell$/i })).toBeInTheDocument()
-    expect(screen.queryByText(/every tool the image ships/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/no tool grant/i)).not.toBeInTheDocument()
 
     // MCP is the agent's own selection, inherited from the image until pinned.
     const mcp = panel('MCP Servers')
@@ -323,8 +323,8 @@ describe('AgentWorkspace', () => {
     })
   })
 
-  // An empty allowlist is not "nothing": the agent gets everything the image ships.
-  it('says that an agent without a tool selection runs with every tool the image ships', async () => {
+  // An empty grant is not "everything": the agent gets no tool at all (#368).
+  it('says that an agent without a tool grant can use no tools', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string, init?: RequestInit) => {
@@ -345,8 +345,9 @@ describe('AgentWorkspace', () => {
     )
     renderWorkspace('/agents/a1/tools')
     await screen.findByRole('heading', { level: 3, name: 'Tools' })
-    // The hint sits under the picker: an empty selection is not "nothing".
-    expect(await screen.findByText(/every tool the image ships/i)).toBeInTheDocument()
+    // The notice sits under the picker: an empty selection is a denial, not a default.
+    expect(await screen.findByText(/no tool grant/i)).toBeInTheDocument()
+    expect(await screen.findByText(/can use no tools at all/i)).toBeInTheDocument()
   })
 
   it("opens the Skills section as the agent's own selection and writes it on change", async () => {

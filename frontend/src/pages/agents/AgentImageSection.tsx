@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useUpdateAgent, type AgentResponse } from '../../api/agents'
-import { useAgentImage, useAgentImages, type AgentImageResponse } from '../../api/agentImages'
+import { useAgentImage, useAgentImages, type AgentImageResponse, type Tool } from '../../api/agentImages'
 import { useMCPServers } from '../../api/mcpServers'
 import { ApiError } from '../../api/client'
 import { DualListPicker } from '../../primitives/DualListPicker'
@@ -175,14 +175,15 @@ export function AgentImageSection({ agent }: AgentImageSectionProps) {
 }
 
 /**
- * The Tools section of the agent detail page: this agent's own tool allowlist.
+ * The Tools section of the agent detail page: this agent's own tool grant.
  * The referenced image carries the catalog — the capabilities it ships — and the
  * agent picks from it, so two agents on the same image can hold different
  * tools. Saving writes `spec.enabledTools` on this agent alone.
  *
- * An empty selection is not "nothing": the agent then runs with every tool the
- * image ships. Names are matched by the runtime, MCP tools included
- * (`mcp__<server>__<tool>`).
+ * An empty selection is not "everything": the agent runs with no tools at all
+ * (issue #368). This page is where a grant is made, so it says so out loud.
+ * Names are matched by the runtime, MCP tools included
+ * (`mcp__<server>__<tool>`, or `mcp__<server>` for a whole server).
  */
 export function AgentToolsSection({ agent }: AgentImageSectionProps) {
   const imageName = agent.imageRef?.name
@@ -192,6 +193,21 @@ export function AgentToolsSection({ agent }: AgentImageSectionProps) {
 
   const catalog = image.data?.tools ?? []
   const selected = agent.enabledTools ?? []
+  // The agent's own server list when it pins one, the image's while it does not.
+  const effectiveServers = (agent.mcp?.servers ?? image.data?.mcpServers ?? []).map((s) => s.name)
+  // A server-level grant is a supported selection — it is what
+  // `hub migrate-enabled-tools` writes for an agent whose tools came from MCP —
+  // so the picker offers it and a save can round-trip it instead of dropping it.
+  const items: Tool[] = [
+    ...catalog,
+    ...effectiveServers
+      .map((name) => ({
+        name: `mcp__${name}`,
+        kind: 'mcp' as const,
+        description: `Every tool of the ${name} MCP server, present and future.`,
+      }))
+      .filter((entry) => !catalog.some((tool) => tool.name === entry.name)),
+  ]
 
   const onChange = (names: string[]) => {
     setSaveError(null)
@@ -217,7 +233,7 @@ export function AgentToolsSection({ agent }: AgentImageSectionProps) {
     <div style={{ display: 'grid', gap: 8 }}>
       <Panel title="Tools">
         <DualListPicker
-          items={catalog}
+          items={items}
           selectedIds={selected}
           onChange={onChange}
           getId={(tool) => tool.name}
@@ -229,9 +245,10 @@ export function AgentToolsSection({ agent }: AgentImageSectionProps) {
         />
       </Panel>
       {selected.length === 0 ? (
-        <p className="label" style={{ margin: 0, color: 'var(--ink-3)' }}>
-          Nothing selected yet — this agent runs with every tool the image ships. Pick a subset to
-          narrow it down.
+        <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
+          <strong>No tool grant.</strong> This agent can use no tools at all — an empty
+          selection denies everything, including what the image ships. Move the tools it
+          needs to the enabled side to grant them.
         </p>
       ) : null}
       {saveError ? (
