@@ -45,15 +45,34 @@ The sidebar mirrors this: **Fleet** holds the agents you operate, **Library** ho
 
 3. **Create a persona** — Write the prompt that defines your agent's behaviour. Personas are versioned — you can roll back. See `/personas`.
 
+   ![The Persona Library: three shared templates — Code reviewer (V7), Issue
+   triager (V3) and Docs writer (V2) — listed by name, description, version,
+   age and how many agents use them, under a note that personas an agent owns
+   privately are edited in that agent's Persona section and do not appear
+   here](images/personas.webp)
+
+   *Shared templates live here and carry a version per edit; an agent's own
+   forked copy is edited on its Persona section instead.*
+
 4. **Build an agent image** — Define the container image with the tools, environment variables, and MCP servers your agent needs. See `/agent-images`.
+
+   ![The Agent Images page: three runtime profiles — AInsel Reviewer (Pi),
+   AInsel Triage (Pi) and AInsel Docs (Pi) — listed by name, image URL and
+   tool count](images/agent-images.webp)
+
+   *An image is a runtime profile shared by agents: the URL, the environment, the
+   tools and the MCP servers. Edit it once and every agent pointing at it picks
+   the change up.*
 
 5. **Create an agent** — **Fleet → Agents → New Agent** walks you through five steps: identity and group, runtime image, model and provider, persona, then a review of what will be created. Each step validates on its own, so nothing is submitted half-filled.
 
-   ![The New Agent wizard on its Identity step: name and description fields,
-   a group selector, and the five-step rail — Identity, Runtime, Model,
-   Persona, Review](images/agent-wizard.webp)
+   ![The New Agent wizard on its Model step, with the five-step rail above —
+   Identity done, Runtime done, Model current — over fields for model, max
+   turns, context window, model licence, provider and provider API key, plus
+   the text-only image-input toggle](images/agent-wizard.webp)
 
-   *The wizard's first step: identity and group.*
+   *Step 3 of 5: model and provider. The licence field is where you record the
+   licence the model arrives under — the console records it, it never verifies it.*
 
 6. **Tune the agent** — After creation, the agent's workspace holds what belongs to that agent alone, one section each: **Persona** (fork an agent-owned copy of a shared template), **Runtime & env** (switch image, override environment variables), **Tools & MCP** (tool selection and MCP servers) and **Skills**. Overrides start out inherited from the image; the first change pins them to the agent.
 

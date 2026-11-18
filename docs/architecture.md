@@ -158,6 +158,17 @@ flowchart LR
     CHAT[chat message] -->|born directly| IB
 ```
 
+![The Channels page: three channels — github-acme and forgejo-acme of kind
+CONNECTOR with their last-24h event, unmatched and failed counts and
+subscription counts, and a CUSTOM review-queue marked SUBSCRIBED — above a
+Connections table reading born-in channel, subscription (PR opened → Code
+Reviewer TRIGGER, github-acme → review-queue BRIDGE) and transferred-into
+destination](images/channels.webp)
+
+*The channel graph as the console shows it: what each channel has seen in the
+last 24 hours, and every edge that moves events between them. An agent's own
+inbox is not listed here — it is edited from the agent's **Channel** section.*
+
 Scheduled ticks and chat messages have no connector: they are born directly
 in the target agent's inbox channel. The synthetic `cron` / `chat` producer
 labels are declared once in `shared/api` so the reconciler, the emitters and

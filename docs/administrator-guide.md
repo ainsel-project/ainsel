@@ -36,12 +36,28 @@ CRD: `WebhookConnector`
 writing your own connector, see the
 [connector developer tutorial](writing-a-connector.md).
 
+![The Connector Catalogue: three connectors listed by name, signature header,
+webhook endpoint and status — forgejo-acme (X-Forgejo-Signature, Ready),
+github-acme (X-Hub-Signature-256, Ready) and sentry-alerts
+(X-Sentry-Auth-Signature, Disabled)](images/connectors.webp)
+
+*Registered connectors, as the console shows them. The endpoint is what you paste
+into the source system's webhook settings; the signature header is what the
+connector verifies incoming requests against.*
+
 **Agent.** One AI worker, configured with a model, persona, tool
 set, and runtime settings (image, resources, scaling). You typically
 run several agents — one per role (reviewer, triager, implementer)
 — rather than one mega-agent. Smaller scopes are easier to reason
 about and cheaper to operate. CRD: `Agent`
 (see [`crd-reference.md`](crd-reference.md#agent)).
+
+![The Agent Roster: six agents listed by name, model, provider, image, group,
+status and running count — Code Reviewer and Issue Triage on Anthropic, Docs
+Writer and Release Notes on OpenAI, one agent already running a task](images/agents-list.webp)
+
+*The fleet at a glance: one row per agent, the runtime image each one points at,
+and how many tasks it is running right now.*
 
 **Persona.** The prompt that defines the agent's behavior — the
 locus of your AI expertise. Tone, scope, refusal patterns, output
@@ -51,6 +67,16 @@ either inline in `Agent.spec.persona.inline` or in a ConfigMap
 referenced by `Agent.spec.persona.configMapRef`. ConfigMaps are
 recommended once a persona grows beyond a paragraph — you can edit
 them without touching the Agent.
+
+![The Persona section of the Code Reviewer agent: a Linked persona selector
+above the Persona content panel, holding the persona's name, description and
+markdown text — scope rules ("Review the diff only. Do not open unrelated
+files."), an Output section, and Refusals](images/agent-persona.webp)
+
+*Where the persona lives in the agent's workspace. Pick a shared template in the
+Linked persona selector, or edit the text below it to give this agent its own
+copy — the constraints that keep a reviewer in scope are written here, not in
+someone's head.*
 
 **Tools and skills.** What the agent can act on — Forgejo API, git,
 shell, the test runner, Kubernetes. `Agent.spec.enabledTools`
@@ -92,12 +118,16 @@ editing the registry never rewrites running agents. The bundled MCP server
 today is configured as a generic MCP server in the frontend; you can
 register more.
 
-![The MCP servers registry: a table of registered servers with name, URL,
-token environment variable and last-updated age — a forge MCP server, the
-GitHub MCP endpoint and a mem0 memory server](images/mcp-registry.webp)
+![The MCP Servers registry: three registered servers listed by name, URL, token
+environment variable and last-updated age — Forgejo (https://mcp.example.com/forgejo/mcp,
+`FORGEJO_TOKEN`), GitHub (https://api.githubcopilot.com/mcp/, `GITHUB_TOKEN`)
+and a Mem0 memory server on an in-cluster URL
+(http://mem0.ainsel.svc.cluster.local:8881/mcp, `MEM0_API_KEY`)](images/mcp-registry.webp)
 
 *The registry behind the Tools & MCP section — every MCP server an agent can opt
-into. (In-cluster URLs redacted.)*
+into. A server that needs credentials names the environment variable holding
+them; the hub injects the token at invocation time and never stores it on the
+agent. (Demo endpoints.)*
 
 > **Removed:** `Agent.spec.enabledMCPs`, the older list of in-cluster
 > `mcp-<name>` Service names. For one release beforehand the operator
@@ -111,13 +141,15 @@ into. (In-cluster URLs redacted.)*
 
 Six steps from a fresh cluster to a working agent.
 
-![The operations console after the journey below is complete: 8 active agents,
-4 platform connectors, 28 routing rules and no recent errors, with the
-connector table showing each webhook endpoint as Ready, a 24-hour throughput
-chart, and a live activity feed](images/dashboard-overview.webp)
+![The operations console after the journey below is complete: 6 active agents,
+3 platform connectors, 6 routing rules and 1 error in the last hour, above a
+connector register listing each webhook endpoint with its signature header, a
+24-hour throughput chart peaked at 33 events/hour, and a live activity feed of
+MATCH, SKIP and ERR rows](images/dashboard-overview.webp)
 
 *Where the six steps land — the console reports agent, connector and trigger
-state as the operators reconcile it.*
+state as the operators reconcile it. The ERR row in the activity feed is the
+same failure the Errors tile counts.*
 
 1. **Deploy AInsel itself.** Follow [`deployment.md`](deployment.md) to
    install the chart. By the end of this step you have the operators,
@@ -719,20 +751,16 @@ that the 0025 *down* migration restores the `NOT NULL DEFAULT 0` constraint by
 collapsing every NULL back to `0` — rolling the migration back is lossy for
 presence by design.
 
-![The Token Detail page: all-time total and 24-hour input/output tiles above
-a by-agent table breaking usage down per repo/event, agent and model, with
-input, output, I/O ratio and total columns and a per-row link to the
-underlying events](images/token-detail.webp)
+![The Token Detail page on a 24-hour window: total tokens (all time), 24-hour
+input and output, and a 24-hour cost tile above a by-agent table breaking usage
+down per repo/event, agent and model, with input, output, cache read, cache
+write, I/O ratio, total and cost columns and a per-row link to the underlying
+events](images/token-detail.webp)
 
 *The full token view behind the dashboard tile — per-agent, per-model,
-per-event-type spend, with the I/O ratio that spots context-heavy agents
-at a glance. (Private repo names redacted. This screenshot predates the
-cache and cost columns; the live page also shows Cache R / Cache W and
-Cost per row.)*
-
-The console renders the cache columns alongside input and output, so the
-visible columns sum to the displayed total, and the dashboard carries a
-cache hit-rate tile next to the token total.
+per-event-type spend, with the cache columns alongside input and output so the
+visible columns sum to the displayed total, and the I/O ratio that spots
+context-heavy agents at a glance. (Demo data.)*
 
 What is **not yet** wired up:
 
@@ -750,17 +778,19 @@ misbehaves, scale it to zero (below) while you fix the persona.
 Mostly persona-driven today: refusal patterns ("never close
 issues"), output-format constraints, blast-radius limits.
 
-![The Runtime & env section of the agent-reviewer-gh agent workspace in the
-console: the Model & scaling panel with its model and scaling settings, the
-read-only Image panel with an Edit image link to the image page, and the
-Environment overrides panel with the agent's own variables layered over the
-image's environment](images/agent-persona.webp)
+![The Runtime & env section of the Code Reviewer agent workspace in the
+console: the Model & scaling panel with model, max turns, context window, model
+licence and max concurrent tasks, the read-only Image panel with an Edit image
+link and the image's own environment, and the Environment overrides panel with
+the agent's variables (AGENT) layered over the image's (IMAGE), each row showing
+where its value comes from](images/agent-runtime-env.webp)
 
 *A reviewer agent's runtime configuration, in the console: Model & scaling
 sets the model and how many tasks may run at once, the Image panel shows the
 referenced image read-only (the Edit image link leads to the image page, where
 an edit updates every agent sharing it), and Environment overrides pin this
-agent's env on top of the image's. The guardrail itself — the persona's scope
+agent's env on top of the image's — `REVIEW_SCOPE=diff-only` is pinned here,
+while `PI_HOME` is still inherited. The guardrail itself — the persona's scope
 constraints, review the diff only, never propose rewrites of unchanged code,
 never open issues or apply labels — lives on the agent's Persona section,
 versioned with the persona rather than living in someone's head.*
@@ -807,6 +837,15 @@ span a rollout.
 
 ### Disabling an agent quickly
 
+![The Code Reviewer agent's overview: Ready, on claude-sonnet-4.5 with the
+AInsel Reviewer (Pi) image, over its daily stat cells — 4 runs today, 1 failure
+today, 0 timeouts today, 1 running now, 0 queued now — and a Key facts row with
+persona, image, timeout, trigger count, channel, model and image input](images/agent-overview.webp)
+
+*Read the stat cells before you pull the plug: Running now tells you whether
+in-flight work will finish on its own, and Queued now tells you what a scale-to
+zero will hold back. Each cell links to the matching filtered activity view.*
+
 Three escalating options, fastest to most thorough:
 
 1. **Disable the trigger.** Delete the trigger (console, MCP, or
@@ -834,6 +873,16 @@ namespace. Because they are third-party code, everything about them leans on
 two anchors — the image is **pinned to a digest** (a mutable tag would let a
 compromised registry push new code into your cluster silently), and nothing
 they ask for is granted until **you** approve it.
+
+![The Plugin Registry: three plugins listed by id, name, version, status,
+signature and permissions — forgejo 0.4.1 READY, signed ainsel-release, 4/4
+permissions; github 0.3.0 READY, signed ainsel-release, 2/3 permissions; sentry
+0.1.2 DISABLED, unsigned, 0/2 permissions](images/plugins.webp)
+
+*The two anchors, visible per row: `Signed` says who published the bytes (and
+says *unsigned* when nothing verified them), and `Permissions` shows approved
+over declared — 2/3 means two of the three permissions the plugin declares are
+approved, and the third is withheld until you grant it.*
 
 **Registering a plugin.** A plugin's Deployment and Service are yours to
 deploy (helm, plain manifests — anything). Once the Service answers, register
