@@ -100,7 +100,7 @@ networkPolicy:
   # merges maps rather than replacing them, so a chart default of
   # {k8s-app: kube-dns} could never be emptied by a user value — `{}` would
   # silently keep the default label.
-  dnsPodSelector:
+  dnsPodSelector: null
 # Agent egress controls. Without agentEgress.proxy, agent pods get an open
 # 443/TCP egress rule (LLM APIs, forge, package registries) — the only thing
 # between a prompt-injected agent and exfiltration is then the model behaving.
@@ -127,9 +127,11 @@ agentEgress:
     # and the agent-egress/egress-proxy NetworkPolicies).
     port: 3128
     # Free-form allow-list of domains. Squid dstdomain semantics: an entry
-    # starting with a dot (".example.com") matches that domain and every
-    # subdomain; any other entry matches exactly.
-    allowedDomains: [] # e.g. ["api.openai.com", ".anthropic.com"]
+    # matches that domain AND every subdomain of it, with or without a leading
+    # dot — "api.openai.com" also allows "anything.api.openai.com". There is
+    # no exact-match form here, so list only domains whose whole subtree you
+    # are willing to tunnel.
+    allowedDomains: [] # e.g. ["openai.com", ".anthropic.com"]
     # Named domain sets to switch on, rendered from the preset map in
     # _helpers.tpl ("ainsel.egressPresets"). Available: github, npm, goproxy,
     # pypi, crates. Unknown names fail rendering.
