@@ -92,12 +92,15 @@ networkPolicy:
   # allow. The namespace alone is not enough: a namespaceSelector on
   # kube-system would let an agent reach any pod in it on 53, which is the
   # exfil path the scoping exists to close. The default is the upstream
-  # CoreDNS label; it is NOT universal — OpenShift labels its DNS pods
-  # `dns=default`, and a cluster whose DNS pods carry neither needs this set,
-  # or the scoped rules refuse name resolution for the very pods they protect.
-  # Set to {} to allow every pod in dnsServerNamespace on 53 (weaker).
+  # CoreDNS label, {k8s-app: kube-dns}; it is NOT universal — OpenShift labels
+  # its DNS pods `dns=default`, and a cluster whose DNS pods carry neither needs
+  # this set, or the scoped rules refuse name resolution for the very pods they
+  # protect. Set to {} to allow every pod in dnsServerNamespace on 53 (weaker).
+  # The default is applied in the template, not written here, on purpose: helm
+  # merges maps rather than replacing them, so a chart default of
+  # {k8s-app: kube-dns} could never be emptied by a user value — `{}` would
+  # silently keep the default label.
   dnsPodSelector:
-    k8s-app: kube-dns
 # Agent egress controls. Without agentEgress.proxy, agent pods get an open
 # 443/TCP egress rule (LLM APIs, forge, package registries) — the only thing
 # between a prompt-injected agent and exfiltration is then the model behaving.
