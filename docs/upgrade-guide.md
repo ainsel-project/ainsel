@@ -177,6 +177,77 @@ The implementation is
 it reads `spec.skills` as unstructured JSON on purpose, since the typed decode is what fails
 on the old shape.
 
+## Granting tools explicitly (empty `enabledTools`)
+
+`Agent.spec.enabledTools` is a grant, and an empty one now grants **nothing**. Until now an
+agent with no grant was unrestricted: the `ainsel-tools` pi extension passed every tool through
+and the agent could use everything its image ships. That default is gone — an unset or empty
+`AGENT_TOOLS` denies every tool, so an agent with no grant can use none
+([issue #368](https://github.com/ainsel-project/ainsel/issues/368)). Nothing about a
+non-empty grant changes.
+
+This is the one upgrade change that can take tools away from a working agent, so the chart
+migrates agents **before** the new images run: the `migrations.enabledTools` hook Job is a
+`pre-upgrade` hook, and it writes each agent's current effective set into `spec.enabledTools`.
+By the time the deny-all runtime replaces the old pod, every agent already names the tools it
+had. Set `migrations.enabledTools.enabled: false` to opt out — and then grant tools by hand,
+because agents with no grant come up with none.
+
+```bash
+# What the migration would write, without writing it:
+kubectl exec deploy/hub -n <namespace> -- /hub migrate-enabled-tools -n <namespace> --dry-run
+# Or by hand after an upgrade that skipped the hook:
+kubectl exec deploy/hub -n <namespace> -- /hub migrate-enabled-tools -n <namespace>
+```
+
+- `-n` selects the namespace (default `$HUB_NAMESPACE`, then `ainsel`); `--all-namespaces`
+  covers a multi-namespace install; `--dry-run` reports without writing.
+- It needs no database and starts nothing, so it runs from the hub image in any cluster the
+  hub's own ServiceAccount can reach — the ServiceAccount already has
+  `get`/`list`/`patch` on `ainsel.dev/agents`.
+- It prints one line per agent — what it found and what it wrote — and exits non-zero when it
+  left something alone, so a hook Job failure means "read this output".
+- It is idempotent: an agent that already has a grant is skipped, which is also what makes a
+  second run a no-op.
+
+Per agent, `spec.enabledTools` is written as:
+
+| state | what is written |
+|---|---|
+| a non-empty list | nothing — the agent's own grant stands |
+| absent or `[]`, image resolves | the image's `spec.tools[].name` list, plus one `mcp__<server>` per effective MCP server |
+| the same, but the agent pins `spec.mcp.servers` | only those servers are named; an agent that pinned none of them gets none |
+| the same, but the image has no tools and no servers | nothing — there is nothing to grant, and the agent keeps none |
+| absent or `[]`, imageRef missing or unresolvable | reported and counted as an error; the agent is left alone |
+
+The effective MCP server set is the agent's own `spec.mcp.servers` when it pins a list (even an
+empty one), and the image's `spec.mcpServers` while it does not — the same rule the operator
+applies when it builds the pod.
+
+**Verify** an agent kept its tools — the list should match what it used before the upgrade:
+
+```bash
+kubectl get agent <name> -n <namespace> -o jsonpath='{.spec.enabledTools}{"\n"}'
+```
+
+Then run a task that uses a tool, and check the runtime log names the grant rather than
+denying everything:
+
+```bash
+kubectl logs deploy/<agent> -n <namespace> | grep "ainsel-tools: enforcing tool grant"
+```
+
+Server-level names (`mcp__<server>`, or the bare `<server>`) are accepted by the hub for a
+server the agent effectively has, alongside the catalog names. The runtime expands one into
+that server's whole tool family, so a server added to the image later is granted without
+editing the agent. A full MCP tool name (`mcp__<server>__<tool>`) still has to be a catalog
+entry.
+
+The implementation is
+[`services/hub/cmd/hub/migrate_enabled_tools.go`](https://github.com/ainsel-project/ainsel/blob/main/services/hub/cmd/hub/migrate_enabled_tools.go);
+it reads agents unstructured, because the field it writes is the one whose absence it is
+repairing.
+
 ## Rolling back
 
 List available revisions:
@@ -201,7 +272,9 @@ One ordered procedure for the whole jump, rehearsed end to end in a vcluster wit
 ingress-nginx (v0.2.0 chart and images, upgraded to the v0.3 chart). The sections after this
 one explain each change; this one says what to do and in which order. Three one-time
 migrations run as chart hook Jobs and need nothing from you: `skills` wrapper → list,
-missing `llm.provider` → `ollama-cloud`, and (on every upgrade) the Postgres migrations.
+missing `llm.provider` → `ollama-cloud`, an empty `spec.enabledTools` → the tools the agent
+had (before the upgrade, so nothing is taken away), and (on every upgrade) the Postgres
+migrations.
 
 Replace `<ns>` with your namespace in every command.
 
@@ -225,8 +298,9 @@ Replace `<ns>` with your namespace in every command.
    empty result means nothing to do.
 
    a. Agents whose tool list becomes a hard limit and does not include `bash`. They lose every
-      binary their image ships. Add `bash` to the list, or empty the list to keep everything
-      the image provides:
+      binary their image ships. Add `bash` to the list — do not empty it, which since this
+      release grants nothing at all (see
+      [Granting tools explicitly](#granting-tools-explicitly-empty-enabledtools)):
 
       ```bash
       kubectl -n <ns> get agents -o json | jq -r '.items[]
@@ -521,11 +595,12 @@ object gets `400 skills must be a list of skill ids; the {items: [...]} wrapper 
 see docs/upgrade-guide.md` instead of the decoder's Go type name, so a client that still sends
 the wrapper is told what to send.
 
-**Review each agent's tool selection before upgrading.** A non-empty `enabledTools` list
-used to be cosmetic; from now on it is a hard limit. An agent that lists tools but omits
-one it relies on at runtime (often `bash`, which is how catalog binaries get called) will
-lose that capability. Leave `enabledTools` empty for an agent that should keep seeing
-everything its image provides.
+**Review each agent's tool grant before upgrading.** A non-empty `enabledTools` list used to
+be cosmetic; from now on it is a hard limit. An agent that lists tools but omits one it relies
+on at runtime (often `bash`, which is how catalog binaries get called) will lose that
+capability. An empty list is no longer the way to keep everything: it grants nothing, and the
+`migrations.enabledTools` hook Job fills it with the agent's current set instead — see
+[Granting tools explicitly](#granting-tools-explicitly-empty-enabledtools).
 
 **API and console.** `enabledSkills` is gone from every agent-image request and response
 (an old client that still sends it is accepted and the field ignored). Skill assignment

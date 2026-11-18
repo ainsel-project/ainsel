@@ -1,0 +1,98 @@
+{{- /*
+One-time tool grant for Agents that never had one (issue #368).
+
+An empty `Agent.spec.enabledTools` used to mean "no restriction"; from this
+release it means "no tools". This Job writes each such agent's current effective
+set — the referenced image's capability catalog plus a `mcp__<server>` grant per
+MCP server it effectively connects to — so every agent keeps what it has today,
+spelled out.
+
+PRE-upgrade, and that is the whole point: the grants have to exist before any
+agent pod restarts on a runtime that reads an empty grant as nothing. Post-upgrade
+would leave a window in which every agent without a grant runs tool-less. Unlike
+the skills-shape Job this migration changes no schema, so it has no reason to
+wait for the new CRDs.
+
+The Job is idempotent: an agent that already has a grant is skipped, so a later
+upgrade pays one Job that writes nothing. It fails the upgrade when it cannot
+compute an agent's set (an unresolvable `imageRef` is reported, not skipped) —
+half a migration is worse than a stopped one, because the agents left behind lose
+their tools. **Set `migrations.enabledTools.enabled` to false only if you accept
+that:** every agent with no grant then comes up with no tools. Run the command
+yourself instead:
+
+  kubectl exec deploy/hub -n <namespace> -- /hub migrate-enabled-tools -n <namespace> --dry-run
+
+RBAC: the hub ServiceAccount already has get/list on ainsel.dev/agentimages and
+get/list/patch on ainsel.dev/agents, so no extra grants are needed.
+*/ -}}
+{{- $migrations := .Values.migrations | default dict }}
+{{- $enabledTools := dig "enabledTools" dict $migrations | default dict }}
+{{- if dig "enabled" true $enabledTools }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ainsel-migrate-enabled-tools
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # One retry covers a transient API-server hiccup; anything past that is a
+  # real problem an operator has to read about.
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ainsel-migration
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: hub
+      {{- with .Values.hub.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $enabledTools.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $enabledTools.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate-enabled-tools
+          # The hub image already carries the subcommand — no second image to
+          # build, publish or pin. At pre-upgrade time this tag is already the
+          # new one, which is what enforces the ordering above.
+          image: "{{ include "ainsel.image" (dict "root" . "repo" .Values.hub.image.repository "tag" .Values.hub.image.tag) }}"
+          imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+          {{- with .Values.hub.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - /hub
+          args:
+            - migrate-enabled-tools
+            - -n
+            - {{ .Values.hub.namespace | default .Values.namespace | quote }}
+            {{- with $enabledTools.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $enabledTools.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
