@@ -2,14 +2,20 @@
 
 The images this project builds are published to its own container registry
 namespace, `ghcr.io/ainsel-project/ainsel-*` (see
-[`CONTRIBUTING.md`](../CONTRIBUTING.md#where-images-come-from)). While the old
-Docker Hub tags still have users on them, the same builds are mirrored to a
-Docker Hub namespace — `dpinsel/ainsel-*` today, chosen by the
-`DOCKERHUB_NAMESPACE` repository variable.
+[`CONTRIBUTING.md`](../CONTRIBUTING.md#where-images-come-from)). The Docker Hub
+mirror is **off**: the `DOCKERHUB_NAMESPACE` repository variable is not set on
+this repository, so `dpinsel/ainsel-*` receives no new builds — the mirror only
+pushes while that variable is set (see [First release after the namespace
+switch](#first-release-after-the-namespace-switch)).
 
-This page is the retention policy for the **Docker Hub mirror**: it has no
-server-side retention for a personal namespace, so nothing in the pipeline ever
-deleted a tag and the registry only ever grew — **456 tags / 125.71 GB across 11
+This page is the retention policy for the **Docker Hub mirror**: it governs the
+mirror only if it is turned back on, and until then it is the retention record
+for the frozen `dpinsel` namespace, whose tags remain pullable. The weekly
+`maintenance-untag.yml` cron stays scheduled and is report-only; against a
+namespace that no longer receives builds it is the audit trail that the archive
+is unchanged, which is deliberate. The mirror has no server-side retention
+for a personal namespace, so nothing in the pipeline ever deleted a tag and the
+registry only ever grew — **456 tags / 125.71 GB across 11
 repositories, 91% of the bytes in the three `pi*` images**. Those figures are a
 historical measurement of the `dpinsel` account, not a live number: every report
 the tooling prints is measured from the namespace you point it at.
