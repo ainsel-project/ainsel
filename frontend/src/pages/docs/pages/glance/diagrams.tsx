@@ -341,6 +341,42 @@ export function SolvedDiagram() {
   )
 }
 
+const MANAGE = ['Set up agents', 'Wire triggers', 'Check logs & costs', 'Fix skills & personas']
+
+export function ManageDiagram() {
+  return (
+    <Svg
+      viewBox="0 0 600 236"
+      title={`Your coding agent talks to the AInsel MCP server, which can: ${MANAGE.join(', ')}.`}
+    >
+      {(arrow) => (
+        <>
+          <Box x={8} y={78} w={176} h={80} lines={['Your coding agent']} sub="any MCP client" />
+          <Arrow d="M188,118 L222,118" marker={arrow} />
+          <Box
+            x={226}
+            y={78}
+            w={150}
+            h={80}
+            lines={['AInsel', 'MCP server']}
+            sub="your permissions"
+            accent
+          />
+          {MANAGE.map((label, i) => {
+            const y = 8 + i * 58
+            return (
+              <g key={label}>
+                <Arrow d={`M380,118 C396,118 396,${y + 22} 410,${y + 22}`} marker={arrow} quiet />
+                <Box x={414} y={y} w={178} h={44} lines={[label]} small />
+              </g>
+            )
+          })}
+        </>
+      )}
+    </Svg>
+  )
+}
+
 export function GrowDiagram() {
   const steps = [
     { lines: ['Try it'], sub: 'configure' },

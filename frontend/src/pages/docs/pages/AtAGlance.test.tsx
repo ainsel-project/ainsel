@@ -19,12 +19,13 @@ const SECTIONS = [
   ['Three jobs, same loop', 'three-jobs-same-loop'],
   ['What each team chooses', 'what-each-team-chooses'],
   ["What's already solved", 'whats-already-solved'],
+  ['Run it from your terminal', 'run-it-from-your-terminal'],
   ['Grow it', 'grow-it'],
   ['Next', 'next'],
 ]
 
 describe('AtAGlance', () => {
-  it('renders the seven sections in order', () => {
+  it('renders the eight sections in order', () => {
     renderPage()
     const h2s = screen.getAllByRole('heading', { level: 2 })
     expect(h2s.map((h) => h.textContent)).toEqual(SECTIONS.map(([text]) => text))
@@ -46,6 +47,7 @@ describe('AtAGlance', () => {
       '/docs/network-policies',
       '/docs/deployment',
       '/docs/administrator-guide',
+      '/docs/mcp',
     ]) {
       expect(hrefs).toContain(target)
     }
@@ -56,11 +58,11 @@ describe('AtAGlance', () => {
     const names = Array.from(container.querySelectorAll('[data-diagram]')).map((el) =>
       el.getAttribute('data-diagram'),
     )
-    expect(names).toEqual(['problem', 'loop', 'three-jobs', 'choose', 'solved', 'grow'])
+    expect(names).toEqual(['problem', 'loop', 'three-jobs', 'choose', 'solved', 'manage', 'grow'])
   })
 
   it('search text covers the pitch', () => {
-    for (const word of ['plugin', 'trigger', 'connector', 'MCP']) {
+    for (const word of ['plugin', 'trigger', 'connector', 'MCP', 'terminal', 'logs']) {
       expect(atAGlanceSearchText).toContain(word)
     }
   })

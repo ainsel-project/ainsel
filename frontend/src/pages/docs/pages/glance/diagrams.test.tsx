@@ -5,6 +5,7 @@ import {
   ChooseDiagram,
   GrowDiagram,
   LoopDiagram,
+  ManageDiagram,
   ProblemDiagram,
   SolvedDiagram,
   ThreeJobsDiagram,
@@ -16,6 +17,7 @@ const DIAGRAMS = {
   ThreeJobsDiagram,
   ChooseDiagram,
   SolvedDiagram,
+  ManageDiagram,
   GrowDiagram,
 }
 
