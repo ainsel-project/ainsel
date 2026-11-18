@@ -145,6 +145,20 @@
   max-width: 100%;
 }
 
+/* ----- Click-to-zoom screenshots (issue #383) -----
+   The overlay reuses .modal-backdrop from primitives.css (fixed, centred,
+   --backdrop, z-index 200); only the image sizing is docs-specific. */
+.docs-content-col .md-body img {
+  cursor: zoom-in;
+}
+.docs-img-zoom img {
+  max-width: min(1400px, 92vw);
+  max-height: 92vh;
+  cursor: zoom-out;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
 /* ----- Prev/next navigation ----- */
 .docs-prev-next {
   display: flex;

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DocsPage } from './DocsPage'
@@ -417,5 +417,55 @@ describe('DocsPage', () => {
 
     // Phantom heading from inside the tilde fence must NOT appear.
     expect(within(tocContainer).queryByText('Phantom Inside Tilde')).not.toBeInTheDocument()
+  })
+})
+
+// --- Click-to-zoom screenshots (issue #383) ---------------------------------
+
+describe('DocsPage screenshot zoom', () => {
+  it('opens a screenshot full size on click', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+    fireEvent.click(img)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveClass('modal-backdrop')
+    expect(within(dialog).getByRole('img', { name: 'Dashboard' })).toHaveAttribute(
+      'src',
+      expect.stringContaining('images/dashboard-overview.webp'),
+    )
+  })
+
+  it('closes on Escape', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByAltText('Dashboard'))
+    await screen.findByRole('dialog')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('closes on backdrop click', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByAltText('Dashboard'))
+    const dialog = await screen.findByRole('dialog')
+
+    fireEvent.click(dialog)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('closes when the zoomed image itself is clicked', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByAltText('Dashboard'))
+    const dialog = await screen.findByRole('dialog')
+
+    fireEvent.click(within(dialog).getByRole('img', { name: 'Dashboard' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('does not open the overlay when a link is clicked', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByRole('link', { name: 'Warning!' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

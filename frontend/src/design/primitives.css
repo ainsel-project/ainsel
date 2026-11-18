@@ -1036,6 +1036,18 @@ table.reg tr.reg-detail > td {
   text-decoration: underline;
   text-decoration-color: var(--signal);
 }
+/* Docs screenshots are retina captures about 2400px wide. Without this rule an
+   <img> keeps its intrinsic width and spills out of the 760px content column,
+   forcing horizontal scroll on every docs page with a screenshot (issue #383).
+   Fit the image to the column; DocsPage adds a click-to-zoom overlay so the
+   full-resolution capture stays reachable. Pinned by docsImage.guard.test.ts. */
+.md-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border: 1px solid var(--rule-soft);
+}
 
 /* ===== Code block (payload / JSON viewer) ===== */
 pre.code {

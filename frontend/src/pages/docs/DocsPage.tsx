@@ -139,6 +139,10 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
   // next page (component pages skip the fetch that would have reset a flag).
   const [notFoundSlug, setNotFoundSlug] = useState<string>()
   const contentRef = useRef<HTMLDivElement>(null)
+  // Click-to-zoom for docs screenshots: the column fits a 2400px capture to
+  // ~32%, so small UI text needs the full-resolution view to stay readable
+  // (issue #383). Null while closed.
+  const [zoomed, setZoomed] = useState<{ src: string; alt: string } | null>(null)
 
   // --- Search ---
   const [query, setQuery] = useState('')
@@ -192,6 +196,18 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
       cancelled = true
     }
   }, [slug, page])
+
+  // Escape closes the zoom overlay (same convention as ConfirmModal).
+  useEffect(() => {
+    if (!zoomed) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setZoomed(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [zoomed])
 
   const renderedSource = useMemo(
     () => (loading || notFound ? '' : rewriteDocLinks(source)),
@@ -267,6 +283,15 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
   // Intercept clicks on internal doc links rendered inside the markdown body
   // so they navigate via React Router instead of triggering a full page load.
   const onContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Screenshots open full size in a zoom overlay. Images are not wrapped in
+    // <a> because the href handling below blocks non-/docs/ URLs — the image
+    // asset URL is a static asset path, not an app route.
+    const img = (e.target as HTMLElement).closest('img')
+    if (img) {
+      const src = img.getAttribute('src')
+      if (src) setZoomed({ src, alt: img.getAttribute('alt') ?? '' })
+      return
+    }
     const anchor = (e.target as HTMLElement).closest('a')
     if (!anchor) return
     const href = anchor.getAttribute('href') ?? ''
@@ -407,6 +432,24 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
           </aside>
         )}
       </div>
+      {zoomed && (
+        <div
+          className="modal-backdrop docs-img-zoom"
+          role="dialog"
+          aria-modal="true"
+          aria-label={zoomed.alt ? `Zoomed: ${zoomed.alt}` : 'Zoomed image'}
+          onClick={(e) => {
+            // Backdrop click (outside the image) closes.
+            if (e.target === e.currentTarget) setZoomed(null)
+          }}
+        >
+          <img
+            src={zoomed.src}
+            alt={zoomed.alt}
+            onClick={() => setZoomed(null)}
+          />
+        </div>
+      )}
     </div>
   )
 }
