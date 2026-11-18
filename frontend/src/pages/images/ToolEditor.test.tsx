@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { useForm } from 'react-hook-form'
 import { ToolEditor } from './ToolEditor'
 import type { ImageFormValues } from './ImageDetail.types'
@@ -44,7 +43,6 @@ describe('ToolEditor', () => {
             name: 'mcp__example-mcp__list',
             kind: 'mcp',
             mcpSource: 'example-mcp',
-            enabled: true,
             isNew: false,
             description: 'Lists memories',
             examples: [],
@@ -55,7 +53,7 @@ describe('ToolEditor', () => {
     expect(screen.getByText('mcp__example-mcp__list')).toBeInTheDocument()
   })
 
-  it('shows enabled toggle (checkbox) for MCP tools', () => {
+  it('offers no enable/disable switch — the image catalog grants nothing', () => {
     render(
       <Wrapper
         toolIndex={0}
@@ -64,7 +62,6 @@ describe('ToolEditor', () => {
             name: 'mcp__example-mcp__list',
             kind: 'mcp',
             mcpSource: 'example-mcp',
-            enabled: true,
             isNew: false,
             description: '',
             examples: [],
@@ -72,30 +69,10 @@ describe('ToolEditor', () => {
         ]}
       />,
     )
-    expect(screen.getByRole('checkbox', { name: /enabled/i })).toBeInTheDocument()
-  })
-
-  it('toggles enabled state when checkbox is clicked', async () => {
-    render(
-      <Wrapper
-        toolIndex={0}
-        tools={[
-          {
-            name: 'mcp__example-mcp__list',
-            kind: 'mcp',
-            mcpSource: 'example-mcp',
-            enabled: true,
-            isNew: false,
-            description: '',
-            examples: [],
-          },
-        ]}
-      />,
-    )
-    const checkbox = screen.getByRole('checkbox', { name: /enabled/i })
-    expect(checkbox).toBeChecked()
-    await userEvent.click(checkbox)
-    expect(checkbox).not.toBeChecked()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.queryByText('Enabled')).not.toBeInTheDocument()
+    expect(screen.queryByText('Disabled')).not.toBeInTheDocument()
+    expect(screen.getByText(/granted tools on its own Tools page/i)).toBeInTheDocument()
   })
 
   it('shows edit form for native tools', () => {
@@ -106,7 +83,6 @@ describe('ToolEditor', () => {
           {
             name: 'run_shell',
             kind: 'shell',
-            enabled: true,
             isNew: false,
             description: 'Runs a shell command',
             examples: [],

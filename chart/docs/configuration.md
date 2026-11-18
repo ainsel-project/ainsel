@@ -29,11 +29,11 @@
 The default resource values in `values.yaml` are the **small** tier (single-node
 dev cluster). Overlay files are provided for larger deployments:
 
-| Overlay | Target | Usage |
+| Overlay | Target | Usage (released chart; `<X.Y.Z>` = chart version, no `v`) |
 |---|---|---|
-| `values.yaml` (defaults) | 1–2 users, dev | `helm install ainsel . -n ainsel` |
-| `values-medium.yaml` | ~10 active agents | `helm install ainsel . -n ainsel -f chart/values-medium.yaml` |
-| `values-large.yaml` | ~100 active agents | `helm install ainsel . -n ainsel -f chart/values-large.yaml` |
+| `values.yaml` (defaults) | 1–2 users, dev | `helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> -n ainsel --create-namespace` |
+| `values-medium.yaml` | ~10 active agents | fetch `chart/values-medium.yaml` from tag `v<X.Y.Z>` (raw URL or checkout), then the same command with `-f values-medium.yaml` |
+| `values-large.yaml` | ~100 active agents | same, with `-f values-large.yaml` |
 
 Per-component resource requests/limits by tier (CPU/memory):
 

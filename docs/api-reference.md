@@ -501,7 +501,7 @@ Fetch one `AgentImage` by name.
 
 ### PUT /api/v1/agent-images/{name}
 
-Update an `AgentImage`. All body fields are optional. Setting `tools` to a non-nil array replaces the tool list; an empty array clears it.
+Update an `AgentImage`. All body fields are optional. Setting `tools` to a non-nil array replaces the tool list; an empty array clears it. Tool entries carry no `enabled` flag: the image's list is a catalog, not a grant — the grant is `Agent.spec.enabledTools`.
 
 For secret env vars — top-level and sidecar alike — sending `value: ""` preserves the existing stored value and keeps the `secret` flag, regardless of the flag submitted with the entry. Send a non-empty `value` to replace the secret; an omitted `secret` keeps the stored flag, and only an explicit `secret: false` declassifies it. Drop the entry to remove it.
 
@@ -518,9 +518,11 @@ Delete an `AgentImage`. Returns `409 Conflict` (with `affectedAgents`) if any Ag
 ### POST /api/v1/agent-images/{name}/refresh-mcp
 
 Re-discover the image's MCP tools: the hub queries each MCP server listed on the image
-(`spec.mcpServers`), lists its tools, and merges them into `spec.tools` — preserving the
-enabled/disabled state of tools that are still present, adding newly discovered ones
-disabled (`isNew: true`), and removing tools the server no longer offers. Fails with `400`
+(`spec.mcpServers`), lists its tools, and merges them into `spec.tools` — a tool that is
+still present keeps what the image already stored for it, a newly discovered one is added
+with `isNew: true`, and tools the server no longer offers are removed. The image's tool
+list is a catalog: it grants nothing and carries no enable/disable state (the grant is
+`Agent.spec.enabledTools`). Fails with `400`
 if the image declares no MCP servers, and with `409 Conflict` if the image is externally
 managed (`managedBy`) — refreshing rewrites `spec.tools`.
 

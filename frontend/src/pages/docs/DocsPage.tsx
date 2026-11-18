@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { marked } from 'marked'
 import { Markdown } from '../../primitives/Markdown'
 import { Titleblock } from '../../layout/Titleblock'
+import { componentPages, type ComponentPage, type TocEntry } from './componentPages'
 import './DocsPage.css'
 
 // The in-app Docs page browses the repository's own `docs/` directory at
@@ -14,7 +15,6 @@ const DOCS_BASE = `${import.meta.env.BASE_URL}docs/`
 
 type DocNavItem = { title: string; slug: string }
 type DocSection = { title: string; items: DocNavItem[] }
-type TocEntry = { level: number; text: string; id: string }
 
 // Parse a docsify-style _sidebar.md into grouped sections.
 function parseSidebar(md: string): DocSection[] {
@@ -129,13 +129,15 @@ function rewriteDocLinks(md: string): string {
   )
 }
 
-export function DocsPage() {
+export function DocsPage({ pages = componentPages }: { pages?: Record<string, ComponentPage> }) {
   const splat = useParams()['*']
   const navigate = useNavigate()
   const [sections, setSections] = useState<DocSection[]>([])
   const [source, setSource] = useState('')
   const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
+  // Keyed by slug, not a flag: a stale "not found" must never leak into the
+  // next page (component pages skip the fetch that would have reset a flag).
+  const [notFoundSlug, setNotFoundSlug] = useState<string>()
   const contentRef = useRef<HTMLDivElement>(null)
 
   // --- Search ---
@@ -149,6 +151,8 @@ export function DocsPage() {
 
   // Default to the first sidebar entry when no topic is given (/docs).
   const slug = splat ?? items[0]?.slug
+  const page = slug ? pages[slug] : undefined
+  const notFound = !page && slug !== undefined && notFoundSlug === slug
 
   useEffect(() => {
     let cancelled = false
@@ -166,10 +170,9 @@ export function DocsPage() {
   }, [])
 
   useEffect(() => {
-    if (!slug) return
+    if (!slug || page) return
     let cancelled = false
     setLoading(true)
-    setNotFound(false)
     fetch(`${DOCS_BASE}${slug}.md`)
       .then((r) => {
         if (!r.ok) throw new Error(`docs: ${r.status}`)
@@ -182,13 +185,13 @@ export function DocsPage() {
       })
       .catch(() => {
         if (cancelled) return
-        setNotFound(true)
+        setNotFoundSlug(slug)
         setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [slug, page])
 
   const renderedSource = useMemo(
     () => (loading || notFound ? '' : rewriteDocLinks(source)),
@@ -205,6 +208,10 @@ export function DocsPage() {
     let cancelled = false
     const cache = docCache.current
     const allItems = itemsRef.current
+    for (const item of allItems) {
+      const registered = pages[item.slug]
+      if (registered) cache.set(item.slug, registered.searchText)
+    }
     const missing = allItems.filter((item) => !cache.has(item.slug))
     Promise.all(
       missing.map((item) =>
@@ -227,11 +234,11 @@ export function DocsPage() {
     return () => {
       cancelled = true
     }
-  }, [query])
+  }, [query, pages])
 
   const toc = useMemo(
-    () => (loading || notFound ? [] : parseHeadings(renderedSource)),
-    [renderedSource, loading, notFound],
+    () => (page ? page.headings : loading || notFound ? [] : parseHeadings(renderedSource)),
+    [page, renderedSource, loading, notFound],
   )
 
   const showToc = toc.length > 3
@@ -351,11 +358,17 @@ export function DocsPage() {
           )}
         </aside>
         <main className="docs-main">
-          {loading ? (
+          {loading && !page ? (
             <div className="md-body">Loading…</div>
           ) : (
             <div ref={contentRef} onClick={onContentClick} className="docs-content-col">
-              <Markdown source={renderedSource} />
+              {page ? (
+                <div className="md-body">
+                  <page.component />
+                </div>
+              ) : (
+                <Markdown source={renderedSource} />
+              )}
               {(prevItem || nextItem) && (
                 <nav className="docs-prev-next">
                   {prevItem ? (

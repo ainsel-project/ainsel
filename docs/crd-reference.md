@@ -208,7 +208,7 @@ Referenced by `Agent.spec.imageRef.name`.
 | `tools[].kind` | string | Yes | Tool kind: `container`, `shell`, or `mcp` |
 | `tools[].description` | string | No | Tool description |
 | `tools[].mcpSource` | string | No | MCP source identifier (for `mcp` kind tools) |
-| `tools[].disabled` | bool | No | Whether the tool is disabled (false = enabled) |
+| `tools[].disabled` | bool | No | **Deprecated, ignored.** It restricted no agent on its own — the grant is `Agent.spec.enabledTools`. The hub never writes it; a stored value survives untouched so existing objects still decode. Dropped with the next schema tightening |
 | `tools[].isNew` | bool | No | True if added by last refresh; cleared on next PUT |
 | `tools[].examples[]` | []AgentImageToolExample | No | Usage examples for the tool |
 | `tools[].examples[].title` | string | Yes | Example title |

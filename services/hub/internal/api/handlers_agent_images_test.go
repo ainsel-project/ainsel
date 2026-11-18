@@ -701,10 +701,11 @@ func TestAgentImages_UpdateNilEnvPreservesExisting(t *testing.T) {
 	}
 }
 
-// TestAgentImages_UpdateToolEnabled verifies that PUT persists Enabled on tools and
-// always clears IsNew regardless of what the client sends.
-func TestAgentImages_UpdateToolEnabled(t *testing.T) {
-	// Seed an image with an MCP tool that is new and disabled.
+// TestAgentImages_UpdateClearsIsNew verifies that PUT always clears IsNew
+// regardless of what the client sends, and that the deprecated `disabled`
+// flag is not part of the API any more.
+func TestAgentImages_UpdateClearsIsNew(t *testing.T) {
+	// Seed an image with an MCP tool that is new and carries a stale disabled flag.
 	img := &agentv1alpha1.AgentImage{
 		ObjectMeta: metav1.ObjectMeta{Name: "img-test", Namespace: "test-ns"},
 		Spec: agentv1alpha1.AgentImageSpec{
@@ -726,16 +727,16 @@ func TestAgentImages_UpdateToolEnabled(t *testing.T) {
 	s := testServer(t, img)
 	registerAgentImageRoutes(s)
 
-	// Client sends Enabled=true (enabling the tool) and IsNew=true (client still sees badge).
-	// Backend should: set Disabled=false AND clear IsNew regardless.
-	body, _ := json.Marshal(SimpleAgentImageUpdateRequest{
-		Tools: &[]AgentImageToolInfo{
+	// A client that still sends "enabled" is accepted and the field ignored;
+	// the backend clears IsNew regardless.
+	body, _ := json.Marshal(map[string]any{
+		"tools": []map[string]any{
 			{
-				Name:      "mcp__example-mcp__list",
-				Kind:      "mcp",
-				McpSource: "example-mcp",
-				Enabled:   true,
-				IsNew:     true, // client still sees isNew — backend must clear it
+				"name":      "mcp__example-mcp__list",
+				"kind":      "mcp",
+				"mcpSource": "example-mcp",
+				"enabled":   true, // legacy field — must be ignored
+				"isNew":     true, // client still sees isNew — backend must clear it
 			},
 		},
 	})
@@ -748,74 +749,30 @@ func TestAgentImages_UpdateToolEnabled(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp SimpleAgentImageResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
+	// The response no longer carries an enabled/disabled field at all.
+	var raw struct {
+		Tools []map[string]any `json:"tools"`
 	}
-	if len(resp.Tools) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(resp.Tools))
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("raw decode: %v", err)
 	}
-	if !resp.Tools[0].Enabled {
-		t.Error("tool should now be Enabled=true")
+	if len(raw.Tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(raw.Tools))
 	}
-	if resp.Tools[0].IsNew {
+	if _, ok := raw.Tools[0]["enabled"]; ok {
+		t.Error("response tool must not carry an `enabled` field")
+	}
+	if isNew, _ := raw.Tools[0]["isNew"].(bool); isNew {
 		t.Error("IsNew should be cleared on PUT")
 	}
-}
-
-// TestAgentImages_UpdateToolDisabled verifies that PUT with Enabled=false persists
-// Disabled=true in the stored CRD — catching the zero-value false bypass.
-func TestAgentImages_UpdateToolDisabled(t *testing.T) {
-	// Seed an enabled (Disabled=false) tool.
-	img := &agentv1alpha1.AgentImage{
-		ObjectMeta: metav1.ObjectMeta{Name: "img-dis", Namespace: "test-ns"},
-		Spec: agentv1alpha1.AgentImageSpec{
-			DisplayName: "Test",
-			ImageURL:    "registry.example.com/test:v1",
-			Tools: []agentv1alpha1.AgentImageTool{
-				{
-					Name:      "mcp__example-mcp__list",
-					Kind:      agentv1alpha1.AgentImageToolKindMCP,
-					McpSource: "example-mcp",
-					Disabled:  false, // currently enabled
-				},
-			},
-		},
+	// The stored CRD keeps the disabled value it already had — the hub never
+	// writes the deprecated flag.
+	var stored agentv1alpha1.AgentImage
+	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-test", Namespace: "test-ns"}, &stored); err != nil {
+		t.Fatalf("get stored: %v", err)
 	}
-	img.Status.Phase = agentv1alpha1.AgentImagePhaseReady
-
-	s := testServer(t, img)
-	registerAgentImageRoutes(s)
-
-	// Client sends Enabled=false — handler must persist Disabled=true.
-	body, _ := json.Marshal(SimpleAgentImageUpdateRequest{
-		Tools: &[]AgentImageToolInfo{
-			{
-				Name:      "mcp__example-mcp__list",
-				Kind:      "mcp",
-				McpSource: "example-mcp",
-				Enabled:   false, // disable it
-			},
-		},
-	})
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/agent-images/img-dis", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp SimpleAgentImageResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Tools) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(resp.Tools))
-	}
-	if resp.Tools[0].Enabled {
-		t.Error("tool should now be Enabled=false (was disabled by client)")
+	if !stored.Spec.Tools[0].Disabled { //nolint:staticcheck // asserting the stored deprecated flag survives, which is what the field is kept for
+		t.Error("stored tool should keep its previous Disabled=true (readable for one release)")
 	}
 }
 

@@ -11,7 +11,6 @@ export type Tool = {
   kind: ToolKind
   description?: string
   mcpSource?: string
-  enabled?: boolean // undefined treated as true (backward compat for existing data)
   isNew?: boolean
   examples?: ToolExample[]
 }

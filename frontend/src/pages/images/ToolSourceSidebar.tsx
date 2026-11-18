@@ -15,7 +15,6 @@ type SourceEntry = {
   key: Source
   label: string
   total: number
-  enabled: number
   hasNew: boolean
 }
 
@@ -34,7 +33,6 @@ function computeSources(tools: ToolFormValue[]): SourceEntry[] {
       key: 'all',
       label: 'All',
       total: tools.length,
-      enabled: tools.filter((t) => t.enabled).length,
       hasNew: tools.some((t) => t.isNew),
     },
   ]
@@ -44,7 +42,6 @@ function computeSources(tools: ToolFormValue[]): SourceEntry[] {
       key: 'native',
       label: 'Native',
       total: nativeTools.length,
-      enabled: nativeTools.filter((t) => t.enabled).length,
       hasNew: false,
     })
   }
@@ -54,7 +51,6 @@ function computeSources(tools: ToolFormValue[]): SourceEntry[] {
       key: server,
       label: server,
       total: serverTools.length,
-      enabled: serverTools.filter((t) => t.enabled).length,
       hasNew: serverTools.some((t) => t.isNew),
     })
   }
@@ -90,13 +86,13 @@ export function ToolSourceSidebar({
               type="button"
               className={s.key === activeSource ? 'src-item active' : 'src-item'}
               onClick={() => onSourceChange(s.key)}
-              aria-label={`${s.label}${s.hasNew ? ', has new tools' : ''}, ${s.enabled} of ${s.total} enabled`}
+              aria-label={`${s.label}${s.hasNew ? ', has new tools' : ''}, ${s.total} tools`}
               aria-pressed={s.key === activeSource}
             >
               <span className="src-label">{s.label}</span>
               <span className="src-count">
                 {s.hasNew ? '★' : null}
-                {s.enabled}/{s.total}
+                {s.total}
               </span>
             </button>
           </div>
