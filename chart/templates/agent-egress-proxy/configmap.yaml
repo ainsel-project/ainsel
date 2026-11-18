@@ -18,8 +18,9 @@ metadata:
     app.kubernetes.io/component: agent-egress-proxy
 data:
   # Generated from agentEgress.proxy.presets + agentEgress.proxy.allowedDomains
-  # (deduplicated, sorted). Squid dstdomain semantics: ".example.com" matches
-  # the domain and every subdomain; a bare name matches exactly.
+  # (deduplicated, sorted). Squid dstdomain semantics: an entry matches the
+  # domain AND every subdomain of it, with or without a leading dot — there is
+  # no exact-match form in this config.
   squid.conf: |
     http_port {{ .Values.agentEgress.proxy.port }}
     visible_name ainsel-agent-egress-proxy
