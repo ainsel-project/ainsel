@@ -15,6 +15,8 @@ path fails even before the golden diff is reviewed:
   the default `k8s-app: kube-dns` — the upstream label is not universal
   (OpenShift labels its DNS pods `dns=default`), and a cluster whose DNS pods
   carry neither would otherwise lose name resolution with nothing to set.
+  Setting it to `{}` widens the rule to every pod in the namespace, as
+  chart/values.yaml documents (it must not fall back to the default label).
 * proxy on: agent-egress has NO 443 rule anywhere, only hub 8080, scoped DNS
   and the proxy on the configured port; the egress-proxy policy is the only
   443-capable rule and it opens its own Ingress for the agent pods (the
@@ -34,6 +36,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,14 +58,31 @@ SCENARIOS = {
 }
 
 
-def render(value_sets):
+def render(value_sets, extra_args=()):
     cmd = [HELM, "template", "ainsel", str(CHART)]
     for value_set in value_sets:
         cmd += ["--set", value_set]
+    cmd += list(extra_args)
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         sys.exit(f"helm template failed for {value_sets}:\n{result.stderr}")
     return result.stdout
+
+
+def render_values(values_yaml, value_sets=()):
+    """Render with an inline values file.
+
+    For shapes --set cannot express, notably an explicitly empty map
+    (`networkPolicy.dnsPodSelector: {}`), which is what the docs promise as the
+    escape hatch for a cluster whose DNS pods carry no usable label.
+    """
+    fd, path = tempfile.mkstemp(suffix=".yaml")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(values_yaml)
+        return render(value_sets, ["--values", path])
+    finally:
+        os.unlink(path)
 
 
 def extract_egress(manifests):
@@ -232,6 +252,31 @@ def check_dns_pod_selector():
     assert "dns: default" in proxy and "k8s-app: kube-dns" not in proxy, (
         "the egress-proxy DNS rule takes the same selector: with the proxy on, "
         "a proxy that cannot resolve is a proxy that connects to nothing"
+    )
+
+    # The documented escape hatch: `{}` must widen the rule, not silently fall
+    # back to the default label (sprig's `default` treats an empty map as empty,
+    # so the value has to be read as authoritative when the key is present).
+    empty = policy_named(
+        render_values("networkPolicy:\n  dnsPodSelector: {}\n"), "agent-egress"
+    )
+    empty_proxy = policy_named(
+        render_values("networkPolicy:\n  dnsPodSelector: {}\n", PROXY_ON_SETS),
+        "egress-proxy",
+    )
+    for name, policy in (("agent-egress", empty), ("egress-proxy", empty_proxy)):
+        assert "k8s-app: kube-dns" not in policy, (
+            f"{name}: networkPolicy.dnsPodSelector: {{}} must not fall back to "
+            "the default selector — it is the escape hatch for clusters whose "
+            "DNS pods carry no label this chart knows"
+        )
+        assert re.search(r"(?m)^ +matchLabels:\n +\{\}$", policy), (
+            f"{name}: networkPolicy.dnsPodSelector: {{}} must render an empty "
+            "podSelector (every pod in dnsServerNamespace on 53), as "
+            "chart/values.yaml and chart/docs/configuration.md document"
+        )
+    assert "kubernetes.io/metadata.name: kube-system" in empty, (
+        "the namespace scoping stays even when the pod selector is emptied"
     )
 
 

@@ -4,7 +4,17 @@
      cluster whose DNS pods carry neither needs this set, or the scoped rules
      refuse name resolution for the pods they protect. See
      networkPolicy.dnsPodSelector in values.yaml. */ -}}
-{{- $dnsPodSelector := .Values.networkPolicy.dnsPodSelector | default (dict "k8s-app" "kube-dns") -}}
+{{- /* The DNS pod selector is authoritative when the user sets it, including
+     when they set it to {} — the documented way to widen the rule to every pod
+     in dnsServerNamespace. Two helm traps to keep in mind: sprig's `default`
+     treats an empty map as empty, and helm merges a user map into the chart's
+     instead of replacing it, so the default lives here (with `dnsPodSelector`
+     left empty in values.yaml) — otherwise `{}` could never be set at all. An
+     explicit null still means "unset" (helm drops the key), so it keeps the
+     default too. */ -}}
+{{- $dnsPodSelector := dict "k8s-app" "kube-dns" -}}
+{{- $dnsPodSelectorValue := .Values.networkPolicy.dnsPodSelector -}}
+{{- if kindIs "map" $dnsPodSelectorValue }}{{ $dnsPodSelector = $dnsPodSelectorValue }}{{ else if $dnsPodSelectorValue }}{{ fail "networkPolicy.dnsPodSelector must be a map of pod labels, or {} to allow every pod in dnsServerNamespace on 53" }}{{ end -}}
 # Default deny all ingress to the namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
