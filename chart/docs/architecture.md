@@ -20,7 +20,9 @@ name matches the component's directory in the code tree:
 
 Deliberate exceptions: the MCP service stays `ainsel-mcp`, Postgres stays
 `postgres`, and container image repositories keep their historical names
-(e.g. `dpinsel/ainsel-hub-backend`). The operators label the resources they
+(e.g. `ainsel-hub-backend`, composed to
+`ghcr.io/ainsel-project/ainsel-hub-backend` via `global.imageRegistry`). The
+operators label the resources they
 create with `app.kubernetes.io/managed-by: agent-operator` /
 `connector-operator`; those values are set in operator code and are not
 chart resource names.
