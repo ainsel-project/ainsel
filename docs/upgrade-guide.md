@@ -534,6 +534,23 @@ the delete-conflict referrers are `{"agentName", "agentId"}` instead of
 `{"agentImageName", "agentImageId"}`. In the console the image's Tools tab is now clearly
 the catalog, and each agent's Tools and Skills sections edit that agent's own selection.
 
+- **Breaking: the image tool enable/disable switch is removed.** Since the grant moved to
+  `Agent.spec.enabledTools` ([#244](https://github.com/ainsel-project/ainsel/issues/244)),
+  an image tool's *Enabled/Disabled* switch restricted nothing — an agent that names a tool
+  gets it regardless of what the image page showed. Switching a tool "Disabled" there was a
+  cosmetic state, not a control. The console no longer renders the per-tool checkbox, the
+  bulk *All on*/*All off* buttons or any `N/M on` counters on the image's Tools tab, and
+  `enabled` is gone from the hub's agent-image request and response (a request that still
+  sends it is accepted and the field ignored). `AgentImage.spec.tools` stays: it is the
+  catalog the runtime provides and what grants are validated against. The CRD's
+  `spec.tools[].disabled` field is deprecated — the hub never reads or writes it, a stored
+  value survives untouched so existing objects still decode, and it is dropped with the
+  next schema tightening. Nothing about an agent's effective tool set changes because of
+  this removal; what preserves (or narrows) today's effective sets is the
+  `Agent.spec.enabledTools` grant migration
+  ([#368](https://github.com/ainsel-project/ainsel/issues/368)): an empty grant now means
+  *every* tool the image provides, a non-empty one is a hard limit.
+
 #### `next-task` long-poll removed
 
 - **Removed: `GET /api/internal/agents/{name}/next-task`.** Per-task Job
