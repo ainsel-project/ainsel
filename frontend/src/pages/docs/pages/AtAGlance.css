@@ -150,3 +150,18 @@
 .gl-text-small {
   font-size: 13px;
 }
+
+/* Phones: the 600-wide diagrams would shrink their text to ~8px. Keep them at
+   a readable minimum (12px text) and let each figure scroll on its own; the
+   page itself never scrolls sideways. The three-jobs lanes already stack. */
+@media (max-width: 480px) {
+  .glance-figure {
+    overflow-x: auto;
+  }
+  .glance-figure .gl-svg {
+    min-width: 480px;
+  }
+  .glance-figure .gl-lanes .gl-svg {
+    min-width: 0;
+  }
+}
