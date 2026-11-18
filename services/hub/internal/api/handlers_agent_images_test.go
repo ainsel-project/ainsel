@@ -771,7 +771,7 @@ func TestAgentImages_UpdateClearsIsNew(t *testing.T) {
 	if err := s.client.Get(context.Background(), types.NamespacedName{Name: "img-test", Namespace: "test-ns"}, &stored); err != nil {
 		t.Fatalf("get stored: %v", err)
 	}
-	if !stored.Spec.Tools[0].Disabled {
+	if !stored.Spec.Tools[0].Disabled { //nolint:staticcheck // asserting the stored deprecated flag survives, which is what the field is kept for
 		t.Error("stored tool should keep its previous Disabled=true (readable for one release)")
 	}
 }

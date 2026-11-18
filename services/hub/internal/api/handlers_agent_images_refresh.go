@@ -125,7 +125,7 @@ func mergeMCPTools(
 					Kind:        agentv1alpha1.AgentImageToolKindMCP,
 					Description: ft.Description,
 					McpSource:   serverName,
-					Disabled:    prev.Disabled,
+					Disabled:    prev.Disabled, //nolint:staticcheck // preserving the stored deprecated flag, not interpreting it
 					IsNew:       prev.IsNew,
 				})
 			} else {

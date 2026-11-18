@@ -43,7 +43,7 @@ func TestMergeMCPTools_PreservesStoredDisabledFlag(t *testing.T) {
 	if listTool == nil {
 		t.Fatal("mcp__example-mcp__list missing")
 	}
-	if listTool.Disabled {
+	if listTool.Disabled { //nolint:staticcheck // deprecated flag: the test asserts the hub leaves it alone
 		t.Error("mcp__example-mcp__list should keep Disabled=false")
 	}
 	// mcp__example-mcp__add: stored disabled=true, and the hub never rewrites
@@ -52,7 +52,7 @@ func TestMergeMCPTools_PreservesStoredDisabledFlag(t *testing.T) {
 	if addTool == nil {
 		t.Fatal("mcp__example-mcp__add missing")
 	}
-	if !addTool.Disabled {
+	if !addTool.Disabled { //nolint:staticcheck // deprecated flag: the test asserts a stored value survives a refresh
 		t.Error("mcp__example-mcp__add should keep its stored Disabled=true")
 	}
 	// mcp__example-mcp__delete: new — marked IsNew, deprecated flag left at the
@@ -61,7 +61,7 @@ func TestMergeMCPTools_PreservesStoredDisabledFlag(t *testing.T) {
 	if delTool == nil {
 		t.Fatal("mcp__example-mcp__delete missing")
 	}
-	if delTool.Disabled {
+	if delTool.Disabled { //nolint:staticcheck // deprecated flag: the test asserts a new tool is not written with it
 		t.Error("new tool mcp__example-mcp__delete must not be written with the deprecated Disabled flag")
 	}
 	if !delTool.IsNew {

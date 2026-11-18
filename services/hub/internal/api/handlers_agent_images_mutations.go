@@ -115,7 +115,7 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 		// unchanged; a tool new to this write gets the zero value.
 		prevDisabled := make(map[string]bool, len(existing.Spec.Tools))
 		for _, t := range existing.Spec.Tools {
-			prevDisabled[t.Name] = t.Disabled
+			prevDisabled[t.Name] = t.Disabled //nolint:staticcheck // deprecated flag is read only to preserve a stored value verbatim
 		}
 
 		newTools := make([]agentv1alpha1.AgentImageTool, 0, len(*req.Tools))
@@ -125,7 +125,7 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 				Kind:        agentv1alpha1.AgentImageToolKind(t.Kind),
 				Description: t.Description,
 				McpSource:   t.McpSource,
-				Disabled:    prevDisabled[t.Name],
+				Disabled:    prevDisabled[t.Name], //nolint:staticcheck // preserving the stored deprecated flag, not interpreting it
 				IsNew:       false,
 			}
 			for _, ex := range t.Examples {
