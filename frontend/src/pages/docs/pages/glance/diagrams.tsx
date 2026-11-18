@@ -13,9 +13,10 @@ type BoxProps = {
   lines: string[]
   sub?: string
   accent?: boolean
+  small?: boolean
 }
 
-function Box({ x, y, w, h, lines, sub, accent }: BoxProps) {
+function Box({ x, y, w, h, lines, sub, accent, small }: BoxProps) {
   const lineHeight = 18
   const textHeight = lines.length * lineHeight + (sub ? 16 : 0)
   const top = y + (h - textHeight) / 2 + 13
@@ -29,7 +30,7 @@ function Box({ x, y, w, h, lines, sub, accent }: BoxProps) {
         rx={6}
         className={accent ? 'gl-box gl-box-accent' : 'gl-box'}
       />
-      <text className="gl-text" textAnchor="middle">
+      <text className={small ? 'gl-text gl-text-small' : 'gl-text'} textAnchor="middle">
         {lines.map((line, i) => (
           <tspan key={line} x={x + w / 2} y={top + i * lineHeight}>
             {line}
@@ -319,8 +320,8 @@ export function SolvedDiagram() {
             const row = i < 4 ? 0 : 1
             const col = row === 0 ? i : i - 4
             const perRow = row === 0 ? 4 : 3
-            const w = 128
-            const gap = 12
+            const w = 132
+            const gap = 10
             const start = 300 - (perRow * w + (perRow - 1) * gap) / 2
             return (
               <Box
@@ -330,6 +331,7 @@ export function SolvedDiagram() {
                 w={w}
                 h={44}
                 lines={[label]}
+                small
               />
             )
           })}

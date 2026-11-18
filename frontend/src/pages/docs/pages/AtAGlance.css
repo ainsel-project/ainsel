@@ -147,3 +147,6 @@
     justify-content: center;
   }
 }
+.gl-text-small {
+  font-size: 13px;
+}
