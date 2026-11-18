@@ -18,9 +18,9 @@ import (
 
 // handleAgentImageRefreshMCP handles POST /api/v1/agent-images/{name}/refresh-mcp.
 // It queries each configured MCP server, discovers its tools, and merges them
-// into the image's tool list: existing tool enabled/disabled state is preserved,
-// newly discovered tools are added with Disabled=true and IsNew=true, and tools
-// that have disappeared from the server are removed.
+// into the image's tool list: a stored tool keeps the deprecated disabled flag
+// it already carried, newly discovered tools are added with IsNew=true, and
+// tools that have disappeared from the server are removed.
 func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rest := extractName(r.URL.Path, "/api/v1/agent-images/")
@@ -82,9 +82,12 @@ func (s *Server) handleAgentImageRefreshMCP(w http.ResponseWriter, r *http.Reque
 //
 // Rules:
 //   - Non-MCP tools are kept as-is.
-//   - MCP tools still present on their server keep their current Disabled state and
-//     Description (updated from server); their IsNew flag is preserved.
-//   - MCP tools newly discovered (not in existing) are added with Disabled=true, IsNew=true.
+//   - MCP tools still present on their server keep their current (deprecated,
+//     ignored) Disabled value and their Description (updated from server); their
+//     IsNew flag is preserved.
+//   - MCP tools newly discovered (not in existing) are added with IsNew=true.
+//     The deprecated Disabled flag is no longer set on them: it restricted
+//     nothing, and a new tool is no more available than any other catalog entry.
 //   - MCP tools no longer present on their server are removed.
 func mergeMCPTools(
 	existing []agentv1alpha1.AgentImageTool,
@@ -116,23 +119,23 @@ func mergeMCPTools(
 		for _, ft := range freshTools {
 			fullName := fmt.Sprintf("mcp__%s__%s", serverName, ft.Name)
 			if prev, existed := existingMCP[fullName]; existed {
-				// Preserve enabled/disabled state and IsNew; update description.
+				// Preserve the deprecated flag and IsNew; update description.
 				result = append(result, agentv1alpha1.AgentImageTool{
 					Name:        fullName,
 					Kind:        agentv1alpha1.AgentImageToolKindMCP,
 					Description: ft.Description,
 					McpSource:   serverName,
-					Disabled:    prev.Disabled,
+					Disabled:    prev.Disabled, //nolint:staticcheck // preserving the stored deprecated flag, not interpreting it
 					IsNew:       prev.IsNew,
 				})
 			} else {
-				// Brand-new tool: start disabled, mark as new.
+				// Brand-new tool: mark as new. The deprecated Disabled flag is
+				// left at its zero value — it restricts nothing.
 				result = append(result, agentv1alpha1.AgentImageTool{
 					Name:        fullName,
 					Kind:        agentv1alpha1.AgentImageToolKindMCP,
 					Description: ft.Description,
 					McpSource:   serverName,
-					Disabled:    true,
 					IsNew:       true,
 				})
 			}

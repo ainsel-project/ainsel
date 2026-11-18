@@ -1,6 +1,5 @@
 import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import { Button } from '../../primitives/Button'
-import { Check } from '../../primitives/Check'
 import { Field } from '../../primitives/Field'
 import { Input } from '../../primitives/Input'
 import { Select } from '../../primitives/Select'
@@ -65,14 +64,7 @@ export function ToolEditor({
         </header>
         <div className="tool-detail">
           <div className="tool-state">
-            <Check
-              aria-label="enabled"
-              checked={tool.enabled}
-              onChange={(next) =>
-                setValue(`tools.${toolIndex}.enabled`, next, { shouldDirty: true })
-              }
-            />
-            <span className="tool-state-text">{tool.enabled ? 'Enabled' : 'Disabled'}</span>
+            <span className="tool-state-text">catalog entry</span>
             <span className="label tool-state-spacer">{tool.mcpSource} MCP</span>
           </div>
 
@@ -80,7 +72,8 @@ export function ToolEditor({
 
           <p className="tool-hint">
             MCP tools are auto-populated by the <b>Refresh MCP Tools</b> button. Edit the MCP server
-            configuration to change which tools appear here.
+            configuration to change which tools appear here. This is the catalog only — an agent is
+            granted tools on its own Tools page (<code>enabledTools</code>), never here.
           </p>
           {tool.description ? (
             <Field label="Description" htmlFor="">
@@ -103,12 +96,7 @@ export function ToolEditor({
       </header>
       <div className="tool-detail">
         <div className="tool-state">
-          <Check
-            aria-label="enabled"
-            checked={tool.enabled}
-            onChange={(next) => setValue(`tools.${toolIndex}.enabled`, next, { shouldDirty: true })}
-          />
-          <span className="tool-state-text">{tool.enabled ? 'Enabled' : 'Disabled'}</span>
+          <span className="tool-state-text">catalog entry</span>
         </div>
         <div className="tool-title">
           <h2>{tool.name || <em>unnamed</em>}</h2>

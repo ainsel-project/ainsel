@@ -617,7 +617,7 @@ describe('ImageDetailPage', () => {
     expect(capturedBody!.mcpServers).toEqual([])
   })
 
-  it('toggles an MCP tool off and sends enabled: false in the PUT body', async () => {
+  it('sends the tool catalog without any enabled flag', async () => {
     const user = userEvent.setup()
     let capturedBody: AgentImageRequest | null = null
 
@@ -630,7 +630,6 @@ describe('ImageDetailPage', () => {
           kind: 'mcp',
           description: 'List resources via MCP',
           mcpSource: 'my-mcp',
-          enabled: true,
         },
       ],
     }
@@ -656,21 +655,18 @@ describe('ImageDetailPage', () => {
       { route: '/agent-images/claude-tooling-base:1.4' },
     )
 
-    // Wait for the MCP tool to appear in the list
-    await waitFor(() =>
-      expect(screen.getByRole('checkbox', { name: /toggle list_resources/i })).toBeInTheDocument(),
-    )
-
-    // Toggle the MCP tool off
-    const toggle = screen.getByRole('checkbox', { name: /toggle list_resources/i })
-    await user.click(toggle)
-    expect(toggle).not.toBeChecked()
+    // Wait for the MCP tool to appear in the list — as a catalog row, with no
+    // enable/disable switch anywhere.
+    await waitFor(() => expect(screen.getByText('list_resources')).toBeInTheDocument())
+    expect(
+      screen.queryByRole('checkbox', { name: /toggle list_resources/i }),
+    ).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(capturedBody).not.toBeNull())
     const mcpTool = capturedBody!.tools?.find((t) => t.name === 'mcp__my-mcp__list_resources')
     expect(mcpTool).toBeDefined()
-    expect(mcpTool!.enabled).toBe(false)
+    expect(mcpTool).not.toHaveProperty('enabled')
   })
 
   it('preserves user edits across a background refetch', async () => {
