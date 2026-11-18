@@ -311,3 +311,38 @@ func TestLLMProviderEnv_SecretRefSemantics(t *testing.T) {
 		})
 	}
 }
+
+// TestEnabledToolsEnv_EmptyGrantIsPassedThroughEmpty locks the contract the
+// runtime now depends on (issue #368): an agent with no `enabledTools` gets
+// AGENT_TOOLS present and empty, which ainsel-tools reads as a grant of nothing.
+// Dropping the variable instead would leave the runtime guessing between "no
+// grant" and "the operator forgot", and the empty string is the honest one.
+func TestEnabledToolsEnv_EmptyGrantIsPassedThroughEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tools []string
+		want  string
+	}{
+		{"unset", nil, ""},
+		{"empty", []string{}, ""},
+		{"one tool", []string{"read_file"}, "read_file"},
+		{"two tools", []string{"read_file", "bash"}, "read_file,bash"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := &ainselv1alpha1.Agent{Spec: ainselv1alpha1.AgentSpec{EnabledTools: tc.tools}}
+			envs := enabledToolsEnv(agent)
+			if len(envs) != 1 {
+				t.Fatalf("enabledToolsEnv = %v, want exactly one entry", envs)
+			}
+			if envs[0].Name != "AGENT_TOOLS" {
+				t.Fatalf("env name = %q, want AGENT_TOOLS", envs[0].Name)
+			}
+			if envs[0].Value != tc.want {
+				t.Errorf("AGENT_TOOLS = %q, want %q", envs[0].Value, tc.want)
+			}
+			if envs[0].ValueFrom != nil {
+				t.Error("AGENT_TOOLS must carry a literal value, not a valueFrom")
+			}
+		})
+	}
+}

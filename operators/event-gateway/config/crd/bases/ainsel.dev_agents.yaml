@@ -175,12 +175,15 @@ spec:
                 type: string
               enabledTools:
                 description: |-
-                  EnabledTools is this agent's tool selection: names taken from the
-                  referenced image's capability catalog (AgentImage.Spec.Tools). The
+                  EnabledTools is this agent's tool grant: names taken from the
+                  referenced image's capability catalog (AgentImage.Spec.Tools), or one
+                  `mcp__<server>` entry per MCP server the agent effectively has. The
                   runtime enforces it — the operator passes it to the pod as AGENT_TOOLS
                   and the runtime withholds every tool it does not name. Absent or empty
-                  means unrestricted: the agent may use everything its image provides.
-                  Names the image's catalog does not declare are rejected by the hub.
+                  grants nothing: the agent runs with no tools. A grant has to be explicit;
+                  `hub migrate-enabled-tools` writes the current effective set of agents that
+                  predate this rule. Names the image's catalog does not declare and that do
+                  not name an effective MCP server are rejected by the hub.
                 items:
                   type: string
                 type: array
@@ -672,9 +675,12 @@ spec:
                   agent — the image carries none — so absent or empty means the agent runs
                   with no skills. Names the library does not contain are rejected by the
                   hub.
-                items:
-                  type: string
-                type: array
+
+                  The schema accepts any shape for one release: objects stored before the
+                  list existed hold the `{items: [...]}` wrapper, and a list-typed schema
+                  would make the API server prune it to `{}` on every read, before the
+                  chart's migration can rewrite it. See SkillList.
+                x-kubernetes-preserve-unknown-fields: true
               workingHours:
                 description: |-
                   WorkingHours confines task delivery to a recurring weekly window: while
@@ -872,6 +878,55 @@ spec:
                       cap allows).
                     type: string
                 type: object
+              taskStartBlocks:
+                description: |-
+                  TaskStartBlocks is the operator's account of tasks whose pod never got as
+                  far as a running container: the Job was retired so the concurrency slot
+                  went back to the queue, and the task is not dispatched again until
+                  BlockedUntil. It lives on status because the Job that held the slot is
+                  gone by the time anyone asks why the task still reads QUEUED, and because
+                  the hub needs the reason to put on the task row. Operator-owned; the hub
+                  reads it and never writes it.
+                items:
+                  description: |-
+                    AgentTaskStartBlock is one task the operator stopped dispatching because its
+                    pod never started — an image that cannot be pulled, a container config the
+                    kubelet rejects. The Job is gone by the time this is read; the record is what
+                    says why.
+                  properties:
+                    blockedAt:
+                      description: BlockedAt is when the operator gave up on the pod.
+                      format: date-time
+                      type: string
+                    blockedUntil:
+                      description: |-
+                        BlockedUntil is when the operator will let the task have a slot again.
+                        The block is dropped from status once it passes.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is the kubelet's own one-line explanation,
+                        safe to show in a UI.
+                      type: string
+                    reason:
+                      description: |-
+                        Reason is a stable code for why: the container's waiting reason
+                        (ImagePullBackOff, ErrImagePull, CreateContainerConfigError, ...) or
+                        PodNeverStarted when no container reported one before the absolute
+                        start deadline passed.
+                      type: string
+                    taskId:
+                      description: TaskID is the agent_tasks row whose pod never started.
+                      format: int64
+                      type: integer
+                  required:
+                  - blockedAt
+                  - blockedUntil
+                  - reason
+                  - taskId
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
             type: object
         type: object
     served: true

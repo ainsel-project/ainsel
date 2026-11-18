@@ -16,7 +16,7 @@ import ainselToolsExtension, {
 // ---------------------------------------------------------------------------
 
 describe("parseAllowlist", () => {
-	it("treats unset, empty and blank-only values as no restriction", () => {
+	it("treats unset, empty and blank-only values as no grant", () => {
 		assert.deepEqual(parseAllowlist(undefined), []);
 		assert.deepEqual(parseAllowlist(""), []);
 		assert.deepEqual(parseAllowlist(" , ,, "), []);
@@ -174,15 +174,69 @@ describe("ainsel-tools extension", () => {
 		delete process.env.AINSEL_TOOLS_DIR;
 	});
 
-	it("does nothing when the agent has no tool selection", async () => {
+	it("denies every tool when the agent has no tool grant", async () => {
 		await withEnv({ AGENT_TOOLS: "" }, async () => {
 			const h = makePi(registered);
 			ainselToolsExtension(h.pi);
-			assert.deepEqual(await h.fire("session_start", {}), []);
-			assert.equal(h.state.active, null);
-			const results = await h.fire("tool_call", { toolName: "git-ops", input: {} });
-			assert.deepEqual(results, []);
+			await h.fire("session_start", {});
+			assert.deepEqual(h.state.active, []);
+			for (const toolName of registered) {
+				const [result] = await h.fire("tool_call", { toolName, input: {} });
+				assert.equal(result.block, true, `${toolName} was not blocked`);
+				assert.match(result.reason, /not in this agent's tool selection/);
+			}
 		});
+	});
+
+	it("denies every tool when AGENT_TOOLS is unset", async () => {
+		await withEnv({ AGENT_TOOLS: undefined }, async () => {
+			const h = makePi(registered);
+			ainselToolsExtension(h.pi);
+			await h.fire("before_agent_start", {});
+			assert.deepEqual(h.state.active, []);
+			const [result] = await h.fire("tool_call", { toolName: "read", input: {} });
+			assert.equal(result.block, true);
+		});
+	});
+
+	it("says on stderr that an empty grant means no tools", async () => {
+		await withEnv({ AGENT_TOOLS: " , " }, async () => {
+			const h = makePi(registered);
+			ainselToolsExtension(h.pi);
+			const lines: string[] = [];
+			const saved = console.error;
+			console.error = (...args: unknown[]) => {
+				lines.push(args.join(" "));
+			};
+			try {
+				await h.fire("session_start", {});
+			} finally {
+				console.error = saved;
+			}
+			assert.ok(
+				lines.some((l) => /no tool grant \(AGENT_TOOLS unset or empty\)/.test(l)),
+				`stderr lines: ${JSON.stringify(lines)}`,
+			);
+		});
+	});
+
+	it("blocks the shell itself for an agent with no grant, catalog included", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ainsel-tools-deny-"));
+		try {
+			fs.writeFileSync(path.join(dir, "forgejo"), "#!/bin/sh\n", { mode: 0o755 });
+			await withEnv({ AGENT_TOOLS: "", AINSEL_TOOLS_DIR: dir }, async () => {
+				const h = makePi(registered);
+				ainselToolsExtension(h.pi);
+				const [result] = await h.fire("tool_call", {
+					toolName: "bash",
+					input: { command: "forgejo issue list" },
+				});
+				assert.equal(result.block, true);
+				assert.match(result.reason, /"bash"/);
+			});
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("narrows the declared tools to the selection on session start", async () => {

@@ -453,8 +453,11 @@ func llmProviderEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
 // the list does not name. Names are passed through exactly as the agent declares
 // them, because the allowlist is matched against runtime tool names — the
 // catalog kind is display metadata, and an MCP tool is named
-// mcp__<server>__<tool> at runtime. An empty list means no restriction: the
-// agent may use everything its image provides.
+// mcp__<server>__<tool> at runtime. An empty list is passed through as the empty
+// string, and the runtime reads that as a grant of nothing: the agent gets no
+// tools (issue #368). The operator never widens or narrows the list — granting
+// tools is the hub's and the plugin's job, and `hub migrate-enabled-tools` is
+// what gives an existing agent its current set explicitly.
 func enabledToolsEnv(agent *ainselv1alpha1.Agent) []corev1.EnvVar {
 	return []corev1.EnvVar{{Name: "AGENT_TOOLS", Value: strings.Join(agent.Spec.EnabledTools, ",")}}
 }

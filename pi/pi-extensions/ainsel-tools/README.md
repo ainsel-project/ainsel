@@ -1,6 +1,6 @@
 # pi-ainsel-tools
 
-Enforces the agent's own tool selection at runtime.
+Enforces the agent's own tool grant at runtime.
 
 The `Agent` CR carries `spec.enabledTools` — the tools this agent may use. The
 operator passes it to the pod as `AGENT_TOOLS`. The image only declares what it
@@ -10,10 +10,14 @@ nothing read it.
 
 ## Behaviour
 
-`AGENT_TOOLS` unset or empty → the extension does nothing. An agent with no
-selection runs with everything its image and MCP servers provide.
+`AGENT_TOOLS` unset or empty → **no tool grant**: the agent runs with no tools.
+Every declared tool is withdrawn, every call is blocked, and every catalog
+binary is withheld from the shell. A grant has to be explicit — the empty state
+is the restrictive one, not the permissive one (issue #368). `hub
+migrate-enabled-tools` (a chart `pre-upgrade` hook) spells out each agent's
+effective set before this flips, so an upgrade never takes tools away.
 
-With a selection in effect:
+With a grant in effect:
 
 | Guard | What it does |
 |-------|--------------|
@@ -27,14 +31,17 @@ With a selection in effect:
 |-----------------|---------|
 | `read_file` | the registered tool `read_file`, and the catalog tool `read_file` |
 | `mcp__github__list_issues` | that MCP tool |
+| `mcp__github` | every tool of the `github` MCP server (also the bare `github`) |
 
 Entries are exact tool names — the same names as `AgentImage.spec.tools[].name`,
-which is what the hub validates `spec.enabledTools` against. For an MCP tool that
-means the full `mcp__<server>__<tool>` name; a bare server name is not a catalog
-entry and the hub rejects it (`400 enabledTools not in image`). The matcher does
-also grant a bare server name over that server's tools — a defensive rule for a
-hand-set `AGENT_TOOLS`, not a supported configuration: never author selections
-that way, since the CR path cannot express them.
+which is what the hub validates `spec.enabledTools` against. For a single MCP
+tool that means the full `mcp__<server>__<tool>` name. A **server-level** entry
+(`mcp__github`, or the bare `github` the matcher also honours) grants that
+server's tools, present and future: the hub accepts it when the server is in the
+agent's effective MCP set (its own `spec.mcp.servers`, or the image's when the
+agent pins none) and rejects it otherwise. That is what
+`hub migrate-enabled-tools` writes for an agent whose tools came from MCP, and
+what the agent Tools page offers, so the CR path can express it.
 
 ## The shell guard is capability hygiene, not a sandbox
 
@@ -55,7 +62,12 @@ ainsel-tools: AGENT_TOOLS names nothing registered: forgeeo (from session_start)
 ```
 
 Silently falling back to "everything" would turn a typo in the Agent CR into a
-*wider* tool set than the operator asked for.
+*wider* tool set than the operator asked for. An empty grant is the same shape —
+applied, and announced:
+
+```
+ainsel-tools: no tool grant (AGENT_TOOLS unset or empty); the agent runs with no tools
+```
 
 ## Test
 
