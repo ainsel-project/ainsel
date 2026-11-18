@@ -4,6 +4,7 @@ import {
   ChooseDiagram,
   GrowDiagram,
   LoopDiagram,
+  ManageDiagram,
   ProblemDiagram,
   SolvedDiagram,
   ThreeJobsDiagram,
@@ -26,6 +27,7 @@ const DIAGRAMS: Record<string, () => React.JSX.Element> = {
   'three-jobs': ThreeJobsDiagram,
   choose: ChooseDiagram,
   solved: SolvedDiagram,
+  manage: ManageDiagram,
   grow: GrowDiagram,
 }
 
@@ -168,13 +170,30 @@ export function AtAGlance() {
 
       <H2 index={5} />
       <p>
+        AInsel ships its own <Link to="/docs/mcp">MCP server</Link>. Connect it to the coding agent
+        your engineers already use (Claude Code, an IDE assistant, any MCP client) and they manage
+        the whole platform in plain language: set up agents, wire triggers, check logs and costs,
+        fix a skill. Nobody has to open the console, and the agent can only do what its user is
+        allowed to do.
+      </p>
+      <Figure name="manage" />
+      <pre className="glance-transcript" aria-label="Example terminal conversation">
+        {`you    Why did the review agent fail last night?
+agent  Reading its last invocations and logs…
+       The "review-checklist" skill points at a file that was renamed.
+you    Fix the skill.
+agent  Updated "review-checklist". The next review uses it.`}
+      </pre>
+
+      <H2 index={6} />
+      <p>
         Teams start by configuring an agent and trying it. Once one of them finds the way that
         works, it becomes a plugin, for example a state machine that walks an issue through
         planning, implementation and review, and every other team gets it with one install.
       </p>
       <Figure name="grow" />
 
-      <H2 index={6} />
+      <H2 index={7} />
       <ul>
         <li>
           <Link to="/docs/why-ainsel">Why AInsel</Link>: the longer argument behind this page.

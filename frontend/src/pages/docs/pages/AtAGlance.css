@@ -165,3 +165,8 @@
     min-width: 0;
   }
 }
+
+.glance-transcript {
+  white-space: pre-wrap;
+  border-left: 2px solid var(--signal);
+}

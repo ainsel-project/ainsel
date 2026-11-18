@@ -82,6 +82,20 @@ every other team that wants it gets it by installing that plugin. You find
 the best way once and run it a hundred times, while teams with different
 needs keep their own setup.
 
+## Operate it from your terminal
+
+AInsel ships its own [MCP server](mcp), the control surface for the whole
+platform. Connect it to the coding agent your engineers already use (Claude
+Code, an IDE assistant, any MCP client), and they can set up agents, wire
+triggers, edit personas and skills, and read invocations, logs, costs and
+platform health in plain language, without opening the console. "Why did the
+review agent fail last night?" becomes one question instead of an afternoon
+of clicking through dashboards.
+
+The MCP server holds no extra power: every call runs with the caller's own
+token, so the agent can do exactly what its user is allowed to do and nothing
+more. See [Access Control](access-control).
+
 ## What the platform handles for you
 
 These are the parts every organisation running agents would otherwise build
