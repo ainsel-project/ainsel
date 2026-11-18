@@ -29,13 +29,13 @@ standalone program that posts canonical events to one HTTP endpoint.
 
 ## How Events Flow
 
-```
-your source ──webhook──▶ webhook-receiver            ┌────────────┐
-                       (one Deployment per           │  hub       │
-                        connector, generic image) ──▶│  ingest API│──▶ events table
-                          HMAC verify, wrap raw      └────────────┘        │
-                                                                           ▼
-      agent ◀── task fetch by id ◀── agent_tasks ◀── router (2s poll) ──┘
+```mermaid
+graph LR
+    SRC[your source] -->|webhook| WR["webhook-receiver<br/>one Deployment per connector,<br/>generic image<br/>HMAC verify, wrap raw"]
+    WR -->|"POST /api/internal/events"| HUB[hub ingest API]
+    HUB --> E[(events table)]
+    E -->|"router (2s poll)"| T[(agent_tasks)]
+    T -->|task fetch by id| A[agent]
 ```
 
 The full pipeline — including channels, the trigger index, cron and chat
