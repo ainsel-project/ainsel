@@ -1,5 +1,13 @@
 import { Link } from 'react-router-dom'
 import { atAGlanceHeadings } from './atAGlanceMeta'
+import {
+  ChooseDiagram,
+  GrowDiagram,
+  LoopDiagram,
+  ProblemDiagram,
+  SolvedDiagram,
+  ThreeJobsDiagram,
+} from './glance/diagrams'
 import './AtAGlance.css'
 
 // "AInsel at a Glance": the one-page pitch dpinsel walks a (technical) manager
@@ -12,8 +20,22 @@ function H2({ index }: { index: number }) {
   return <h2 id={id}>{text}</h2>
 }
 
+const DIAGRAMS: Record<string, () => React.JSX.Element> = {
+  problem: ProblemDiagram,
+  loop: LoopDiagram,
+  'three-jobs': ThreeJobsDiagram,
+  choose: ChooseDiagram,
+  solved: SolvedDiagram,
+  grow: GrowDiagram,
+}
+
 function Figure({ name }: { name: string }) {
-  return <figure className="glance-figure" data-diagram={name} />
+  const Diagram = DIAGRAMS[name]
+  return (
+    <figure className="glance-figure" data-diagram={name}>
+      <Diagram />
+    </figure>
+  )
 }
 
 const SOLVED: { feature: string; detail: string; to: string }[] = [

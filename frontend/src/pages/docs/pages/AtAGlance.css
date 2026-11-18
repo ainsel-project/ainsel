@@ -82,3 +82,68 @@
     padding-left: 8px;
   }
 }
+
+/* ----- Diagrams (glance/diagrams.tsx) ----- */
+.gl-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 680px;
+  margin-inline: auto;
+  overflow: visible;
+}
+.gl-box {
+  fill: var(--paper-2);
+  stroke: var(--rule-soft);
+  stroke-width: 1.5;
+}
+.gl-box-accent {
+  fill: var(--signal-haze);
+  stroke: var(--signal);
+}
+.gl-text {
+  fill: var(--ink);
+  font-family: var(--display);
+  font-size: 15px;
+}
+.gl-sub {
+  fill: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.gl-lane-title {
+  fill: var(--ink);
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+}
+.gl-warn {
+  fill: var(--warn-ink);
+  font-family: var(--display);
+  font-size: 15px;
+}
+.gl-line {
+  fill: none;
+  stroke: var(--ink-4);
+  stroke-width: 1.5;
+}
+.gl-arrow {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 2;
+}
+.gl-arrowhead {
+  fill: var(--signal);
+}
+.gl-lanes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .gl-lanes {
+    grid-template-columns: minmax(0, 280px);
+    justify-content: center;
+  }
+}
