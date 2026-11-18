@@ -109,6 +109,15 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 			}
 		}
 
+		// The CRD's `disabled` flag is deprecated and no longer part of the API:
+		// it restricted nothing (the grant is Agent.spec.enabledTools). A stored
+		// object keeps whatever it carried, so existing CRs still decode
+		// unchanged; a tool new to this write gets the zero value.
+		prevDisabled := make(map[string]bool, len(existing.Spec.Tools))
+		for _, t := range existing.Spec.Tools {
+			prevDisabled[t.Name] = t.Disabled
+		}
+
 		newTools := make([]agentv1alpha1.AgentImageTool, 0, len(*req.Tools))
 		for _, t := range *req.Tools {
 			tool := agentv1alpha1.AgentImageTool{
@@ -116,7 +125,7 @@ func (s *Server) updateAgentImage(ctx context.Context, w http.ResponseWriter, r 
 				Kind:        agentv1alpha1.AgentImageToolKind(t.Kind),
 				Description: t.Description,
 				McpSource:   t.McpSource,
-				Disabled:    !t.Enabled,
+				Disabled:    prevDisabled[t.Name],
 				IsNew:       false,
 			}
 			for _, ex := range t.Examples {

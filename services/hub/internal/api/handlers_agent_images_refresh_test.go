@@ -15,7 +15,7 @@ import (
 	agentv1alpha1 "github.com/ainsel-project/ainsel/shared/api/api/v1alpha1"
 )
 
-func TestMergeMCPTools_PreservesEnabledState(t *testing.T) {
+func TestMergeMCPTools_PreservesStoredDisabledFlag(t *testing.T) {
 	existing := []agentv1alpha1.AgentImageTool{
 		{Name: "run_shell", Kind: agentv1alpha1.AgentImageToolKindShell},
 		{Name: "mcp__example-mcp__list", Kind: agentv1alpha1.AgentImageToolKindMCP, McpSource: "example-mcp"},
@@ -38,29 +38,31 @@ func TestMergeMCPTools_PreservesEnabledState(t *testing.T) {
 	if got[0].Name != "run_shell" {
 		t.Errorf("expected run_shell first, got %s", got[0].Name)
 	}
-	// mcp__example-mcp__list: was not disabled, should remain not disabled
+	// mcp__example-mcp__list: was not disabled, should stay at the zero value
 	listTool := findTool(got, "mcp__example-mcp__list")
 	if listTool == nil {
 		t.Fatal("mcp__example-mcp__list missing")
 	}
 	if listTool.Disabled {
-		t.Error("mcp__example-mcp__list should remain enabled (Disabled=false)")
+		t.Error("mcp__example-mcp__list should keep Disabled=false")
 	}
-	// mcp__example-mcp__add: was explicitly disabled, should stay disabled
+	// mcp__example-mcp__add: stored disabled=true, and the hub never rewrites
+	// the deprecated flag — the value survives so existing objects still decode
 	addTool := findTool(got, "mcp__example-mcp__add")
 	if addTool == nil {
 		t.Fatal("mcp__example-mcp__add missing")
 	}
 	if !addTool.Disabled {
-		t.Error("mcp__example-mcp__add should remain disabled")
+		t.Error("mcp__example-mcp__add should keep its stored Disabled=true")
 	}
-	// mcp__example-mcp__delete: new — should be disabled and marked IsNew
+	// mcp__example-mcp__delete: new — marked IsNew, deprecated flag left at the
+	// zero value (it restricted nothing, so a new tool no longer starts "off")
 	delTool := findTool(got, "mcp__example-mcp__delete")
 	if delTool == nil {
 		t.Fatal("mcp__example-mcp__delete missing")
 	}
-	if !delTool.Disabled {
-		t.Error("new tool mcp__example-mcp__delete should start disabled")
+	if delTool.Disabled {
+		t.Error("new tool mcp__example-mcp__delete must not be written with the deprecated Disabled flag")
 	}
 	if !delTool.IsNew {
 		t.Error("new tool mcp__example-mcp__delete should be marked IsNew")

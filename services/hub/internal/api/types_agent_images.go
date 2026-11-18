@@ -26,12 +26,14 @@ type SimpleAgentImageResponse struct {
 }
 
 // AgentImageToolInfo is the API representation of an AgentImageTool.
+// The CRD's deprecated `disabled` flag is deliberately absent: it restricts
+// nothing (the grant is Agent.spec.enabledTools), so the hub neither reads it
+// into a response nor writes it from a request.
 type AgentImageToolInfo struct {
 	Name        string                      `json:"name"`
 	Kind        string                      `json:"kind"`
 	Description string                      `json:"description,omitempty"`
 	McpSource   string                      `json:"mcpSource,omitempty"`
-	Enabled     bool                        `json:"enabled"`
 	IsNew       bool                        `json:"isNew,omitempty"`
 	Examples    []AgentImageToolExampleInfo `json:"examples,omitempty"`
 }
@@ -132,7 +134,6 @@ func toSimpleAgentImageResponse(img agentv1alpha1.AgentImage) SimpleAgentImageRe
 			Kind:        string(t.Kind),
 			Description: t.Description,
 			McpSource:   t.McpSource,
-			Enabled:     !t.Disabled,
 			IsNew:       t.IsNew,
 		}
 		if len(t.Examples) > 0 {
