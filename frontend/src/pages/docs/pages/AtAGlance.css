@@ -58,7 +58,7 @@
   border-bottom: 1px solid var(--rule-soft);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
   .glance-table thead {
     display: none;
   }
@@ -141,7 +141,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .gl-lanes {
     grid-template-columns: minmax(0, 280px);
     justify-content: center;

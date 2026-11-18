@@ -89,12 +89,12 @@ itself:
 
 - **Reliable delivery.** Every event is stored in a queue; a failed run is
   retried with backoff, not lost. See [Architecture](architecture).
-- **Scale to zero.** Agents scale with their queue and cost nothing while
-  idle. See the [Administrator Guide](administrator-guide).
+- **Scale to zero.** Agents scale with their queue, down to zero when idle.
+  See the [CRD Reference](crd-reference).
 - **Access control.** Group-based permissions decide who sees and changes
   which agents. See [Access Control](access-control).
-- **Network isolation.** Default-deny network policies limit what each agent
-  can reach. See [Network Policies](network-policies).
+- **Network isolation.** The platform's namespace is default-deny: only the
+  traffic the chart allows gets through. See [Network Policies](network-policies).
 - **Cost visibility.** Token usage is recorded for every run and priced once
   you set model costs. See the [Administrator Guide](administrator-guide).
 - **Your infrastructure, your models.** AInsel is self-hosted in your

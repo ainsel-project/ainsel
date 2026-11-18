@@ -46,22 +46,22 @@ const SOLVED: { feature: string; detail: string; to: string }[] = [
   },
   {
     feature: 'Scale to zero',
-    detail: 'Agents run as short-lived jobs and cost nothing while idle.',
-    to: '/docs/administrator-guide',
+    detail: 'Agents scale with their queue, down to zero when idle.',
+    to: '/docs/crd-reference',
   },
   {
     feature: 'Group-based access control',
-    detail: 'Teams see and change only their own agents.',
+    detail: 'Every resource belongs to a team’s group; roles decide who may change it.',
     to: '/docs/access-control',
   },
   {
     feature: 'Default-deny network isolation',
-    detail: 'An agent reaches only what it is allowed to reach.',
+    detail: 'The platform’s namespace starts closed; only allowed traffic gets through.',
     to: '/docs/network-policies',
   },
   {
     feature: 'Cost per run',
-    detail: 'Token usage and cost are tracked for every invocation.',
+    detail: 'Token usage is recorded for every run and priced once you set model costs.',
     to: '/docs/administrator-guide',
   },
   {
