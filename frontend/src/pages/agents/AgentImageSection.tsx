@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useUpdateAgent, type AgentResponse } from '../../api/agents'
-import { useAgentImage, useAgentImages, type AgentImageResponse, type Tool } from '../../api/agentImages'
+import {
+  useAgentImage,
+  useAgentImages,
+  type AgentImageResponse,
+  type Tool,
+} from '../../api/agentImages'
 import { useMCPServers } from '../../api/mcpServers'
 import { ApiError } from '../../api/client'
 import { DualListPicker } from '../../primitives/DualListPicker'
@@ -246,9 +251,9 @@ export function AgentToolsSection({ agent }: AgentImageSectionProps) {
       </Panel>
       {selected.length === 0 ? (
         <p className="label" style={{ margin: 0, color: 'var(--signal)' }}>
-          <strong>No tool grant.</strong> This agent can use no tools at all — an empty
-          selection denies everything, including what the image ships. Move the tools it
-          needs to the enabled side to grant them.
+          <strong>No tool grant.</strong> This agent can use no tools at all — an empty selection
+          denies everything, including what the image ships. Move the tools it needs to the enabled
+          side to grant them.
         </p>
       ) : null}
       {saveError ? (
