@@ -6,13 +6,44 @@ This guide takes you from zero to a running AInsel install with one connector, o
 
 - A Kubernetes cluster (k3s or any CNCF-conformant distribution)
 - `kubectl` configured for the target cluster
-- Helm 3.x (`helm version` to verify)
+- Helm 3.x (`helm version` to verify; ≥ 3.8 installs the chart from its OCI reference)
 - A container registry the cluster can pull images from
 - _(Optional)_ An OIDC provider (e.g. Dex, Keycloak, Zitadel) for authentication on the operations console
 
 ## 1. Install AInsel
 
-Install the Helm chart from the repository with a minimal values override:
+Install the **released chart** from GHCR with a minimal values override.
+`<X.Y.Z>` is the chart version — the same string as the release, no `v`
+prefix (the git tag is `v<X.Y.Z>`, the chart version is `<X.Y.Z>`); find it
+on the [releases page](https://github.com/ainsel-project/ainsel/releases).
+The pull is anonymous — no registry login needed:
+
+```bash
+helm upgrade --install ainsel oci://ghcr.io/ainsel-project/charts/ainsel \
+  --version <X.Y.Z> \
+  --namespace ainsel \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+Without a values file yet, start from the released defaults:
+
+```bash
+helm show values oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> > my-values.yaml
+```
+
+Or fetch the example overlay by raw URL (note the `v` prefix on the tag —
+mixing it up with the chart version is a silent 404):
+
+```bash
+curl -fsSL -o my-values.yaml \
+  https://raw.githubusercontent.com/ainsel-project/ainsel/v<X.Y.Z>/chart/values-example.yaml
+```
+
+At a minimum, override the image repositories in your values file to point at your registry. See [`chart/values-example.yaml`](chart/values-example.yaml) for a starting point and [`docs/deployment.md`](docs/deployment.md) for the full values reference.
+
+Only for development work — installing from a source checkout installs
+whatever `main` currently holds, including unreleased changes:
 
 ```bash
 helm install ainsel ./chart \

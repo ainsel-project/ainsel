@@ -23,7 +23,8 @@ Before upgrading, complete these pre-upgrade steps:
      --version <X.Y.Z> -n <namespace> -f values.yaml
    ```
 
-   If you are deploying directly from the repository chart directory:
+   Only for development work — installing from a source checkout installs
+   whatever `main` currently holds, including unreleased changes:
 
    ```bash
    helm upgrade ainsel ./chart -n <namespace> -f values.yaml
@@ -37,7 +38,7 @@ To check whether the new chart version introduces new or changed values, diff th
 
 ```bash
 # Export the new chart's default values
-helm show values ainsel/ainsel > new-values.yaml
+helm show values oci://ghcr.io/ainsel-project/charts/ainsel --version <X.Y.Z> > new-values.yaml
 
 # Compare against your current values.yaml
 diff values.yaml new-values.yaml
