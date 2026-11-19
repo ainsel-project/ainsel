@@ -73,6 +73,14 @@ describe('AtAGlance', () => {
     expect(componentPages['at-a-glance'].searchText).toBe(atAGlanceSearchText)
   })
 
+  it('opens by naming the category and the harness', () => {
+    const { container } = renderPage()
+    const lede = container.querySelector('.glance-lede')?.textContent ?? ''
+    expect(lede).toMatch(/agent orchestrator/i)
+    expect(lede).toMatch(/one harness all your agents run in/i)
+    expect(atAGlanceSearchText).toMatch(/orchestrator/i)
+  })
+
   it('frames the problem as the agent harness', () => {
     const { container } = renderPage()
     const problem = container.querySelector('#the-problem')

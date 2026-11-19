@@ -1,6 +1,7 @@
 # Why AInsel
 
-Most agent tools give you a workflow. AInsel gives you the platform to run
+AInsel is an agent orchestrator, and the one harness all your agents run in.
+Most agent tools give you a workflow; AInsel gives you the platform to run
 your own. This page explains why that difference matters once more than one
 team wants agents, and what AInsel takes off your plate so teams can spend
 their time on the agent itself. For the short visual version, see

@@ -83,9 +83,9 @@ export function AtAGlance() {
     <div className="glance">
       <h1>AInsel at a Glance</h1>
       <p className="glance-lede">
-        AInsel is the platform your organisation runs AI agents on. It handles the hard, repetitive
-        platform work once, and leaves every team free to build the agent that fits how they
-        actually work.
+        AInsel is an agent orchestrator, and the one harness all your agents run in. It handles the
+        hard, security-critical platform work once, and leaves every team free to build the agent
+        that fits how they actually work.
       </p>
 
       <H2 index={0} />
