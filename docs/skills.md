@@ -14,10 +14,19 @@ Without skills, every persona has to contain all the instructions it needs inlin
 
 Skills live at `/skills` in the UI.
 
-- **List** (`/skills`) — shows all skills with name, description, and last-modified date.
+- **List** (`/skills`) — every skill with its id, description, tags, how many
+  agents reference it, and last-modified date. A free-text search and tag
+  filters sit above the table.
 - **Create** (`/skills/new`) — define a skill with a name, a short description, and a body (the prompt text).
 - **Edit** (`/skills/:id/edit`) — modify the name, description, or body.
 - **Detail** (`/skills/:id`) — view the full skill content.
+
+![The Skill Library: three skills — git-review, issue-triage and
+conventional-commits — listed by name, id, description, tags, used-by count and
+age, under a search box and tag chips for docs, git, review and triage](images/skills.webp)
+
+*The `usedBy` count is computed live from agent configs, so it doubles as a blast
+radius check: editing `git-review` changes what two agents do.*
 
 A skill's **body** is free-form text — typically markdown instructions or a prompt template. How it's consumed depends on the agent runtime; the persona references the skill by name and the runtime injects the body into the prompt at invocation time.
 

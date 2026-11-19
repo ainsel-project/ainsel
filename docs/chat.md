@@ -21,6 +21,14 @@ The agent uses its configured persona, model, and tools — the same configurati
 - **Message history** — Previous messages in the session are displayed with relative timestamps.
 - **Status messages** — System events (session created, agent started, etc.) appear as centred status lines.
 
+![The Chat section of the Code Reviewer agent: your messages right-aligned, the
+agent's replies left-aligned, each with a relative timestamp, over the message
+input ("Enter to send, Shift+Enter for newline") and Send button, with Reset in
+the section header](images/agent-chat.webp)
+
+*An exchange about a review the agent had just posted — the quickest way to ask
+an agent why it did what it did, in the same configuration it runs events with.*
+
 ## Sessions
 
 Sessions are per-user — each operator sees only their own chats. The section always opens your most recent session with that agent; after a reset, older sessions simply stay out of view. Old links keep working: `/chat` redirects to the agent list, and `/chat/<session-id>` opens that session's agent at its Chat section.

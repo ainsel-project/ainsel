@@ -22,6 +22,18 @@ Cron triggers are managed in the **agent workspace** (`/agents/:id`), in the **T
    - **Enabled** — toggle on to activate immediately.
 5. Save.
 
+![The Triggers section of the Code Reviewer agent: one Subscriptions & Schedules
+table holding two SUBSCRIPTION rows (PR opened and PR updated, sourced from
+github-acme, with filters such as `type eq pull_request · action in
+opened,reopened`) and one SCHEDULE row (Nightly stale-PR sweep, source Schedule,
+cron `30 2 * * *`), each with fired/failed counts for the last 24h and
+Edit / Disable / Delete actions](images/agent-triggers.webp)
+
+*Schedules and event subscriptions in one list, as the agent's workspace shows
+them: where each one comes from, what it filters, and how much it fired and
+failed in the last 24 hours. A schedule is disabled with the same control as a
+subscription — and both are the quickest way to stop an agent firing.*
+
 ## How it works
 
 When a cron trigger fires:

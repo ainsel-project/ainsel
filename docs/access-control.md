@@ -35,6 +35,14 @@ on first start; further users are managed by admins via the UI (**Admin →
 Users**) or the `/api/v1/users` API. Successful logins receive a session
 JWT, used exactly like the OIDC one below.
 
+![The Users page: three local accounts listed by username, email and an admin
+checkbox, each with Disable and Delete actions — the checkbox and Disable on your
+own row are disabled](images/users.webp)
+
+*Admin → Users, where local accounts are managed. Disable, not Delete, is the
+reversible option for an account that should stop signing in — re-enable it and
+the same identity comes back.*
+
 #### Forced password change
 
 A password that someone else set is not a password the user chose, so such an
@@ -89,6 +97,17 @@ curl -X POST https://ainsel.example.com/api/v1/user-tokens \
 
 The plaintext token is returned **once** in the response. Store it securely.
 
+![Your Profile page: the Account panel with username, email, role and member
+since, the Appearance panel with a theme selector, and the MCP Tokens panel —
+release-automation and local-pi ACTIVE with created, expires and last-used
+dates and a Revoke button, laptop-sync REVOKED with no last-used date — over a
+Change password panel below](images/profile-tokens.webp)
+
+*Personal access tokens in the console, under the heading **MCP Tokens** (that is
+their main consumer). Each row keeps its created, expiry and last-used dates, so
+a token that has not been used since a machine went away is visible at a glance
+and can be revoked from here.*
+
 ## Groups
 
 Groups are the tenancy boundary. They are flat — no nesting or hierarchy.
@@ -129,6 +148,17 @@ curl -X POST https://ainsel.example.com/api/v1/groups/<group-id>/members \
 curl https://ainsel.example.com/api/v1/groups/<group-id> \
   -H "Authorization: Bearer <token>"
 ```
+
+![The Platform group page: a General panel with the group's name and
+description, a Members panel listing dpinsel (Owner, admin) and rsantos (Writer)
+with Remove buttons and an Add a member control with a role selector, then one
+section per resource kind the group owns — Agents, Agent Images, Connectors,
+Personas, Skills, Channels, MCP Servers, Triggers and Cron Triggers — each row
+carrying a PUBLIC chip where its visibility is public](images/group-detail.webp)
+
+*One group, completely: who is in it with which role, and every resource kind the
+group owns — the same resources the API lists under
+[`GET /api/v1/groups/{id}/resources`](api-reference.md#get-apiv1groupsidresources).*
 
 ## Resources and Groups
 
