@@ -147,9 +147,24 @@
 
 /* ----- Click-to-zoom screenshots (issue #383) -----
    The overlay reuses .modal-backdrop from primitives.css (fixed, centred,
-   --backdrop, z-index 200); only the image sizing is docs-specific. */
+   --backdrop, z-index 200); only the image sizing is docs-specific.
+
+   The docs-only treatment sits here, not on `.md-body img` in primitives.css:
+   a screenshot is a block figure with its own rhythm and a rule border, while
+   the same class in a chat message must leave a small inline image inline.
+   primitives.css keeps just the fit (`max-width: 100%; height: auto`), which
+   every markdown surface wants. Pinned by docsImage.guard.test.ts. */
 .docs-content-col .md-body img {
+  display: block;
+  margin: 12px 0;
+  border: 1px solid var(--rule-soft);
   cursor: zoom-in;
+}
+/* The zoom trigger is reachable by keyboard (DocsPage.tsx gives every image
+   that is not inside a link a tab stop); give that tab stop a visible ring. */
+.docs-content-col .md-body img:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
 }
 .docs-img-zoom img {
   max-width: min(1400px, 92vw);

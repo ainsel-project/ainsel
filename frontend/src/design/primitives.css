@@ -1036,17 +1036,20 @@ table.reg tr.reg-detail > td {
   text-decoration: underline;
   text-decoration-color: var(--signal);
 }
-/* Docs screenshots are retina captures about 2400px wide. Without this rule an
+/* Docs screenshots are retina captures about 2400px wide. Without a fit rule an
    <img> keeps its intrinsic width and spills out of the 760px content column,
    forcing horizontal scroll on every docs page with a screenshot (issue #383).
-   Fit the image to the column; DocsPage adds a click-to-zoom overlay so the
-   full-resolution capture stays reachable. Pinned by docsImage.guard.test.ts. */
+
+   `.md-body` is the shared markdown class — `Markdown.tsx` renders it in chat,
+   skills and persona surfaces too — so only the fit lives here. The block
+   layout, vertical rhythm and rule border are docs-only and live in
+   DocsPage.css under `.docs-content-col .md-body img`: applied globally they
+   would turn a small inline image (badge, status glyph, avatar) in a chat
+   message into a bordered block on its own line. Pinned by
+   docsImage.guard.test.ts. */
 .md-body img {
-  display: block;
   max-width: 100%;
   height: auto;
-  margin: 12px 0;
-  border: 1px solid var(--rule-soft);
 }
 
 /* ===== Code block (payload / JSON viewer) ===== */
