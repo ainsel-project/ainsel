@@ -45,10 +45,9 @@ describe('markdown body images fit the content column', () => {
         if (!targetsMdBodyImg(selector)) continue
         const width = rule.declarations['max-width']
         if (width === undefined) continue
-        expect(
-          width,
-          `"${selector}" overrides the .md-body img max-width with "${width}"`,
-        ).toBe('100%')
+        expect(width, `"${selector}" overrides the .md-body img max-width with "${width}"`).toBe(
+          '100%',
+        )
       }
     }
   })
