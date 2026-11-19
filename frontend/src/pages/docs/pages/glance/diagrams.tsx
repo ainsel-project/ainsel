@@ -90,50 +90,72 @@ function Arrow({ d, marker, quiet }: { d: string; marker: string; quiet?: boolea
   return <path d={d} className={quiet ? 'gl-line' : 'gl-arrow'} markerEnd={marker} />
 }
 
+// Three ways to give many teams a harness. Columns are 188 wide on a 600
+// viewBox; the first two show the failure modes, the third the AInsel shape.
 export function ProblemDiagram() {
-  const teams = [
-    { w: 92, rx: 2 },
-    { w: 136, rx: 18 },
-    { w: 70, rx: 6 },
-    { w: 118, rx: 0 },
-    { w: 104, rx: 12 },
-  ]
+  const sprawl = ['Dev harness', 'Audit harness', 'Home harness']
+  const bloat = ['review flow', 'audit mode', 'home rules', 'team A tweak', 'team B tweak', '…']
+  const plugins = ['plugin', 'plugin', 'plugin']
   return (
     <Svg
-      viewBox="0 0 600 260"
-      title="Five differently shaped teams squeezed into one built-in workflow; every mismatch becomes a code change."
+      viewBox="0 0 600 300"
+      title="Three ways to harness agents for many teams: one harness per use case, each scoped and monitored separately; one harness for everything, bloated with features; or AInsel, one harness that covers only the loop, with team-specific plugins attached."
     >
-      {(arrow) => (
+      {() => (
         <>
-          {teams.map((t, i) => {
-            const y = 14 + i * 48
-            return (
-              <g key={i}>
-                <rect x={20} y={y} width={t.w} height={34} rx={t.rx} className="gl-box" />
-                <text className="gl-text" x={20 + t.w / 2} y={y + 22} textAnchor="middle">
-                  Team {String.fromCharCode(65 + i)}
-                </text>
-                <Arrow
-                  d={`M${28 + t.w},${y + 17} C260,${y + 17} 260,130 336,130`}
-                  marker={arrow}
-                  quiet
-                />
-              </g>
-            )
-          })}
-          <Box
-            x={340}
-            y={80}
-            w={240}
-            h={100}
-            lines={['One built-in', 'workflow']}
-            sub="same for every team"
-          />
-          <text className="gl-warn" x={460} y={212} textAnchor="middle">
-            Every mismatch is a
+          <text className="gl-lane-title" x={100} y={20} textAnchor="middle">
+            One per use case
           </text>
-          <text className="gl-warn" x={460} y={232} textAnchor="middle">
-            code change in the tool
+          {sprawl.map((label, i) => (
+            <Box
+              key={label}
+              x={14}
+              y={36 + i * 76}
+              w={172}
+              h={62}
+              lines={[label]}
+              sub="own security"
+              small
+            />
+          ))}
+
+          <text className="gl-lane-title" x={300} y={20} textAnchor="middle">
+            One for everything
+          </text>
+          <rect x={208} y={36} width={184} height={214} rx={6} className="gl-box" />
+          {bloat.map((label, i) => (
+            <text key={label} className="gl-sub" x={300} y={62 + i * 32} textAnchor="middle">
+              {label}
+            </text>
+          ))}
+
+          <text className="gl-lane-title" x={500} y={20} textAnchor="middle">
+            AInsel
+          </text>
+          <Box
+            x={414}
+            y={36}
+            w={172}
+            h={96}
+            lines={['The loop,', 'nothing more']}
+            sub="scoped · monitored"
+            accent
+          />
+          {plugins.map((label, i) => (
+            <Box key={i} x={414 + i * 60} y={150} w={52} h={40} lines={[label]} small />
+          ))}
+          <text className="gl-sub" x={500} y={214} textAnchor="middle">
+            team-specific parts plug in
+          </text>
+
+          <text className="gl-warn" x={100} y={284} textAnchor="middle">
+            more harnesses
+          </text>
+          <text className="gl-warn" x={300} y={284} textAnchor="middle">
+            more complexity
+          </text>
+          <text className="gl-text" x={500} y={284} textAnchor="middle">
+            one harness, every team
           </text>
         </>
       )}

@@ -58,6 +58,15 @@ describe('glance diagrams', () => {
     }
   })
 
+  it('ProblemDiagram contrasts harness sprawl, a bloated harness and the AInsel loop', () => {
+    const { container } = render(<ProblemDiagram />)
+    const text = container.textContent ?? ''
+    expect(container.querySelector('title')?.textContent).toMatch(/harness/i)
+    for (const label of ['One per use case', 'One for everything', 'AInsel']) {
+      expect(text).toContain(label)
+    }
+  })
+
   it('source files use design tokens only', () => {
     const literalColour = /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i
     for (const file of ['./diagrams.tsx', '../AtAGlance.css', '../AtAGlance.tsx']) {

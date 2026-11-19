@@ -73,6 +73,41 @@ describe('AtAGlance', () => {
     expect(componentPages['at-a-glance'].searchText).toBe(atAGlanceSearchText)
   })
 
+  it('opens by naming the category and the harness', () => {
+    const { container } = renderPage()
+    const lede = container.querySelector('.glance-lede')?.textContent ?? ''
+    expect(lede).toMatch(/agent orchestrator/i)
+    expect(lede).toMatch(/one harness all your agents run in/i)
+    expect(atAGlanceSearchText).toMatch(/orchestrator/i)
+  })
+
+  it('frames the problem as the agent harness', () => {
+    const { container } = renderPage()
+    const problem = container.querySelector('#the-problem')
+    const section: string[] = []
+    for (
+      let el = problem?.nextElementSibling;
+      el && el.tagName !== 'H2';
+      el = el.nextElementSibling
+    ) {
+      section.push(el.textContent ?? '')
+    }
+    const text = section.join(' ')
+    expect(text).toMatch(/harness/i)
+    expect(text).toMatch(/scoped|scoping/i)
+    expect(text).toMatch(/monitor/i)
+    expect(text).toMatch(/second|third/i)
+    expect(text).toMatch(/the loop and nothing more/i)
+  })
+
+  it('compares against a single-purpose harness, not a workflow tool', () => {
+    renderPage()
+    expect(
+      screen.getByRole('columnheader', { name: /single-purpose harness/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/built-in workflow tool/i)).toBeNull()
+  })
+
   it('never sells itself as "generic"', () => {
     const { container } = renderPage()
     expect(container.textContent).not.toMatch(/\bgeneric\b/i)

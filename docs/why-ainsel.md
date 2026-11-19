@@ -1,6 +1,7 @@
 # Why AInsel
 
-Most agent tools give you a workflow. AInsel gives you the platform to run
+AInsel is an agent orchestrator, and the one harness all your agents run in.
+Most agent tools give you a workflow; AInsel gives you the platform to run
 your own. This page explains why that difference matters once more than one
 team wants agents, and what AInsel takes off your plate so teams can spend
 their time on the agent itself. For the short visual version, see
@@ -20,22 +21,33 @@ same everywhere. A platform team, a mobile team and a data team review
 differently, use different models and tools, and have different rules about
 what an agent may do on its own.
 
-## The cost of a fixed workflow
+## The harness is the hard part
 
-Many open-source agent tools come with a built-in workflow: a fixed sequence
-of planner, coder and reviewer, a fixed set of integrations, a fixed idea of
-what "done" means. That is a good start for one team whose process happens to
-match.
+An agent that works through the night, unattended, runs inside a harness:
+the layer that decides what it may touch, which model, tools and credentials
+it gets, who can see what it did, and what a run is allowed to cost. Agents
+with that much autonomy have to be tightly scoped and closely monitored, and
+the harness is where that happens. Getting it right, and secure, is the
+difficult part of running agents in an organisation.
 
-It stops working at scale. When a team's process differs, the team either
-bends its process to the tool, or someone changes the tool's code. Every
-team-specific requirement becomes a code change in a product you don't own,
-repeated for every team that differs.
+## One harness per use case doesn't scale
 
-## A platform, not a workflow
+The harness also has to fit every team, every size and every requirement.
+Many open-source agent tools ship a harness built around one use case: a
+fixed planner, coder and reviewer, a fixed set of integrations, a fixed idea
+of what "done" means. That works for the one team whose process matches.
 
-AInsel takes no position on how your agents should work. It provides one
-loop and makes every part of it yours:
+Everyone else is left with two bad options. Build a second harness for the
+next use case, then a third, each with its own scoping, isolation and
+monitoring to get right and keep right. Or keep extending the first one until
+it has a mode for every team and a switch for every exception, and nobody can
+say any more what it does, let alone prove that it is secure.
+
+## One harness: the loop, nothing more
+
+AInsel is one harness for all of them, and it covers the loop and nothing
+more, by design. It takes no position on how your agents should work. It
+provides one loop, scopes and monitors it, and makes every other part yours:
 
 ```mermaid
 graph LR
