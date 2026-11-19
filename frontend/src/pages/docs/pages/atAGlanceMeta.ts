@@ -17,6 +17,7 @@ export const atAGlanceHeadings: TocEntry[] = [
 export const atAGlanceSearchText = [
   'AInsel at a Glance',
   ...atAGlanceHeadings.map((h) => h.text),
+  'The agent harness: agents running all night must be tightly scoped and monitored. One harness for every team instead of a harness per use case or one bloated harness. AInsel covers the loop and nothing more, by design.',
   'Good agents for hundreds of teams: each team picks its own LLM, agent image, persona, skills, tools, MCP servers, connectors and plugins.',
   'A trigger decides which agent wakes up for an event.',
   'Software development, security audit, home automation on the same loop.',

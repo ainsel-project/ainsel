@@ -74,7 +74,7 @@
     padding: 2px 0;
   }
   .glance-table td:first-of-type::before {
-    content: 'Built-in workflow: ';
+    content: 'Single-purpose harness: ';
     color: var(--ink-3);
   }
   .glance-table td:last-child {

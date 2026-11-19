@@ -90,14 +90,21 @@ export function AtAGlance() {
 
       <H2 index={0} />
       <p>
-        Building one good agent for one team is doable. Building good agents for three hundred teams
-        is not, because every team needs different answers: a different model, different tools,
-        different instructions, a different workflow.
+        Agents that work through the night, unattended, need a <em>harness</em> around them: what
+        they may touch, which model and tools they get, who watches what they do, and what a run may
+        cost. They have to be tightly scoped and closely monitored. Getting that harness right, and
+        secure, is the hard part of running agents.
       </p>
       <p>
-        Agent tools with a built-in workflow give every team the same answer. When a team&apos;s
-        process doesn&apos;t match, it either bends to the tool or someone changes the tool&apos;s
-        code, and that happens again for every team.
+        And one harness has to fit every team, every size and every requirement. A harness built for
+        a single use case doesn&apos;t: the next team needs a second harness, the one after that a
+        third, each with its own scoping and monitoring to get right. Or the first harness grows a
+        feature for every request until it is too complex to understand, let alone secure.
+      </p>
+      <p>
+        AInsel is that harness, and it covers the loop and nothing more, by design. Scoping,
+        isolation, monitoring and cost are solved once, and everything team-specific plugs in. You
+        never need a second harness, or a complicated one.
       </p>
       <Figure name="problem" />
 
@@ -131,7 +138,7 @@ export function AtAGlance() {
         <thead>
           <tr>
             <th scope="col">A team needs…</th>
-            <th scope="col">With a built-in workflow tool</th>
+            <th scope="col">With a single-purpose harness</th>
             <th scope="col">With AInsel</th>
           </tr>
         </thead>
