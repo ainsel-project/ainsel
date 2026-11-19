@@ -485,4 +485,52 @@ describe('DocsPage screenshot zoom', () => {
     fireEvent.click(screen.getByAltText('Dashboard'))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
+
+  // A bare <img> is not focusable, so without the tab stop the overlay is a
+  // mouse-only affordance (the reviewer's accessibility blocker).
+  it('makes a screenshot a keyboard trigger', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+    expect(img).toHaveAttribute('tabindex', '0')
+
+    fireEvent.keyDown(img, { key: 'Enter' })
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('opens the overlay on Space without scrolling the column', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+
+    const event = fireEvent.keyDown(img, { key: ' ' })
+    expect(event).toBe(false) // defaultPrevented — Space must not scroll the page
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  // An image inside a link is already reachable through the link; making the
+  // image a second tab stop there would double-tab past the navigation.
+  it('leaves an image inside a link out of the tab order', async () => {
+    renderAt('/docs/image-paths')
+    const link = await screen.findByRole('link', { name: 'Linked badge' })
+    const img = within(link).getByRole('img', { name: 'Linked badge' })
+    expect(img).not.toHaveAttribute('tabindex')
+
+    fireEvent.keyDown(img, { key: 'Enter' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  // The overlay is aria-modal: focus has to move into it on open and back to the
+  // screenshot on close, or a keyboard user is left behind the dialog.
+  it('moves focus into the overlay and back to the screenshot', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+    img.focus()
+
+    fireEvent.keyDown(img, { key: 'Enter' })
+    const dialog = await screen.findByRole('dialog')
+    expect(document.activeElement).toBe(dialog)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(document.activeElement).toBe(img)
+  })
 })
