@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DocsPage } from './DocsPage'
@@ -39,6 +39,9 @@ const DOCS: Record<string, string> = {
     '![Escaping](../frontend/public/favicon.svg)',
     '',
     '[Warning!](administrator-guide.md)',
+    '',
+    // A linked image: the anchor owns the click, the zoom overlay must not open.
+    '[![Linked badge](images/badge.webp)](administrator-guide.md)',
   ].join('\n'),
   'administrator-guide': '# Administrator Guide\n\nEnd-to-end admin journey.',
   'guides/writing-a-connector': '# Writing a Connector\n\nConnector guide.',
@@ -417,5 +420,117 @@ describe('DocsPage', () => {
 
     // Phantom heading from inside the tilde fence must NOT appear.
     expect(within(tocContainer).queryByText('Phantom Inside Tilde')).not.toBeInTheDocument()
+  })
+})
+
+// --- Click-to-zoom screenshots (issue #383) ---------------------------------
+
+describe('DocsPage screenshot zoom', () => {
+  it('opens a screenshot full size on click', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+    fireEvent.click(img)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveClass('modal-backdrop')
+    expect(within(dialog).getByRole('img', { name: 'Dashboard' })).toHaveAttribute(
+      'src',
+      expect.stringContaining('images/dashboard-overview.webp'),
+    )
+  })
+
+  it('closes on Escape', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByAltText('Dashboard'))
+    await screen.findByRole('dialog')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('closes on backdrop click', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByAltText('Dashboard'))
+    const dialog = await screen.findByRole('dialog')
+
+    fireEvent.click(dialog)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('closes when the zoomed image itself is clicked', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByAltText('Dashboard'))
+    const dialog = await screen.findByRole('dialog')
+
+    fireEvent.click(within(dialog).getByRole('img', { name: 'Dashboard' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('does not open the overlay when a link is clicked', async () => {
+    renderAt('/docs/image-paths')
+    fireEvent.click(await screen.findByRole('link', { name: 'Warning!' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  // An image inside a link is the link's content — markdown `[![badge](img)](url)`
+  // — so the click belongs to the anchor. Zooming here would swallow the link.
+  it('does not open the overlay for an image inside a link', async () => {
+    renderAt('/docs/image-paths')
+    const link = await screen.findByRole('link', { name: 'Linked badge' })
+    fireEvent.click(within(link).getByRole('img', { name: 'Linked badge' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The plain screenshot next to it still zooms — the anchor check is scoped
+    // to images that actually sit inside a link.
+    fireEvent.click(screen.getByAltText('Dashboard'))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  // A bare <img> is not focusable, so without the tab stop the overlay is a
+  // mouse-only affordance (the reviewer's accessibility blocker).
+  it('makes a screenshot a keyboard trigger', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+    expect(img).toHaveAttribute('tabindex', '0')
+
+    fireEvent.keyDown(img, { key: 'Enter' })
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('opens the overlay on Space without scrolling the column', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+
+    const event = fireEvent.keyDown(img, { key: ' ' })
+    expect(event).toBe(false) // defaultPrevented — Space must not scroll the page
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  // An image inside a link is already reachable through the link; making the
+  // image a second tab stop there would double-tab past the navigation.
+  it('leaves an image inside a link out of the tab order', async () => {
+    renderAt('/docs/image-paths')
+    const link = await screen.findByRole('link', { name: 'Linked badge' })
+    const img = within(link).getByRole('img', { name: 'Linked badge' })
+    expect(img).not.toHaveAttribute('tabindex')
+
+    fireEvent.keyDown(img, { key: 'Enter' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  // The overlay is aria-modal: focus has to move into it on open and back to the
+  // screenshot on close, or a keyboard user is left behind the dialog.
+  it('moves focus into the overlay and back to the screenshot', async () => {
+    renderAt('/docs/image-paths')
+    const img = await screen.findByAltText('Dashboard')
+    img.focus()
+
+    fireEvent.keyDown(img, { key: 'Enter' })
+    const dialog = await screen.findByRole('dialog')
+    expect(document.activeElement).toBe(dialog)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(document.activeElement).toBe(img)
   })
 })

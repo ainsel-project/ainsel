@@ -139,6 +139,14 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
   // next page (component pages skip the fetch that would have reset a flag).
   const [notFoundSlug, setNotFoundSlug] = useState<string>()
   const contentRef = useRef<HTMLDivElement>(null)
+  // Click-to-zoom for docs screenshots: the column fits a 2400px capture to
+  // ~32%, so small UI text needs the full-resolution view to stay readable
+  // (issue #383). Null while closed.
+  const [zoomed, setZoomed] = useState<{ src: string; alt: string } | null>(null)
+  // The element that opened the overlay, so closing restores the caret/reader
+  // position instead of stranding focus on a removed node.
+  const zoomTriggerRef = useRef<HTMLElement | null>(null)
+  const zoomDialogRef = useRef<HTMLDivElement>(null)
 
   // --- Search ---
   const [query, setQuery] = useState('')
@@ -192,6 +200,32 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
       cancelled = true
     }
   }, [slug, page])
+
+  // Escape closes the zoom overlay (same convention as ConfirmModal).
+  useEffect(() => {
+    if (!zoomed) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setZoomed(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [zoomed])
+
+  // The overlay is aria-modal, so focus has to follow it: into the dialog on
+  // open (otherwise a keyboard user is still tabbing behind the overlay) and
+  // back to the screenshot on close. Both are no-ops on the first render, when
+  // nothing is open and no trigger was recorded.
+  useEffect(() => {
+    if (zoomed) {
+      zoomDialogRef.current?.focus()
+      return
+    }
+    const trigger = zoomTriggerRef.current
+    zoomTriggerRef.current = null
+    trigger?.focus()
+  }, [zoomed])
 
   const renderedSource = useMemo(
     () => (loading || notFound ? '' : rewriteDocLinks(source)),
@@ -252,6 +286,24 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
     })
   }, [toc, renderedSource])
 
+  // The markdown renderer emits a bare <img>, which is not focusable — without
+  // this the zoom overlay is a mouse-only affordance. Every docs image that is
+  // not a link's content becomes a tab stop; onContentKeyDown below opens the
+  // overlay from it. Images inside an <a> are left alone: the link already is
+  // the trigger, and clicking it navigates (see onContentClick). Runs after the
+  // content renders, like the heading-id pass above.
+  useEffect(() => {
+    const root = contentRef.current
+    if (!root) return
+    for (const img of Array.from(root.querySelectorAll('img'))) {
+      if (img.closest('a')) continue
+      img.tabIndex = 0
+      // Keep the alt text as the accessible name where there is one; a bare
+      // image with an empty alt still needs something to announce.
+      if (!img.getAttribute('alt')) img.setAttribute('aria-label', 'Zoom image')
+    }
+  }, [renderedSource, page, loading, notFound])
+
   if (notFound) {
     return <Navigate to="/docs" replace />
   }
@@ -264,11 +316,28 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
   const nextItem =
     currentIndex >= 0 && currentIndex < items.length - 1 ? items[currentIndex + 1] : undefined
 
+  // Screenshots open full size in a zoom overlay. Images are not wrapped in
+  // <a> by the docs renderer, so the href handling below — which blocks
+  // non-/docs/ URLs — never sees the image asset path.
+  const openZoom = (img: HTMLElement) => {
+    const src = img.getAttribute('src')
+    if (!src) return
+    zoomTriggerRef.current = img
+    setZoomed({ src, alt: img.getAttribute('alt') ?? '' })
+  }
+
   // Intercept clicks on internal doc links rendered inside the markdown body
   // so they navigate via React Router instead of triggering a full page load.
   const onContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const anchor = (e.target as HTMLElement).closest('a')
-    if (!anchor) return
+    const target = e.target as HTMLElement
+    // A link wins over the zoom overlay: an image inside an <a> is the link's
+    // content (markdown `[![badge](img)](url)`), and clicking it must navigate.
+    const anchor = target.closest('a')
+    if (!anchor) {
+      const img = target.closest('img')
+      if (img) openZoom(img)
+      return
+    }
     const href = anchor.getAttribute('href') ?? ''
     // Internal doc links → SPA navigation
     if (href.startsWith('/docs/')) {
@@ -281,6 +350,18 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
     // Anything else (relative ../ paths pointing outside docs/) → block
     // navigation so the user doesn't leave the SPA on a dead URL.
     e.preventDefault()
+  }
+
+  // Keyboard path for the same affordance: the images effect above makes every
+  // zoomable screenshot a tab stop, so Enter/Space has to open it. Space is
+  // prevented from scrolling the docs column, as it would on a button.
+  const onContentKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    const target = e.target as HTMLElement
+    if (target.tagName !== 'IMG') return
+    if (target.closest('a')) return
+    e.preventDefault()
+    openZoom(target)
   }
 
   const onTocClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -361,7 +442,12 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
           {loading && !page ? (
             <div className="md-body">Loading…</div>
           ) : (
-            <div ref={contentRef} onClick={onContentClick} className="docs-content-col">
+            <div
+              ref={contentRef}
+              onClick={onContentClick}
+              onKeyDown={onContentKeyDown}
+              className="docs-content-col"
+            >
               {page ? (
                 <div className="md-body">
                   <page.component />
@@ -407,6 +493,22 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
           </aside>
         )}
       </div>
+      {zoomed && (
+        <div
+          ref={zoomDialogRef}
+          className="modal-backdrop docs-img-zoom"
+          role="dialog"
+          aria-modal="true"
+          tabIndex={-1}
+          aria-label={zoomed.alt ? `Zoomed: ${zoomed.alt}` : 'Zoomed image'}
+          onClick={(e) => {
+            // Backdrop click (outside the image) closes.
+            if (e.target === e.currentTarget) setZoomed(null)
+          }}
+        >
+          <img src={zoomed.src} alt={zoomed.alt} onClick={() => setZoomed(null)} />
+        </div>
+      )}
     </div>
   )
 }
