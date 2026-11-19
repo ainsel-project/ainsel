@@ -669,8 +669,10 @@ migrations:
   # them behind (an unresolvable imageRef is an error, not a skip).
   enabledTools:
     enabled: true
-    # Extra args for `hub migrate-enabled-tools`, e.g. ["--dry-run"] or
-    # ["--all-namespaces"].
+    # Extra args for `hub migrate-enabled-tools`, e.g. ["--all-namespaces"].
+    # Not ["--dry-run"]: on a pre-upgrade hook that makes the Job succeed while
+    # writing nothing, so the upgrade proceeds and every agent still without a
+    # grant comes up with no tools. Dry-run it the manual way above instead.
     extraArgs: []
     resources: {}
     nodeSelector: {}
