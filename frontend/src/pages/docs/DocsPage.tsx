@@ -283,17 +283,21 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
   // Intercept clicks on internal doc links rendered inside the markdown body
   // so they navigate via React Router instead of triggering a full page load.
   const onContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Screenshots open full size in a zoom overlay. Images are not wrapped in
-    // <a> because the href handling below blocks non-/docs/ URLs — the image
-    // asset URL is a static asset path, not an app route.
-    const img = (e.target as HTMLElement).closest('img')
-    if (img) {
-      const src = img.getAttribute('src')
-      if (src) setZoomed({ src, alt: img.getAttribute('alt') ?? '' })
+    const target = e.target as HTMLElement
+    // A link wins over the zoom overlay: an image inside an <a> is the link's
+    // content (markdown `[![badge](img)](url)`), and clicking it must navigate.
+    const anchor = target.closest('a')
+    if (!anchor) {
+      // Screenshots open full size in a zoom overlay. Images are not wrapped in
+      // <a> by the docs renderer, so the href handling below — which blocks
+      // non-/docs/ URLs — never sees the image asset path.
+      const img = target.closest('img')
+      if (img) {
+        const src = img.getAttribute('src')
+        if (src) setZoomed({ src, alt: img.getAttribute('alt') ?? '' })
+      }
       return
     }
-    const anchor = (e.target as HTMLElement).closest('a')
-    if (!anchor) return
     const href = anchor.getAttribute('href') ?? ''
     // Internal doc links → SPA navigation
     if (href.startsWith('/docs/')) {
@@ -443,11 +447,7 @@ export function DocsPage({ pages = componentPages }: { pages?: Record<string, Co
             if (e.target === e.currentTarget) setZoomed(null)
           }}
         >
-          <img
-            src={zoomed.src}
-            alt={zoomed.alt}
-            onClick={() => setZoomed(null)}
-          />
+          <img src={zoomed.src} alt={zoomed.alt} onClick={() => setZoomed(null)} />
         </div>
       )}
     </div>

@@ -39,6 +39,9 @@ const DOCS: Record<string, string> = {
     '![Escaping](../frontend/public/favicon.svg)',
     '',
     '[Warning!](administrator-guide.md)',
+    '',
+    // A linked image: the anchor owns the click, the zoom overlay must not open.
+    '[![Linked badge](images/badge.webp)](administrator-guide.md)',
   ].join('\n'),
   'administrator-guide': '# Administrator Guide\n\nEnd-to-end admin journey.',
   'guides/writing-a-connector': '# Writing a Connector\n\nConnector guide.',
@@ -467,5 +470,19 @@ describe('DocsPage screenshot zoom', () => {
     renderAt('/docs/image-paths')
     fireEvent.click(await screen.findByRole('link', { name: 'Warning!' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  // An image inside a link is the link's content — markdown `[![badge](img)](url)`
+  // — so the click belongs to the anchor. Zooming here would swallow the link.
+  it('does not open the overlay for an image inside a link', async () => {
+    renderAt('/docs/image-paths')
+    const link = await screen.findByRole('link', { name: 'Linked badge' })
+    fireEvent.click(within(link).getByRole('img', { name: 'Linked badge' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The plain screenshot next to it still zooms — the anchor check is scoped
+    // to images that actually sit inside a link.
+    fireEvent.click(screen.getByAltText('Dashboard'))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 })
