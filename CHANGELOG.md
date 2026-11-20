@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.4.0](https://github.com/ainsel-project/ainsel/compare/v0.3.0...v0.4.0) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **frontend:** remove the image tool enable/disable switch
+* **hub:** agent-image request and response tools no longer carry an `enabled` field; it described a switch that enforced nothing.
+
+### Features
+
+* **docs:** add AInsel at a Glance page ([89d4623](https://github.com/ainsel-project/ainsel/commit/89d46233c243ad1f294071443c3f854dd2a17956))
+* **docs:** draw the At a Glance diagrams ([7b64578](https://github.com/ainsel-project/ainsel/commit/7b64578d678a32149b725426215b00c9e36cd2b7))
+* **docs:** let DocsPage render registered component pages ([d60fac0](https://github.com/ainsel-project/ainsel/commit/d60fac085bbe1d38d3b955a2cafdc4b944252ae2))
+* **frontend:** remove the image tool enable/disable switch ([8d2228b](https://github.com/ainsel-project/ainsel/commit/8d2228b9ac8ce317598b159be62b3cec46b6a579))
+* **hub:** drop the image tool enabled field from the API ([fd5b23b](https://github.com/ainsel-project/ainsel/commit/fd5b23b48693311b4a26d511cd22239818f2baaa))
+
+
+### Bug Fixes
+
+* **docs:** fit screenshots to the content column and add click-to-zoom ([15360c5](https://github.com/ainsel-project/ainsel/commit/15360c544f1c131ec0f18e6e1e3387fc84de10c9))
+* **docs:** fit screenshots to the content column and add click-to-zoom ([63ea26e](https://github.com/ainsel-project/ainsel/commit/63ea26e61560b90723879fd1479bd0314c1b916a))
+* **docs:** keep At a Glance diagram text readable on phones ([e2fccb1](https://github.com/ainsel-project/ainsel/commit/e2fccb16f3a9c23fef38437bfc7bf86320472eed))
+* **docs:** key DocsPage not-found state by slug ([60dc375](https://github.com/ainsel-project/ainsel/commit/60dc3753c809fae7d3c0b18070509f3de2711c25))
+* **frontend:** a linked image keeps its link instead of zooming ([c9132c2](https://github.com/ainsel-project/ainsel/commit/c9132c25da413fd8350ce367ea20de57981749f0)), closes [#383](https://github.com/ainsel-project/ainsel/issues/383)
+* **frontend:** keep the docs image treatment out of the shared markdown rule ([da02846](https://github.com/ainsel-project/ainsel/commit/da02846dce32cdeed5d3dd978d99f3d933a99965)), closes [#383](https://github.com/ainsel-project/ainsel/issues/383)
+* **frontend:** make the docs screenshot zoom reachable by keyboard ([4f49211](https://github.com/ainsel-project/ainsel/commit/4f4921118f86204d07f3bd7bf372e5ab679605ae)), closes [#383](https://github.com/ainsel-project/ainsel/issues/383)
+* **frontend:** pin nginx base to 1.31.9-alpine ([627bbdd](https://github.com/ainsel-project/ainsel/commit/627bbddeca6956e74f5cae8dae727dbf3cd5f91a))
+* **frontend:** pin nginx base to 1.31.9-alpine (CVE-2026-123007 etc.) ([cafaef0](https://github.com/ainsel-project/ainsel/commit/cafaef068aa348782e93f40b9810bac437dc1504))
+* **hub:** scope the deprecated Disabled flag reads to explicit nolint lines ([e421578](https://github.com/ainsel-project/ainsel/commit/e421578f55f825929c9d441a21223ab6e340b4f5))
+
 ## [0.3.0](https://github.com/ainsel-project/ainsel/compare/v0.2.0...v0.3.0) (2026-11-17)
 
 
