@@ -651,3 +651,29 @@ migrations:
     resources: {}
     nodeSelector: {}
     tolerations: []
+  # Write each Agent's current effective tool set into Agent.spec.enabledTools,
+  # for agents that have no grant (issue #368). An empty `enabledTools` used to
+  # mean "no restriction"; the runtime now reads it as "no tools", so every agent
+  # that never got a grant has to be given one before it restarts.
+  #
+  # Runs as a PRE-upgrade hook, unlike the two above: the grants must exist before
+  # any agent pod comes up on the new runtime. It changes no schema, so it has no
+  # reason to wait for the new CRDs.
+  #
+  # Leave enabled: an already-migrated cluster pays one Job that patches nothing.
+  # Set false to run it yourself instead:
+  #   kubectl exec deploy/hub -n <namespace> -- /hub migrate-enabled-tools -n <namespace> --dry-run
+  #
+  # Disabling it is a decision with a consequence: every agent with an empty grant
+  # comes up with no tools. The Job fails the upgrade rather than leaving one of
+  # them behind (an unresolvable imageRef is an error, not a skip).
+  enabledTools:
+    enabled: true
+    # Extra args for `hub migrate-enabled-tools`, e.g. ["--all-namespaces"].
+    # Not ["--dry-run"]: on a pre-upgrade hook that makes the Job succeed while
+    # writing nothing, so the upgrade proceeds and every agent still without a
+    # grant comes up with no tools. Dry-run it the manual way above instead.
+    extraArgs: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []

@@ -147,7 +147,7 @@ func TestValidateAgentImageRef(t *testing.T) {
 	s := testServer(t, img)
 	ctx := context.Background()
 
-	if name, err := s.validateAgentImageRef(ctx, "img-1", []string{"git"}); err != nil {
+	if name, err := s.validateAgentImageRef(ctx, "img-1", []string{"git"}, inheritMCPGrantScope()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	} else if name != "Image One" {
 		t.Errorf("expected display name 'Image One', got %q", name)
@@ -182,7 +182,7 @@ func TestValidateAgentImageRef(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			name, err := s.validateAgentImageRef(ctx, tc.refName, tc.enabled)
+			name, err := s.validateAgentImageRef(ctx, tc.refName, tc.enabled, inheritMCPGrantScope())
 			var ae *apiError
 			if !errors.As(err, &ae) {
 				t.Fatalf("expected an *apiError, got %v", err)

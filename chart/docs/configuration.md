@@ -302,6 +302,11 @@ that needs nothing reports everything skipped and writes nothing.
 | `migrations.llmProvider.resources` | object | `{}` | CPU/memory for the Job container |
 | `migrations.llmProvider.nodeSelector` | object | `{}` | Node selection for the Job pod |
 | `migrations.llmProvider.tolerations` | list | `[]` | Tolerations for the Job pod |
+| `migrations.enabledTools.enabled` | bool | `true` | Run `hub migrate-enabled-tools` as a `pre-upgrade` hook Job, writing each Agent's current effective tool set into `Agent.spec.enabledTools` where it is empty. Empty means "no tools" from this release (the runtime denies everything an unset `AGENT_TOOLS` names), so agents that never had a grant have to be given one before they restart — which is why this one runs before the upgrade, not after. Set `false` to run it yourself (`kubectl exec deploy/hub -n <ns> -- /hub migrate-enabled-tools -n <ns>`) and grant the tools by hand. A failing Job fails the upgrade on purpose: an agent left with an empty grant comes up with no tools. See [the upgrade guide](../../docs/upgrade-guide.md#granting-tools-explicitly-empty-enabledtools) |
+| `migrations.enabledTools.extraArgs` | list | `[]` | Extra args for the command, e.g. `["--all-namespaces"]` for a multi-namespace install. Not `["--dry-run"]`: on this `pre-upgrade` hook it writes nothing while the upgrade still proceeds, so every agent left without a grant comes up with no tools — dry-run it with the `kubectl exec` command above instead |
+| `migrations.enabledTools.resources` | object | `{}` | CPU/memory for the Job container |
+| `migrations.enabledTools.nodeSelector` | object | `{}` | Node selection for the Job pod |
+| `migrations.enabledTools.tolerations` | list | `[]` | Tolerations for the Job pod |
 
 The Job runs as the hub's own `hub` ServiceAccount, which already has
 `get`/`list`/`patch` on `ainsel.dev/agents` — no extra RBAC — and uses the
