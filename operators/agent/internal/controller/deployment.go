@@ -362,6 +362,13 @@ func buildAgentEnv(ctx context.Context, agent *ainselv1alpha1.Agent, agentName s
 		// platformManagedAgentEnv).
 		{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: resolveHubInternalToken()},
 	}
+	// Egress proxy vars (issue #356): platform-enforced when the chart
+	// enables agentEgress.proxy — imageProfileEnv below drops image/agent
+	// entries for these names and reconcileImageEnvSecret writes the
+	// canonical values into the image-env Secret. Emitted before the profile
+	// env so Kubernetes last-wins resolution keeps the canonical values even
+	// for images built against an older operator.
+	envs = append(envs, egressProxyEnvList()...)
 	envs = append(envs, llmProviderEnv(agent)...)
 	envs = append(envs, enabledToolsEnv(agent)...)
 

@@ -591,6 +591,38 @@ rewrite; every shipped frontend since uses the canonical
 `/api/v1/observability/metrics/...` paths. Custom dashboards calling the old
 paths must switch to the canonical ones.
 
+### Unreleased — optional domain-filtered agent egress proxy (`agentEgress.proxy`)
+
+The chart can now restrict agent pods to an allow-list of HTTPS domains instead
+of the open 443/TCP egress rule ([#356](https://github.com/ainsel-project/ainsel/issues/356)).
+**Default-off: with `agentEgress.proxy.enabled: false` (the default) existing
+installs keep the current egress posture.** Two render changes apply in both
+modes:
+
+- **Changed: agent DNS egress is scoped to the cluster DNS pods.** The
+  `agent-egress` policy's port-53 rule no longer allows "any destination" (a
+  DNS-tunneling exfil path). It matches the DNS pods by namespace
+  (`networkPolicy.dnsServerNamespace`, default `kube-system`) **and** by pod
+  label (`networkPolicy.dnsPodSelector`, default `k8s-app: kube-dns`). Both
+  need to describe your cluster: if your DNS does not run in `kube-system`, set
+  the namespace; if its pods do not carry `k8s-app: kube-dns` — OpenShift
+  labels them `dns=default` — set the selector too, or agent pods lose name
+  resolution. `helm template | grep -A2 'k8s-app\|dns:'` is not enough to
+  check this; look at the DNS pods themselves:
+  `kubectl -n kube-system get pods -L k8s-app,dns`.
+- **Fixed: the dangling `TODO(#652)` references** in the chart now point at #356.
+
+Enabling the proxy (`agentEgress.proxy.enabled: true` plus
+`agentEgress.proxy.allowedDomains` and/or `presets`) **is** behavior-breaking
+for tools that ignore `HTTP(S)_PROXY`: with the open 443 rule gone they fail
+closed. Verify the agent runtime itself completes a task through the proxy
+before enabling it in production (Node's built-in `fetch` ignores `HTTPS_PROXY`
+without a proxy-aware dispatcher). In-cluster HTTPS LLM endpoints need
+`agentEgress.proxy.noProxy` **and** a matching `agentEgress.proxy.extraEgress`
+rule. See
+[network-policies.md](network-policies.md#domain-filtered-https-egress-agentegressproxy)
+for the full picture.
+
 ### Upgrading to v0.2
 
 - **Job-per-task execution model.** Task execution moved to one-shot

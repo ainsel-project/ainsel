@@ -1,0 +1,460 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-egress-proxy
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: ainsel-agent-egress-proxy
+    app.kubernetes.io/instance: ainsel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ainsel-agent-egress-proxy
+      app.kubernetes.io/instance: ainsel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ainsel-agent-egress-proxy
+        app.kubernetes.io/instance: ainsel
+        app.kubernetes.io/component: agent-egress-proxy
+      annotations:
+    spec:
+      serviceAccountName: agent-egress-proxy
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: proxy
+          image: "ubuntu/squid:6.13-25.04_beta"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+              - SETUID
+              - SETGID
+              drop:
+              - ALL
+          command:
+            - /usr/bin/squid
+            - -N
+            - -f
+            - /etc/ainsel/squid/squid.conf
+          ports:
+            - name: proxy
+              containerPort: 3128
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - /usr/bin/squidclient
+                - -h
+                - 127.0.0.1
+                - -p
+                - "3128"
+                - mgr:info
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          livenessProbe:
+            exec:
+              command:
+                - /usr/bin/squidclient
+                - -h
+                - 127.0.0.1
+                - -p
+                - "3128"
+                - mgr:info
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ainsel/squid
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: agent-egress-proxy
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: acme-http01-solver
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-egress
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agents
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub
+      ports:
+        - port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-egress-proxy
+      ports:
+        - port: 3128
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-metrics
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: agent-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: metrics
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: connectors-webhook-ingress
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: connector-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: agent-egress-proxy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent-egress-proxy
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agents
+      ports:
+        - port: 3128
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hub
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: hub
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: hub
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+      ports:
+        - port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: mcp
+      ports:
+        - port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agents
+      ports:
+        - port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: connector-operator
+      ports:
+        - port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              ainsel.io/plugin: "true"
+      ports:
+        - port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8080
+    - ports:
+        - port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mcp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: mcp
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: plugins
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      ainsel.io/plugin: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: event-gateway-operator
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: hub
+      ports:
+        - port: 5432
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-egress-proxy
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: agent-egress-proxy
+data:
+  squid.conf: |
+    http_port 3128
+    visible_name ainsel-agent-egress-proxy
+
+    acl manager proto cache_object
+    acl localhost src 127.0.0.1/32 ::1
+    http_access allow manager localhost
+    http_access deny manager
+
+    acl SSL_ports port 443
+    acl Safe_ports port 443
+    http_access deny !Safe_ports
+    http_access deny CONNECT !SSL_ports
+
+    acl allowed_hosts dstdomain api.github.com
+    acl allowed_hosts dstdomain api.openai.com
+    acl allowed_hosts dstdomain codeload.github.com
+    acl allowed_hosts dstdomain github.com
+    acl allowed_hosts dstdomain githubusercontent.com
+    acl allowed_hosts dstdomain objects.githubusercontent.com
+    acl allowed_hosts dstdomain raw.githubusercontent.com
+    acl allowed_hosts dstdomain registry.npmjs.org
+    acl allowed_hosts dstdomain registry.yarnpkg.com
+
+    http_access deny !allowed_hosts
+    http_access allow CONNECT allowed_hosts
+    http_access deny all
+
+    cache deny all
+    coredump_dir /var/spool/squid
+
+    access_log daemon:/var/log/squid/access.log
+    cache_log daemon:/var/log/squid/cache.log
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-egress-proxy
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: ainsel-agent-egress-proxy
+    app.kubernetes.io/instance: ainsel
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ainsel-agent-egress-proxy
+    app.kubernetes.io/instance: ainsel
+  ports:
+    - name: proxy
+      port: 3128
+      targetPort: proxy
+      protocol: TCP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-egress-proxy
+  namespace: ainsel
+  labels:
+    app.kubernetes.io/part-of: ainsel
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: agent-egress-proxy

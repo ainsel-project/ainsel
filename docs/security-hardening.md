@@ -41,8 +41,8 @@ When `networkPolicy.enabled: true` (the default), agent pods are restricted to e
 | Destination | Port | Purpose |
 |---|---|---|
 | Hub backend | 8080 | Agent token validation, API calls |
-| DNS | 53 (UDP/TCP) | Name resolution |
-| Any (HTTPS) | 443/TCP | LLM API endpoints (see caveat below) |
+| DNS pods (`networkPolicy.dnsPodSelector` in `networkPolicy.dnsServerNamespace`) | 53 (UDP/TCP) | Name resolution |
+| Any (HTTPS) | 443/TCP | LLM API endpoints (see caveat below) — **not** with `agentEgress.proxy.enabled`, which replaces this row with the allow-listing egress proxy ([#356](https://github.com/ainsel-project/ainsel/issues/356)) |
 
 Ingress to agent pods is denied by the namespace-wide default-deny policy.
 
@@ -57,9 +57,9 @@ These controls protect against:
 
 ## What Is NOT Covered Yet
 
-The following are tracked in the parent Epic (#652) and are not part of this initial hardening:
+The following are not part of this initial hardening:
 
-- **FQDN-based egress filtering:** The current 443/TCP egress rule is broad by necessity — agents must reach external LLM APIs (ollama.com, opencode.ai, aliyuncs.com, api.openai.com, api.anthropic.com, generativelanguage.googleapis.com, custom providers) over HTTPS. Standard Kubernetes NetworkPolicy cannot express FQDN-based rules. The Epic tracks a sidecar proxy approach for FQDN-scoped egress filtering.
+- **FQDN-based egress filtering:** The default 443/TCP egress rule is broad by necessity — agents must reach external LLM APIs (ollama.com, opencode.ai, aliyuncs.com, api.openai.com, api.anthropic.com, generativelanguage.googleapis.com, custom providers) over HTTPS. Standard Kubernetes NetworkPolicy cannot express FQDN-based rules. An opt-in domain allow-list via an in-cluster Squid proxy exists now (`agentEgress.proxy.enabled`, [#356](https://github.com/ainsel-project/ainsel/issues/356), see [network-policies.md](network-policies.md#domain-filtered-https-egress-agentegressproxy)); a Cilium `toFQDNs` mode and per-agent allow-lists remain open.
 - **Per-request audit logging:** Network flows are not logged per-request today.
 - **TLS inspection:** Egress TLS traffic is not inspected or intercepted.
 - **Secret isolation from agent-visible scope:** Agent pods can read their own API key secrets. Further isolation (e.g. short-lived tokens, secret injection via sidecar) is deferred.

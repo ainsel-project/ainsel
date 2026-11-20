@@ -123,29 +123,99 @@ func resolveHubInternalToken() string {
 	return os.Getenv("HUB_INTERNAL_VALIDATE_SECRET")
 }
 
+// egressProxyEnvOrder is the fixed emission order of the egress proxy env
+// vars. Pod templates must be deterministic across reconciles, so the proxy
+// vars are never emitted by iterating a map.
+var egressProxyEnvOrder = []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy"}
+
+// resolveEgressProxy returns the forward-proxy URL for agent egress (e.g.
+// "http://agent-egress-proxy:3128") and the NO_PROXY list to pair with it.
+// The chart injects EGRESS_PROXY_URL / EGRESS_NO_PROXY on the operator
+// Deployment when agentEgress.proxy.enabled (issue #356); unset means no
+// proxy policy and every helper below stays a no-op so existing renders are
+// unchanged.
+func resolveEgressProxy() (string, string) {
+	return os.Getenv("EGRESS_PROXY_URL"), os.Getenv("EGRESS_NO_PROXY")
+}
+
+// egressProxyEnv returns the proxy env vars the platform enforces when an
+// egress proxy is configured, or nil when it is not. Both cases are set for
+// each name; mixed case because clients disagree on which they read (curl
+// and Go's httpproxy honor the uppercase names, some Python/Node stacks only
+// the lowercase ones). NO_PROXY may legitimately be empty (no bypasses).
+func egressProxyEnv() map[string]string {
+	url, noProxy := resolveEgressProxy()
+	if url == "" {
+		return nil
+	}
+	return map[string]string{
+		"HTTP_PROXY":  url,
+		"HTTPS_PROXY": url,
+		"http_proxy":  url,
+		"https_proxy": url,
+		"NO_PROXY":    noProxy,
+		"no_proxy":    noProxy,
+	}
+}
+
+// egressProxyEnvList returns egressProxyEnv as env vars in the fixed
+// egressProxyEnvOrder, or nil when no proxy is configured.
+func egressProxyEnvList() []corev1.EnvVar {
+	values := egressProxyEnv()
+	if len(values) == 0 {
+		return nil
+	}
+	envs := make([]corev1.EnvVar, 0, len(egressProxyEnvOrder))
+	for _, name := range egressProxyEnvOrder {
+		envs = append(envs, corev1.EnvVar{Name: name, Value: values[name]})
+	}
+	return envs
+}
+
+// egressProxyEnforcedNames is the set of env names the egress proxy policy
+// owns. Like HUB_INTERNAL_VALIDATE_SECRET they are overridden, never merged:
+// an image or Agent.spec.env entry that could unset HTTPS_PROXY is a
+// one-line bypass of the egress policy (issue #356). Empty when no proxy is
+// configured.
+func egressProxyEnforcedNames() map[string]bool {
+	names := make(map[string]bool, len(egressProxyEnvOrder))
+	for name := range egressProxyEnv() {
+		names[name] = true
+	}
+	return names
+}
+
 // platformManagedAgentEnv returns env names the platform owns for the agent
 // container, mapped to their canonical values. When the operator knows the
 // hub internal token, AgentImage env declarations for these names are
 // ignored (container env) and overridden (image-env Secret): a mis-set value
 // on an image silently breaks auth on the hub internal endpoints and thus
 // the whole task claim path (incident 2026-08-07, back then via the legacy
-// AGENT_TOKEN name, which has since been removed). Returns nil when the
-// platform token is unknown so legacy setups keep working unchanged.
+// AGENT_TOKEN name, which has since been removed). The egress proxy vars
+// join the set whenever EGRESS_PROXY_URL is set, so no image or agent entry
+// can undo the egress policy (issue #356). Returns nil when the platform
+// knows none of these so legacy setups keep working unchanged.
 func platformManagedAgentEnv() map[string]string {
-	token := resolveHubInternalToken()
-	if token == "" {
+	out := map[string]string{}
+	if token := resolveHubInternalToken(); token != "" {
+		out["HUB_INTERNAL_VALIDATE_SECRET"] = token
+	}
+	for name, value := range egressProxyEnv() {
+		out[name] = value
+	}
+	if len(out) == 0 {
 		return nil
 	}
-	return map[string]string{
-		"HUB_INTERNAL_VALIDATE_SECRET": token,
-	}
+	return out
 }
 
 // platformSidecarEnv returns env vars that the operator automatically
 // injects into every sidecar container that declares an MCPPath (i.e. MCP
 // sidecars like the chat-mcp sidecar). These are platform-level vars the
 // sidecar needs to communicate with the hub; they should not have to be
-// configured manually per AgentImage.
+// configured manually per AgentImage. The egress proxy vars are included
+// when configured and are platform-enforced (see
+// egressProxyEnforcedNames in sidecars.go).
 func platformSidecarEnv() []corev1.EnvVar {
 	var envs []corev1.EnvVar
 	if hubURL := resolveHubURL(); hubURL != "" {
@@ -154,6 +224,7 @@ func platformSidecarEnv() []corev1.EnvVar {
 	if token := resolveHubInternalToken(); token != "" {
 		envs = append(envs, corev1.EnvVar{Name: "HUB_INTERNAL_VALIDATE_SECRET", Value: token})
 	}
+	envs = append(envs, egressProxyEnvList()...)
 	return envs
 }
 

@@ -9,6 +9,7 @@ on:
       - 'operators/event-gateway/config/crd/bases/**'
       - 'scripts/check-crd-sync.py'
       - 'scripts/test-chart-ingress.py'
+      - 'scripts/test-chart-egress.py'
       - 'scripts/test-chart-image-namespace.py'
       - '.github/workflows/ci-chart.yml'
   pull_request:
@@ -20,6 +21,7 @@ on:
       - 'operators/event-gateway/config/crd/bases/**'
       - 'scripts/check-crd-sync.py'
       - 'scripts/test-chart-ingress.py'
+      - 'scripts/test-chart-egress.py'
       - 'scripts/test-chart-image-namespace.py'
       - '.github/workflows/ci-chart.yml'
   workflow_dispatch:
@@ -42,6 +44,8 @@ jobs:
         run: helm template chart/ -f chart/values-example.yaml > manifest-example.yaml
       - name: Ingress golden-file tests (nginx and non-nginx controllers)
         run: python3 scripts/test-chart-ingress.py
+      - name: Agent egress golden-file tests (proxy off and on)
+        run: python3 scripts/test-chart-egress.py
       - name: Image namespace tests (global.imageRegistry composition)
         run: python3 scripts/test-chart-image-namespace.py
       - name: Install kubeconform
