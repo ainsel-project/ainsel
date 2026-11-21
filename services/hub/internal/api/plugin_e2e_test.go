@@ -594,9 +594,10 @@ func TestPluginEndToEnd(t *testing.T) {
 		}
 
 		// a2 sits in g2, which the credential holds nothing in. The route gate is
-		// the plugin-wide question; the handler's per-agent check still decides.
-		if status, body := grant("memory", granted, e2eAgentOther); status != http.StatusForbidden {
-			t.Errorf("grant to %s = %d, want 403: %s", e2eAgentOther, status, body)
+		// the plugin-wide question; the handler's per-agent check still decides,
+		// and answers the foreign-group agent with an opaque 404 (#390).
+		if status, body := grant("memory", granted, e2eAgentOther); status != http.StatusNotFound {
+			t.Errorf("grant to %s = %d, want 404: %s", e2eAgentOther, status, body)
 		}
 
 		// A plugin holding skills:write but not agents:write is the compatibility

@@ -525,7 +525,8 @@ func TestReadAndWriteGuards(t *testing.T) {
 		method string
 		// wantGranted is the status for a caller whose only claim on the
 		// resource is that it is public: reads pass, writes do not — a public
-		// resource is readable by everyone and writable by nobody.
+		// resource is readable by everyone and writable by nobody, and the
+		// write deny is the opaque 404 the guard answers everywhere (#390).
 		wantGranted int
 	}{
 		{name: "read", attach: func(s *Server, h namedHandler) http.HandlerFunc {
@@ -533,12 +534,12 @@ func TestReadAndWriteGuards(t *testing.T) {
 		}, method: http.MethodGet, wantGranted: http.StatusOK},
 		{name: "write", attach: func(s *Server, h namedHandler) http.HandlerFunc {
 			return s.write("thing", h)
-		}, method: http.MethodPut, wantGranted: http.StatusForbidden},
+		}, method: http.MethodPut, wantGranted: http.StatusNotFound},
 		// The context-taking variant of the same guard, for the CRUD handlers
 		// built for the pre-route-table shape.
 		{name: "writeCtx", attach: func(s *Server, h namedHandler) http.HandlerFunc {
 			return s.writeCtx("thing", func(_ context.Context, w http.ResponseWriter, name string) { h(w, nil, name) })
-		}, method: http.MethodPut, wantGranted: http.StatusForbidden},
+		}, method: http.MethodPut, wantGranted: http.StatusNotFound},
 	}
 
 	for _, tc := range cases {
@@ -570,14 +571,19 @@ func TestReadAndWriteGuards(t *testing.T) {
 				t.Fatalf("expected 401 without a caller, got %d (handler saw %q, %q)", code, called, msg)
 			}
 
-			// Authz configured, caller without a grant: 403, handler untouched.
+			// Authz configured, caller without a grant: opaque 404 (never 403,
+			// #390), handler untouched, body shaped like the handler's own
+			// "not found".
 			called = ""
 			s2 := fullRouteServer(t)
 			s2.authzChecker = s.authzChecker
 			s2.routes().HandleFunc(tc.method+" /api/v1/things/{name}", asCaller(tc.attach(s2, handler)))
 			code, _, msg = doAPI(t, s2, tc.method, "/api/v1/things/thing-1", nil)
-			if code != http.StatusForbidden || called != "" {
-				t.Fatalf("expected 403 for a caller with no grant, got %d (handler saw %q, %q)", code, called, msg)
+			if code != http.StatusNotFound || called != "" {
+				t.Fatalf("expected 404 for a caller with no grant, got %d (handler saw %q, %q)", code, called, msg)
+			}
+			if want := "thing not found"; !strings.Contains(msg, want) {
+				t.Fatalf("guard deny body = %q, want it to contain %q", msg, want)
 			}
 
 			// A public resource: read passes, write does not.

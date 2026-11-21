@@ -1314,7 +1314,7 @@ when `agentName` itself is empty.
 
 Fetch one invocation by ID.
 
-**Access:** requires read access to the invocation's agent; `403` otherwise. An invocation carrying no agent cannot be attributed to a resource and is admin-only.
+**Access:** requires read access to the invocation's agent; an invocation whose agent the caller cannot read returns `404` rather than `403`, like every resource-scoped guard, so an invocation record cannot confirm that another tenant's agent exists. An invocation carrying no agent cannot be attributed to a resource and is admin-only (`403`).
 
 **Response:** `200 OK`, `400` if the ID is missing, `404 Not Found`, or `503`.
 
@@ -1612,8 +1612,10 @@ Supports the standard `?page=` / `?pageSize=` query params, same defaults and
 bounds as `GET /api/v1/personas`.
 
 Requires read access to the persona, same as `GET /api/v1/personas/{id}`: `401`
-when the caller has no identity, `403` when the persona is neither public nor
-readable by one of the caller's groups.
+when the caller has no identity, `404` (`"persona not found"`) when the persona is
+neither public nor readable by one of the caller's groups — a persona in a foreign
+group is answered exactly like a deleted or never-existing one, so these routes
+cannot be used to probe which names exist in another group.
 
 **Response:** `200 OK`
 ```json
@@ -1634,7 +1636,7 @@ readable by one of the caller's groups.
 
 Fetch one specific historical version with its `text`.
 
-Requires read access to the persona (`401` / `403` as above) — a version body is
+Requires read access to the persona (`401` / `404` as above) — a version body is
 persona content and is not exposed to callers who cannot read the persona.
 
 **Response:** `200 OK` (full Version) or `404 Not Found`.
@@ -1651,9 +1653,10 @@ Copy the text of an older version into a new current version (incrementing `curr
 **Response:** `200 OK` with the updated persona, `400` if `toVersion` is missing / non-positive, `404` if the persona or target version doesn't exist, `409` if the persona is externally managed (`managedBy`), `500` on backend failure.
 
 Requires write access to the persona, same as `PUT /api/v1/personas/{id}`: `401`
-when the caller has no identity, `403` when the caller is not a writer or owner
-of the persona's group (and not an admin). A public persona is readable by
-everyone but still only rollback-able by its writers.
+when the caller has no identity, `404` (`"persona not found"`) when the caller is
+not a writer or owner of the persona's group (and not an admin). A public persona
+is readable by everyone but still only rollback-able by its writers, and a
+not-writable persona is answered with the same opaque `404` as a missing one.
 
 ---
 
@@ -1768,14 +1771,17 @@ ConfigMap immediately, so the agent has it on its next pod start rather than at 
 next convergence tick.
 
 **Response:** `204 No Content`, `404` if the skill or the agent does not exist,
-`401`/`403` if the caller cannot write the **agent** (an assignment is a write to the
-agent, so that is the resource the authorisation check targets).
+`401` if the caller has no identity, `404` (with `"agent not found"`) if the caller
+cannot write the **agent** — an assignment is a write to the agent, so that is the
+resource the authorisation check targets, and an agent in a foreign group is answered
+like one that does not exist.
 
 #### DELETE /api/v1/skills/{id}/assignments/{agentName}
 
 Remove the skill from that agent's selection. Idempotent.
 
-**Response:** `204 No Content`, `404` if the skill or the agent does not exist, `401`/`403` as above.
+**Response:** `204 No Content`, `404` if the skill or the agent does not exist or the
+caller cannot write the agent (`401`/`404` as above).
 
 ### Skill catalogue MCP (internal)
 
@@ -2542,6 +2548,7 @@ allowed methods in `Allow`). A `405` carries `"error": "method not allowed"`.
 |-------------|---------|
 | `400` | Bad request (invalid JSON, missing required fields, unsupported query parameter values). |
 | `401` / `403` | Mostly issued by the ingress layer. The hub issues them itself for local accounts: `401` on a failed `POST /api/v1/auth/login` or a wrong current password, and `403` with `"code": "password_change_required"` while an account still holds a password it did not choose (see [Local accounts](#local-accounts)). |
+| `404` on a named resource | Also the answer of the resource authorization guards: a resource the caller cannot read, write, or manage — deleted, in a foreign group, or never created — is reported as `{"error":"<resource> not found"}`, never `403`, so the three states are indistinguishable and resource routes cannot probe existence in another group. `403` stays reserved for answers about a *present* object the caller may not touch: group/admin guards (`"group owner or admin required"`, `"writer or owner of the group required"`), admin-only routes, the password-change gate, and plugin route-gate refusals. |
 | `404` | Resource not found. |
 | `405` | Method not allowed on this route. |
 | `409` | Conflict (resource already exists; deletion blocked by references; sync already running). |

@@ -15,10 +15,14 @@ resolve to the same user identity and grant the same permissions.
 The AInsel MCP server is a thin client of this API, not a second permission
 system: **MCP tools enforce nothing themselves**. Each tool forwards the
 caller's own bearer token to the hub, and the hub's ordinary `requireWrite` /
-admin checks decide — a non-admin gets the same 403 through an MCP tool as
+admin checks decide — a non-admin gets the same answer through an MCP tool as
 through the REST API (route-to-tool parity is enforced by the `x-mcp-tool` /
 `x-mcp-not-exposed` annotations in `openapi/hub.yaml`; see
-[`api-reference.md`](api-reference.md)).
+[`api-reference.md`](api-reference.md)). Note which answer that is: on a route
+naming one resource, a caller who cannot read/write/manage it gets an opaque
+`404 {"error": "<resource> not found"}` — deleted, foreign-group, and
+never-existing are deliberately indistinguishable — while `403` is reserved for
+group/admin guards, admin-only routes, and plugin route-gate refusals.
 
 ### OIDC (interactive)
 

@@ -110,8 +110,10 @@ func TestSignInStartRequiresWrite(t *testing.T) {
 	r = r.WithContext(oidc.ContextWithUser(r.Context(), &oidc.User{Sub: "u1", Username: "u1"}))
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, r)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("reader starting a sign-in: %d, want 403", rec.Code)
+	// A reader of the agent cannot write it: the guard answers an opaque 404,
+	// not 403 (#390).
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("reader starting a sign-in: %d, want 404", rec.Code)
 	}
 }
 

@@ -43,6 +43,15 @@
 #     `code` is a machine-readable discriminator, present today only on the
 #     gated-account answer (403 password_change_required), which is also the only
 #     body that sets `message`.
+#   - Resource authorization: on a route naming one resource (agents, cron
+#     triggers, triggers, skills, personas, mcp-servers, connectors, channels,
+#     and their sub-resources), a caller who cannot read/write/manage that
+#     resource is answered 404 {"error": "<resource> not found"} — never 403 —
+#     so deleted, foreign-group, and never-existing are indistinguishable and
+#     the routes cannot probe existence in another group (issue #390). 403
+#     stays reserved for answers about a present object the caller may not
+#     touch: group/admin guards, admin-only routes, the password-change gate,
+#     and plugin route-gate refusals ("plugin lacks permission <perm>").
 #   - `managedBy`: any value other than "" or "user" marks the resource
 #     externally managed, and then *every* mutation answers 409
 #     {"error": "<kind> is managed by <manager>"} — except for the plugin a
@@ -1320,7 +1329,9 @@ paths:
       x-mcp-tool: get_invocation
       summary: Fetch one invocation by id
       description: >-
-        Requires read access to the invocation's agent; 403 otherwise. An
+        Requires read access to the invocation's agent; an invocation whose
+        agent the caller cannot read returns 404, not 403, like every
+        resource-scoped guard (see the Errors convention in the header). An
         invocation carrying no agent cannot be attributed and is admin-only.
       parameters:
         - $ref: '#/components/parameters/resourceId'

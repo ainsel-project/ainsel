@@ -53,7 +53,7 @@ func (s *personaAuthzStub) Rollback(_ context.Context, id string, n int) (*perso
 
 // denyAuthzStore models a non-admin caller with no group mapping for the
 // persona. CanRead and CanWrite both resolve to (false, nil) — default-closed —
-// which is what a 403 must come from rather than a 500.
+// which is what a guard 404 (never 403, #390) must come from rather than a 500.
 type denyAuthzStore struct{}
 
 func (denyAuthzStore) GetUser(_ context.Context, id string) (*authz.User, error) {
@@ -108,7 +108,7 @@ func newPersonaAuthzServer(t *testing.T, svc PersonaService, store authz.Checker
 	}))
 }
 
-func TestHandlerListVersionsForbidden(t *testing.T) {
+func TestHandlerListVersionsNotFound(t *testing.T) {
 	svc := &personaAuthzStub{}
 	srv := newPersonaAuthzServer(t, svc, denyAuthzStore{}, nil, "u1")
 	defer srv.Close()
@@ -119,15 +119,15 @@ func TestHandlerListVersionsForbidden(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 	}
 	if svc.listVersionsCalls != 0 {
 		t.Errorf("ListVersions called %d times, want 0 — denied caller must not reach the service", svc.listVersionsCalls)
 	}
 }
 
-func TestHandlerGetVersionForbidden(t *testing.T) {
+func TestHandlerGetVersionNotFound(t *testing.T) {
 	svc := &personaAuthzStub{}
 	srv := newPersonaAuthzServer(t, svc, denyAuthzStore{}, nil, "u1")
 	defer srv.Close()
@@ -138,15 +138,15 @@ func TestHandlerGetVersionForbidden(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 	}
 	if svc.getVersionCalls != 0 {
 		t.Errorf("GetVersion called %d times, want 0 — denied caller must not reach the service", svc.getVersionCalls)
 	}
 }
 
-func TestHandlerRollbackForbidden(t *testing.T) {
+func TestHandlerRollbackNotFound(t *testing.T) {
 	svc := &personaAuthzStub{}
 	srv := newPersonaAuthzServer(t, svc, denyAuthzStore{}, nil, "u1")
 	defer srv.Close()
@@ -157,8 +157,8 @@ func TestHandlerRollbackForbidden(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 	}
 	if svc.rollbackCalls != 0 {
 		t.Errorf("Rollback called %d times, want 0 — denied caller must not reach the service", svc.rollbackCalls)
@@ -293,8 +293,8 @@ func TestHandlerPublicPersonaReadableButNotRollbackable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = rollbackResp.Body.Close() }()
-	if rollbackResp.StatusCode != http.StatusForbidden {
-		t.Errorf("rollback status = %d, want %d", rollbackResp.StatusCode, http.StatusForbidden)
+	if rollbackResp.StatusCode != http.StatusNotFound {
+		t.Errorf("rollback status = %d, want %d", rollbackResp.StatusCode, http.StatusNotFound)
 	}
 	if svc.rollbackCalls != 0 {
 		t.Errorf("Rollback called %d times, want 0", svc.rollbackCalls)
