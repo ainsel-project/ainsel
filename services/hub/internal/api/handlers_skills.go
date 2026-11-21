@@ -64,7 +64,10 @@ func (h *skillHandlers) requireRead(w http.ResponseWriter, r *http.Request, id s
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque deny: a resource the caller cannot read or write answers
+		// 404, not 403, so a deleted or foreign-group resource is
+		// indistinguishable from one that never existed (#390).
+		httpx.WriteError(w, http.StatusNotFound, "skill not found")
 		return false
 	}
 	return true
@@ -82,7 +85,10 @@ func (h *skillHandlers) requireWrite(w http.ResponseWriter, r *http.Request, id 
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque deny: a resource the caller cannot read or write answers
+		// 404, not 403, so a deleted or foreign-group resource is
+		// indistinguishable from one that never existed (#390).
+		httpx.WriteError(w, http.StatusNotFound, "skill not found")
 		return false
 	}
 	return true
@@ -449,7 +455,10 @@ func (h *skillHandlers) requireAgentWrite(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque deny: a resource the caller cannot read or write answers
+		// 404, not 403, so a deleted or foreign-group resource is
+		// indistinguishable from one that never existed (#390).
+		httpx.WriteError(w, http.StatusNotFound, "agent not found")
 		return false
 	}
 	return true

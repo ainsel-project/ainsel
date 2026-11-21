@@ -747,7 +747,10 @@ func (s *Server) requireRead(w http.ResponseWriter, r *http.Request, resourceTyp
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// A resource the caller cannot read answers 404, not 403, so a
+		// deleted or foreign-group resource is indistinguishable from one
+		// that never existed (see docs/api-reference.md, Error Format).
+		httpx.WriteError(w, http.StatusNotFound, resourceType+" not found")
 		return false
 	}
 	return true
@@ -766,7 +769,8 @@ func (s *Server) requireWrite(w http.ResponseWriter, r *http.Request, resourceTy
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque deny, as in requireRead: 404, never 403.
+		httpx.WriteError(w, http.StatusNotFound, resourceType+" not found")
 		return false
 	}
 	return true
