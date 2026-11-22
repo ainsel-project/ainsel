@@ -1268,7 +1268,8 @@ paths:
       summary: List recent invocations, newest first (the `capacity` field is the store's row budget)
       description: >-
         Scoped to the caller: results are limited to invocations whose agent the
-        caller can read, and `agent` naming any other agent returns 403. The
+        caller can read, and `agent` naming an agent the caller cannot read answers
+        404 like any other unreadable resource, so it cannot confirm the agent exists. The
         `event`, `trigger`, `status` and `connector` filters narrow within that
         scope and cannot widen it. `connector` accepts repeats or a
         comma-separated list (max 50 unique values, else 400). Rows carry a
@@ -2016,7 +2017,8 @@ paths:
       description: >-
         Scoped like `/api/v1/observability/logs` — error messages routinely quote
         the payload that failed — so `agent` naming an agent the caller cannot
-        read returns 403. This collection uses the `errors` key.
+        read answers 404, not 403, so the filter cannot confirm the agent exists. This
+        collection uses the `errors` key.
       parameters:
         - name: limit
           in: query
@@ -2323,7 +2325,8 @@ paths:
       summary: Tail recent agent log lines from the hub's task_logs table
       description: >-
         Scoped to the caller: omitting `app` returns only the agents the caller can
-        read, and `app` naming another agent returns 403.
+        read, and `app` naming another agent answers 404, not 403, so the filter
+        cannot confirm the agent exists.
       parameters:
         - name: app
           in: query

@@ -1268,7 +1268,7 @@ Invocations record one dispatch of an event to an agent. They are persisted in t
 
 List recent invocations, newest first. Supports `page`/`pageSize`.
 
-**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger`, `status` and `connector` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
+**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming an agent the caller cannot read returns `404`, like any other resource the caller cannot read ([#390](https://github.com/ainsel-project/ainsel/issues/390)). The `event`, `trigger`, `status` and `connector` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
 
 **Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `connector`, `since` / `until` (RFC3339 timestamp), `limit` (max `500`; larger values are clamped down).
 
@@ -1926,7 +1926,7 @@ One event with the same shape as a list entry.
 
 List recent error-level agent log entries (from the hub's `task_logs` table).
 
-**Access:** scoped to the caller, exactly like [`GET /api/v1/observability/logs`](#get-apiv1observabilitylogs) — error messages routinely quote the payload that failed. `agent` naming an agent the caller cannot read returns `403`. Admins see everything.
+**Access:** scoped to the caller, exactly like [`GET /api/v1/observability/logs`](#get-apiv1observabilitylogs) — error messages routinely quote the payload that failed. `agent` naming an agent the caller cannot read returns `404`, not `403`, so the filter cannot confirm the agent exists. Admins see everything.
 
 **Query parameters:** `limit` (default `50`), `agent`, `since` (RFC3339, default 24h ago).
 
@@ -2229,7 +2229,7 @@ Tail recent agent log lines from the hub's own `task_logs` table, populated by a
 - `since` — Go duration string (e.g. `90m`); overrides `range`.
 - `limit` — positive integer, default `500`, capped at `1000`.
 
-**Access:** scoped to the caller — results are limited to agents the caller can read, so omitting `app` returns only those agents' logs rather than every agent's. `app` naming an agent the caller cannot read returns `403`. Admins see every agent's logs.
+**Access:** scoped to the caller — results are limited to agents the caller can read, so omitting `app` returns only those agents' logs rather than every agent's. `app` naming an agent the caller cannot read returns `404`, not `403`, so the filter cannot confirm the agent exists. Admins see every agent's logs.
 
 **Response:** `200 OK`
 ```json
@@ -2252,7 +2252,7 @@ Tail recent agent log lines from the hub's own `task_logs` table, populated by a
 
 Return agent conversation messages captured from agent turns and stored in the `task_conversations` table. These are the messages the hub's event detail view uses to render the communication for an event/invocation (user prompt, assistant thinking/text, tool calls, and tool results).
 
-**Access:** scoped to the caller — results are limited to agents the caller can read, and `agent` naming any other agent returns `403`. `invocation` and `correlation` narrow within that scope but cannot widen it. Admins see everything.
+**Access:** scoped to the caller — results are limited to agents the caller can read, and `agent` naming an agent the caller cannot read returns `404`, not `403`, so the filter cannot confirm the agent exists. `invocation` and `correlation` narrow within that scope but cannot widen it. Admins see everything.
 
 **Query parameters:**
 - `agent` — filter by agent name.

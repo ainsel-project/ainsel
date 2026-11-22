@@ -322,9 +322,11 @@ func TestTelemetryLogsScopedToAccessibleAgents(t *testing.T) {
 		if rec := env.get("/api/v1/observability/logs?app=a-alice", "alice"); rec.Code != http.StatusOK {
 			t.Errorf("own agent: status = %d (%s), want 200", rec.Code, rec.Body.String())
 		}
+		// #390: the explicit-app check is the shared read guard, so a foreign
+		// agent answers the same opaque 404 as one that never existed.
 		rec := env.get("/api/v1/observability/logs?app=a-bob", "alice")
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("foreign agent: status = %d (%s), want 403", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("foreign agent: status = %d (%s), want 404", rec.Code, rec.Body.String())
 		}
 		assertNoLeak(t, rec, "/observability/logs?app=a-bob", "alice")
 	})
@@ -366,8 +368,10 @@ func TestTelemetryErrorsScoped(t *testing.T) {
 	}
 	assertNoLeak(t, rec, "/errors", "alice")
 
-	if rec := env.get("/api/v1/errors?agent=a-bob", "alice"); rec.Code != http.StatusForbidden {
-		t.Errorf("foreign agent: status = %d (%s), want 403", rec.Code, rec.Body.String())
+	// #390: naming a foreign agent passes the shared read guard, which now
+	// answers the opaque 404 rather than confirming the agent exists.
+	if rec := env.get("/api/v1/errors?agent=a-bob", "alice"); rec.Code != http.StatusNotFound {
+		t.Errorf("foreign agent: status = %d (%s), want 404", rec.Code, rec.Body.String())
 	}
 }
 
@@ -438,8 +442,10 @@ func TestTelemetryConversationsScopedToAccessibleAgents(t *testing.T) {
 	}
 	assertNoLeak(t, rec, "/observability/conversations", "alice")
 
-	if rec := env.get("/api/v1/observability/conversations?agent=a-bob", "alice"); rec.Code != http.StatusForbidden {
-		t.Errorf("foreign agent: status = %d (%s), want 403", rec.Code, rec.Body.String())
+	// #390: the explicit-agent check is the shared read guard, so a foreign
+	// agent answers the opaque 404 rather than confirming it exists.
+	if rec := env.get("/api/v1/observability/conversations?agent=a-bob", "alice"); rec.Code != http.StatusNotFound {
+		t.Errorf("foreign agent: status = %d (%s), want 404", rec.Code, rec.Body.String())
 	}
 }
 
@@ -572,8 +578,10 @@ func TestTelemetryInvocationsScopedToAccessibleAgents(t *testing.T) {
 			t.Fatalf("expected 1 invocation for bob, got %d", len(bobResp.Invocations))
 		}
 		foreign := bobResp.Invocations[0].ID
-		if rec := env.get("/api/v1/invocations/"+foreign, "alice"); rec.Code != http.StatusForbidden {
-			t.Errorf("foreign invocation: status = %d (%s), want 403", rec.Code, foreign)
+		// #390: reading a foreign invocation addresses the agent behind it
+		// through the shared read guard, so the answer is the opaque 404.
+		if rec := env.get("/api/v1/invocations/"+foreign, "alice"); rec.Code != http.StatusNotFound {
+			t.Errorf("foreign invocation: status = %d (%s), want 404", rec.Code, foreign)
 		}
 	})
 }
