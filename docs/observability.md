@@ -90,7 +90,12 @@ rendered as queued or running. A task still queued past the hub's start deadline
 pickup deadline (`TASK_EXPIRY_SECONDS`) is reaped to `expired` and renders as
 *timeout* — never picked up, and the sender notified like a failed task. The Activity page's State
 filter accepts all five states (`queued`, `running`, `success`, `failure`,
-`timeout`) and filters over the whole history, not just the loaded page. The
+`timeout`) and filters over the whole history, not just the loaded page. A run that
+finished only after an earlier attempt hit the runner's turn timeout
+(`TURN_TIMEOUT_MS`) keeps its `success` state and is badged *timed out* — the
+retained nack (`task.lastError`) is what says so, and the badge is a modifier on
+the state, not a sixth state (an attempt the timer killed closes its own record as
+`timeout`, which is what the State filter matches). The
 agent overview's stat cells count with this same derived state — a non-terminal
 record with no task behind it is `unknown` and shows up as neither Running now
 nor Queued now — and each cell links to Activity with the matching `runState`

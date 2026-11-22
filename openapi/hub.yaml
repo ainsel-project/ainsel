@@ -4438,7 +4438,8 @@ components:
       properties:
         status: { type: string, enum: [pending, claimed, completed, failed, expired] }
         attempts: { type: integer }
-        error: { type: string }
+        lastError: { type: string, description: 'Why the most recent failed attempt died. Retained after a later attempt completes, so on a completed task it is not a claim that the task failed — hence the name rather than `error`. The runner''s internal task fetch (`GET /api/internal/agents/{name}/tasks/{id}`) still names this field `error`.' }
+        timedOut: { type: boolean, description: 'The task completed after an earlier attempt was killed by the runner''s turn timeout — success with provenance. Only ever true alongside `runState: success`.' }
         startedAt: { type: string, format: date-time, description: 'First evidence of work (claim or first conversation row); nil while the task is queued. Distinct from the invocation''s `startTime`, which is the dispatch time.' }
         runState: { type: string, enum: [queued, running, success, failure, timeout] }
         stuck: { type: boolean, description: 'A queued task that has waited past the start deadline; never applies to a started task.' }
@@ -4502,6 +4503,7 @@ components:
         durationMs: { type: integer, format: int64 }
         error: { type: string }
         stuck: { type: boolean, description: 'A queued task waiting for a worker past the hub''s start deadline.' }
+        timedOut: { type: boolean, description: 'A completed match whose task retained a turn-timeout nack: the run succeeded, but an attempt hit the runner''s turn ceiling. Only ever true alongside `runState: success`.' }
     ActivityEntry:
       type: object
       description: >-

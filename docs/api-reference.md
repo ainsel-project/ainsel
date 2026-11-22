@@ -1278,6 +1278,8 @@ Every row on the event-scoped list (`event=`) and on the plain list carries a `t
 
 The `task` object is the authoritative run state: `status` is the raw queue state (`pending` / `claimed` / `completed` / `failed` / `expired`) and is ambiguous in per-task Job mode, where the row stays `pending` while the pod works. `runState` is the hub-derived display state — `queued` (no worker yet), `running` (being worked on), `success`, `failure`, `timeout` — and `startedAt` is the first evidence of work (claim or first conversation row). `stuck: true` marks a task queued past the hub's start deadline (`TASK_START_TIMEOUT_SECONDS`, default 900); a task that then waits past its pickup deadline (`TASK_EXPIRY_SECONDS`, default 1 day) is reaped to `expired` and renders as `timeout` — never picked up, the sender notified like a failed task (issue #236). Clients should render `runState`, not `status`. (That `status` is the `agent_tasks` column; the activity entry's own `status` is the retired spelling of its `match` verdict — two different fields.)
 
+A completed task can carry the provenance of the attempts before it: `lastError` is why the most recent failed attempt died — retained after a later attempt succeeds, and deliberately *not* named `error`, because on a completed task it does not mean the task failed — and `timedOut: true` says that retained error was the runner's turn timeout (`TURN_TIMEOUT_MS`), i.e. the run succeeded only after an attempt hit the ceiling. `timedOut` is a modifier on `success`, never a state of its own: it is never set on a `queued`, `running`, `failure` or `timeout` row, and views render it as a marker beside the success state (issue #392).
+
 **Response:** `200 OK`
 ```json
 {
@@ -1904,7 +1906,10 @@ the match and the invocation record itself is terminal; rows with nothing behind
 them at all are `unknown`. `runState` filters on that derived state in SQL, so
 the console's State filter walks the whole history, not just the loaded page.
 A task with no invocation record still matches `queued`/`running` (the task is
-the evidence). Note that terminal filter values stay invocation-derived in SQL
+the evidence). An attempt the runner's turn timer killed closes its own
+invocation record as `timeout` (not `failure`), so it matches `runState=timeout`;
+rows nacked before that change kept `failure`, so the counts are discontinuous at
+deploy time. Note that terminal filter values stay invocation-derived in SQL
 while the rendered state makes the task authoritative: a retried task that
 completed while an older invocation record says `failure` renders `success` yet
 still matches `runState=failure`.
