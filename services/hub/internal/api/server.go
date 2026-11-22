@@ -747,7 +747,11 @@ func (s *Server) requireRead(w http.ResponseWriter, r *http.Request, resourceTyp
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Denied reads answer 404, not 403: a deleted resource has no ownership
+		// row, so a 403 could not be told apart from "gone" (issue #390). The
+		// body shape matches the handlers' own not-found answers so guard and
+		// handler 404s are interchangeable for clients.
+		httpx.WriteError(w, http.StatusNotFound, resourceName+" not found")
 		return false
 	}
 	return true
@@ -766,7 +770,10 @@ func (s *Server) requireWrite(w http.ResponseWriter, r *http.Request, resourceTy
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Same opaque 404 as requireRead (issue #390): a denied write addresses
+		// the resource as not-found, so deleted and foreign-group resources are
+		// indistinguishable to non-admins.
+		httpx.WriteError(w, http.StatusNotFound, resourceName+" not found")
 		return false
 	}
 	return true

@@ -348,13 +348,14 @@ func TestPluginCredential_PluginKindUsesGroups(t *testing.T) {
 		t.Errorf("agent in group: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// a2 lives in g2, which the plugin was not granted
+	// a2 lives in g2, which the plugin was not granted: the guard addresses the
+	// foreign agent as not-found (issue #390).
 	req = httptest.NewRequest("GET", "/api/v1/agents/a2", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rec = httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("agent outside granted groups: expected 403, got %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("agent outside granted groups: expected 404, got %d", rec.Code)
 	}
 
 	// An agent-kind credential keeps its owning group (g2) even though the
@@ -450,8 +451,9 @@ func TestPluginCredential_SkillAssignmentIsAnAgentWrite(t *testing.T) {
 	if code, body := grant(t, assigned, "/api/v1/skills/memory-usage/assignments/a1"); code != http.StatusNoContent {
 		t.Errorf("agent in a granted group: expected 204, got %d: %s", code, body)
 	}
-	if code, _ := grant(t, assigned, "/api/v1/skills/memory-usage/assignments/a2"); code != http.StatusForbidden {
-		t.Errorf("agent outside the granted groups: expected 403, got %d", code)
+	// a2 is foreign to the credential's groups: addressed as not-found (#390).
+	if code, _ := grant(t, assigned, "/api/v1/skills/memory-usage/assignments/a2"); code != http.StatusNotFound {
+		t.Errorf("agent outside the granted groups: expected 404, got %d", code)
 	}
 
 	// skills:write no longer covers the assignment route: it edits skill rows, and

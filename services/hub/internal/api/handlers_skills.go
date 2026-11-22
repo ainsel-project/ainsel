@@ -64,7 +64,9 @@ func (h *skillHandlers) requireRead(w http.ResponseWriter, r *http.Request, id s
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque 404, not 403: deleted and foreign-group skills are
+		// indistinguishable to non-admins (issue #390, see Server.requireRead).
+		httpx.WriteError(w, http.StatusNotFound, id+" not found")
 		return false
 	}
 	return true
@@ -82,7 +84,8 @@ func (h *skillHandlers) requireWrite(w http.ResponseWriter, r *http.Request, id 
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque 404, not 403 (issue #390, see Server.requireWrite).
+		httpx.WriteError(w, http.StatusNotFound, id+" not found")
 		return false
 	}
 	return true
@@ -449,7 +452,9 @@ func (h *skillHandlers) requireAgentWrite(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque 404, not 403: an agent the caller cannot write addresses as
+		// not-found (issue #390, see Server.requireWrite).
+		httpx.WriteError(w, http.StatusNotFound, agentName+" not found")
 		return false
 	}
 	return true
