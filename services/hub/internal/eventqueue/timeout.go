@@ -7,7 +7,7 @@ import "strings"
 // pi/pi-extensions/ainsel-runner/src/task-loop.ts builds
 // `Turn timed out after ${turnTimeoutMs}ms`. It is the only surviving evidence
 // that an attempt died mid-work rather than finishing, so both sides pin it in
-// tests — Go (TestIsTurnTimeoutError) and TS (turn-timeout-marker.test.ts) —
+// tests — Go (TestIsTurnTimeoutError) and TS (src/turn-timeout.test.ts) —
 // and drift fails loudly instead of quietly un-badging a timed-out run.
 const TurnTimeoutMarker = "Turn timed out after"
 
