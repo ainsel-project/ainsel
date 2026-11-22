@@ -15,8 +15,9 @@ resolve to the same user identity and grant the same permissions.
 The AInsel MCP server is a thin client of this API, not a second permission
 system: **MCP tools enforce nothing themselves**. Each tool forwards the
 caller's own bearer token to the hub, and the hub's ordinary `requireWrite` /
-admin checks decide — a non-admin gets the same 403 through an MCP tool as
-through the REST API (route-to-tool parity is enforced by the `x-mcp-tool` /
+admin checks decide — a non-admin gets the same answer through an MCP tool as
+through the REST API, including the opaque `404` for a resource they cannot
+access and the `403`s that remain about groups and admin gates (route-to-tool parity is enforced by the `x-mcp-tool` /
 `x-mcp-not-exposed` annotations in `openapi/hub.yaml`; see
 [`api-reference.md`](api-reference.md)).
 
