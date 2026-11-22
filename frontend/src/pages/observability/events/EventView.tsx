@@ -8,7 +8,9 @@ import {
   useInvocations,
   invocationStatusVariant,
   effectiveRunState,
+  runStateLabel,
   taskRunState,
+  taskTimedOut,
   type InvocationEntry,
 } from '../../../api/invocations'
 import { EventJourney } from '../../../components/journey/EventJourney'
@@ -86,6 +88,9 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
   )
 
   const runState = effectiveRunState(invocation)
+  // Success after an attempt the runner's turn timer killed: same vocabulary,
+  // never an unqualified tick (#392).
+  const timedOut = taskTimedOut(invocation.task)
   // Compose both suffixes: a retried task that has waited past the start
   // deadline carries the more actionable signal, so never hide "stuck"
   // behind "attempt N" (or vice versa).
@@ -126,8 +131,12 @@ function InvocationDetail({ invocation }: { invocation: InvocationEntry }) {
             {/* The derived run state: a task with no worker yet reads queued
                 (never running), a live per-task Job run reads running (never
                 queued), and a row with nothing behind it reads unknown. */}
-            <Tag variant={invocationStatusVariant(runState)}>
-              {runState}
+            <Tag
+              variant={
+                timedOut ? invocationStatusVariant('timeout') : invocationStatusVariant(runState)
+              }
+            >
+              {runStateLabel(runState, timedOut)}
               {queuedDetail}
             </Tag>
           </div>

@@ -4,6 +4,8 @@ import {
   useInvocations,
   invocationStatusVariant,
   effectiveRunState,
+  runStateLabel,
+  taskTimedOut,
 } from '../../../api/invocations'
 import {
   chartUnit,
@@ -127,10 +129,20 @@ export function RoutingDetail() {
       // with nothing behind it reads unknown.
       cell: (r) => {
         const state = effectiveRunState(r)
+        // A success that needed a retry after the runner's turn timeout keeps its
+        // state and gains the marker — same variant a real timeout renders with
+        // (#392).
+        const timedOut = taskTimedOut(r.task)
         return (
           <>
             <Dot state={statusDot(state)} />{' '}
-            <Tag variant={invocationStatusVariant(state)}>{state}</Tag>
+            <Tag
+              variant={
+                timedOut ? invocationStatusVariant('timeout') : invocationStatusVariant(state)
+              }
+            >
+              {runStateLabel(state, timedOut)}
+            </Tag>
           </>
         )
       },

@@ -31,6 +31,9 @@ export type ActivityMatch = {
   startedAt?: string
   /** Queued past the hub's start deadline. */
   stuck?: boolean
+  /** The run succeeded only after an attempt hit the runner's turn timeout —
+   *  a modifier on `success`, never a state of its own (#392). */
+  timedOut?: boolean
 }
 
 export type ActivityEntry = {

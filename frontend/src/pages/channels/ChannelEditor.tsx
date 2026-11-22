@@ -18,7 +18,12 @@ import {
 } from '../../api/channels'
 import { loadMermaid } from '../../primitives/mermaid'
 import type { ActivityEntry, ActivityMatchResult } from '../../api/events'
-import { useInvocations, effectiveRunState } from '../../api/invocations'
+import {
+  effectiveRunState,
+  invocationStatusVariant,
+  taskTimedOut,
+  useInvocations,
+} from '../../api/invocations'
 import { sectionPath } from '../agents/workspace/sections'
 import { Panel } from '../../primitives/Panel'
 import { SectionStatus } from '../../primitives/SectionStatus'
@@ -29,8 +34,21 @@ import './ChannelsPage.css'
 // The run's own state — the axis the Activity page's State filter narrows. The
 // match verdict is the other axis and renders through MatchTag; taking match
 // values here is what made a fan-out event render as a run state.
-function RunStateTag({ state, stuck }: { state?: string; stuck?: boolean }) {
-  if (state === 'success') return <Tag variant="ok">SUCCESS</Tag>
+function RunStateTag({
+  state,
+  stuck,
+  timedOut,
+}: {
+  state?: string
+  stuck?: boolean
+  timedOut?: boolean
+}) {
+  if (state === 'success') {
+    // Success that needed a retry after the runner's turn ceiling is not an
+    // unqualified success (#392); same variant a real timeout renders with.
+    if (timedOut) return <Tag variant={invocationStatusVariant('timeout')}>SUCCESS · TIMED OUT</Tag>
+    return <Tag variant="ok">SUCCESS</Tag>
+  }
   if (state === 'failure') return <Tag variant="err">FAILURE</Tag>
   if (state === 'timeout') return <Tag variant="err">TIMEOUT</Tag>
   if (state === 'running') return <Tag variant="warn">RUNNING</Tag>
@@ -88,7 +106,12 @@ function EventLine({ entry }: { entry: ActivityEntry }) {
             the Activity row keeps in separate columns. */}
         <MatchTag match={entry.match} />
         {runs.map((m, i) => (
-          <RunStateTag key={i} state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
+          <RunStateTag
+            key={i}
+            state={m.runState ?? m.invocationStatus}
+            stuck={m.stuck}
+            timedOut={taskTimedOut(m)}
+          />
         ))}
       </div>
     </div>
@@ -546,7 +569,11 @@ export function ChannelEditor({ channelId, hideSubscriptions = false }: ChannelE
                   >
                     {inv.triggerName ?? inv.trigger ?? '—'} · {inv.id}
                   </span>
-                  <RunStateTag state={effectiveRunState(inv)} stuck={inv.task?.stuck} />
+                  <RunStateTag
+                    state={effectiveRunState(inv)}
+                    stuck={inv.task?.stuck}
+                    timedOut={taskTimedOut(inv.task)}
+                  />
                   <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                     {inv.durationMs !== undefined ? `${(inv.durationMs / 1000).toFixed(1)}s` : '—'}
                   </span>
