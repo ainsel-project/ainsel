@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Fragment } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { ActivityEntry, ActivityMatch, ActivityMatchResult } from '../../api/events'
-import { invocationStatusVariant, taskTimedOut } from '../../api/invocations'
+import { invocationStatusVariant, runStateLabel, taskTimedOut } from '../../api/invocations'
 import { Tag } from '../../primitives/Tag'
 import { formatRelative } from '../../utils/time'
 import { sectionPath } from '../agents/workspace/sections'
@@ -41,8 +41,15 @@ function RunStateTag({
   if (state === 'success') {
     // A run that only finished after an attempt hit the runner's turn timeout is
     // still a success — but never render it as an unqualified one (#392). Same
-    // variant a real timeout gets, so the styling cannot drift.
-    if (timedOut) return <Tag variant={invocationStatusVariant('timeout')}>SUCCESS · TIMED OUT</Tag>
+    // variant a real timeout gets, so the styling cannot drift. Tags here are
+    // uppercase, so the shared label is uppercased at this boundary rather than
+    // spelled again.
+    if (timedOut)
+      return (
+        <Tag variant={invocationStatusVariant('timeout')}>
+          {runStateLabel('success', true).toUpperCase()}
+        </Tag>
+      )
     return <Tag variant="ok">SUCCESS</Tag>
   }
   if (state === 'failure') return <Tag variant="err">FAILURE</Tag>

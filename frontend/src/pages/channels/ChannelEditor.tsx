@@ -21,6 +21,7 @@ import type { ActivityEntry, ActivityMatchResult } from '../../api/events'
 import {
   effectiveRunState,
   invocationStatusVariant,
+  runStateLabel,
   taskTimedOut,
   useInvocations,
 } from '../../api/invocations'
@@ -46,7 +47,14 @@ function RunStateTag({
   if (state === 'success') {
     // Success that needed a retry after the runner's turn ceiling is not an
     // unqualified success (#392); same variant a real timeout renders with.
-    if (timedOut) return <Tag variant={invocationStatusVariant('timeout')}>SUCCESS · TIMED OUT</Tag>
+    // Tags here are uppercase, so the shared label is uppercased at this
+    // boundary rather than spelled again.
+    if (timedOut)
+      return (
+        <Tag variant={invocationStatusVariant('timeout')}>
+          {runStateLabel('success', true).toUpperCase()}
+        </Tag>
+      )
     return <Tag variant="ok">SUCCESS</Tag>
   }
   if (state === 'failure') return <Tag variant="err">FAILURE</Tag>

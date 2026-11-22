@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { channelPath, isDirectSource, useChannelIds } from '../../api/channels'
-import { taskTimedOut } from '../../api/invocations'
+import { runStateLabel, taskTimedOut } from '../../api/invocations'
 import { ConnectorLabel } from '../ConnectorLabel'
 import { Tag } from '../../primitives/Tag'
 import { formatISO } from '../../utils/time'
@@ -137,8 +137,9 @@ export function EventJourney({
       durationMs: m.durationMs,
       error: m.error,
       dotTone: runTone(state),
-      runLabel:
-        runLabel(state) + (m.stuck ? ' · stuck' : '') + (taskTimedOut(m) ? ' · timed out' : ''),
+      // One wording for the badged success everywhere: the journey keeps its own
+      // verb for the state, then lets runStateLabel append the timeout suffix.
+      runLabel: runStateLabel(runLabel(state) + (m.stuck ? ' · stuck' : ''), taskTimedOut(m)),
       pulse: state === 'running',
     })
   }
