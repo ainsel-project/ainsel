@@ -323,12 +323,11 @@ func TestTelemetryLogsScopedToAccessibleAgents(t *testing.T) {
 			t.Errorf("own agent: status = %d (%s), want 200", rec.Code, rec.Body.String())
 		}
 		// #390: the explicit-app check is the shared read guard, so a foreign
-		// agent answers the same opaque 404 as one that never existed.
-		rec := env.get("/api/v1/observability/logs?app=a-bob", "alice")
-		if rec.Code != http.StatusNotFound {
-			t.Errorf("foreign agent: status = %d (%s), want 404", rec.Code, rec.Body.String())
-		}
-		assertNoLeak(t, rec, "/observability/logs?app=a-bob", "alice")
+		// agent answers the same opaque 404 as one that never existed. The
+		// guard names the resource the caller itself asked for, so pinning the
+		// exact opaque answer replaces the substring leak check here — that
+		// check would trip over the "a-bob" from the caller's own query.
+		wantOpaqueNotFound(t, env.get("/api/v1/observability/logs?app=a-bob", "alice"), "a-bob")
 	})
 
 	t.Run("admin sees both tenants", func(t *testing.T) {
