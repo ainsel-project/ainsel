@@ -231,6 +231,10 @@ func (s *Server) handleAgentTaskAck(w http.ResponseWriter, r *http.Request) {
 
 // handleAgentTaskNack serves POST /api/internal/agents/{name}/tasks/{id}/nack.
 //
+// It closes the attempt's invocation row as 'timeout' when the nack message is
+// the runner's turn-timeout (eventqueue.IsTurnTimeoutError) and as 'failure'
+// otherwise, so ?state=timeout includes runs the platform's timer ended.
+//
 // Gated by the internal dispatcher, like handleAgentTaskAck.
 func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -275,7 +279,11 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.reportTaskFailure(agentName, taskID, task.InvocationID, body.Error, invocations.StatusFailure)
+	// The timer that killed this attempt decides how its own invocation row is
+	// closed: a turn timeout is the platform ending the run, not the agent
+	// failing it — the same reading the pickup-deadline reaper already uses
+	// (#392). Forward-only: rows nacked before this change stay "failure".
+	s.reportTaskFailure(agentName, taskID, task.InvocationID, body.Error, nackInvocationStatus(body.Error))
 
 	slog.Info("task nacked",
 		"task_id", taskID,
@@ -284,6 +292,17 @@ func (s *Server) handleAgentTaskNack(w http.ResponseWriter, r *http.Request) {
 		"delay_ms", delay.Milliseconds(),
 	)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// nackInvocationStatus is the invocation status a nacked attempt's own record
+// closes with: a turn timeout means the platform's timer ended the run, not the
+// agent failing it — the same reading the pickup-deadline reaper uses — and
+// ?state=timeout includes it. Anything else is a plain failure.
+func nackInvocationStatus(errMsg string) string {
+	if eventqueue.IsTurnTimeoutError(errMsg) {
+		return invocations.StatusTimeout
+	}
+	return invocations.StatusFailure
 }
 
 // reportTaskFailure is the single path that tells everyone a task ended badly:

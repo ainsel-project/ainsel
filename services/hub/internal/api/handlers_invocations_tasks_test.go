@@ -182,7 +182,7 @@ func TestInvocations_EventSynthesizesFailedTask(t *testing.T) {
 	if inv.Status != invocations.StatusFailure {
 		t.Errorf("expected failure status, got %s", inv.Status)
 	}
-	if inv.Task == nil || inv.Task.Attempts != 3 || inv.Task.Error != "Turn timed out after 600000ms" {
+	if inv.Task == nil || inv.Task.Attempts != 3 || inv.Task.LastError != "Turn timed out after 600000ms" {
 		t.Errorf("unexpected task state: %+v", inv.Task)
 	}
 	if inv.Error != "Turn timed out after 600000ms" {
@@ -219,79 +219,116 @@ func TestDeriveRunState(t *testing.T) {
 	stuckAfter := 15 * time.Minute
 
 	cases := []struct {
-		name      string
-		task      *eventqueue.Task
-		inv       *invocations.Invocation
-		want      string
-		wantStuck bool
+		name         string
+		task         *eventqueue.Task
+		inv          *invocations.Invocation
+		want         string
+		wantStuck    bool
+		wantTimedOut bool
 	}{
 		{
-			"no task, no invocation: unknown",
-			nil, nil,
-			invocations.StatusUnknown, false,
+			name: "no task, no invocation: unknown",
+			want: invocations.StatusUnknown,
 		},
 		{
-			"no task, running invocation (record without enqueue): unknown, not running",
-			nil, &invocations.Invocation{Status: invocations.StatusRunning},
-			invocations.StatusUnknown, false,
+			name: "no task, running invocation (record without enqueue): unknown, not running",
+			inv:  &invocations.Invocation{Status: invocations.StatusRunning},
+			want: invocations.StatusUnknown,
 		},
 		{
-			"no task, pruned record: unknown, not queued",
-			nil, nil,
-			invocations.StatusUnknown, false,
+			name: "no task, pruned record: unknown, not queued",
+			want: invocations.StatusUnknown,
 		},
 		{
-			"no task, terminal invocation keeps its outcome",
-			nil, &invocations.Invocation{Status: invocations.StatusTimeout},
-			invocations.StatusTimeout, false,
+			name: "no task, terminal invocation keeps its outcome",
+			inv:  &invocations.Invocation{Status: invocations.StatusTimeout},
+			want: invocations.StatusTimeout,
 		},
 		{
-			"pending unstarted: queued",
-			&eventqueue.Task{Status: "pending", CreatedAt: recent}, nil,
-			invocations.StatusQueued, false,
+			name: "pending unstarted: queued",
+			task: &eventqueue.Task{Status: "pending", CreatedAt: recent},
+			want: invocations.StatusQueued,
 		},
 		{
-			"pending with conversation evidence: running (Job-mode live run)",
-			&eventqueue.Task{Status: "pending", CreatedAt: recent, StartedAt: &started}, nil,
-			invocations.StatusRunning, false,
+			name: "pending with conversation evidence: running (Job-mode live run)",
+			task: &eventqueue.Task{Status: "pending", CreatedAt: recent, StartedAt: &started},
+			want: invocations.StatusRunning,
 		},
 		{
-			"claimed: running (resident path, no enrichment join)",
-			&eventqueue.Task{Status: "claimed", CreatedAt: recent}, nil,
-			invocations.StatusRunning, false,
+			name: "claimed: running (resident path, no enrichment join)",
+			task: &eventqueue.Task{Status: "claimed", CreatedAt: recent},
+			want: invocations.StatusRunning,
 		},
 		{
-			"pending past the start deadline: queued and stuck",
-			&eventqueue.Task{Status: "pending", CreatedAt: now.Add(-time.Hour)}, nil,
-			invocations.StatusQueued, true,
+			name:      "pending past the start deadline: queued and stuck",
+			task:      &eventqueue.Task{Status: "pending", CreatedAt: now.Add(-time.Hour)},
+			want:      invocations.StatusQueued,
+			wantStuck: true,
 		},
 		{
-			"started past the deadline is never stuck",
-			&eventqueue.Task{Status: "pending", CreatedAt: now.Add(-time.Hour), StartedAt: &started}, nil,
-			invocations.StatusRunning, false,
+			name: "started past the deadline is never stuck",
+			task: &eventqueue.Task{Status: "pending", CreatedAt: now.Add(-time.Hour), StartedAt: &started},
+			want: invocations.StatusRunning,
 		},
 		{
-			"task beats a stale running invocation",
-			&eventqueue.Task{Status: "completed", CreatedAt: recent},
-			&invocations.Invocation{Status: invocations.StatusRunning},
-			invocations.StatusSuccess, false,
+			name: "task beats a stale running invocation",
+			task: &eventqueue.Task{Status: "completed", CreatedAt: recent},
+			inv:  &invocations.Invocation{Status: invocations.StatusRunning},
+			want: invocations.StatusSuccess,
 		},
 		{
-			"failed task is failure even with a success invocation",
-			&eventqueue.Task{Status: "failed", CreatedAt: recent},
-			&invocations.Invocation{Status: invocations.StatusSuccess},
-			invocations.StatusFailure, false,
+			name: "failed task is failure even with a success invocation",
+			task: &eventqueue.Task{Status: "failed", CreatedAt: recent},
+			inv:  &invocations.Invocation{Status: invocations.StatusSuccess},
+			want: invocations.StatusFailure,
 		},
 		{
-			"expired task is timeout, never queued (issue #236)",
-			&eventqueue.Task{Status: "expired", CreatedAt: now.Add(-time.Hour)}, nil,
-			invocations.StatusTimeout, false,
+			name: "expired task is timeout, never queued (issue #236)",
+			task: &eventqueue.Task{Status: "expired", CreatedAt: now.Add(-time.Hour)},
+			want: invocations.StatusTimeout,
+		},
+		{
+			// #392: a retry that finished the task after an attempt hit the
+			// runner's turn ceiling is still success — but it must say so.
+			name:         "completed after a turn-timeout nack: success with timedOut",
+			task:         &eventqueue.Task{Status: "completed", CreatedAt: recent, Attempts: 2, Error: "Turn timed out after 21600000ms"},
+			want:         invocations.StatusSuccess,
+			wantTimedOut: true,
+		},
+		{
+			name: "completed after a non-timeout nack: success without timedOut",
+			task: &eventqueue.Task{Status: "completed", CreatedAt: recent, Attempts: 2, Error: "model endpoint down"},
+			want: invocations.StatusSuccess,
+		},
+		{
+			name: "completed with no retained error: plain success",
+			task: &eventqueue.Task{Status: "completed", CreatedAt: recent, Attempts: 1},
+			want: invocations.StatusSuccess,
+		},
+		{
+			// The modifier never leaks onto a state that already says so.
+			name: "failed task with a turn-timeout error: failure, not timedOut",
+			task: &eventqueue.Task{Status: "failed", CreatedAt: recent, Error: "Turn timed out after 21600000ms"},
+			want: invocations.StatusFailure,
+		},
+		{
+			// A live per-task Job run keeps the previous attempt's nack on the
+			// row; nothing is terminal yet, so nothing is timed out.
+			name: "running task with a turn-timeout error: running, not timedOut",
+			task: &eventqueue.Task{Status: "pending", CreatedAt: recent, Attempts: 1, StartedAt: &started, Error: "Turn timed out after 21600000ms"},
+			want: invocations.StatusRunning,
+		},
+		{
+			name: "queued task with a turn-timeout error: queued, not timedOut",
+			task: &eventqueue.Task{Status: "pending", CreatedAt: recent, Attempts: 1, Error: "Turn timed out after 21600000ms"},
+			want: invocations.StatusQueued,
 		},
 	}
 	for _, tc := range cases {
-		got, stuck := deriveRunState(tc.task, tc.inv, now, stuckAfter)
-		if got != tc.want || stuck != tc.wantStuck {
-			t.Errorf("%s: deriveRunState = (%q, %v), want (%q, %v)", tc.name, got, stuck, tc.want, tc.wantStuck)
+		got := deriveRunState(tc.task, tc.inv, now, stuckAfter)
+		if got.State != tc.want || got.Stuck != tc.wantStuck || got.TimedOut != tc.wantTimedOut {
+			t.Errorf("%s: deriveRunState = (state=%q, stuck=%v, timedOut=%v), want (state=%q, stuck=%v, timedOut=%v)",
+				tc.name, got.State, got.Stuck, got.TimedOut, tc.want, tc.wantStuck, tc.wantTimedOut)
 		}
 	}
 }
