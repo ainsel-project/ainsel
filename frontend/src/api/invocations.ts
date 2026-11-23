@@ -66,12 +66,6 @@ export function taskRunState(t: InvocationTaskState): RunState {
 }
 
 /**
- * The single run state a view should render for an invocation: the derived
- * state when a task backs the row; a terminal invocation status when only the
- * record exists; otherwise `unknown` — a "running" record with no task behind
- * it (hub died before enqueue, or a pruned record) claims nothing.
- */
-/**
  * Whether a run should carry the "timed out" marker: the hub derived it from the
  * task's retained turn-timeout nack, and it is only ever a modifier on a success
  * — a row whose state already says failure or timeout needs no second signal.
@@ -98,6 +92,12 @@ export function runStateLabel(state: string, timedOut: boolean): string {
   return timedOut ? `${state} · timed out` : state
 }
 
+/**
+ * The single run state a view should render for an invocation: the derived
+ * state when a task backs the row; a terminal invocation status when only the
+ * record exists; otherwise `unknown` — a "running" record with no task behind
+ * it (hub died before enqueue, or a pruned record) claims nothing.
+ */
 export function effectiveRunState(inv: { status: string; task?: InvocationTaskState }): RunState {
   if (inv.task) return taskRunState(inv.task)
   if (inv.status === 'success' || inv.status === 'failure' || inv.status === 'timeout') {

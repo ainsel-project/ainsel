@@ -46,9 +46,11 @@ function RunStateTag({
 }) {
   if (state === 'success') {
     // Success that needed a retry after the runner's turn ceiling is not an
-    // unqualified success (#392); same variant a real timeout renders with.
-    // Tags here are uppercase, so the shared label is uppercased at this
-    // boundary rather than spelled again.
+    // unqualified success (#392). The marker rides
+    // invocationStatusVariant('timeout') deliberately — the softer timeout
+    // styling, not the err styling a hard timeout gets below — because the run
+    // itself succeeded. Tags here are uppercase, so the shared label is
+    // uppercased at this boundary rather than spelled again.
     if (timedOut)
       return (
         <Tag variant={invocationStatusVariant('timeout')}>
