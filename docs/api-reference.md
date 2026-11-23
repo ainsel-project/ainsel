@@ -1898,7 +1898,10 @@ retired spelling `runStatus` is emitted alongside it) plus the hub-derived `runS
 `queued`, `running`, `success`, `failure`, `timeout`, or `unknown` — computed
 from the task row, the start evidence (claim or first conversation row) and the
 invocation record, so every view agrees on one value; `stuck: true` marks a task
-queued past the hub's start deadline. Each match also carries `agentId` — the
+queued past the hub's start deadline; `timedOut: true` marks a success whose
+earlier attempt died on the runner's turn timeout (a modifier on
+`runState: "success"`, never a state of its own — see the `task` object under
+[`GET /api/v1/invocations`](#get-apiv1invocations)). Each match also carries `agentId` — the
 agent's API id (its resource name), the route key for
 `GET /api/v1/agents/{id}` — so callers can link the match without assuming
 `agent` is the id. `timeout` only occurs when no task backs
