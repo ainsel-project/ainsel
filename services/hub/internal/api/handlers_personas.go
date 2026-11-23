@@ -68,7 +68,9 @@ func (h *personaHandlers) requireRead(w http.ResponseWriter, r *http.Request, id
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque 404, not 403: deleted and foreign-group personas are
+		// indistinguishable to non-admins (issue #390, see Server.requireRead).
+		httpx.WriteError(w, http.StatusNotFound, id+" not found")
 		return false
 	}
 	return true
@@ -87,7 +89,8 @@ func (h *personaHandlers) requireWrite(w http.ResponseWriter, r *http.Request, i
 		return false
 	}
 	if !ok {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		// Opaque 404, not 403 (issue #390, see Server.requireWrite).
+		httpx.WriteError(w, http.StatusNotFound, id+" not found")
 		return false
 	}
 	return true

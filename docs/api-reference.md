@@ -1268,7 +1268,7 @@ Invocations record one dispatch of an event to an agent. They are persisted in t
 
 List recent invocations, newest first. Supports `page`/`pageSize`.
 
-**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming any other agent returns `403`. The `event`, `trigger`, `status` and `connector` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
+**Access:** scoped to the caller — results are limited to invocations whose agent the caller can read, and `agent` naming an agent the caller cannot read returns `404`, like any other resource the caller cannot read ([#390](https://github.com/ainsel-project/ainsel/issues/390)). The `event`, `trigger`, `status` and `connector` filters narrow within that scope but cannot widen it, including the queue-state enrichment that synthesizes rows from `agent_tasks`. Admins see everything.
 
 **Query parameters:** `agent`, `status` (one of `running`, `success`, `failure`, `timeout`), `trigger`, `event`, `connector`, `since` / `until` (RFC3339 timestamp), `limit` (max `500`; larger values are clamped down).
 
@@ -1314,7 +1314,7 @@ when `agentName` itself is empty.
 
 Fetch one invocation by ID.
 
-**Access:** requires read access to the invocation's agent; `403` otherwise. An invocation carrying no agent cannot be attributed to a resource and is admin-only.
+**Access:** requires read access to the invocation's agent; `404` otherwise — a deleted agent, an agent in a foreign group and one that never existed answer alike, like every other resource route (see [Error Format](#error-format)). An invocation carrying no agent cannot be attributed to a resource and is admin-only (`403` for other callers).
 
 **Response:** `200 OK`, `400` if the ID is missing, `404 Not Found`, or `503`.
 
@@ -1612,8 +1612,9 @@ Supports the standard `?page=` / `?pageSize=` query params, same defaults and
 bounds as `GET /api/v1/personas`.
 
 Requires read access to the persona, same as `GET /api/v1/personas/{id}`: `401`
-when the caller has no identity, `403` when the persona is neither public nor
-readable by one of the caller's groups.
+when the caller has no identity, `404` when the persona is neither public nor
+readable by one of the caller's groups — a deleted persona, a foreign-group one
+and one that never existed are indistinguishable to the caller.
 
 **Response:** `200 OK`
 ```json
@@ -1634,7 +1635,7 @@ readable by one of the caller's groups.
 
 Fetch one specific historical version with its `text`.
 
-Requires read access to the persona (`401` / `403` as above) — a version body is
+Requires read access to the persona (`401` / `404` as above) — a version body is
 persona content and is not exposed to callers who cannot read the persona.
 
 **Response:** `200 OK` (full Version) or `404 Not Found`.
@@ -1651,9 +1652,10 @@ Copy the text of an older version into a new current version (incrementing `curr
 **Response:** `200 OK` with the updated persona, `400` if `toVersion` is missing / non-positive, `404` if the persona or target version doesn't exist, `409` if the persona is externally managed (`managedBy`), `500` on backend failure.
 
 Requires write access to the persona, same as `PUT /api/v1/personas/{id}`: `401`
-when the caller has no identity, `403` when the caller is not a writer or owner
+when the caller has no identity, `404` when the caller is not a writer or owner
 of the persona's group (and not an admin). A public persona is readable by
-everyone but still only rollback-able by its writers.
+everyone but still only rollback-able by its writers — a denied write answers
+the same opaque `404`.
 
 ---
 
@@ -1767,15 +1769,16 @@ already has succeeds without touching the CR. The skill is rendered into the sha
 ConfigMap immediately, so the agent has it on its next pod start rather than at the
 next convergence tick.
 
-**Response:** `204 No Content`, `404` if the skill or the agent does not exist,
-`401`/`403` if the caller cannot write the **agent** (an assignment is a write to the
-agent, so that is the resource the authorisation check targets).
+**Response:** `204 No Content`, `404` if the skill or the agent does not exist —
+or if the caller cannot write the **agent** (an assignment is a write to the
+agent, so that is the resource the authorisation check targets, and a denied
+caller addresses it as not found). `401` without an identity.
 
 #### DELETE /api/v1/skills/{id}/assignments/{agentName}
 
 Remove the skill from that agent's selection. Idempotent.
 
-**Response:** `204 No Content`, `404` if the skill or the agent does not exist, `401`/`403` as above.
+**Response:** `204 No Content`, `404` if the skill or the agent does not exist or the caller cannot write it, `401` without an identity.
 
 ### Skill catalogue MCP (internal)
 
@@ -1923,7 +1926,7 @@ One event with the same shape as a list entry.
 
 List recent error-level agent log entries (from the hub's `task_logs` table).
 
-**Access:** scoped to the caller, exactly like [`GET /api/v1/observability/logs`](#get-apiv1observabilitylogs) — error messages routinely quote the payload that failed. `agent` naming an agent the caller cannot read returns `403`. Admins see everything.
+**Access:** scoped to the caller, exactly like [`GET /api/v1/observability/logs`](#get-apiv1observabilitylogs) — error messages routinely quote the payload that failed. `agent` naming an agent the caller cannot read returns `404`, not `403`, so the filter cannot confirm the agent exists. Admins see everything.
 
 **Query parameters:** `limit` (default `50`), `agent`, `since` (RFC3339, default 24h ago).
 
@@ -2226,7 +2229,7 @@ Tail recent agent log lines from the hub's own `task_logs` table, populated by a
 - `since` — Go duration string (e.g. `90m`); overrides `range`.
 - `limit` — positive integer, default `500`, capped at `1000`.
 
-**Access:** scoped to the caller — results are limited to agents the caller can read, so omitting `app` returns only those agents' logs rather than every agent's. `app` naming an agent the caller cannot read returns `403`. Admins see every agent's logs.
+**Access:** scoped to the caller — results are limited to agents the caller can read, so omitting `app` returns only those agents' logs rather than every agent's. `app` naming an agent the caller cannot read returns `404`, not `403`, so the filter cannot confirm the agent exists. Admins see every agent's logs.
 
 **Response:** `200 OK`
 ```json
@@ -2249,7 +2252,7 @@ Tail recent agent log lines from the hub's own `task_logs` table, populated by a
 
 Return agent conversation messages captured from agent turns and stored in the `task_conversations` table. These are the messages the hub's event detail view uses to render the communication for an event/invocation (user prompt, assistant thinking/text, tool calls, and tool results).
 
-**Access:** scoped to the caller — results are limited to agents the caller can read, and `agent` naming any other agent returns `403`. `invocation` and `correlation` narrow within that scope but cannot widen it. Admins see everything.
+**Access:** scoped to the caller — results are limited to agents the caller can read, and `agent` naming an agent the caller cannot read returns `404`, not `403`, so the filter cannot confirm the agent exists. `invocation` and `correlation` narrow within that scope but cannot widen it. Admins see everything.
 
 **Query parameters:**
 - `agent` — filter by agent name.
@@ -2542,7 +2545,7 @@ allowed methods in `Allow`). A `405` carries `"error": "method not allowed"`.
 |-------------|---------|
 | `400` | Bad request (invalid JSON, missing required fields, unsupported query parameter values). |
 | `401` / `403` | Mostly issued by the ingress layer. The hub issues them itself for local accounts: `401` on a failed `POST /api/v1/auth/login` or a wrong current password, and `403` with `"code": "password_change_required"` while an account still holds a password it did not choose (see [Local accounts](#local-accounts)). |
-| `404` | Resource not found. |
+| `404` | Resource not found. Also the answer to *any* resource-scoped access denial: a caller who cannot read or write one specific resource — it was deleted, belongs to a group they are not in, or never existed — gets `404` with the same body shape, so the three are indistinguishable (like the events routes). Group, admin and plugin-permission refusals stay `403`. |
 | `405` | Method not allowed on this route. |
 | `409` | Conflict (resource already exists; deletion blocked by references; sync already running). |
 | `500` | Internal server error. |

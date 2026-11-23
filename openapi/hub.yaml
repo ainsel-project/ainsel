@@ -43,6 +43,11 @@
 #     `code` is a machine-readable discriminator, present today only on the
 #     gated-account answer (403 password_change_required), which is also the only
 #     body that sets `message`.
+#   - Resource-scoped access denials answer 404, not 403: a caller who cannot
+#     read or write one specific resource cannot tell whether it was deleted,
+#     belongs to a foreign group, or never existed. Group/admin gates and the
+#     plugin permission checks keep answering 403 (they describe a present
+#     object the caller may not manage).
 #   - `managedBy`: any value other than "" or "user" marks the resource
 #     externally managed, and then *every* mutation answers 409
 #     {"error": "<kind> is managed by <manager>"} — except for the plugin a
@@ -1263,7 +1268,8 @@ paths:
       summary: List recent invocations, newest first (the `capacity` field is the store's row budget)
       description: >-
         Scoped to the caller: results are limited to invocations whose agent the
-        caller can read, and `agent` naming any other agent returns 403. The
+        caller can read, and `agent` naming an agent the caller cannot read answers
+        404 like any other unreadable resource, so it cannot confirm the agent exists. The
         `event`, `trigger`, `status` and `connector` filters narrow within that
         scope and cannot widen it. `connector` accepts repeats or a
         comma-separated list (max 50 unique values, else 400). Rows carry a
@@ -1320,8 +1326,10 @@ paths:
       x-mcp-tool: get_invocation
       summary: Fetch one invocation by id
       description: >-
-        Requires read access to the invocation's agent; 403 otherwise. An
-        invocation carrying no agent cannot be attributed and is admin-only.
+        Requires read access to the invocation's agent; a caller who cannot
+        read the agent gets 404, so a deleted, foreign or never-existing agent
+        addresses alike (issue #390). An invocation carrying no agent cannot be
+        attributed and is admin-only (403 for other callers).
       parameters:
         - $ref: '#/components/parameters/resourceId'
       responses:
@@ -2009,7 +2017,8 @@ paths:
       description: >-
         Scoped like `/api/v1/observability/logs` — error messages routinely quote
         the payload that failed — so `agent` naming an agent the caller cannot
-        read returns 403. This collection uses the `errors` key.
+        read answers 404, not 403, so the filter cannot confirm the agent exists. This
+        collection uses the `errors` key.
       parameters:
         - name: limit
           in: query
@@ -2316,7 +2325,8 @@ paths:
       summary: Tail recent agent log lines from the hub's task_logs table
       description: >-
         Scoped to the caller: omitting `app` returns only the agents the caller can
-        read, and `app` naming another agent returns 403.
+        read, and `app` naming another agent answers 404, not 403, so the filter
+        cannot confirm the agent exists.
       parameters:
         - name: app
           in: query
