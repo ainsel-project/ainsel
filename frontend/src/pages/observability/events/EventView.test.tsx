@@ -332,6 +332,49 @@ describe('EventView', () => {
     expect(failureTag).toHaveClass('err')
   })
 
+  // #392: the retry that finished the task after an attempt hit the runner's turn
+  // timeout stays a success — and says so, instead of a plain green tick.
+  it('badges an invocation whose task retained a turn-timeout nack', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/invocations') && url.includes('event=')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ...sampleInvocations,
+                invocations: [
+                  {
+                    ...sampleInvocations.invocations[0],
+                    task: {
+                      status: 'completed',
+                      attempts: 2,
+                      lastError: 'Turn timed out after 21600000ms',
+                      runState: 'success',
+                      timedOut: true,
+                    },
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.includes('/observability/conversations') && url.includes('invocation=inv-1')) {
+          return Promise.resolve(new Response(JSON.stringify(sampleConversation), { status: 200 }))
+        }
+        if (url.includes('/events/evt-')) {
+          return Promise.resolve(new Response(JSON.stringify(sampleEvent), { status: 200 }))
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }),
+    )
+    renderEventView('/observability/events/evt-1234567890000000000')
+    const badge = await screen.findByText('success · timed out')
+    expect(badge).toHaveClass('stale')
+    expect(screen.queryByText('success')).toBeNull()
+  })
+
   it('renders the conversation transcript for the invocation', async () => {
     renderEventView('/observability/events/evt-1234567890000000000')
     await waitFor(() => expect(screen.getByText('Done reviewing')).toBeInTheDocument())
@@ -390,7 +433,9 @@ describe('EventView', () => {
                     task: {
                       status: 'pending',
                       attempts: 2,
-                      error: 'Turn timed out after 600000ms',
+                      // The previous attempt's nack, retained — named `lastError`
+                      // on the public shape so it cannot read as "this run failed".
+                      lastError: 'Turn timed out after 600000ms',
                     },
                   },
                 ],

@@ -13,6 +13,7 @@ import {
 	resolveNakDelayMs,
 	resolveTurnSettleTimeoutMs,
 	resolveTurnTimeoutMs,
+	turnTimeoutMessage,
 } from "./config.ts";
 import { logError, logInfo } from "./logging.ts";
 import {
@@ -122,7 +123,7 @@ async function processTask(
 				tracker.resolve = null;
 				tracker.activeGeneration = 0;
 				succeeded = false;
-				errMsg = `Turn timed out after ${turnTimeoutMs}ms`;
+				errMsg = turnTimeoutMessage(turnTimeoutMs);
 				logError("turn timed out, nacking for retry", {
 					event_type: evCtx.type,
 					agent: agentName,

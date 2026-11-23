@@ -11,6 +11,22 @@ import { logError } from "./logging.ts";
 
 
 
+/**
+ * The stable phrase in the nack message for a turn the timer killed. The hub
+ * derives a run's provenance from it (`IsTurnTimeoutError`,
+ * services/hub/internal/eventqueue/timeout.go): a completed task whose retained
+ * error matches it finished *after* an attempt hit the ceiling, and the console
+ * badges it (#392). Both sides assert the literal — the hub in Go,
+ * turn-timeout.test.ts here — so renaming the phrase fails a suite instead of
+ * quietly un-badging timed-out runs.
+ */
+export const TURN_TIMEOUT_MARKER = "Turn timed out after";
+
+/** The nack message for a turn the timer killed, at the given ceiling. */
+export function turnTimeoutMessage(turnTimeoutMs: number): string {
+	return `${TURN_TIMEOUT_MARKER} ${turnTimeoutMs}ms`;
+}
+
 /** Default per-text-block cap for toolResult content (chars). */
 const TOOL_RESULT_MAX_CHARS_DEFAULT = 16_000;
 

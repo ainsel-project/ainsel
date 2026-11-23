@@ -108,6 +108,10 @@ type activityMatch struct {
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 	// Stuck marks a queued task waiting for a worker past the start deadline.
 	Stuck bool `json:"stuck,omitempty"`
+	// TimedOut marks a completed match whose task retained a turn-timeout nack:
+	// the run succeeded, but an earlier attempt hit the runner's turn ceiling.
+	// Only ever set alongside RunState "success".
+	TimedOut bool `json:"timedOut,omitempty"`
 }
 
 // activityEntry is the per-event shape consumed by the frontend Activity page.
@@ -315,7 +319,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 // task → error, otherwise → matched.
 //
 // Each match carries the derived run state (runState, taskStatus, startedAt,
-// stuck) computed by deriveRunState from the task and, when the invocation
+// stuck, timedOut) computed by deriveRunState from the task and, when the invocation
 // store has one, its record — the same state the invocation list exposes, so
 // the activity page and the routing/runs views cannot disagree. invocationStatus
 // (and its retired `runStatus` alias) is the raw invocation status, kept for
@@ -353,7 +357,8 @@ func (s *Server) buildActivityEntry(evt eventqueue.Event, tasks []eventqueue.Tas
 			}
 			m.TaskStatus = t.Status
 			m.StartedAt = t.StartedAt
-			m.RunState, m.Stuck = deriveRunState(&task, inv, now, s.taskStartTimeout)
+			display := deriveRunState(&task, inv, now, s.taskStartTimeout)
+			m.RunState, m.Stuck, m.TimedOut = display.State, display.Stuck, display.TimedOut
 			matches = append(matches, m)
 		}
 		entry.Matches = matches

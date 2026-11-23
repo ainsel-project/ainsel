@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { channelPath, isDirectSource, useChannelIds } from '../../api/channels'
+import { runStateLabel, taskTimedOut } from '../../api/invocations'
 import { ConnectorLabel } from '../ConnectorLabel'
 import { Tag } from '../../primitives/Tag'
 import { formatISO } from '../../utils/time'
@@ -104,6 +105,8 @@ export function EventJourney({
      *  raw invocation status when a hub has not derived one. */
     runState?: string
     stuck?: boolean
+    /** The run succeeded only after an attempt hit the runner's turn timeout. */
+    timedOut?: boolean
     durationMs?: number
     error?: string
   }[]
@@ -134,7 +137,9 @@ export function EventJourney({
       durationMs: m.durationMs,
       error: m.error,
       dotTone: runTone(state),
-      runLabel: runLabel(state) + (m.stuck ? ' · stuck' : ''),
+      // One wording for the badged success everywhere: the journey keeps its own
+      // verb for the state, then lets runStateLabel append the timeout suffix.
+      runLabel: runStateLabel(runLabel(state) + (m.stuck ? ' · stuck' : ''), taskTimedOut(m)),
       pulse: state === 'running',
     })
   }

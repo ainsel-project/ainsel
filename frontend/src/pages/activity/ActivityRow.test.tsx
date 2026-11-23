@@ -267,6 +267,55 @@ describe('ActivityRow', () => {
     expect(container.textContent).toContain('500ms')
   })
 
+  // #392: the retry that closed the task after an attempt hit the runner's turn
+  // timeout is a success — but never an unqualified one.
+  it('badges a success whose task retained a turn-timeout nack', () => {
+    const withRun: ActivityEntry = {
+      ...entry,
+      matches: [
+        {
+          trigger: 't1',
+          agent: 'doc-writer',
+          runState: 'success',
+          taskStatus: 'completed',
+          timedOut: true,
+        },
+      ],
+    }
+    const { container } = renderWithProviders(
+      <table>
+        <tbody>
+          <ActivityRow entry={withRun} expanded onToggle={vi.fn()} />
+        </tbody>
+      </table>,
+      { route: '/activity' },
+    )
+    // Both the row's tag and the expanded detail's tag carry the marker, and the
+    // plain SUCCESS never appears next to it.
+    expect(screen.getAllByText('SUCCESS · TIMED OUT').length).toBe(2)
+    expect(screen.queryByText('SUCCESS')).toBeNull()
+    expect(container.textContent).toContain('SUCCESS · TIMED OUT')
+  })
+
+  it('renders a plain tick for a success with no retained turn timeout', () => {
+    const withRun: ActivityEntry = {
+      ...entry,
+      matches: [
+        { trigger: 't1', agent: 'doc-writer', runState: 'success', taskStatus: 'completed' },
+      ],
+    }
+    renderWithProviders(
+      <table>
+        <tbody>
+          <ActivityRow entry={withRun} expanded onToggle={vi.fn()} />
+        </tbody>
+      </table>,
+      { route: '/activity' },
+    )
+    expect(screen.getAllByText('SUCCESS').length).toBe(2)
+    expect(screen.queryByText('SUCCESS · TIMED OUT')).toBeNull()
+  })
+
   it('does not render run state tag when invocationStatus is absent', () => {
     renderRow()
     expect(screen.queryByText('SUCCESS')).toBeNull()

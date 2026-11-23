@@ -35,14 +35,15 @@ func invocationStatusFromTask(task eventqueue.Task) string {
 // taskStateFromTask projects the agent_tasks row onto the API's TaskState,
 // including the derived run state every view renders (see deriveRunState).
 func taskStateFromTask(task eventqueue.Task, now time.Time, stuckAfter time.Duration) *invocations.TaskState {
-	state, stuck := deriveRunState(&task, nil, now, stuckAfter)
+	display := deriveRunState(&task, nil, now, stuckAfter)
 	return &invocations.TaskState{
 		Status:    task.Status,
 		Attempts:  task.Attempts,
-		Error:     task.Error,
+		LastError: task.Error,
+		TimedOut:  display.TimedOut,
 		StartedAt: task.StartedAt,
-		RunState:  state,
-		Stuck:     stuck,
+		RunState:  display.State,
+		Stuck:     display.Stuck,
 	}
 }
 

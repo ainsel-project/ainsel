@@ -133,6 +133,27 @@ describe('EventJourney', () => {
     expect(container.querySelector('.journey-dot.pulse')).toBeNull()
   })
 
+  // #392: the journey composes its label by hand, so the badge is pinned here
+  // too — the wording comes from the shared runStateLabel.
+  it('badges a delivered step whose run only succeeded after a turn timeout', () => {
+    renderJourney(
+      <EventJourney
+        connector="forgejo"
+        timestamp="2026-06-10T08:31:25Z"
+        matches={[
+          {
+            trigger: 't1',
+            agent: 'doc-writer',
+            invocationStatus: 'success',
+            runState: 'success',
+            timedOut: true,
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('delivered · timed out')).toBeInTheDocument()
+  })
+
   it('renders a pruned invocation as unknown, not queued', () => {
     renderJourney(
       <EventJourney

@@ -39,6 +39,26 @@ const INVOCATIONS = [
     durationMs: 1100,
   },
   {
+    id: 'inv-4',
+    timestamp: new Date(Date.now() - 240_000).toISOString(),
+    agent: 'agent-d',
+    agentName: 'Long Runner',
+    agentId: 'agent-d',
+    trigger: 'trig-4',
+    triggerName: 'On Episode',
+    status: 'success',
+    durationMs: 540000,
+    // #392: the retry succeeded, but the first attempt died on the runner's
+    // turn timeout — the task row retains that nack.
+    task: {
+      status: 'completed',
+      runState: 'success',
+      attempts: 2,
+      lastError: 'Turn timed out after 21600000ms',
+      timedOut: true,
+    },
+  },
+  {
     id: 'inv-3',
     timestamp: new Date(Date.now() - 180_000).toISOString(),
     agent: 'agent-c',
@@ -144,6 +164,13 @@ describe('RoutingDetail', () => {
     renderWithProviders(<RoutingDetail />, { route: '/observability/routing' })
     const failureTag = await screen.findByText('failure')
     expect(failureTag).toHaveClass('err')
+  })
+
+  // #392: the status cell is one of the five render sites for the badge.
+  it('badges a success whose earlier attempt hit the turn timeout', async () => {
+    renderWithProviders(<RoutingDetail />, { route: '/observability/routing' })
+    const badge = await screen.findByText('success · timed out')
+    expect(badge).toHaveClass('stale')
   })
 
   it('styles a success invocation with the ok variant', async () => {

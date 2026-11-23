@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Fragment } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { ActivityEntry, ActivityMatch, ActivityMatchResult } from '../../api/events'
+import { invocationStatusVariant, runStateLabel, taskTimedOut } from '../../api/invocations'
 import { Tag } from '../../primitives/Tag'
 import { formatRelative } from '../../utils/time'
 import { sectionPath } from '../agents/workspace/sections'
@@ -27,9 +28,31 @@ function MatchTag({ match }: { match: ActivityMatchResult }) {
   return <Tag variant="stale">SKIP</Tag>
 }
 
-function RunStateTag({ state, stuck }: { state?: string; stuck?: boolean }) {
+function RunStateTag({
+  state,
+  stuck,
+  timedOut,
+}: {
+  state?: string
+  stuck?: boolean
+  timedOut?: boolean
+}) {
   if (state === 'running') return <Tag variant="warn">RUNNING</Tag>
-  if (state === 'success') return <Tag variant="ok">SUCCESS</Tag>
+  if (state === 'success') {
+    // A run that only finished after an attempt hit the runner's turn timeout is
+    // still a success — but never render it as an unqualified one (#392). The
+    // marker rides invocationStatusVariant('timeout') deliberately: the softer
+    // timeout styling, not the err styling a hard timeout gets here, because
+    // the run itself succeeded. Tags here are uppercase, so the shared label is
+    // uppercased at this boundary rather than spelled again.
+    if (timedOut)
+      return (
+        <Tag variant={invocationStatusVariant('timeout')}>
+          {runStateLabel('success', true).toUpperCase()}
+        </Tag>
+      )
+    return <Tag variant="ok">SUCCESS</Tag>
+  }
   if (state === 'failure') return <Tag variant="err">FAILURE</Tag>
   if (state === 'timeout') return <Tag variant="err">TIMEOUT</Tag>
   // No worker yet — distinct from running, and never shown as running.
@@ -105,7 +128,11 @@ function AgentLinks({ matches, names }: { matches: ActivityMatch[]; names: Map<s
             {m.runState || m.invocationStatus ? (
               <>
                 {' '}
-                <RunStateTag state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
+                <RunStateTag
+                  state={m.runState ?? m.invocationStatus}
+                  stuck={m.stuck}
+                  timedOut={taskTimedOut(m)}
+                />
               </>
             ) : null}
           </Fragment>
@@ -222,7 +249,11 @@ export function ActivityRow({
                       </b>
                       {m.runState || m.invocationStatus ? (
                         <span style={{ marginLeft: 8 }}>
-                          <RunStateTag state={m.runState ?? m.invocationStatus} stuck={m.stuck} />
+                          <RunStateTag
+                            state={m.runState ?? m.invocationStatus}
+                            stuck={m.stuck}
+                            timedOut={taskTimedOut(m)}
+                          />
                           {m.durationMs != null ? (
                             <span className="label" style={{ marginLeft: 6 }}>
                               {formatDuration(m.durationMs)}

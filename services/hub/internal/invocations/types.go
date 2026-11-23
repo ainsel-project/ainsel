@@ -77,8 +77,16 @@ type TaskState struct {
 	Status string `json:"status"`
 	// Attempts is how many times the task has been claimed.
 	Attempts int `json:"attempts"`
-	// Error is the last failure message, if any.
-	Error string `json:"error,omitempty"`
+	// LastError is why the most recent failed attempt died, retained after a
+	// later attempt completes: on a completed task it is *not* a statement that
+	// the task failed, which is why it is not called `error` (see
+	// eventqueue.Task.Error). Empty when no attempt has failed.
+	LastError string `json:"lastError,omitempty"`
+	// TimedOut marks a task that completed after an earlier attempt was killed
+	// by the runner's turn timeout — "succeeded, but an attempt hit the
+	// ceiling". It is a modifier on a terminal state: it is only ever true
+	// alongside a success runState, never on queued/running/failure/timeout.
+	TimedOut bool `json:"timedOut,omitempty"`
 	// StartedAt is the first evidence that a worker is working on the task:
 	// the claim time, or the first conversation row the worker wrote (the
 	// per-task Job path never claims). Nil while the task is queued. Note this

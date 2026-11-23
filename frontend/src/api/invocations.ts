@@ -33,7 +33,13 @@ export function invocationStatusVariant(s: string): InvocationStatusVariant {
 export type InvocationTaskState = {
   status: 'pending' | 'claimed' | 'completed' | 'failed' | 'expired'
   attempts: number
-  error?: string
+  /** Why the most recent failed attempt died, retained after a later attempt
+   *  completed — on a completed task it is not a claim that the task failed,
+   *  which is why the hub names it `lastError` and not `error`. */
+  lastError?: string
+  /** The task completed after an earlier attempt was killed by the runner's turn
+   *  timeout: success with provenance, never its own state (#392). */
+  timedOut?: boolean
   /** First evidence of work (claim or first conversation row); absent while
    *  the task is queued. Distinct from the invocation's dispatch timestamp. */
   startedAt?: string
@@ -57,6 +63,33 @@ export function taskRunState(t: InvocationTaskState): RunState {
   if (t.status === 'expired') return 'timeout'
   if (t.status === 'claimed' || t.startedAt) return 'running'
   return 'queued'
+}
+
+/**
+ * Whether a run should carry the "timed out" marker: the hub derived it from the
+ * task's retained turn-timeout nack, and it is only ever a modifier on a success
+ * — a row whose state already says failure or timeout needs no second signal.
+ * Reads the task-shaped payloads both surfaces hand a view (an invocation's
+ * `task`, an activity match), so render sites never re-derive it.
+ */
+export type TimedOutSource = {
+  timedOut?: boolean
+  runState?: string
+  /** An invocation's task row names its raw status `status`… */
+  status?: string
+  /** …an activity match names it `taskStatus`. */
+  taskStatus?: string
+}
+
+export function taskTimedOut(t?: TimedOutSource): boolean {
+  if (!t?.timedOut) return false
+  if (t.runState) return t.runState === 'success'
+  return (t.status ?? t.taskStatus) === 'completed'
+}
+
+/** The label for a badged success, e.g. `success · timed out`. */
+export function runStateLabel(state: string, timedOut: boolean): string {
+  return timedOut ? `${state} · timed out` : state
 }
 
 /**

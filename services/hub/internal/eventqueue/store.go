@@ -45,7 +45,13 @@ type Task struct {
 	Attempts     int             `json:"attempts"`
 	Status       string          `json:"status"`
 
-	// Error is the last failure message reported for this task ("" when none).
+	// Error is the last failed attempt's reason, retained after a later attempt
+	// completes: AckTask deliberately does not clear it, because "attempt 1 died
+	// mid-work" is the only durable evidence of it. The public display
+	// projection surfaces it as TaskState.LastError for exactly that reason, and
+	// IsTurnTimeoutError names the case that matters most (a turn-timeout nack).
+	// This field is the runner's fetch contract (GET
+	// /api/internal/agents/{name}/tasks/{id}): do not rename it. "" when none.
 	Error string `json:"error,omitempty"`
 	// CreatedAt is when the task was enqueued.
 	CreatedAt time.Time `json:"createdAt,omitempty"`
@@ -636,7 +642,11 @@ type EventFilter struct {
 	// "queued" is not started and not terminal; "running" is started and not
 	// terminal. The terminal states stay invocation-derived via
 	// agent_tasks → invocations; tasks whose invocation record was pruned or
-	// never created match no terminal state.
+	// never created match no terminal state. "timeout" covers both tasks the
+	// pickup deadline expired and attempts the runner's turn timer killed
+	// (IsTurnTimeoutError closes such an invocation as StatusTimeout); rows
+	// nacked before that change stayed "failure", so the count is
+	// discontinuous at deploy time.
 	State string
 	// Agent limits results to events routed to this agent.
 	Agent string
