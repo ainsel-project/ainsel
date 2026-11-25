@@ -591,8 +591,6 @@ rewrite; every shipped frontend since uses the canonical
 `/api/v1/observability/metrics/...` paths. Custom dashboards calling the old
 paths must switch to the canonical ones.
 
-<<<<<<< HEAD
-=======
 ### Unreleased — optional domain-filtered agent egress proxy (`agentEgress.proxy`)
 
 The chart can now restrict agent pods to an allow-list of HTTPS domains instead
@@ -625,7 +623,6 @@ rule. See
 [network-policies.md](network-policies.md#domain-filtered-https-egress-agentegressproxy)
 for the full picture.
 
->>>>>>> 6d0cb68 (docs: document the agent egress proxy and scoped agent DNS egress)
 ### Upgrading to v0.2
 
 - **Job-per-task execution model.** Task execution moved to one-shot
