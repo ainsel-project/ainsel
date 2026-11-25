@@ -128,9 +128,11 @@ openid profile email offline_access
 
 {{/*
 Named domain presets for agentEgress.proxy.presets. Each preset is a list of
-domains in Squid dstdomain notation: a leading dot matches the domain and all
-subdomains; a bare name matches exactly. Chart-side constants — adding a
-preset is one map entry here; values switch presets on by name.
+domains in Squid dstdomain notation: an entry matches that domain AND every
+subdomain of it, with or without a leading dot — there is no exact-match form,
+so a preset may only list domains whose whole subtree is acceptable. Chart-side
+constants — adding a preset is one map entry here; values switch presets on by
+name.
 */}}
 {{- define "ainsel.egressPresets" -}}
 github:
