@@ -72,6 +72,15 @@ func buildSidecars(agent *ainselv1alpha1.Agent, agentName string, img *ainselv1a
 					sidecarEnv = append(sidecarEnv, pe)
 				}
 			}
+		} else {
+			// The enforced proxy names are dropped from sc.Env for every
+			// sidecar (below), so a non-MCP sidecar must still receive the
+			// canonical values — otherwise the drop would leave it with no
+			// proxy URL at all instead of the platform one. Emission order
+			// is fixed by egressProxyEnvOrder, and the list is empty when
+			// no proxy is configured, keeping the default-off render
+			// unchanged.
+			sidecarEnv = append(sidecarEnv, egressProxyEnvList()...)
 		}
 		for _, e := range sc.Env {
 			if forced[e.Name] {

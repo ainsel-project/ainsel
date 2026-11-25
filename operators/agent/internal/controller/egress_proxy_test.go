@@ -217,6 +217,68 @@ func TestBuildSidecars_EgressProxyForced(t *testing.T) {
 	}
 }
 
+// TestBuildSidecars_EgressProxyForcedNonMCP covers non-MCP sidecars: the
+// forced drop of image-declared proxy names applies to every sidecar, so a
+// sidecar without an MCPPath must still receive the canonical platform proxy
+// values — exactly once, in the fixed order — rather than ending up with no
+// proxy URL at all.
+func TestBuildSidecars_EgressProxyForcedNonMCP(t *testing.T) {
+	t.Setenv("HUB_URL", "http://hub:8080")
+	t.Setenv("HUB_INTERNAL_VALIDATE_SECRET", "platform-token")
+	t.Setenv("EGRESS_PROXY_URL", "http://agent-egress-proxy:3128")
+	t.Setenv("EGRESS_NO_PROXY", "cluster.local")
+	t.Setenv("CHAT_MCP_IMAGE", "")
+
+	img := &ainselv1alpha1.AgentImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-image", Namespace: "default"},
+		Spec: ainselv1alpha1.AgentImageSpec{
+			Sidecars: []ainselv1alpha1.AgentImageSidecar{
+				{
+					Name:  "plain",
+					Image: "example/plain:1",
+					Env: []ainselv1alpha1.AgentImageEnvVar{
+						{Name: "HTTPS_PROXY", Value: "http://evil.example:1234"},
+						{Name: "TOOL_TOKEN", Value: "fine"},
+					},
+				},
+			},
+		},
+	}
+
+	sidecars := buildSidecars(egressProxyTestAgent(), "agent-proxy-agent", img)
+	if len(sidecars) != 1 {
+		t.Fatalf("sidecars = %d, want 1", len(sidecars))
+	}
+	got := envValues(t, sidecars[0].Env) // fails on duplicates
+	if got["HTTPS_PROXY"] != "http://agent-egress-proxy:3128" {
+		t.Errorf("non-MCP sidecar HTTPS_PROXY = %q, want the platform value", got["HTTPS_PROXY"])
+	}
+	if got["TOOL_TOKEN"] != "<from-secret>" {
+		t.Errorf("non-MCP sidecar TOOL_TOKEN = %q, want the image-env Secret reference", got["TOOL_TOKEN"])
+	}
+	// Hub-scoped platform vars stay scoped to MCP sidecars.
+	if _, ok := got["HUB_INTERNAL_VALIDATE_SECRET"]; ok {
+		t.Error("HUB_INTERNAL_VALIDATE_SECRET injected into a non-MCP sidecar")
+	}
+	// The canonical proxy names appear exactly once each, in the fixed order.
+	var proxyNames []string
+	for _, e := range sidecars[0].Env {
+		for _, name := range egressProxyEnvOrder {
+			if e.Name == name {
+				proxyNames = append(proxyNames, e.Name)
+			}
+		}
+	}
+	if len(proxyNames) != len(egressProxyEnvOrder) {
+		t.Fatalf("proxy names = %v, want %v", proxyNames, egressProxyEnvOrder)
+	}
+	for i := range egressProxyEnvOrder {
+		if proxyNames[i] != egressProxyEnvOrder[i] {
+			t.Fatalf("proxy names = %v, want %v", proxyNames, egressProxyEnvOrder)
+		}
+	}
+}
+
 // TestBuildSidecars_NoProxyUnsetKeepsExistingBehavior: without a configured
 // proxy, sidecar env composition is unchanged (no proxy names injected).
 func TestBuildSidecars_NoProxyUnsetKeepsExistingBehavior(t *testing.T) {
@@ -231,14 +293,20 @@ func TestBuildSidecars_NoProxyUnsetKeepsExistingBehavior(t *testing.T) {
 		Spec: ainselv1alpha1.AgentImageSpec{
 			Sidecars: []ainselv1alpha1.AgentImageSidecar{
 				{Name: "toolserver", Image: "example/toolserver:1", MCPPath: "/mcp"},
+				{Name: "plain", Image: "example/plain:1"},
 			},
 		},
 	}
 	sidecars := buildSidecars(egressProxyTestAgent(), "agent-proxy-agent", img)
-	got := envValues(t, sidecars[0].Env)
-	for _, name := range egressProxyEnvOrder {
-		if _, ok := got[name]; ok {
-			t.Errorf("%s present without EGRESS_PROXY_URL set", name)
+	if len(sidecars) != 2 {
+		t.Fatalf("sidecars = %d, want 2", len(sidecars))
+	}
+	for _, sc := range sidecars {
+		got := envValues(t, sc.Env)
+		for _, name := range egressProxyEnvOrder {
+			if _, ok := got[name]; ok {
+				t.Errorf("%s present on sidecar %s without EGRESS_PROXY_URL set", name, sc.Name)
+			}
 		}
 	}
 }
