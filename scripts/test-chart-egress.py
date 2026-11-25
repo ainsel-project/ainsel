@@ -234,10 +234,13 @@ def check_dns_pod_selector():
         "the default render must keep the upstream CoreDNS selector"
     )
 
+    # values.yaml carries `dnsPodSelector: null` (no chart-side map), so a
+    # plain `--set` replaces the selector outright; no `...k8s-app=null`
+    # clearing entry is needed — and `--set ...=null` would leave an illegal
+    # `k8s-app: null` in matchLabels.
     dns_values = [
         "networkPolicy.dnsServerNamespace=openshift-dns",
         "networkPolicy.dnsPodSelector.dns=default",
-        "networkPolicy.dnsPodSelector.k8s-app=null",
     ]
     agent_egress = policy_named(render(dns_values), "agent-egress")
     # The proxy's own DNS rule takes the selector too, so render the proxy on.
