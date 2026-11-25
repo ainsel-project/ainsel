@@ -248,6 +248,25 @@ Declared per tool in `mcp.audience`; a tool the manifest does not list is
 Operator tools are offered as `<pluginId>_<tool>`, with the id's dashes turned
 into underscores. See [mcp.md](mcp.md#plugin-tools).
 
+## WebSockets from the browser
+
+A browser cannot set `Authorization` on a WebSocket, and the `api` surface
+requires it. For a WebSocket upgrade on `/api/v1/plugins/<id>/api/...`, the hub
+also accepts the token as a subprotocol entry:
+
+```js
+new WebSocket(url, ["ainsel.bearer.<token>"]);
+```
+
+The hub moves the token into `Authorization` before authenticating, then removes
+the `ainsel.bearer.` entry, so the plugin never sees the token. An
+`Authorization` header that is already present wins. A client that also offers
+its own subprotocols (`["ainsel.bearer.<token>", "voice.v1"]`) gets those
+forwarded and may select one; an offer made only of the token reaches the plugin
+with no `Sec-WebSocket-Protocol` and the browser accepts the answer without one.
+The token is limited to the characters a subprotocol may carry (RFC 7230 token
+characters, which covers a JWT). The `ui` and `mcp` surfaces ignore it.
+
 ## Headers a plugin receives
 
 The hub strips the caller's own credentials before forwarding:
