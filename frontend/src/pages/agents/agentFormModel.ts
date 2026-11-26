@@ -18,10 +18,6 @@ export function llmProviderLabel(provider: string | undefined): string {
   return LLM_PROVIDERS.find((p) => p.value === provider)?.label ?? provider
 }
 
-export const API_KEY_LABELS: Record<string, string> = Object.fromEntries(
-  LLM_PROVIDER_REGISTRY.map((p) => [p.id, p.apiKeyLabel]),
-)
-
 /** The LLM block: model, sampling, context and vision, shared by every agent write form. */
 const llmSchema = z.object({
   model: z.string().min(1, 'Model is required'),
