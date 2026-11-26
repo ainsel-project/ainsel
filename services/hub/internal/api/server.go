@@ -621,6 +621,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveHTTPInner(w http.ResponseWriter, r *http.Request) {
+	promoteWebSocketBearer(r)
 	if s.authMW != nil && strings.HasPrefix(r.URL.Path, "/api/v1/") && !isAuthExempt(r) {
 		// The forced-change gate sits inside the auth chain because it decides on
 		// the context user, and in front of the mux because a gate the handlers
