@@ -2,9 +2,9 @@ import { ReactNode, useMemo } from 'react'
 import type { JSX } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PluginContext } from '@ainsel/plugin-sdk'
-import type { PluginContextValue, HttpClient } from '@ainsel/plugin-sdk'
+import type { PluginContextValue, HttpClient, PluginApiClient } from '@ainsel/plugin-sdk'
 import { usePluginCallerContext } from '../api/plugins'
-import { request } from '../api/client'
+import { openAuthedWebSocket, request } from '../api/client'
 import type { ActivePlugin } from './registry'
 
 interface PluginContextProviderProps {
@@ -53,7 +53,7 @@ export function PluginContextProvider({
   )
 
   // Build the plugin API client (bound to /plugins/<id>/api)
-  const apiClient: HttpClient = useMemo(
+  const apiClient: PluginApiClient = useMemo(
     () => ({
       async get(path, init) {
         return request(`/plugins/${plugin.id}/api${path}`, { query: init?.query })
@@ -69,6 +69,9 @@ export function PluginContextProvider({
       },
       async delete(path) {
         return request(`/plugins/${plugin.id}/api${path}`, { method: 'DELETE' })
+      },
+      openWebSocket(path, protocols) {
+        return openAuthedWebSocket(`/plugins/${plugin.id}/api${path}`, protocols)
       },
     }),
     [plugin.id],

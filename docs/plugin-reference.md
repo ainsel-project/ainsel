@@ -267,6 +267,12 @@ with no `Sec-WebSocket-Protocol` and the browser accepts the answer without one.
 The token is limited to the characters a subprotocol may carry (RFC 7230 token
 characters, which covers a JWT). The `ui` and `mcp` surfaces ignore it.
 
+A plugin page does not build that subprotocol itself. The SDK's
+`api.openWebSocket(path, protocols?)` (on `usePluginContext().api`) opens the
+socket from the console, which holds the user's token, so the page never sees the
+credential. `ainsel.bearer.*` in `protocols` is refused. The method is optional
+on the type; consoles older than it do not provide it.
+
 ## Headers a plugin receives
 
 The hub strips the caller's own credentials before forwarding:

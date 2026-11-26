@@ -112,4 +112,42 @@ describe('PluginContextProvider', () => {
       expect(screen.getByTestId('is-admin')).toHaveTextContent('admin')
     })
   })
+
+  it('opens plugin WebSockets scoped to the plugin api surface', async () => {
+    const opened: string[] = []
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        constructor(url: string | URL) {
+          opened.push(String(url))
+        }
+      },
+    )
+    function Opener() {
+      const ctx = usePluginContext()
+      return (
+        <button onClick={() => ctx.api.openWebSocket?.('/voice')} data-testid="open">
+          open
+        </button>
+      )
+    }
+    const queryClient = new QueryClient()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    )
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <PluginContextProvider plugin={mockPlugin()}>
+            <Opener />
+          </PluginContextProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    screen.getByTestId('open').click()
+    expect(opened).toHaveLength(1)
+    expect(opened[0]).toMatch(/^wss?:\/\/.*\/plugins\/mem0\/api\/voice$/)
+    vi.unstubAllGlobals()
+  })
 })

@@ -6,6 +6,7 @@ import {
   UnauthorizedError,
   expectArray,
   expectItems,
+  openAuthedWebSocket,
   request,
   setAuthToken,
   setUnauthorizedHandler,
@@ -295,5 +296,56 @@ describe('response shape validators (issue #283)', () => {
   it('expectItems throws on null/undefined', () => {
     expect(() => expectItems(null, 'GET /agents')).toThrowError(ApiError)
     expect(() => expectItems(undefined, 'GET /agents')).toThrowError(ApiError)
+  })
+})
+
+describe('openAuthedWebSocket', () => {
+  const opened: { url: string; protocols?: string | string[] }[] = []
+  beforeEach(() => {
+    opened.length = 0
+    setAuthToken(null)
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          opened.push({ url: String(url), protocols })
+        }
+      },
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    setAuthToken(null)
+  })
+
+  it('opens a ws URL under the API base and offers the token as a subprotocol', () => {
+    setAuthToken('aaa.bbb.ccc')
+    openAuthedWebSocket('/plugins/jane/api/voice')
+    expect(opened[0].url).toMatch(/^wss?:\/\/[^/]+.*\/api\/v1\/plugins\/jane\/api\/voice$/)
+    expect(opened[0].protocols).toEqual(['ainsel.bearer.aaa.bbb.ccc'])
+  })
+
+  it('keeps the caller subprotocols after the token', () => {
+    setAuthToken('tok')
+    openAuthedWebSocket('/p', ['voice.v1'])
+    expect(opened[0].protocols).toEqual(['ainsel.bearer.tok', 'voice.v1'])
+  })
+
+  it('offers no subprotocol when there is no token', () => {
+    openAuthedWebSocket('/p')
+    expect(opened[0].protocols).toBeUndefined()
+  })
+
+  it('refuses a caller-supplied bearer subprotocol, in any case', () => {
+    setAuthToken('tok')
+    expect(() => openAuthedWebSocket('/p', ['ainsel.bearer.evil'])).toThrow(/reserved/)
+    expect(() => openAuthedWebSocket('/p', ['AInsel.Bearer.evil'])).toThrow(/reserved/)
+    expect(opened).toHaveLength(0)
+  })
+
+  it('refuses a token that cannot be carried as a subprotocol instead of mangling it', () => {
+    setAuthToken('has space,comma')
+    expect(() => openAuthedWebSocket('/p')).toThrow(/cannot be carried/)
+    expect(opened).toHaveLength(0)
   })
 })
