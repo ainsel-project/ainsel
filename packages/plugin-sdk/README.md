@@ -79,6 +79,25 @@ export function MyPage() {
 }
 ```
 
+### WebSockets
+
+A browser cannot set an `Authorization` header on a WebSocket, so a plugin page
+asks the console to open one for it. The socket is authenticated as the signed-in
+user and your code never handles the token:
+
+```tsx
+const { api } = usePluginContext()
+
+if (typeof api.openWebSocket === 'function') {
+  const ws = api.openWebSocket('/voice') // wss://<console>/api/v1/plugins/<id>/api/voice
+  ws.binaryType = 'arraybuffer'
+}
+```
+
+`openWebSocket` is optional on the type: a console older than the method does
+not provide it, so check before calling. `protocols` are your own subprotocols;
+`ainsel.bearer.*` is reserved for the console.
+
 ### Using Primitives
 
 The SDK provides delegating wrappers for the console's primitive components:
