@@ -1,0 +1,65 @@
+{{- if .Values.agentEgress.proxy.enabled }}
+{{- $domains := splitList "\n" (include "ainsel.egressAllowedDomains" .) -}}
+{{- if eq (trim (first $domains)) "" -}}
+{{- fail "agentEgress.proxy.enabled requires at least one domain: set agentEgress.proxy.allowedDomains and/or agentEgress.proxy.presets (an empty allow-list would deny every agent HTTPS request)" -}}
+{{- end }}
+# Squid forward-proxy config for the agent egress allow-list (issue #356).
+# The proxy is the security boundary: it only tunnels CONNECT to hosts on the
+# allow-list, re-resolving the CONNECT authority itself — a client that puts
+# host A in CONNECT and SNI B can only ever reach an allowed host's IP
+# (documented first-cut limitation, same as Squid's own).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-egress-proxy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-egress-proxy
+data:
+  # Generated from agentEgress.proxy.presets + agentEgress.proxy.allowedDomains
+  # (deduplicated, sorted). Squid dstdomain semantics: an entry matches the
+  # domain AND every subdomain of it, with or without a leading dot — there is
+  # no exact-match form in this config.
+  squid.conf: |
+    http_port {{ .Values.agentEgress.proxy.port }}
+    visible_name ainsel-agent-egress-proxy
+
+    # Health checks. Squid grants manager (mgr:info) access to nobody by
+    # default, and the probes dial the proxy port — which is not a Safe_port in
+    # this config — so these allowances must come before every other
+    # http_access rule, or the readiness and liveness probes are both refused
+    # and the proxy never turns Ready.
+    acl manager proto cache_object
+    acl localhost src 127.0.0.1/32 ::1
+    http_access allow manager localhost
+    http_access deny manager
+
+    acl SSL_ports port 443
+    acl Safe_ports port 443
+    http_access deny !Safe_ports
+    http_access deny CONNECT !SSL_ports
+
+    # One complete `acl` line per domain: Squid's grammar terminates a
+    # directive at the newline, so a multi-line value list without
+    # continuations is a parse error and squid exits at startup. Same-name
+    # ACLs are unioned, so this is the safe form for a generated list.
+    {{- range $domains }}
+    acl allowed_hosts dstdomain {{ . }}
+    {{- end }}
+
+    # Deny everything not on the allow-list before any allow rule, so denied
+    # hosts land in access.log as TCP_DENIED/403 lines — that log is how an
+    # admin sees what an agent tried to reach and widens the list on purpose.
+    http_access deny !allowed_hosts
+    http_access allow CONNECT allowed_hosts
+    http_access deny all
+
+    # Tunneling only: forwarding plain (non-CONNECT) requests would let a
+    # client pick the destination itself and bypass the host allow-list.
+    cache deny all
+    coredump_dir /var/spool/squid
+
+    access_log daemon:/var/log/squid/access.log
+    cache_log daemon:/var/log/squid/cache.log
+{{- end }}

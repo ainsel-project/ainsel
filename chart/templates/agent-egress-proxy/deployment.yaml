@@ -1,0 +1,116 @@
+{{- if .Values.agentEgress.proxy.enabled }}
+# Domain-filtering HTTPS egress proxy (issue #356). Agents get no open 443
+# egress once this is on (see the agent-egress policy); this Deployment is the
+# only pod in the namespace allowed to reach arbitrary 443 destinations, and
+# it tunnels only to the allow-list rendered into the squid ConfigMap.
+# Single replica on purpose: the chart is small-tier-first and the proxy is
+# not made an HA promise in this first cut — it is already a single point of
+# failure for every agent task when enabled.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-egress-proxy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ainsel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: ainsel-agent-egress-proxy
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ainsel-agent-egress-proxy
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ainsel-agent-egress-proxy
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: agent-egress-proxy
+        {{- with .Values.agentEgress.proxy.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/agent-egress-proxy/configmap.yaml") . | sha256sum }}
+        {{- with .Values.agentEgress.proxy.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: agent-egress-proxy
+      automountServiceAccountToken: false
+      {{- with .Values.agentEgress.proxy.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentEgress.proxy.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentEgress.proxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentEgress.proxy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentEgress.proxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.agentEgress.proxy.priorityClassName }}
+      priorityClassName: {{ .Values.agentEgress.proxy.priorityClassName }}
+      {{- end }}
+      containers:
+        - name: proxy
+          image: "{{ .Values.agentEgress.proxy.image.repository }}:{{ .Values.agentEgress.proxy.image.tag }}{{ if .Values.agentEgress.proxy.image.digest }}@{{ .Values.agentEgress.proxy.image.digest }}{{ end }}"
+          imagePullPolicy: {{ .Values.agentEgress.proxy.image.pullPolicy }}
+          {{- with .Values.agentEgress.proxy.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # Bypass the image entrypoint (it regenerates /etc/squid/squid.conf
+          # from its own template) and run the generated allow-list config.
+          command:
+            - /usr/bin/squid
+            - -N
+            - -f
+            - /etc/ainsel/squid/squid.conf
+          ports:
+            - name: proxy
+              containerPort: {{ .Values.agentEgress.proxy.port }}
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - /usr/bin/squidclient
+                - -h
+                - 127.0.0.1
+                - -p
+                - "{{ .Values.agentEgress.proxy.port }}"
+                - mgr:info
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          livenessProbe:
+            exec:
+              command:
+                - /usr/bin/squidclient
+                - -h
+                - 127.0.0.1
+                - -p
+                - "{{ .Values.agentEgress.proxy.port }}"
+                - mgr:info
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.agentEgress.proxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ainsel/squid
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: agent-egress-proxy
+{{- end }}

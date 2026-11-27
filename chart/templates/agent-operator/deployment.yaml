@@ -86,6 +86,16 @@ spec:
             - name: CHAT_MCP_IMAGE
               value: "{{ include "ainsel.image" (dict "root" . "repo" .Values.chatMCP.image.repository "tag" .Values.chatMCP.image.tag) }}"
             {{- end }}
+            {{- if .Values.agentEgress.proxy.enabled }}
+            # Egress proxy (issue #356): the operator forwards these to agent
+            # pods and MCP sidecars as HTTP(S)_PROXY / NO_PROXY and treats
+            # them as platform-enforced (AgentImage/Agent.spec.env entries
+            # for those names are overridden).
+            - name: EGRESS_PROXY_URL
+              value: "http://agent-egress-proxy.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.agentEgress.proxy.port }}"
+            - name: EGRESS_NO_PROXY
+              value: {{ include "ainsel.egressNoProxy" . | quote }}
+            {{- end }}
             {{- with .Values.agentOperator.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
