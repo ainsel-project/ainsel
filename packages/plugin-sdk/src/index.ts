@@ -8,7 +8,7 @@ export type { SlotId, SlotProps } from './slots.js'
 export { SLOT_IDS } from './slots.js'
 
 // Context and hooks
-export type { PluginUser, HttpClient, PluginContextValue } from './context.js'
+export type { PluginUser, HttpClient, PluginApiClient, PluginContextValue } from './context.js'
 export { PluginContext, usePluginContext } from './context.js'
 
 // Host registration

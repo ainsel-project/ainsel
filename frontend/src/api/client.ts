@@ -160,6 +160,40 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
+// The subprotocol entry that carries the signed-in user's token on a WebSocket
+// upgrade. Browsers cannot set Authorization on a WebSocket, so the hub accepts
+// it here for plugin api routes and strips it before the plugin sees the
+// request (services/hub/internal/api/plugin_ws_bearer.go).
+const WS_BEARER_PREFIX = 'ainsel.bearer.'
+
+// RFC 7230 token characters: all a subprotocol may carry. A JWT fits.
+const WS_TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+/**
+ * Opens a WebSocket to an API path (relative to the API base, like request())
+ * authenticated as the signed-in user. The token never reaches the caller: a
+ * plugin gets the socket, not the credential. protocols are the caller's own
+ * subprotocols; one that starts with "ainsel.bearer." is refused, so a plugin
+ * cannot supply or override the credential.
+ */
+export function openAuthedWebSocket(path: string, protocols: string[] = []): WebSocket {
+  for (const p of protocols) {
+    if (p.toLowerCase().startsWith(WS_BEARER_PREFIX)) {
+      throw new Error('openWebSocket: the ainsel.bearer.* subprotocol is reserved')
+    }
+  }
+  const url = new URL(`${BASE_URL}${path}`, window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const offered = [...protocols]
+  if (authToken) {
+    if (!WS_TOKEN_RE.test(authToken)) {
+      throw new Error('openWebSocket: the session token cannot be carried as a subprotocol')
+    }
+    offered.unshift(`${WS_BEARER_PREFIX}${authToken}`)
+  }
+  return offered.length > 0 ? new WebSocket(url, offered) : new WebSocket(url)
+}
+
 export async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, query, signal } = options
   const headers: Record<string, string> = { Accept: 'application/json' }
