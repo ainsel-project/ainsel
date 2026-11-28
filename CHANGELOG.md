@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.4.0](https://github.com/ainsel-project/ainsel/compare/v0.3.0...v0.4.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **frontend:** remove the image tool enable/disable switch
+* **hub:** agent-image request and response tools no longer carry an `enabled` field; it described a switch that enforced nothing.
+
+### Features
+
+* accept a bearer token on plugin WebSocket upgrades ([e93655d](https://github.com/ainsel-project/ainsel/commit/e93655dc66c21c9762be0719bf6adbf40dbf9e08))
+* **console:** let plugin pages open an authenticated WebSocket ([545b7a0](https://github.com/ainsel-project/ainsel/commit/545b7a021b9f3e931e374fa1cfe95ec08358d7bd))
+* **docs:** add AInsel at a Glance page ([89d4623](https://github.com/ainsel-project/ainsel/commit/89d46233c243ad1f294071443c3f854dd2a17956))
+* **docs:** draw the At a Glance diagrams ([7b64578](https://github.com/ainsel-project/ainsel/commit/7b64578d678a32149b725426215b00c9e36cd2b7))
+* **docs:** let DocsPage render registered component pages ([d60fac0](https://github.com/ainsel-project/ainsel/commit/d60fac085bbe1d38d3b955a2cafdc4b944252ae2))
+* **frontend:** remove the image tool enable/disable switch ([8d2228b](https://github.com/ainsel-project/ainsel/commit/8d2228b9ac8ce317598b159be62b3cec46b6a579))
+* **hub:** accept a bearer token on plugin WebSocket upgrades ([75ea432](https://github.com/ainsel-project/ainsel/commit/75ea432bbe0e3afc292d87ea205492e6e8d3ff84))
+* **hub:** drop the image tool enabled field from the API ([fd5b23b](https://github.com/ainsel-project/ainsel/commit/fd5b23b48693311b4a26d511cd22239818f2baaa))
+* let plugin pages open an authenticated WebSocket ([6b4f289](https://github.com/ainsel-project/ainsel/commit/6b4f289a89311104a153e26b4e75f87bca2f5d45))
+
+
+### Bug Fixes
+
+* **docs:** fit screenshots to the content column and add click-to-zoom ([15360c5](https://github.com/ainsel-project/ainsel/commit/15360c544f1c131ec0f18e6e1e3387fc84de10c9))
+* **docs:** fit screenshots to the content column and add click-to-zoom ([63ea26e](https://github.com/ainsel-project/ainsel/commit/63ea26e61560b90723879fd1479bd0314c1b916a))
+* **docs:** keep At a Glance diagram text readable on phones ([e2fccb1](https://github.com/ainsel-project/ainsel/commit/e2fccb16f3a9c23fef38437bfc7bf86320472eed))
+* **docs:** key DocsPage not-found state by slug ([60dc375](https://github.com/ainsel-project/ainsel/commit/60dc3753c809fae7d3c0b18070509f3de2711c25))
+* **frontend:** a linked image keeps its link instead of zooming ([c9132c2](https://github.com/ainsel-project/ainsel/commit/c9132c25da413fd8350ce367ea20de57981749f0)), closes [#383](https://github.com/ainsel-project/ainsel/issues/383)
+* **frontend:** badge a success that only arrived after a turn timeout ([ea35f44](https://github.com/ainsel-project/ainsel/commit/ea35f4465e742a1c50f29e9c93827f82b6d53ef2))
+* **frontend:** keep the docs image treatment out of the shared markdown rule ([da02846](https://github.com/ainsel-project/ainsel/commit/da02846dce32cdeed5d3dd978d99f3d933a99965)), closes [#383](https://github.com/ainsel-project/ainsel/issues/383)
+* **frontend:** make the docs screenshot zoom reachable by keyboard ([4f49211](https://github.com/ainsel-project/ainsel/commit/4f4921118f86204d07f3bd7bf372e5ab679605ae)), closes [#383](https://github.com/ainsel-project/ainsel/issues/383)
+* **frontend:** pin nginx base to 1.31.9-alpine ([627bbdd](https://github.com/ainsel-project/ainsel/commit/627bbddeca6956e74f5cae8dae727dbf3cd5f91a))
+* **frontend:** pin nginx base to 1.31.9-alpine (CVE-2026-123007 etc.) ([cafaef0](https://github.com/ainsel-project/ainsel/commit/cafaef068aa348782e93f40b9810bac437dc1504))
+* **frontend:** spell the timed-out label through runStateLabel everywhere ([9b93436](https://github.com/ainsel-project/ainsel/commit/9b93436f389aa8654b5edb1943bfc95ef6f66738))
+* **hub:** denied resource access answers non-admins 404 instead of 403 ([#390](https://github.com/ainsel-project/ainsel/issues/390)) ([02d097d](https://github.com/ainsel-project/ainsel/commit/02d097dd1fe2a7d08dbe31629868304e4c8cc84a))
+* **hub:** expose the retained turn-timeout nack and badge the run it timed out ([#392](https://github.com/ainsel-project/ainsel/issues/392)) ([22e658b](https://github.com/ainsel-project/ainsel/commit/22e658b882d60c929b97e068ae064f901463d86f))
+* **hub:** let a completed task admit that an attempt hit the turn ceiling ([3398b84](https://github.com/ainsel-project/ainsel/commit/3398b843ff2d0ce594f67e008bab41ca608a1528))
+* **hub:** name the turn-timeout nack and pin its retention ([25b32d8](https://github.com/ainsel-project/ainsel/commit/25b32d813f104993e4e67ea638415bd984f1cc7e))
+* **hub:** point the turn-timeout pin at the test file it adds ([74b81c6](https://github.com/ainsel-project/ainsel/commit/74b81c66745a62d2146f6f11fb4f694cefe9ec9a))
+* **hub:** resource authz guards answer denied non-admin callers 404 instead of 403 ([fd29858](https://github.com/ainsel-project/ainsel/commit/fd298580269113c255e1b3cc04c6820fd2512f39)), closes [#390](https://github.com/ainsel-project/ainsel/issues/390)
+* **hub:** scope the deprecated Disabled flag reads to explicit nolint lines ([e421578](https://github.com/ainsel-project/ainsel/commit/e421578f55f825929c9d441a21223ab6e340b4f5))
+* **runner:** say the turn-timeout nack in words the hub can match ([1c9f680](https://github.com/ainsel-project/ainsel/commit/1c9f6807e847f7311ce4df1b0dabbbc18b48e6aa))
+
 ## [0.3.0](https://github.com/ainsel-project/ainsel/compare/v0.2.0...v0.3.0) (2026-11-17)
 
 
