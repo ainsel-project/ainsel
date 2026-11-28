@@ -7,10 +7,12 @@
  * selection takes effect — without it the field is decorative, which is exactly
  * what issue #87 complained about.
  *
- * Unset or empty `AGENT_TOOLS` means unrestricted: the agent keeps every tool
- * its image and MCP servers provide, and this extension does nothing.
+ * Unset or empty `AGENT_TOOLS` is a grant of nothing: the agent runs with no
+ * tools at all. A tool has to be named to be usable — the safe-looking state is
+ * the restrictive one, so an agent that was never given a grant cannot
+ * accidentally reach the whole image (issue #368).
  *
- * When a selection is in effect, three things happen:
+ * When a selection is in effect — including the empty one — three things happen:
  *
  *   1. The active tool set — what the model is offered — is narrowed to the
  *      selection. Names match a registered pi tool exactly, or an MCP server
@@ -26,7 +28,8 @@
  *
  * A selection naming nothing registered is applied anyway (the agent ends up
  * with no tools) and logged loudly: silently falling back to "everything" would
- * turn a typo in the Agent CR into a wider tool set than was asked for.
+ * turn a typo in the Agent CR into a wider tool set than was asked for. The
+ * empty grant is the same rule with the same outcome, only intended.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -103,7 +106,8 @@ export function listCatalogTools(toolsDir: string): string[] {
 
 /**
  * Parse `AGENT_TOOLS`: comma-separated names, whitespace tolerated, empties and
- * duplicates dropped. Empty result means "no restriction".
+ * duplicates dropped. An empty result is not "no restriction" — it grants
+ * nothing, and the agent runs with no tools.
  */
 export function parseAllowlist(env: string | undefined): string[] {
 	const seen = new Set<string>();
@@ -160,10 +164,11 @@ function shellCommandOf(input: unknown): string | null {
 
 export default function ainselToolsExtension(pi: ExtensionAPI): void {
 	const allow = parseAllowlist(process.env.AGENT_TOOLS);
-	if (allow.length === 0) {
-		// Unrestricted: the agent keeps everything its image provides.
-		return;
-	}
+	// An empty grant is not "no restriction": nothing is allowed, so every catalog
+	// tool is withheld and every tool call is blocked. There is deliberately no
+	// early return here — an empty grant denying everything is the whole point of
+	// this extension.
+	const noGrant = allow.length === 0;
 
 	const toolsDir = process.env.AINSEL_TOOLS_DIR ?? "/usr/local/bin/tools";
 	// Catalog tools the selection withholds from the shell. Computed once: the
@@ -191,7 +196,11 @@ export default function ainselToolsExtension(pi: ExtensionAPI): void {
 					`ainsel-tools: AGENT_TOOLS names nothing registered: ${unknown.join(", ")} (from ${source}); those tools stay unavailable`,
 				);
 			}
-			if (selected.length === 0) {
+			if (noGrant) {
+				console.error(
+					"ainsel-tools: no tool grant (AGENT_TOOLS unset or empty); the agent runs with no tools",
+				);
+			} else if (selected.length === 0) {
 				console.error(
 					"ainsel-tools: the agent's tool selection matches no registered tool; the agent runs with no tools",
 				);

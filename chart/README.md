@@ -221,6 +221,7 @@ listed:
 | [`postgres.auth.existingSecret`](docs/configuration.md#postgres) | `""` (auto-generated) | Bring your own DB credentials (keys `username`, `password`, `database`, `dsn`) |
 | [`hub.platformExternalUrl`](docs/configuration.md#hub) | `""` (derived) | Externally-reachable platform URL used in generated links |
 | [`migrations.skillsShape.enabled`](docs/configuration.md#migrations) | `true` | One-time `Agent.spec.skills` wrapper→list rewrite as a post-install/post-upgrade Job; the rewrite must follow the CRD apply, so turning it off leaves a manual step in the upgrade window |
+| [`migrations.enabledTools.enabled`](docs/configuration.md#migrations) | `true` | One-time empty→explicit `Agent.spec.enabledTools` rewrite as a **pre**-upgrade Job; an empty grant now means no tools, so agents that never had one are granted their current set before any pod restarts. Turning it off leaves a manual step in the upgrade window |
 
 Comments in `values.yaml` document every nested key; the tables in
 [docs/configuration.md](docs/configuration.md) mirror them.

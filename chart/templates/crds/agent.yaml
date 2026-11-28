@@ -176,12 +176,15 @@ spec:
                 type: string
               enabledTools:
                 description: |-
-                  EnabledTools is this agent's tool selection: names taken from the
-                  referenced image's capability catalog (AgentImage.Spec.Tools). The
+                  EnabledTools is this agent's tool grant: names taken from the
+                  referenced image's capability catalog (AgentImage.Spec.Tools), or one
+                  `mcp__<server>` entry per MCP server the agent effectively has. The
                   runtime enforces it — the operator passes it to the pod as AGENT_TOOLS
                   and the runtime withholds every tool it does not name. Absent or empty
-                  means unrestricted: the agent may use everything its image provides.
-                  Names the image's catalog does not declare are rejected by the hub.
+                  grants nothing: the agent runs with no tools. A grant has to be explicit;
+                  `hub migrate-enabled-tools` writes the current effective set of agents that
+                  predate this rule. Names the image's catalog does not declare and that do
+                  not name an effective MCP server are rejected by the hub.
                 items:
                   type: string
                 type: array
